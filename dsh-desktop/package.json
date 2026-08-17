@@ -1,0 +1,22 @@
+{
+  "name": "dsh-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "esbuild src/main/index.ts --bundle --platform=node --external:electron --outfile=dist/main.js && esbuild src/preload.ts --bundle --platform=node --external:electron --outfile=dist/preload.js && node scripts/copy-renderer.mjs",
+    "test": "vitest run",
+    "fetch": "node scripts/fetch-dsh.mjs",
+    "start": "npm run build && electron .",
+    "dist": "npm run fetch && npm run build && electron-builder"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "electron": "^43.4.0",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}

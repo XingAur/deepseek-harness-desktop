@@ -1,0 +1,14 @@
+appId: com.deepseek.dshdesktop
+productName: DeepSeek Harness
+directories:
+  output: release
+files:
+  - dist/**
+  - resources/**
+asarUnpack:
+  - resources/**
+win:
+  target: nsis
+nsis:
+  oneClick: true
+  perMachine: false
