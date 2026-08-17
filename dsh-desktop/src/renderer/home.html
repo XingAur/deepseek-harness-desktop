@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>DeepSeek Harness</title>
+<style>
+  body { font-family: system-ui, 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; margin: 0; padding: 32px; }
+  h1 { font-size: 20px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; margin-top: 24px; }
+  .card { background: #1e293b; border-radius: 12px; padding: 20px; cursor: pointer; border: 1px solid #334155; }
+  .card:hover { border-color: #64748b; }
+  .card .icon { font-size: 28px; }
+  .card .name { font-size: 16px; font-weight: 600; margin: 10px 0 4px; }
+  .card .desc { font-size: 12px; color: #94a3b8; }
+  .card.pinned { border-color: #3b82f6; }
+  .err { color: #f87171; font-size: 13px; }
+</style>
+</head>
+<body>
+  <h1>DeepSeek Harness</h1>
+  <div class="grid" id="cards"></div>
+  <p class="err" id="err"></p>
+  <script>
+    async function load() {
+      const el = document.getElementById('cards')
+      el.innerHTML = ''
+      const session = document.createElement('div')
+      session.className = 'card pinned'
+      session.innerHTML = '<div class="icon">💬</div><div class="name">AI 会话</div><div class="desc">标准 dsh Web UI</div>'
+      session.onclick = async () => { const r = await window.dsh.open('session'); if (!r.ok) document.getElementById('err').textContent = r.error }
+      el.appendChild(session)
+      const projects = await window.dsh.listProjects()
+      for (const p of projects) {
+        const c = document.createElement('div')
+        c.className = 'card'
+        c.innerHTML = '<div class="icon">📦</div><div class="name"></div><div class="desc"></div>'
+        c.querySelector('.name').textContent = p.name
+        c.querySelector('.desc').textContent = p.desc
+        c.onclick = async () => { const r = await window.dsh.open('project:' + p.name); if (!r.ok) document.getElementById('err').textContent = r.error }
+        el.appendChild(c)
+      }
+    }
+    load()
+    setInterval(load, 5000)
+  </script>
+</body>
+</html>
