@@ -1465,17 +1465,17 @@ const mgr = new ServiceManager({
   sessionPort: 3080,
   probe: (p) => probe(p),
   spawnChild: (cmd, args, cwd, env) => {
-    mainLog.log(`spawn ${cmd} ${args.join(' ')} (cwd=${cwd})`)
+    mainLog(`spawn ${cmd} ${args.join(' ')} (cwd=${cwd})`)
     const child = cmd === process.execPath
       ? spawn(cmd, args, { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
       : spawn(cmd, { shell: true, cwd, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
-    child.stdout?.on('data', (d) => dshLog.log(String(d).trim()))
-    child.stderr?.on('data', (d) => dshLog.log(`[err] ${String(d).trim()}`))
+    child.stdout?.on('data', (d) => dshLog(String(d).trim()))
+    child.stderr?.on('data', (d) => dshLog(`[err] ${String(d).trim()}`))
     return child
   },
   treeKill: (pid) => spawn('taskkill', ['/pid', String(pid), '/T', '/F']),
   staticServe: async (dir) => (await startStaticServer(dir)).port,
-  log: (l) => mainLog.log(l),
+  log: (l) => mainLog(l),
   onState: (s) => { state = s },
   startTimeoutMs: 30000,
   pollIntervalMs: 500,
