@@ -16,6 +16,7 @@ DeepSeek Harness（`dsh`）是 DeepSeek AI 开发的开源 agent harness，官�
 2. **一键安装**：客户端自带全部运行所需内容，安装客户端即完成一切
 3. **启动/附加**：无服务时自动拉起；已有服务运行时（如用户此前用 npx 启动过）直接附加，不重复启动、不接管其生命周期
 4. **插件市场可用**：Web UI 内置的「社区插件」在裸机上开箱即用（插件安装依赖 pnpm，由客户端捆绑提供）
+5. **项目与工作台**：客户端原生主页展示项目卡片；项目 = dsh profile（工作台以 dsh 插件形态构建），点击进入对应界面
 
 ### 目标用户
 
@@ -30,6 +31,7 @@ DeepSeek Harness（`dsh`）是 DeepSeek AI 开发的开源 agent harness，官�
 - macOS / Linux 支持
 - 客户端自建插件市场 UI（复用 Web UI 内置「社区插件」）
 - 捆绑 git（不支持 `github:` 直装插件，详见 §6.3）
+- 业务工作台插件本体（订单/客户/工厂等，独立子项目另行立项，见 §7.5）
 
 ## 2. 方案选型
 
@@ -51,24 +53,27 @@ DeepSeek Harness（`dsh`）是 DeepSeek AI 开发的开源 agent harness，官�
 | 组件 | 职责 | 关键接口 |
 | --- | --- | --- |
 | `index.ts` | 入口：单实例锁、窗口/托盘装配 | — |
-| `service-manager.ts` | 核心：状态机 + dsh 子进程生命周期 | `start()` / `attach()` / `shutdown()` |
-| `port-probe.ts` | 探测 3080：TCP 连通 + HTTP 特征校验 | `probe(): Promise<'dsh' \| 'foreign' \| 'none'>`；判定规则：TCP 拒绝/超时 → `none`；TCP 通且 `GET /` 返回 200 + `text/html` → `dsh`；TCP 通但不满足前者 → `foreign` |
+| `service-manager.ts` | 核心：多 profile 状态机 + dsh 子进程生命周期（每 profile 一进程一端口） | `ensureProfile(name): Promise<{port, mode}>` / `shutdownAll()` |
+| `port-probe.ts` | 探测指定端口：TCP 连通 + HTTP 特征校验 | `probe(port): Promise<'dsh' \| 'foreign' \| 'none'>`；判定规则：TCP 拒绝/超时 → `none`；TCP 通且 `GET /` 返回 200 + `text/html` → `dsh`；TCP 通但不满足前者 → `foreign` |
+| `projects.ts` | 扫描 `$DSH_HOME/profiles/*/desktop.json`，维护项目列表与端口分配 | `list(): Project[]` |
 | `dsh-resolver.ts` | 版本目录解析（用户区 > 内置） | `resolve(): { binPath, version, source }` |
 | `updater.ts` | 检查/下载/解压 dsh 新版本 | `check()` / `upgrade()` |
 | `pnpm-runtime.ts` | 构建 dsh 子进程环境：捆绑 pnpm 的 shim、`DSH_HOME`、npmmirror 源 | `buildChildEnv(): NodeJS.ProcessEnv` |
-| `tray.ts` | 托盘：打开窗口 / 检查更新 / 退出 | — |
+| `tray.ts` | 托盘：打开主页 / 检查更新 / 退出 | — |
 
-渲染层：纯静态 HTML/JS 的闪屏（状态文案）与错误页，无前端框架。
+渲染层：纯静态 HTML/JS 的主页（项目卡片）、闪屏（状态文案）与错误页，无前端框架。
 preload 仅暴露最小的状态查询/重试 IPC。
 
-### 3.2 启动状态机
+### 3.2 启动状态机（按 profile 实例化）
 
 ```text
-LAUNCH → CHECKING（探测 127.0.0.1:3080）
-  ├─ probe = 'dsh'    → ATTACHED：窗口直接加载该服务
-  ├─ probe = 'none'   → STARTING：spawn dsh web → 端口就绪 → READY
-  └─ probe = 'foreign'→ ERROR_PORT_CONFLICT（错误页 + 重试）
-STARTING 失败/子进程退出 → ERROR_CRASHED（错误页 + 重试/重启）
+打开客户端 → 主页（projects.list()）
+点击卡片 → ensureProfile(name)：
+  LAUNCH → CHECKING（探测该 profile 的端口）
+    ├─ probe = 'dsh'    → ATTACHED：窗口直接加载该服务（默认加载 entryRoute）
+    ├─ probe = 'none'   → STARTING：spawn dsh --profile <name> web → 端口就绪 → READY
+    └─ probe = 'foreign'→ ERROR_PORT_CONFLICT（错误页 + 重试）
+  STARTING 失败/子进程退出 → ERROR_CRASHED（错误页 + 重试/重启）
 ```
 
 ### 3.3 进程所有权规则（关键不变量）
@@ -80,12 +85,15 @@ STARTING 失败/子进程退出 → ERROR_CRASHED（错误页 + 重试/重启）
 ### 3.4 子进程运行方式
 
 ```ts
-spawn(process.execPath, [binPath, 'web'], {
+spawn(process.execPath, [binPath, '--profile', name, 'web', ...portArgs], {
   env: buildChildEnv(),                 // 见 pnpm-runtime.ts
   stdio: ['ignore', 'pipe', 'pipe'],   // stdout/stderr → 日志文件
   windowsHide: true,
 })
 ```
+
+端口：默认 profile（「AI 会话」）固定 3080；项目 profile 从 3081 起由
+`projects.ts` 分配并持久化到 `settings.json`。
 
 ### 3.5 单实例
 
@@ -143,11 +151,58 @@ spawn(process.execPath, [binPath, 'web'], {
   错误信息由 dsh/pnpm 原样呈现，客户端不拦截美化
 - Web UI 市场列表若请求 GitHub API，国内可能加载慢或失败，客户端不做代理劫持
 
-## 7. 错误处理
+## 7. 项目与工作台集成
+
+**定位**：工作台以 **dsh 原生插件**形态构建（bundle + profile）；客户端提供「项目」外壳——
+发现、展示、启动、进入。业务工作台本身是独立子项目（见 §7.5）。
+
+### 7.1 项目定义
+
+项目 = 一个 dsh profile + 展示元数据。约定 profile 目录
+（`%APPDATA%\DeepSeekHarness\dsh-home\profiles\<name>\`）内放置 `desktop.json`：
+
+```json
+{ "name": "外贸工作台", "icon": "briefcase", "entryRoute": "/workbench/", "desc": "订单/客户/工厂管理" }
+```
+
+- `projects.ts` 扫描 profiles 目录；有 `desktop.json` 的 profile 即项目卡片
+- `entryRoute` 为空或缺省 → 加载该服务根路径（标准 Web UI 形态）
+- 无 `desktop.json` 的 profile 不在主页显示（普通 profile）
+
+### 7.2 主页
+
+打开客户端 → 原生主页 `home.html`：
+
+- 顶部固定卡片「**AI 会话**」（默认 profile，即标准 dsh Web UI）
+- 下方项目卡片列表（名称/图标/描述）
+- 点击卡片 → `ensureProfile()` → 就绪后窗口加载 `http://127.0.0.1:<port><entryRoute>`
+- 主页常驻「⟵ 项目」返回入口（窗口工具栏按钮，点击回主页；各服务进程保持运行）
+
+### 7.3 进程模型（关键变化）
+
+- 单 dsh 实例 → **多 profile 进程表**：`Map<profileName, ChildEntry>`，含子进程句柄、端口、所有权标记
+- 同一 profile 重复点击 = 幂等（已运行则直接加载）
+- 附加模式语义按端口独立判定；所有权规则不变：退出客户端只清理自己 spawn 的进程
+- 端口冲突（探测为 `foreign`）仅影响对应项目卡片，不拖垮其他 profile
+
+### 7.4 与插件市场的闭环
+
+工作台插件本身就是 npm 包（bundle）。用户从 Web UI「社区插件」安装工作台 bundle →
+建立 profile（`dsh plugin --profile <name> add <bundle>`）→ `desktop.json` 随插件落地 →
+客户端主页**自动出现新项目卡**。工作台分发复用插件市场链路，客户端零额外机制。
+
+### 7.5 范围分解
+
+本 spec 只覆盖**项目外壳**：主页、扫描、多进程、端口管理、返回导航。
+**业务工作台插件**（订单/客户/工厂 CRUD、TODO、agent 工具注册、经 `ctx.webServer`
+挂载前端路由）为独立子项目，另行立项设计；本 spec 验收用一个最小 fixture 工作台
+（hello 级 bundle + `desktop.json`）验证外壳全链路。
+
+## 8. 错误处理
 
 | 场景 | 行为 |
 | --- | --- |
-| 3080 被非 dsh 程序占用 | 错误页「端口被其他程序占用」+ 重试 |
+| profile 端口被非 dsh 程序占用 | 该项目卡片错误态「端口被其他程序占用」+ 重试，不影响其他 profile |
 | 子进程意外退出（启动模式） | 错误页 +「重启」按钮 + 日志路径 |
 | Web UI 加载超时（30s） | 错误页 + 重试 |
 | 升级下载/解压失败 | 对话框提示，保持当前版本 |
@@ -155,14 +210,15 @@ spawn(process.execPath, [binPath, 'web'], {
 
 日志：`%APPDATA%\DeepSeekHarness\logs\`，主进程与 dsh 输出分文件、按天滚动、保留 7 天。
 
-## 8. 测试策略
+## 9. 测试策略
 
-- **单元**（vitest）：`dsh-resolver` 优先级与回退、状态机转换表、`port-probe` 特征判定（mock HTTP）、`pnpm-runtime` 环境注入与 shim 生成
+- **单元**（vitest）：`dsh-resolver` 优先级与回退、状态机转换表、`port-probe` 特征判定（mock HTTP）、`pnpm-runtime` 环境注入与 shim 生成、`projects` 扫描与端口分配（含 3080 冲突场景）
 - **集成**：真实拉起 dsh（开发机具备 Node），验证 启动→就绪→附加→退出清理 全链路；
-  另验证插件安装：`dsh plugin --profile t add <本地 fixture tarball>` 在捆绑 pnpm 下成功
-- **验收**：无 Node.js 的干净 Windows 环境，安装 → 双击 → 出现 Web UI →「社区插件」页能列出并安装一个 npm 源插件（分发的硬指标）
+  另验证插件安装：`dsh plugin --profile t add <本地 fixture tarball>` 在捆绑 pnpm 下成功；
+  fixture 工作台（hello bundle + `desktop.json`）走完 主页卡片 → 启动 → 进入 → 返回 → 退出清理
+- **验收**：无 Node.js 的干净 Windows 环境，安装 → 双击 → 主页 → 进「AI 会话」与 fixture 工作台 →「社区插件」页能列出并安装一个 npm 源插件（分发的硬指标）
 
-## 9. 工程结构
+## 10. 工程结构
 
 ```text
 dsh-desktop/
@@ -173,17 +229,19 @@ dsh-desktop/
 │  ├─ index.ts
 │  ├─ service-manager.ts
 │  ├─ port-probe.ts
+│  ├─ projects.ts
 │  ├─ dsh-resolver.ts
 │  ├─ updater.ts
 │  ├─ pnpm-runtime.ts
 │  └─ tray.ts
 ├─ src/preload.ts
-└─ src/renderer/             # splash.html / error.html（纯静态）
+├─ src/renderer/             # home.html / splash.html / error.html（纯静态）
+└─ fixtures/workbench-hello/ # 最小工作台 bundle（验收用，见 §7.5）
 ```
 
 交付物：`dsh-desktop Setup <ver>.exe`（NSIS，x64）。
 
-## 10. 已知风险
+## 11. 已知风险
 
 - dsh 处于开发者预览，破坏性变更可能使内置旧版无法与新版 Web UI 数据兼容——升级由
   用户手动触发，且可回退，风险可控
@@ -191,3 +249,7 @@ dsh-desktop/
 - `dsh plugin` 对 pnpm 的调用方式（PATH 查找 vs 硬编码）以当前版本文档为准；若实现
   与假设不符，需要随 dsh 升级做适配（集成测试覆盖该链路，可及时发现）
 - Web UI「社区插件」列表数据源在 GitHub，国内访问不稳定时列表可能为空，客户端不代理
+- `dsh --profile <name> web` 的端口参数形式（flag/env）待实现期验证；若不支持指定端口，
+  退化为「同一时刻仅一个项目 profile 运行」（互斥启动），主页卡片置灰提示
+- 业务工作台与 dsh 开发者预览版本耦合（方案 A 的固有代价）：工作台插件 spec 需锁定
+  dsh 版本范围，客户端升级 dsh 前先跑工作台插件兼容性检查
