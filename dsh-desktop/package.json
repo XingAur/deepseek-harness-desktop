@@ -16,6 +16,7 @@
     "electron": "^43.4.0",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",
+    "png-to-ico": "^3.0.2",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   }

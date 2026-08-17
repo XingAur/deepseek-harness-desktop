@@ -10,7 +10,7 @@ import { listProjects } from './projects.js'
 import { startStaticServer } from './static-server.js'
 import { ServiceManager, type SessionState } from './service-manager.js'
 import { fetchLatest, installUserVersion } from './updater.js'
-import { createTray } from './tray.js'
+import { createTray, windowIcon } from './tray.js'
 
 const isDev = !app.isPackaged
 const baseDir = isDev ? process.cwd() : process.resourcesPath
@@ -54,7 +54,7 @@ function childEnv() {
 }
 
 function createWindow(): void {
-  win = new BrowserWindow({ width: 1280, height: 840, show: false })
+  win = new BrowserWindow({ width: 1280, height: 840, show: false, icon: windowIcon() })
   const bar = new WebContentsView({})
   bar.webContents.loadFile(join(baseDir, 'dist', 'renderer', 'bar.html'))
   win.contentView.addChildView(bar)

@@ -21,3 +21,5 @@ async function vendor(pkg, outDir) {
 
 await vendor(`@deepseek-ai/dsh@${DSH_VER}`, join('resources', 'dsh'))
 await vendor(`pnpm@${PNPM_VER}`, join('resources', 'runtime-pnpm'))
+cpSync('assets/icon.ico', join('resources', 'icon.ico'))
+console.log('copied assets/icon.ico -> resources/icon.ico')
