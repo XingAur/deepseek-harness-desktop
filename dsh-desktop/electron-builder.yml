@@ -5,8 +5,11 @@ directories:
 files:
   - dist/**
   - resources/**
+  - "!resources/dsh/**"
+  - "!resources/runtime-pnpm/**"
 asarUnpack:
-  - resources/**
+  - resources/dsh-runtime.tgz
+  - resources/icon.ico
 win:
   target: nsis
   icon: assets/icon.ico

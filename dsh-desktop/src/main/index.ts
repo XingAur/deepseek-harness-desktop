@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, WebContentsView } from 'electron'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { appPaths, dirWritable, loadSettings, resolveDataRoot, saveSettings } from './paths.js'
 import { createLogger } from './logger.js'
@@ -14,8 +15,40 @@ import { createTray, windowIcon } from './tray.js'
 
 const isDev = !app.isPackaged
 const baseDir = isDev ? process.cwd() : process.resourcesPath
-const bundledDshDir = join(baseDir, 'resources', 'dsh')
-const bundledPnpmJs = join(baseDir, 'resources', 'runtime-pnpm', 'node_modules', 'pnpm', 'bin', 'pnpm.mjs')
+const devBundledDshDir = join(baseDir, 'resources', 'dsh')
+const devBundledPnpmJs = join(baseDir, 'resources', 'runtime-pnpm', 'node_modules', 'pnpm', 'bin', 'pnpm.mjs')
+
+function extractedDirs(): { dsh: string; pnpm: string } {
+  const ex = join(dataRoot, 'runtime', 'bundled')
+  return {
+    dsh: join(ex, 'dsh'),
+    pnpm: join(ex, 'runtime-pnpm', 'node_modules', 'pnpm', 'bin', 'pnpm.mjs'),
+  }
+}
+
+let bundled = { dsh: devBundledDshDir, pnpm: devBundledPnpmJs }
+
+function extractedReady(): boolean {
+  const e = extractedDirs()
+  return existsSync(join(e.dsh, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'))
+}
+
+function ensureBundledRuntime(): void {
+  if (extractedReady()) { bundled = extractedDirs(); return }
+  const archive = join(baseDir, 'resources', 'dsh-runtime.tgz')
+  if (!existsSync(archive)) {
+    if (isDev && existsSync(join(devBundledDshDir, 'node_modules', '@deepseek-ai', 'dsh'))) return
+    throw new Error('RUNTIME_MISSING')
+  }
+  const ex = join(dataRoot, 'runtime', 'bundled')
+  mkdirSync(ex, { recursive: true })
+  mainLog('extracting bundled runtime archive...')
+  const r = spawnSync('tar', ['-xzf', archive, '-C', ex], { stdio: 'ignore' })
+  if (r.status !== 0) throw new Error('RUNTIME_EXTRACT_FAILED')
+  if (!extractedReady()) throw new Error('RUNTIME_EXTRACT_INCOMPLETE')
+  bundled = extractedDirs()
+  mainLog('bundled runtime extracted')
+}
 
 let win: BrowserWindow | null = null
 let contentView: WebContentsView | null = null
@@ -49,7 +82,7 @@ const mgr = new ServiceManager({
 })
 
 function childEnv() {
-  ensurePnpmShim(paths.binDir, process.execPath, bundledPnpmJs)
+  ensurePnpmShim(paths.binDir, process.execPath, bundled.pnpm)
   return buildChildEnv({ binDir: paths.binDir, dshHome: paths.dshHome })
 }
 
@@ -68,7 +101,7 @@ function createWindow(): void {
   win.on('resize', layout)
   layout()
   win.once('ready-to-show', () => win?.show())
-  showHome()
+  loadInContent(`file://${join(baseDir, 'dist', 'renderer', 'splash.html').replace(/\\/g, '/')}`)
 }
 
 function loadInContent(url: string): void {
@@ -89,7 +122,7 @@ ipcMain.handle('open', async (_e, target: string) => {
   try {
     if (target === 'home') { showHome(); return { ok: true } }
     if (target === 'session') {
-      const dsh = resolveDsh(paths.runtimeDshDir, bundledDshDir)
+      const dsh = resolveDsh(paths.runtimeDshDir, bundled.dsh)
       const r = await mgr.ensureSession(dsh.binPath, childEnv())
       loadInContent(r.url)
       return { ok: true }
@@ -124,7 +157,7 @@ ipcMain.handle('state', () => state)
 async function checkUpdate(): Promise<void> {
   try {
     const latest = await fetchLatest()
-    const cur = resolveDsh(paths.runtimeDshDir, bundledDshDir)
+    const cur = resolveDsh(paths.runtimeDshDir, bundled.dsh)
     if (latest.version === cur.version) { dialog.showMessageBoxSync(win!, { message: `已是最新版本 ${cur.version}` }); return }
     const yes = dialog.showMessageBoxSync(win!, {
       type: 'question', buttons: ['取消', '升级'],
@@ -146,6 +179,12 @@ else {
   app.whenReady().then(() => {
     createTray(showHome, checkUpdate, async () => { await mgr.shutdownAll(); app.quit() })
     createWindow()
+    try {
+      ensureBundledRuntime()
+      showHome()
+    } catch (e) {
+      showError(`运行环境准备失败：${e instanceof Error ? e.message : String(e)}`)
+    }
   })
   app.on('window-all-closed', () => { /* 托盘常驻 */ })
 }
