@@ -16,7 +16,7 @@ DeepSeek Harness（`dsh`）是 DeepSeek AI 开发的开源 agent harness，官�
 2. **一键安装**：客户端自带全部运行所需内容，安装客户端即完成一切
 3. **启动/附加**：无服务时自动拉起；已有服务运行时（如用户此前用 npx 启动过）直接附加，不重复启动、不接管其生命周期
 4. **插件市场可用**：Web UI 内置的「社区插件」在裸机上开箱即用（插件安装依赖 pnpm，由客户端捆绑提供）
-5. **项目与工作台**：客户端原生主页展示项目卡片；项目 = dsh profile（工作台以 dsh 插件形态构建），点击进入对应界面
+5. **项目卡片与本地项目**：客户端主页保留项目卡片入口；项目由用户在 AI 会话中**指示 agent 生成**，落地在本地数据目录（默认 D 盘），点击卡片进入对应项目
 
 ### 目标用户
 
@@ -31,7 +31,7 @@ DeepSeek Harness（`dsh`）是 DeepSeek AI 开发的开源 agent harness，官�
 - macOS / Linux 支持
 - 客户端自建插件市场 UI（复用 Web UI 内置「社区插件」）
 - 捆绑 git（不支持 `github:` 直装插件，详见 §6.3）
-- 业务工作台插件本体（订单/客户/工厂等，独立子项目另行立项，见 §7.5）
+- 业务项目本体（如外贸工作台）——属使用期 agent 生成产物，非本客户端交付物（见 §7.5）
 
 ## 2. 方案选型
 
@@ -53,9 +53,10 @@ DeepSeek Harness（`dsh`）是 DeepSeek AI 开发的开源 agent harness，官�
 | 组件 | 职责 | 关键接口 |
 | --- | --- | --- |
 | `index.ts` | 入口：单实例锁、窗口/托盘装配 | — |
-| `service-manager.ts` | 核心：多 profile 状态机 + dsh 子进程生命周期（每 profile 一进程一端口） | `ensureProfile(name): Promise<{port, mode}>` / `shutdownAll()` |
+| `service-manager.ts` | 核心：「AI 会话」dsh 进程生命周期 + start 型项目子进程管理 | `ensureSession()` / `ensureProject(name)` / `shutdownAll()` |
 | `port-probe.ts` | 探测指定端口：TCP 连通 + HTTP 特征校验 | `probe(port): Promise<'dsh' \| 'foreign' \| 'none'>`；判定规则：TCP 拒绝/超时 → `none`；TCP 通且 `GET /` 返回 200 + `text/html` → `dsh`；TCP 通但不满足前者 → `foreign` |
-| `projects.ts` | 扫描 `$DSH_HOME/profiles/*/desktop.json`，维护项目列表与端口分配 | `list(): Project[]` |
+| `projects.ts` | 扫描 `<数据根>/projects/*/project.json`，维护项目列表 | `list(): Project[]` |
+| `static-server.ts` | 内置静态文件服务（随机高位端口），加载静态型项目 | `serve(dir): Promise<number>` |
 | `dsh-resolver.ts` | 版本目录解析（用户区 > 内置） | `resolve(): { binPath, version, source }` |
 | `updater.ts` | 检查/下载/解压 dsh 新版本 | `check()` / `upgrade()` |
 | `pnpm-runtime.ts` | 构建 dsh 子进程环境：捆绑 pnpm 的 shim、`DSH_HOME`、npmmirror 源 | `buildChildEnv(): NodeJS.ProcessEnv` |
@@ -64,36 +65,45 @@ DeepSeek Harness（`dsh`）是 DeepSeek AI 开发的开源 agent harness，官�
 渲染层：纯静态 HTML/JS 的主页（项目卡片）、闪屏（状态文案）与错误页，无前端框架。
 preload 仅暴露最小的状态查询/重试 IPC。
 
-### 3.2 启动状态机（按 profile 实例化）
+### 3.2 状态机
 
 ```text
 打开客户端 → 主页（projects.list()）
-点击卡片 → ensureProfile(name)：
-  LAUNCH → CHECKING（探测该 profile 的端口）
-    ├─ probe = 'dsh'    → ATTACHED：窗口直接加载该服务（默认加载 entryRoute）
-    ├─ probe = 'none'   → STARTING：spawn dsh --profile <name> web → 端口就绪 → READY
-    └─ probe = 'foreign'→ ERROR_PORT_CONFLICT（错误页 + 重试）
-  STARTING 失败/子进程退出 → ERROR_CRASHED（错误页 + 重试/重启）
+
+点击「AI 会话」→ ensureSession()：
+  CHECKING（探测 3080）
+    ├─ 'dsh'    → ATTACHED：直接加载
+    ├─ 'none'   → STARTING：spawn dsh web → 就绪 → READY
+    └─ 'foreign'→ ERROR_PORT_CONFLICT
+
+点击项目卡片 → ensureProject(name)：
+  ├─ 静态型（无 start）→ static-server.serve(项目目录) → 加载 <随机端口>/<entry>
+  └─ start 型          → spawn <start 命令>（cwd=项目目录，env=buildChildEnv()）
+                          → 等 start 命令声明的端口就绪（project.json.port）→ READY
+  start 失败/进程退出 → ERROR_CRASHED（该卡片错误态）
 ```
 
 ### 3.3 进程所有权规则（关键不变量）
 
-- **只有客户端自己 spawn 的 dsh 子进程**，在客户端退出时被终止（`tree-kill` 整进程组）
+- **只有客户端自己 spawn 的进程**（dsh 或 start 型项目），在客户端退出时被终止（`tree-kill` 整进程组）
 - **附加模式**（探测到外部已有 dsh，如用户用 npx 启动的实例）：退出客户端**不杀**该进程
 - 子进程意外退出且属启动模式 → 状态机转 ERROR_CRASHED
 
 ### 3.4 子进程运行方式
 
+dsh（AI 会话）：
+
 ```ts
-spawn(process.execPath, [binPath, '--profile', name, 'web', ...portArgs], {
+spawn(process.execPath, [binPath, 'web'], {
   env: buildChildEnv(),                 // 见 pnpm-runtime.ts
   stdio: ['ignore', 'pipe', 'pipe'],   // stdout/stderr → 日志文件
   windowsHide: true,
 })
 ```
 
-端口：默认 profile（「AI 会话」）固定 3080；项目 profile 从 3081 起由
-`projects.ts` 分配并持久化到 `settings.json`。
+start 型项目：以 `buildChildEnv()`（PATH 含捆绑 pnpm/node 能力）执行
+`project.json` 的 `start` 命令，`cwd` 为项目目录，stdout/stderr 记入
+`<数据根>\logs\projects\<name>.log`。
 
 ### 3.5 单实例
 
@@ -104,11 +114,11 @@ spawn(process.execPath, [binPath, '--profile', name, 'web', ...portArgs], {
 
 优先级（`dsh-resolver.ts`）：
 
-1. `%APPDATA%\DeepSeekHarness\dsh\<version>\`（升级安装的用户区版本，取 semver 最大）
+1. `<数据根>\runtime\dsh\<version>\`（升级安装的用户区版本，取 semver 最大）
 2. 应用内置 `<安装目录>\resources\dsh\`（构建时由 `scripts/fetch-dsh.mjs` 下载并展开）
 
 用户区版本目录损坏/被删 → 自动回退内置版（天然回滚机制，内置版只读）。
-当前生效版本与来源持久化于 `%APPDATA%\DeepSeekHarness\settings.json`。
+当前生效版本与来源持久化于 `<数据根>\settings.json`。数据根定义见 §7.1。
 
 ## 5. 升级流程
 
@@ -116,7 +126,7 @@ spawn(process.execPath, [binPath, '--profile', name, 'web', ...portArgs], {
 
 1. `GET https://registry.npmmirror.com/@deepseek-ai/dsh/latest`（失败回退 `registry.npmjs.org`）
 2. 与当前运行版本比对；有新版 → 原生确认对话框（当前 x → 新版 y）
-3. 下载 `dist.tarball` 至临时目录，解压到 `%APPDATA%\DeepSeekHarness\dsh\<新版本>\`
+3. 下载 `dist.tarball` 至临时目录，解压到 `<数据根>\runtime\dsh\<新版本>\`
 4. 重启 dsh：**启动模式**下杀旧子进程 → 以新版本拉起 → 窗口自动刷新；
    **附加模式**下不杀外部进程，提示用户「关闭当前外部 dsh 服务后重试」，客户端随后以启动模式用新版拉起
 5. 任意一步失败：对话框提示错误，**当前版本不受影响**
@@ -137,10 +147,10 @@ spawn(process.execPath, [binPath, '--profile', name, 'web', ...portArgs], {
 ### 6.2 客户端提供的三件事（`pnpm-runtime.ts`）
 
 1. **捆绑 pnpm**：构建时随 dsh 一起下载 pnpm（npm 包形态）到 `resources/runtime/pnpm/`；
-   运行时在 `%APPDATA%\DeepSeekHarness\bin\` 生成 `pnpm.cmd`，内容为
+   运行时在 `<数据根>\bin\` 生成 `pnpm.cmd`，内容为
    `"<process.execPath>" <捆绑 pnpm 的 js 入口> %*` 并设 `ELECTRON_RUN_AS_NODE=1`，
    该目录被**注入到 dsh 子进程 PATH 最前面**——dsh 转发 pnpm 时即命中捆绑版
-2. **固定数据目录**：`DSH_HOME=%APPDATA%\DeepSeekHarness\dsh-home`，
+2. **固定数据目录**：`DSH_HOME=<数据根>\dsh-home`，
    profiles 与已装插件跨应用升级保留
 3. **国内源**：子进程注入 `npm_config_registry=https://registry.npmmirror.com`
    （用户可覆盖：若自身环境已有该变量则不覆盖）
@@ -151,72 +161,86 @@ spawn(process.execPath, [binPath, '--profile', name, 'web', ...portArgs], {
   错误信息由 dsh/pnpm 原样呈现，客户端不拦截美化
 - Web UI 市场列表若请求 GitHub API，国内可能加载慢或失败，客户端不做代理劫持
 
-## 7. 项目与工作台集成
+## 7. 项目卡片与本地项目
 
-**定位**：工作台以 **dsh 原生插件**形态构建（bundle + profile）；客户端提供「项目」外壳——
-发现、展示、启动、进入。业务工作台本身是独立子项目（见 §7.5）。
+**定位**：客户端只保留**项目卡片入口**；项目本体由用户在 AI 会话中指示 agent 生成，
+是独立的本地应用（非 dsh 插件）。客户端对项目目录**只读扫描 + 按需启动**。
 
-### 7.1 项目定义
+### 7.1 数据根（统一目录）
 
-项目 = 一个 dsh profile + 展示元数据。约定 profile 目录
-（`%APPDATA%\DeepSeekHarness\dsh-home\profiles\<name>\`）内放置 `desktop.json`：
+首次运行创建数据根，默认 `D:\DeepSeekHarness\`，无 D 盘时回退 `C:\DeepSeekHarness\`
+（实际路径持久化于 `settings.json`）：
 
-```json
-{ "name": "外贸工作台", "icon": "briefcase", "entryRoute": "/workbench/", "desc": "订单/客户/工厂管理" }
+```text
+<数据根>\
+├─ projects\<项目名>\       # agent 生成的项目与项目数据
+├─ dsh-home\                # DSH_HOME：profiles、插件
+├─ runtime\dsh\<版本>\      # 升级安装的 dsh 用户区版本
+├─ bin\                     # pnpm.cmd 等 shim
+├─ logs\                    # 主进程 / dsh / 项目日志
+└─ settings.json
 ```
 
-- `projects.ts` 扫描 profiles 目录；有 `desktop.json` 的 profile 即项目卡片
-- `entryRoute` 为空或缺省 → 加载该服务根路径（标准 Web UI 形态）
-- 无 `desktop.json` 的 profile 不在主页显示（普通 profile）
+### 7.2 项目定义与生成方式
 
-### 7.2 主页
+项目 = `<数据根>\projects\<name>\` 目录 + `project.json` 清单：
 
-打开客户端 → 原生主页 `home.html`：
+```json
+{
+  "name": "外贸工作台", "icon": "briefcase", "desc": "订单/客户/工厂管理",
+  "entry": "index.html",          // 静态入口；start 型项目为页面路径
+  "start": "node server.js",      // 可选；存在即为 start 型项目
+  "port": 8801                    // start 型必填：声明其监听端口
+}
+```
 
-- 顶部固定卡片「**AI 会话**」（默认 profile，即标准 dsh Web UI）
-- 下方项目卡片列表（名称/图标/描述）
-- 点击卡片 → `ensureProfile()` → 就绪后窗口加载 `http://127.0.0.1:<port><entryRoute>`
-- 主页常驻「⟵ 项目」返回入口（窗口工具栏按钮，点击回主页；各服务进程保持运行）
+生成链路：用户把 `<数据根>\projects\` 添加为 AI 会话的工作区 → 对 agent 下达
+「生成一个 XX 工作台」→ agent 写入项目文件与 `project.json` → 客户端主页刷新即出现卡片。
+**客户端不生成、不校验项目内容**，只按清单启动。
 
-### 7.3 进程模型（关键变化）
+### 7.3 运行模型
 
-- 单 dsh 实例 → **多 profile 进程表**：`Map<profileName, ChildEntry>`，含子进程句柄、端口、所有权标记
-- 同一 profile 重复点击 = 幂等（已运行则直接加载）
-- 附加模式语义按端口独立判定；所有权规则不变：退出客户端只清理自己 spawn 的进程
-- 端口冲突（探测为 `foreign`）仅影响对应项目卡片，不拖垮其他 profile
+| 类型 | 判定 | 启动方式 |
+| --- | --- | --- |
+| 静态型 | 无 `start` | `static-server.ts` 以随机高位端口 serve 项目目录，加载 `entry` |
+| start 型 | 有 `start` | 以 `buildChildEnv()` 执行 `start`（cwd=项目目录），轮询 `port` 就绪后加载 `http://127.0.0.1:<port>/<entry>` |
 
-### 7.4 与插件市场的闭环
+- 重复点击同一项目 = 幂等（已运行直接加载）
+- start 型进程意外退出 → 仅该卡片转错误态，不影响其他
+- 「AI 会话」卡片仍走 §3.2 的探测/附加/启动逻辑（3080）
 
-工作台插件本身就是 npm 包（bundle）。用户从 Web UI「社区插件」安装工作台 bundle →
-建立 profile（`dsh plugin --profile <name> add <bundle>`）→ `desktop.json` 随插件落地 →
-客户端主页**自动出现新项目卡**。工作台分发复用插件市场链路，客户端零额外机制。
+### 7.4 主页
+
+打开客户端 → 原生主页 `home.html`：顶部「**AI 会话**」固定卡 + 项目卡片列表
+（名称/图标/描述，`project.json` 无效或缺失的目录跳过）。窗口工具栏常驻
+「⟵ 项目」返回按钮；返回时各运行中项目与 dsh 进程**保持运行**。
 
 ### 7.5 范围分解
 
-本 spec 只覆盖**项目外壳**：主页、扫描、多进程、端口管理、返回导航。
-**业务工作台插件**（订单/客户/工厂 CRUD、TODO、agent 工具注册、经 `ctx.webServer`
-挂载前端路由）为独立子项目，另行立项设计；本 spec 验收用一个最小 fixture 工作台
-（hello 级 bundle + `desktop.json`）验证外壳全链路。
+本 spec 交付：数据根、项目扫描、静态/start 双运行模型、主页与返回导航。
+**业务项目本体**（如外贸工作台的订单/客户/工厂功能）属使用期 agent 生成产物，
+不在本 spec 范围；验收使用两个 fixture 项目（静态型 + start 型）验证全链路。
 
 ## 8. 错误处理
 
 | 场景 | 行为 |
 | --- | --- |
-| profile 端口被非 dsh 程序占用 | 该项目卡片错误态「端口被其他程序占用」+ 重试，不影响其他 profile |
-| 子进程意外退出（启动模式） | 错误页 +「重启」按钮 + 日志路径 |
+| 3080 被非 dsh 程序占用 | 「AI 会话」卡片错误态「端口被其他程序占用」+ 重试 |
+| start 型项目启动失败/声明端口未就绪（30s）/进程退出 | 该项目卡片错误态 + 日志路径，不影响其他 |
+| `project.json` 无效或缺失 | 扫描时跳过该目录，不生成卡片 |
 | Web UI 加载超时（30s） | 错误页 + 重试 |
 | 升级下载/解压失败 | 对话框提示，保持当前版本 |
 | 用户区版本损坏 | 自动回退内置版，托盘气泡提示 |
 
-日志：`%APPDATA%\DeepSeekHarness\logs\`，主进程与 dsh 输出分文件、按天滚动、保留 7 天。
+日志：`<数据根>\logs\`，主进程、dsh、项目分文件、按天滚动、保留 7 天。
 
 ## 9. 测试策略
 
-- **单元**（vitest）：`dsh-resolver` 优先级与回退、状态机转换表、`port-probe` 特征判定（mock HTTP）、`pnpm-runtime` 环境注入与 shim 生成、`projects` 扫描与端口分配（含 3080 冲突场景）
+- **单元**（vitest）：`dsh-resolver` 优先级与回退、状态机转换表、`port-probe` 特征判定（mock HTTP）、`pnpm-runtime` 环境注入与 shim 生成、`projects` 扫描（有效/无效 `project.json`）、`static-server` 服务与端口分配
 - **集成**：真实拉起 dsh（开发机具备 Node），验证 启动→就绪→附加→退出清理 全链路；
   另验证插件安装：`dsh plugin --profile t add <本地 fixture tarball>` 在捆绑 pnpm 下成功；
-  fixture 工作台（hello bundle + `desktop.json`）走完 主页卡片 → 启动 → 进入 → 返回 → 退出清理
-- **验收**：无 Node.js 的干净 Windows 环境，安装 → 双击 → 主页 → 进「AI 会话」与 fixture 工作台 →「社区插件」页能列出并安装一个 npm 源插件（分发的硬指标）
+  fixture 静态项目与 fixture start 项目各走完 主页卡片 → 启动 → 进入 → 返回 → 退出清理
+- **验收**：无 Node.js 的干净 Windows 环境，安装 → 双击 → 主页 → 进「AI 会话」与两个 fixture 项目 →「社区插件」页能列出并安装一个 npm 源插件（分发的硬指标）
 
 ## 10. 工程结构
 
@@ -230,13 +254,14 @@ dsh-desktop/
 │  ├─ service-manager.ts
 │  ├─ port-probe.ts
 │  ├─ projects.ts
+│  ├─ static-server.ts
 │  ├─ dsh-resolver.ts
 │  ├─ updater.ts
 │  ├─ pnpm-runtime.ts
 │  └─ tray.ts
 ├─ src/preload.ts
 ├─ src/renderer/             # home.html / splash.html / error.html（纯静态）
-└─ fixtures/workbench-hello/ # 最小工作台 bundle（验收用，见 §7.5）
+└─ fixtures/projects/        # hello-static / hello-start 两个验收项目（见 §7.5）
 ```
 
 交付物：`dsh-desktop Setup <ver>.exe`（NSIS，x64）。
@@ -249,7 +274,8 @@ dsh-desktop/
 - `dsh plugin` 对 pnpm 的调用方式（PATH 查找 vs 硬编码）以当前版本文档为准；若实现
   与假设不符，需要随 dsh 升级做适配（集成测试覆盖该链路，可及时发现）
 - Web UI「社区插件」列表数据源在 GitHub，国内访问不稳定时列表可能为空，客户端不代理
-- `dsh --profile <name> web` 的端口参数形式（flag/env）待实现期验证；若不支持指定端口，
-  退化为「同一时刻仅一个项目 profile 运行」（互斥启动），主页卡片置灰提示
-- 业务工作台与 dsh 开发者预览版本耦合（方案 A 的固有代价）：工作台插件 spec 需锁定
-  dsh 版本范围，客户端升级 dsh 前先跑工作台插件兼容性检查
+- **安全边界**：start 型项目在本机执行任意命令——这是「让 agent 生成项目」模型的固有
+  授信，与 dsh 工作区审批策略一致；卡片首次启动 start 型项目时弹一次性原生确认框
+- agent 生成项目的质量不可控（清单字段缺失、端口未监听等）：客户端按 §8 容错，
+  卡片错误态展示日志路径，不阻塞其他功能
+- D 盘不存在或不可写时回退 C 盘；数据根不可写（极端情况）→ 错误页指引
