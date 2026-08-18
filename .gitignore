@@ -1,3 +1,12 @@
 .superpowers/
 node_modules/
 dist/
+target/
+*.tsbuildinfo
+dsh-desktop/runtime-build/
+dsh-desktop/src-tauri/gen/
+dsh-desktop/packages/dsh-plugin-desktop/lib/
+dsh-desktop/src-tauri/icons/android/
+dsh-desktop/src-tauri/icons/ios/
+dsh-desktop/src-tauri/icons/StoreLogo.png
+dsh-desktop/src-tauri/icons/Square*Logo.png

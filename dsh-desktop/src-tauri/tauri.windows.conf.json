@@ -1,0 +1,23 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "DSH Desktop",
+        "decorations": true,
+        "shadow": true,
+        "windowEffects": { "effects": ["mica"] }
+      }
+    ]
+  },
+  "bundle": {
+    "targets": ["nsis"],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": true
+      },
+      "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true }
+    }
+  }
+}

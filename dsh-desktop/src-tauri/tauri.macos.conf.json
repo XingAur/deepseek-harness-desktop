@@ -1,0 +1,26 @@
+{
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "",
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "trafficLightPosition": { "x": 20, "y": 22 },
+        "windowEffects": {
+          "effects": ["sidebar"],
+          "state": "followsWindowActiveState",
+          "radius": 12
+        }
+      }
+    ]
+  },
+  "bundle": {
+    "targets": ["dmg"],
+    "category": "DeveloperTool",
+    "macOS": {
+      "minimumSystemVersion": "12.0"
+    }
+  }
+}

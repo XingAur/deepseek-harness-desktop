@@ -1,1 +1,0 @@
-{ "name": "Hello Start 项目", "icon": "bolt", "desc": "start 型 fixture", "entry": "index.html", "start": "node server.js", "port": 8801 }

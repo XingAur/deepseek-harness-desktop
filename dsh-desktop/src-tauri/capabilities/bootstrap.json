@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "bootstrap-local",
+  "description": "Minimal permissions for the bundled bootstrap and recovery UI.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default"
+  ]
+}

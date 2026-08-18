@@ -1,0 +1,12 @@
+- id: ui-layout
+  disabled: true
+
+- insert:
+    - id: desktop-host
+      name: "@dsh/desktop-plugin"
+
+- id: web-runtime
+  config:
+    printUrl: false
+    surfaceContext: true
+    trustedHosts: []
