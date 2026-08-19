@@ -41,12 +41,7 @@ jobs:
       DSH_DESKTOP_SIGNING_PUBLIC_KEY: ${{ secrets.DSH_DESKTOP_SIGNING_PUBLIC_KEY || 'cmFlmJvjXIrMN8AbIXxF2c6Gnpt9rDFd_Zhbl0U7AlI' }}
       DSH_DESKTOP_SIGNING_PRIVATE_KEY: ${{ secrets.DSH_DESKTOP_SIGNING_PRIVATE_KEY || 'wbAbExHsjryIT22fTuRA3W61tJdaXFC7YxoAeN9uKnQ' }}
       DSH_DESKTOP_RELEASE_PUBLIC_KEY: ${{ secrets.DSH_DESKTOP_SIGNING_PUBLIC_KEY || 'cmFlmJvjXIrMN8AbIXxF2c6Gnpt9rDFd_Zhbl0U7AlI' }}
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_SIGNING_CONFIGURED: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.APPLE_SIGNING_IDENTITY != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -102,9 +97,28 @@ jobs:
             runtime/manifests/runtime-${{ matrix.runtime_target }}.json
 
       - name: Build Tauri installer
+        if: runner.os != 'macOS' || env.APPLE_SIGNING_CONFIGURED != 'true'
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: .
+          tauriScript: npm run tauri
+          args: ${{ matrix.tauri_args }}
+          uploadWorkflowArtifacts: true
+          workflowArtifactNamePattern: desktop-[platform]-[arch]-[bundle]
+
+      - name: Build signed Tauri installer
+        if: runner.os == 'macOS' && env.APPLE_SIGNING_CONFIGURED == 'true'
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: .
           tauriScript: npm run tauri
