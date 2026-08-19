@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-18T10:00:00.000Z",
+  "plugins": [
+    {
+      "id": "awesome-dsh-plugin/dsh-find-plugin",
+      "packageName": "dsh-find-plugin",
+      "name": "Find DeepSeek Harness Plugin",
+      "description": "在 Agent 中实时搜索并按 Star 排序 GitHub dsh-plugin 主题下的插件。",
+      "publisher": "awesome-dsh-plugin",
+      "repository": "https://github.com/awesome-dsh-plugin/dsh-find-plugin",
+      "installSpec": "dsh-find-plugin@0.3.6",
+      "version": "0.3.6",
+      "dshRange": ">=0.1.0-rc.7 <0.2.0",
+      "platforms": ["windows-x86_64", "darwin-aarch64"],
+      "verified": true
+    }
+  ],
+  "signature": "sm1W2_8MSJWsIMswCyZ-TIQaPEux68_NE7kVcMJf9VNHu2UPlQf_MfQNB2frfqZUElMqIPvYwObulXUTX2fwDw"
+}
