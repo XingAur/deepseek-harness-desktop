@@ -6,7 +6,6 @@ const productCopyFiles = [
   'index.html',
   'README.md',
   'runtime/README.md',
-  'CLAUDE.md',
   '.github/workflows/desktop.yml',
   'src/App.tsx',
   'src-tauri/Cargo.toml',
@@ -33,7 +32,6 @@ const currentProductSources = [
   'src-tauri/src/runtime/process.rs',
   '.github/workflows/desktop.yml',
   'runtime/README.md',
-  'CLAUDE.md',
 ]
 
 const localProjectSources = [
@@ -64,6 +62,20 @@ describe('product copy', () => {
     expect(css).toContain('.bootstrapShell::-webkit-scrollbar')
     expect(css).toContain('.bootstrapShell::-webkit-scrollbar-thumb:hover')
     expect(css).not.toMatch(/\.bootstrapShell::?-webkit-scrollbar[^}]*display:\s*none/s)
+  })
+
+  it('presents the repository to ordinary users without advertising an unavailable download', () => {
+    const readme = readFileSync('README.md', 'utf8')
+
+    expect(readme).toContain('首个公开预览版正在准备中')
+    expect(readme).toContain('首次打开应用')
+    expect(readme).toContain('后续启动')
+    expect(readme).toContain('本地项目')
+    expect(readme).toContain('Profile')
+    expect(readme).toContain('## 开发者指南')
+    expect(readme).not.toMatch(/releases\/latest\/download\/.+setup/i)
+    expect(readme).not.toContain('手机远程控制')
+    expect(readme).not.toContain('社区插件市场')
   })
 
   it('ships one in-app runtime preparation surface', () => {
