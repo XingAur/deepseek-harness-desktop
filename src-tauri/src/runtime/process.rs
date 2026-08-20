@@ -1,4 +1,5 @@
 use std::{
+    ffi::OsString,
     path::PathBuf,
     process::{ExitStatus, Stdio},
     time::Duration,
@@ -12,11 +13,11 @@ use tokio::{
 };
 
 use super::{
-    manifest::release_public_key,
     model::{RuntimeFailure, RuntimeFailureCode, RuntimeManifest},
     paths::{RuntimePaths, join_confined},
     redaction::redact_secrets,
 };
+use crate::profile::model::ProfileRecord;
 
 pub struct ManagedRuntime {
     child: Child,
@@ -141,10 +142,33 @@ pub fn reserve_loopback_port() -> Result<u16, RuntimeFailure> {
 pub async fn spawn_runtime(
     paths: &RuntimePaths,
     manifest: &RuntimeManifest,
+    profile: &ProfileRecord,
+    generation_id: &str,
     port: u16,
     session_token: &str,
 ) -> Result<ManagedRuntime, RuntimeFailure> {
     let runtime_dir = paths.version_dir(&manifest.version);
+    spawn_runtime_from_dir(
+        paths,
+        &runtime_dir,
+        manifest,
+        profile,
+        generation_id,
+        port,
+        session_token,
+    )
+    .await
+}
+
+pub async fn spawn_runtime_from_dir(
+    paths: &RuntimePaths,
+    runtime_dir: &std::path::Path,
+    manifest: &RuntimeManifest,
+    profile: &ProfileRecord,
+    generation_id: &str,
+    port: u16,
+    session_token: &str,
+) -> Result<ManagedRuntime, RuntimeFailure> {
     let executable = join_confined(&runtime_dir, &manifest.entrypoint, "entrypoint")?;
     if !executable.is_file() {
         return Err(RuntimeFailure::new(
@@ -162,10 +186,12 @@ pub async fn spawn_runtime(
         })
         .collect::<Vec<_>>();
     let mut command = Command::new(&executable);
+    for (key, value) in profile_environment(profile, generation_id) {
+        command.env(key, value);
+    }
     command
         .args(args)
         .current_dir(&runtime_dir)
-        .env("DSH_HOME", paths.root.join("dsh"))
         .env("DSH_DESKTOP_MODE", "advanced")
         .env(
             "DSH_DESKTOP_PLATFORM",
@@ -186,12 +212,7 @@ pub async fn spawn_runtime(
                 .join("lib")
                 .join("bin.js"),
         )
-        .env(
-            "DSH_DESKTOP_CATALOG_PATH",
-            runtime_dir.join("catalog").join("community.json"),
-        )
         .env("DSH_DESKTOP_DSH_VERSION", manifest.dsh_version.to_string())
-        .env("DSH_DESKTOP_CATALOG_PUBLIC_KEY", release_public_key())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -220,6 +241,21 @@ pub async fn spawn_runtime(
         log_tasks,
         log_file: Some(log_file),
     })
+}
+
+fn profile_environment(profile: &ProfileRecord, generation_id: &str) -> Vec<(OsString, OsString)> {
+    vec![
+        ("DSH_HOME".into(), profile.data_root.as_os_str().to_owned()),
+        (
+            "DSH_DESKTOP_PROFILE_ID".into(),
+            profile.id.to_string().into(),
+        ),
+        (
+            "DSH_DESKTOP_PROFILE_REVISION".into(),
+            profile.revision.to_string().into(),
+        ),
+        ("DSH_DESKTOP_GENERATION_ID".into(), generation_id.into()),
+    ]
 }
 
 fn pipe_log<R>(reader: R, path: PathBuf, prefix: &'static str) -> JoinHandle<()>
@@ -263,6 +299,7 @@ async fn terminate_tree(pid: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::profile::model::PermissionMode;
 
     #[test]
     fn redacts_common_secret_forms() {
@@ -271,5 +308,23 @@ mod tests {
             "Authorization: [REDACTED]"
         );
         assert_eq!(redact_secrets("api_key=abc"), "api_key=[REDACTED]");
+    }
+
+    #[test]
+    fn profile_environment_is_generation_scoped() {
+        let now = chrono::Utc::now();
+        let profile = ProfileRecord {
+            id: uuid::Uuid::nil(),
+            name: "测试".to_string(),
+            data_root: PathBuf::from("C:/数据/profile"),
+            permission_mode: PermissionMode::WorkspaceWrite,
+            revision: 7,
+            created_at: now,
+            updated_at: now,
+        };
+        let environment = profile_environment(&profile, "g-9");
+        assert!(environment.contains(&("DSH_HOME".into(), profile.data_root.into_os_string())));
+        assert!(environment.contains(&("DSH_DESKTOP_PROFILE_REVISION".into(), "7".into())));
+        assert!(environment.contains(&("DSH_DESKTOP_GENERATION_ID".into(), "g-9".into())));
     }
 }

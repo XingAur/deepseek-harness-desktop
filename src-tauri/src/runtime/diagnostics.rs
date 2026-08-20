@@ -46,9 +46,53 @@ pub fn export(
                 .as_bytes(),
         )
         .map_err(RuntimeFailure::internal)?;
+    append_json_snapshot(
+        &mut archive,
+        "generation-timeline.json",
+        &paths.root.join("generation-timeline.json"),
+        serde_json::Value::Array(Vec::new()),
+        options,
+    )?;
+    append_json_snapshot(
+        &mut archive,
+        "profile-state-summary.json",
+        &paths.root.join("profiles/state.json"),
+        json!({}),
+        options,
+    )?;
+    append_json_snapshot(
+        &mut archive,
+        "breaker.json",
+        &paths.root.join("breaker.json"),
+        json!({"series": []}),
+        options,
+    )?;
     append_recent_logs(&mut archive, &paths.logs, options)?;
     archive.finish().map_err(RuntimeFailure::internal)?;
     Ok(output)
+}
+
+fn append_json_snapshot(
+    archive: &mut zip::ZipWriter<File>,
+    name: &str,
+    path: &Path,
+    fallback: serde_json::Value,
+    options: SimpleFileOptions,
+) -> Result<(), RuntimeFailure> {
+    let value = fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .unwrap_or(fallback);
+    archive
+        .start_file(name, options)
+        .map_err(RuntimeFailure::internal)?;
+    archive
+        .write_all(
+            serde_json::to_string_pretty(&value)
+                .map_err(RuntimeFailure::internal)?
+                .as_bytes(),
+        )
+        .map_err(RuntimeFailure::internal)
 }
 
 fn append_recent_logs(
@@ -101,6 +145,18 @@ mod tests {
             "Authorization: Bearer abc123\nsessionToken=secret child exited with code 7",
         )
         .unwrap();
+        fs::create_dir_all(root.join("profiles")).unwrap();
+        fs::write(
+            root.join("generation-timeline.json"),
+            r#"[{"generationId":"g-1","phase":"failed"}]"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("profiles/state.json"),
+            r#"{"selectedProfile":{"profileId":"00000000-0000-0000-0000-000000000000","revision":1}}"#,
+        )
+        .unwrap();
+        fs::write(root.join("breaker.json"), r#"{"series":[]}"#).unwrap();
         let paths = RuntimePaths {
             versions: root.join("runtime/versions"),
             downloads: root.join("runtime/downloads"),
@@ -147,5 +203,13 @@ mod tests {
         assert!(!log.contains("abc123"));
         assert!(log.contains("Authorization: [REDACTED]"));
         assert!(log.contains("sessionToken=[REDACTED]"));
+
+        for expected in [
+            "generation-timeline.json",
+            "profile-state-summary.json",
+            "breaker.json",
+        ] {
+            assert!(archive.by_name(expected).is_ok(), "missing {expected}");
+        }
     }
 }

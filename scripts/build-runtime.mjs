@@ -41,10 +41,12 @@ mkdirSync(packOutput, { recursive: true })
 run('npm', ['pack', './packages/dsh-plugin-desktop', '--pack-destination', packOutput])
 const pluginTarball = join(packOutput, readdirSync(packOutput).find((file) => file.endsWith('.tgz')))
 const desktopPluginVersion = JSON.parse(readFileSync('packages/dsh-plugin-desktop/package.json', 'utf8')).version
+const desktopPluginSha256 = createHash('sha256').update(readFileSync(pluginTarball)).digest('hex')
 const appDir = join(stage, 'app')
 mkdirSync(appDir, { recursive: true })
 cpSync(pluginTarball, join(appDir, 'desktop-plugin.tgz'))
 cpSync(join('scripts', 'desktop-profile.mjs'), join(appDir, 'desktop-profile.mjs'))
+cpSync(join('scripts', 'plugin-install-state.mjs'), join(appDir, 'plugin-install-state.mjs'))
 writeFileSync(join(appDir, 'package.json'), JSON.stringify({
   name: 'dsh-desktop-runtime', private: true, type: 'module',
   dependencies: {
@@ -55,11 +57,14 @@ writeFileSync(join(appDir, 'package.json'), JSON.stringify({
 }, null, 2))
 // --no-legacy-peer-deps：dsh-app-boot 的 peerDependencies（cordis-plugin-group、
 // dsh-invariants）必须由这里的安装补齐，否则 Runtime 启动时 ERR_MODULE_NOT_FOUND。
-run('npm', ['install', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--no-legacy-peer-deps'], { cwd: appDir })
-writeLauncher(appDir, desktopPluginVersion)
+const reusedDependencies = restoreDependencyCache(appDir, args['dependency-cache'])
+if (!reusedDependencies) {
+  run('npm', ['install', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--no-legacy-peer-deps'], { cwd: appDir })
+} else {
+  replaceCachedDesktopPlugin(appDir, pluginTarball, output)
+}
+writeLauncher(appDir, desktopPluginVersion, desktopPluginSha256, args.version || '0.1.0')
 writePnpmShim(stage, target)
-mkdirSync(join(stage, 'catalog'), { recursive: true })
-cpSync(join('runtime', 'catalog', 'community.json'), join(stage, 'catalog', 'community.json'))
 
 const archive = join(output, target === 'windows-x86_64' ? `dsh-runtime-${target}.zip` : `dsh-runtime-${target}.tar.gz`)
 if (target === 'windows-x86_64') run(tarExecutable, ['-a', '-cf', archive, '.'], { cwd: stage })
@@ -76,7 +81,7 @@ const manifest = {
   archive: target === 'windows-x86_64' ? 'zip' : 'tar-gz',
   entrypoint: target === 'windows-x86_64' ? 'node.exe' : 'bin/node',
   args: ['app/launcher.mjs', '--port', '{port}'],
-  healthPath: '/',
+  healthPath: '/__desktop/health',
   signature: '',
 }
 writeFileSync(join(output, `manifest-${target}.unsigned.json`), `${JSON.stringify(manifest, null, 2)}\n`)
@@ -97,31 +102,90 @@ async function verifyNodeChecksum(filename, archive) {
   if (!expected || expected !== actual) throw new Error('Node.js archive checksum mismatch')
 }
 
-function writeLauncher(appDir, desktopPluginVersion) {
+function writeLauncher(appDir, desktopPluginVersion, desktopPluginSha256, runtimeVersion) {
   writeFileSync(join(appDir, 'launcher.mjs'), `
-import { readFileSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
+import { createServer, request as requestHttp } from 'node:http'
+import { createServer as createNetServer } from 'node:net'
 import { ensureDesktopProfile } from './desktop-profile.mjs'
+import { markerMatches, writeInstallMarker } from './plugin-install-state.mjs'
 const app = dirname(fileURLToPath(import.meta.url))
 const runtime = dirname(app)
 const dsh = join(app, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
 const plugin = join(app, 'desktop-plugin.tgz')
 const home = process.env.DSH_HOME
 if (!home) throw new Error('DSH_HOME is required')
-const installedManifest = join(home, 'profiles', 'desktop', 'node_modules', '@dsh', 'desktop-plugin', 'package.json')
-let installedVersion = ''
-try { installedVersion = JSON.parse(readFileSync(installedManifest, 'utf8')).version ?? '' } catch {}
+const installMarker = join(home, 'profiles', 'desktop', '.desktop-plugin-install.json')
 const bin = join(runtime, 'desktop-bin')
 const env = { ...process.env, PATH: bin + delimiter + (process.env.PATH ?? '') }
-if (installedVersion !== '${desktopPluginVersion}') {
+if (!(await markerMatches(installMarker, '${desktopPluginVersion}', '${desktopPluginSha256}'))) {
   const result = spawnSync(process.execPath, [dsh, 'plugin', '--profile', 'desktop', 'add', plugin], { stdio: 'inherit', env })
   if (result.status !== 0) process.exit(result.status ?? 1)
+  await writeInstallMarker(installMarker, '${desktopPluginVersion}', '${desktopPluginSha256}')
 }
 ensureDesktopProfile(join(home, 'profiles', 'desktop', 'package.json'))
-const child = spawn(process.execPath, [dsh, '--profile', 'desktop', ...process.argv.slice(2)], { stdio: 'inherit', env })
-child.once('exit', (code, signal) => process.exit(code ?? (signal ? 128 : 1)))
+const cliArgs = process.argv.slice(2)
+const portIndex = cliArgs.indexOf('--port')
+const publicPort = Number(portIndex >= 0 ? cliArgs[portIndex + 1] : NaN)
+if (!Number.isInteger(publicPort) || publicPort < 1 || publicPort > 65535) throw new Error('--port is required')
+const backendPort = await reserveLoopbackPort()
+const dshArgs = [...cliArgs]
+dshArgs[portIndex + 1] = String(backendPort)
+const health = JSON.stringify({
+  runtimeVersion: '${runtimeVersion}',
+  profileId: process.env.DSH_DESKTOP_PROFILE_ID ?? '',
+  profileRevision: Number(process.env.DSH_DESKTOP_PROFILE_REVISION ?? 0),
+  controlApi: true,
+  webUi: true,
+})
+const proxy = createServer((request, response) => {
+  if (request.url === '/__desktop/health') {
+    response.writeHead(200, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(health) })
+    response.end(health)
+    return
+  }
+  if (request.url === '/__desktop/control/health') {
+    const body = '{"ready":true}'
+    response.writeHead(200, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) })
+    response.end(body)
+    return
+  }
+  const upstream = requestHttp({
+    hostname: '127.0.0.1', port: backendPort, method: request.method, path: request.url,
+    // Preserve the browser-visible Host header. The Runtime trust fence compares
+    // it with Origin; rewriting Host to the private backend port makes same-origin
+    // WebView requests look cross-origin and rejects workspace mutations with 403.
+    headers: request.headers,
+  }, (upstreamResponse) => {
+    response.writeHead(upstreamResponse.statusCode ?? 502, upstreamResponse.headers)
+    upstreamResponse.pipe(response)
+  })
+  upstream.once('error', () => {
+    if (!response.headersSent) response.writeHead(503, { 'content-type': 'text/plain' })
+    response.end('DeepSeek Harness is starting')
+  })
+  request.pipe(upstream)
+})
+await new Promise((resolve, reject) => {
+  proxy.once('error', reject)
+  proxy.listen(publicPort, '127.0.0.1', resolve)
+})
+const child = spawn(process.execPath, [dsh, '--profile', 'desktop', ...dshArgs], { stdio: 'inherit', env })
+child.once('exit', (code, signal) => proxy.close(() => process.exit(code ?? (signal ? 128 : 1))))
+
+function reserveLoopbackPort() {
+  return new Promise((resolve, reject) => {
+    const server = createNetServer()
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address()
+      const port = typeof address === 'object' && address ? address.port : 0
+      server.close((error) => error ? reject(error) : resolve(port))
+    })
+  })
+}
 `, 'utf8')
 }
 
@@ -134,6 +198,30 @@ function writePnpmShim(stageDir, runtimeTarget) {
     const path = join(dir, 'pnpm')
     writeFileSync(path, '#!/bin/sh\nexec "$(dirname "$0")/../bin/node" "$(dirname "$0")/../app/node_modules/pnpm/bin/pnpm.cjs" "$@"\n', { mode: 0o755 })
   }
+}
+
+function restoreDependencyCache(appDir, cacheValue) {
+  if (!cacheValue) return false
+  const cache = resolve(cacheValue)
+  const dshPackage = join(cache, '@deepseek-ai', 'dsh', 'package.json')
+  const pnpmPackage = join(cache, 'pnpm', 'package.json')
+  if (!existsSync(dshPackage) || !existsSync(pnpmPackage)) throw new Error('--dependency-cache is incomplete')
+  if (JSON.parse(readFileSync(dshPackage, 'utf8')).version !== DSH_VERSION) throw new Error('--dependency-cache has the wrong DSH version')
+  if (JSON.parse(readFileSync(pnpmPackage, 'utf8')).version !== PNPM_VERSION) throw new Error('--dependency-cache has the wrong pnpm version')
+  cpSync(cache, join(appDir, 'node_modules'), { recursive: true })
+  return true
+}
+
+function replaceCachedDesktopPlugin(appDir, pluginTarball, outputDir) {
+  const extracted = join(outputDir, 'cached-desktop-plugin')
+  rmSync(extracted, { recursive: true, force: true })
+  mkdirSync(extracted, { recursive: true })
+  run(tarExecutable, ['-xf', pluginTarball, '-C', extracted])
+  const destination = join(appDir, 'node_modules', '@dsh', 'desktop-plugin')
+  rmSync(destination, { recursive: true, force: true })
+  mkdirSync(dirname(destination), { recursive: true })
+  cpSync(join(extracted, 'package'), destination, { recursive: true })
+  rmSync(extracted, { recursive: true, force: true })
 }
 
 function run(command, commandArgs, options = {}) {

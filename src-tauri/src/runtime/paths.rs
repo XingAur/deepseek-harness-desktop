@@ -1,5 +1,6 @@
 use std::path::{Component, Path, PathBuf};
-use tauri::{AppHandle, Manager};
+
+use crate::storage::app_paths::AppPaths;
 
 use super::model::{RuntimeFailure, RuntimeFailureCode};
 
@@ -15,22 +16,15 @@ pub struct RuntimePaths {
 }
 
 impl RuntimePaths {
-    pub fn resolve(app: &AppHandle) -> Result<Self, RuntimeFailure> {
-        let root = app
-            .path()
-            .app_local_data_dir()
-            .map_err(RuntimeFailure::internal)?;
-        let resource = app
-            .path()
-            .resource_dir()
-            .map_err(RuntimeFailure::internal)?;
+    pub fn from_app_paths(app_paths: &AppPaths) -> Result<Self, RuntimeFailure> {
+        let root = app_paths.active_root.clone();
         let paths = Self {
-            versions: root.join("runtime").join("versions"),
-            downloads: root.join("runtime").join("downloads"),
-            logs: root.join("logs"),
-            diagnostics: root.join("diagnostics"),
-            current: root.join("runtime").join("current.json"),
-            bundled_runtime: resource.join("runtime"),
+            versions: app_paths.runtime.join("versions"),
+            downloads: app_paths.runtime.join("downloads"),
+            logs: app_paths.logs.clone(),
+            diagnostics: app_paths.diagnostics.clone(),
+            current: app_paths.runtime.join("current.json"),
+            bundled_runtime: app_paths.bundled_runtime.clone(),
             root,
         };
         paths.create()?;

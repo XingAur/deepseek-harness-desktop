@@ -13,6 +13,7 @@ pub struct ActivationReceipt {
     installed_version: semver::Version,
     previous: Option<CurrentRuntime>,
     replaced_directory: Option<PathBuf>,
+    candidate_restore: Option<PathBuf>,
 }
 
 pub fn read_current(paths: &RuntimePaths) -> Result<Option<CurrentRuntime>, RuntimeFailure> {
@@ -44,6 +45,21 @@ pub fn stage_and_activate(
     manifest: &RuntimeManifest,
     operation_id: &str,
 ) -> Result<ActivationReceipt, RuntimeFailure> {
+    let receipt = stage(paths, archive, manifest, operation_id)?;
+    if let Err(cause) = activate(paths, &receipt) {
+        let _ = rollback(paths, receipt);
+        return Err(cause);
+    }
+    Ok(receipt)
+}
+
+pub fn stage(
+    paths: &RuntimePaths,
+    archive: &Path,
+    manifest: &RuntimeManifest,
+    operation_id: &str,
+) -> Result<ActivationReceipt, RuntimeFailure> {
+    let previous = read_current(paths)?;
     let final_dir = paths.version_dir(&manifest.version);
     let staging = paths
         .versions
@@ -79,30 +95,65 @@ pub fn stage_and_activate(
         }
         return Err(RuntimeFailure::internal(cause));
     }
+    Ok(ActivationReceipt {
+        installed_version: manifest.version.clone(),
+        previous,
+        replaced_directory,
+        candidate_restore: None,
+    })
+}
 
+pub fn stage_candidate(
+    paths: &RuntimePaths,
+    candidate: &Path,
+    manifest: &RuntimeManifest,
+    operation_id: &str,
+) -> Result<ActivationReceipt, RuntimeFailure> {
     let previous = read_current(paths)?;
-    let next = CurrentRuntime {
-        version: manifest.version.clone(),
-        previous_version: previous.as_ref().map(|current| current.version.clone()),
+    let final_dir = paths.version_dir(&manifest.version);
+    let backup = paths
+        .versions
+        .join(format!("{}.rollback-{operation_id}", manifest.version));
+    if backup.exists() {
+        fs::remove_dir_all(&backup).map_err(RuntimeFailure::internal)?;
+    }
+    let replaced_directory = if final_dir.exists() {
+        fs::rename(&final_dir, &backup).map_err(RuntimeFailure::internal)?;
+        Some(backup)
+    } else {
+        None
     };
-    if let Err(cause) = write_current(paths, &next) {
-        let _ = fs::remove_dir_all(&final_dir);
+    if let Err(cause) = fs::rename(candidate, &final_dir) {
         if let Some(replaced) = &replaced_directory {
             let _ = fs::rename(replaced, &final_dir);
         }
-        return Err(cause);
+        return Err(RuntimeFailure::internal(cause));
     }
     Ok(ActivationReceipt {
         installed_version: manifest.version.clone(),
         previous,
         replaced_directory,
+        candidate_restore: Some(candidate.to_path_buf()),
     })
+}
+
+pub fn activate(paths: &RuntimePaths, receipt: &ActivationReceipt) -> Result<(), RuntimeFailure> {
+    let next = CurrentRuntime {
+        version: receipt.installed_version.clone(),
+        previous_version: receipt
+            .previous
+            .as_ref()
+            .map(|current| current.version.clone()),
+    };
+    write_current(paths, &next)
 }
 
 pub fn commit(receipt: ActivationReceipt) -> Result<(), RuntimeFailure> {
     if let Some(replaced) = receipt.replaced_directory {
         if replaced.exists() {
-            fs::remove_dir_all(replaced).map_err(RuntimeFailure::internal)?;
+            // Pointer 已提交后，旧目录只属于可延迟清理的缓存；清理失败不能把
+            // 已经健康运行的新 Runtime 重新报告为激活失败。
+            let _ = fs::remove_dir_all(replaced);
         }
     }
     Ok(())
@@ -111,7 +162,17 @@ pub fn commit(receipt: ActivationReceipt) -> Result<(), RuntimeFailure> {
 pub fn rollback(paths: &RuntimePaths, failed: ActivationReceipt) -> Result<(), RuntimeFailure> {
     let final_dir = paths.version_dir(&failed.installed_version);
     if final_dir.exists() {
-        fs::remove_dir_all(&final_dir).map_err(RuntimeFailure::internal)?;
+        if let Some(candidate) = &failed.candidate_restore {
+            if let Some(parent) = candidate.parent() {
+                fs::create_dir_all(parent).map_err(RuntimeFailure::internal)?;
+            }
+            if candidate.exists() {
+                fs::remove_dir_all(candidate).map_err(RuntimeFailure::internal)?;
+            }
+            fs::rename(&final_dir, candidate).map_err(RuntimeFailure::internal)?;
+        } else {
+            fs::remove_dir_all(&final_dir).map_err(RuntimeFailure::internal)?;
+        }
     }
     if let Some(replaced) = failed.replaced_directory {
         fs::rename(replaced, &final_dir).map_err(RuntimeFailure::internal)?;
@@ -188,6 +249,7 @@ mod tests {
                 installed_version: version,
                 previous: Some(previous.clone()),
                 replaced_directory: Some(backup),
+                candidate_restore: None,
             },
         )
         .unwrap();

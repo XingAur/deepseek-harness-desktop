@@ -24,6 +24,8 @@ pub enum RuntimeFailureCode {
     Archive,
     Process,
     HealthTimeout,
+    MigrationConflict,
+    RepairRequired,
     Cancelled,
     Internal,
 }
@@ -152,7 +154,7 @@ pub enum ArchiveKind {
     TarGz,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeManifest {
     pub schema_version: u32,
