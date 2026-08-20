@@ -16,7 +16,9 @@ export function verifyNsisTemplate(path = resolve('src-tauri/windows/installer.n
   if (metadata.tauriCliVersion !== '2.11.4') throw new Error('Unexpected Tauri CLI baseline')
   if (metadata.tauriBundlerVersion !== '2.9.4') throw new Error('Unexpected tauri-bundler baseline')
   if (metadata.upstreamSha256 !== EXPECTED_UPSTREAM_SHA256) throw new Error('Unexpected upstream NSIS hash')
-  const strippedHash = createHash('sha256').update(stripCustomBlocks(source)).digest('hex')
+  const strippedHash = createHash('sha256')
+    .update(stripCustomBlocks(source).replaceAll('\r\n', '\n'))
+    .digest('hex')
   if (strippedHash !== EXPECTED_UPSTREAM_SHA256) {
     throw new Error(`Vendored NSIS baseline drifted outside provisioning blocks: ${strippedHash}`)
   }
