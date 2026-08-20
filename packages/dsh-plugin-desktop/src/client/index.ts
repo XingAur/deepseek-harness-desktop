@@ -11,4 +11,4 @@ export function apply(ctx: ClientContextLike): void {
 }
 
 export { AdvancedFrame } from './AdvancedFrame'
-export { MarketPage } from './MarketPage'
+export { createDesktopBridge } from './desktop-bridge'

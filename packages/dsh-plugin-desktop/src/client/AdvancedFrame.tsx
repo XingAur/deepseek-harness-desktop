@@ -4,14 +4,15 @@ import {
   computeDesktopColumns, MACOS_SIDEBAR_COLLAPSED, SIDEBAR_AUTO_COLLAPSE,
   SIDEBAR_COLLAPSED, SIDEBAR_DEFAULT,
 } from './layout-state'
-import { MarketPage } from './MarketPage'
+import { LocalProjectsPage } from './LocalProjectsPage'
 
-export function AdvancedFrame({ layout, platform, renderSlot, useSessions }: AdvancedFrameProps) {
+export function AdvancedFrame({ layout, platform, renderSlot, useSessions, useWorkspaces, workspaces, sessions, bridge }: AdvancedFrameProps) {
   const subscribe = useCallback((listener: () => void) => layout.subscribe(listener), [layout])
   const panels = useSyncExternalStore(subscribe, layout.getSnapshot)
   const frameRef = useRef<HTMLDivElement>(null)
   const [viewport, setViewport] = useState(() => window.innerWidth)
-  const [marketOpen, setMarketOpen] = useState(false)
+  const [projectsOpen, setProjectsOpen] = useState(false)
+  const workspaceState = useWorkspaces((state) => state)
   const detailsSession = useSessions((state) => {
     const current = state.current
     return current !== undefined && state.byId[current]?.blank === false ? current : undefined
@@ -29,14 +30,14 @@ export function AdvancedFrame({ layout, platform, renderSlot, useSessions }: Adv
 
   const narrow = viewport < SIDEBAR_AUTO_COLLAPSE
   useEffect(() => layout.setNarrow(narrow), [layout, narrow])
-  useEffect(() => { if (marketOpen) layout.closeDetails() }, [layout, marketOpen])
+  useEffect(() => { if (projectsOpen) layout.closeDetails() }, [layout, projectsOpen])
 
   const collapsed = panels.narrow ? !panels.narrowExpanded : panels.sidebar === 0
   const sidebarPreference = collapsed ? 0 : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
   const columns = computeDesktopColumns(
     viewport,
     sidebarPreference,
-    marketOpen || detailsSession === undefined ? 0 : panels.details,
+    projectsOpen || detailsSession === undefined ? 0 : panels.details,
     platform === 'darwin' ? MACOS_SIDEBAR_COLLAPSED : SIDEBAR_COLLAPSED,
   )
 
@@ -50,20 +51,39 @@ export function AdvancedFrame({ layout, platform, renderSlot, useSessions }: Adv
     >
       <aside className="dshDesktopSidebarSurface">
         <div className="dshDesktopUpstreamSidebar">{renderSlot('sidebar', { collapsed, width: columns.sidebar })}</div>
-        {!collapsed && (
-          <button className="dshDesktopMarketEntry" data-active={marketOpen} onClick={() => setMarketOpen((value) => !value)}>
-            ◇&nbsp;&nbsp;社区插件
-          </button>
-        )}
+        <button
+          type="button"
+          className="dshDesktopProjectsEntry"
+          data-collapsed={collapsed || undefined}
+          data-active={projectsOpen || undefined}
+          aria-label="本地项目"
+          aria-pressed={projectsOpen}
+          title={collapsed ? '本地项目' : undefined}
+          onClick={() => setProjectsOpen((value) => !value)}
+        >
+          <LocalProjectsIcon />
+          {!collapsed && <span>本地项目</span>}
+        </button>
       </aside>
       <main className="dshDesktopConversationSurface">
-        {marketOpen ? <MarketPage onClose={() => setMarketOpen(false)} /> : renderSlot('conversation', {})}
+        {projectsOpen
+          ? <LocalProjectsPage state={workspaceState} workspaces={workspaces} sessions={sessions} bridge={bridge} onClose={() => setProjectsOpen(false)} />
+          : renderSlot('conversation', {})}
       </main>
       <aside className="dshDesktopDetailsSurface">{renderSlot('details', {})}</aside>
       <div className="dshDesktopOverlay" data-shell-overlay>{renderSlot('shell.overlay', {})}</div>
       {!collapsed && <ResizeHandle side="sidebar" left={columns.sidebar} size={columns.sidebar} onResize={(width) => layout.setSidebar(width)} />}
       {columns.details > 0 && <ResizeHandle side="details" left={viewport - columns.details} size={columns.details} onResize={(width) => layout.setDetails(width)} />}
     </div>
+  )
+}
+
+function LocalProjectsIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+      <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" />
+      <path d="m4 7.5 8 4.5 8-4.5M12 12v9" />
+    </svg>
   )
 }
 
