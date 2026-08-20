@@ -26,6 +26,10 @@ export interface RuntimeManifestSummary {
 
 export function verifyBundledRuntime(input: VerifyBundledRuntimeInput): RuntimeManifestSummary
 export function fullInstallerName(version: string): string
+export function tauriBuildInvocation(
+  rootDirectory: string,
+  generatedConfig: string,
+): { command: string; args: string[] }
 export function withPreservedOnlineInstaller(
   paths: { onlinePath: string; fullPath: string },
   build: () => void | Promise<void>,

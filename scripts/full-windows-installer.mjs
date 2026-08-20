@@ -78,6 +78,20 @@ export function fullInstallerName(version) {
   return `DeepSeek Harness Desktop_${version}_x64-full-setup.exe`
 }
 
+export function tauriBuildInvocation(rootDirectory, generatedConfig) {
+  return {
+    command: process.execPath,
+    args: [
+      portable(resolve(rootDirectory, 'node_modules/@tauri-apps/cli/tauri.js')),
+      'build',
+      '--config',
+      portable(resolve(generatedConfig)),
+      '--bundles',
+      'nsis',
+    ],
+  }
+}
+
 export async function withPreservedOnlineInstaller({ onlinePath, fullPath }, build) {
   const online = resolve(onlinePath)
   const full = resolve(fullPath)
@@ -146,10 +160,10 @@ export function buildFullWindowsInstaller({
   )
 
   return withPreservedOnlineInstaller({ onlinePath, fullPath }, async () => {
-    const command = process.platform === 'win32' ? 'npx.cmd' : 'npx'
+    const { command, args } = tauriBuildInvocation(root, generatedConfig)
     const result = run(
       command,
-      ['tauri', 'build', '--config', generatedConfig, '--bundles', 'nsis'],
+      args,
       { cwd: root, env: environment, stdio: 'inherit' },
     )
     if (result.error) throw result.error

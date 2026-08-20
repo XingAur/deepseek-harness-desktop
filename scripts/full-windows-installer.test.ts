@@ -15,6 +15,7 @@ import { canonicalJson } from './canonical-json.mjs'
 import {
   createFullTauriConfig,
   fullInstallerName,
+  tauriBuildInvocation,
   verifyBundledRuntime,
   withPreservedOnlineInstaller,
 } from './full-windows-installer.mjs'
@@ -104,6 +105,19 @@ describe('full Windows installer contract', () => {
     expect(fullInstallerName('0.1.0')).toBe(
       'DeepSeek Harness Desktop_0.1.0_x64-full-setup.exe',
     )
+  })
+
+  it('launches the pinned Tauri CLI through Node instead of a Windows cmd shim', () => {
+    const invocation = tauriBuildInvocation('E:/repo', 'E:/repo/generated.json')
+    expect(invocation.command).toBe(process.execPath)
+    expect(invocation.args).toEqual([
+      'E:/repo/node_modules/@tauri-apps/cli/tauri.js',
+      'build',
+      '--config',
+      'E:/repo/generated.json',
+      '--bundles',
+      'nsis',
+    ])
   })
 
   it('restores an existing online installer after moving the full build', async () => {
