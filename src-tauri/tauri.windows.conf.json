@@ -3,6 +3,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "DeepSeek Harness Desktop",
         "decorations": false,
         "shadow": true,
@@ -15,7 +16,10 @@
     "windows": {
       "nsis": {
         "installMode": "currentUser",
-        "displayLanguageSelector": true
+        "displayLanguageSelector": true,
+        "template": "./windows/installer.nsi",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico"
       },
       "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true }
     }

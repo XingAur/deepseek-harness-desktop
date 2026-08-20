@@ -3,6 +3,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "",
         "decorations": false,
         "windowEffects": {
