@@ -4,6 +4,7 @@ mod commands;
 mod data_cleanup;
 mod desktop;
 mod generation;
+mod installer_runtime;
 mod migration;
 mod navigation;
 mod platform;
@@ -133,11 +134,26 @@ impl DesktopFoundation {
 pub fn run(mode: app_mode::ApplicationMode) {
     match mode {
         app_mode::ApplicationMode::Desktop => run_desktop(),
+        app_mode::ApplicationMode::InstallBundledRuntime => {
+            exit_after_bundled_runtime_install(installer_runtime::install())
+        }
         app_mode::ApplicationMode::PrepareDataCleanup => {
             exit_after_cleanup(data_cleanup::prepare_and_spawn())
         }
         app_mode::ApplicationMode::CleanupPending(nonce) => {
             exit_after_cleanup(data_cleanup::cleanup_pending(nonce))
+        }
+    }
+}
+
+fn exit_after_bundled_runtime_install(
+    result: Result<(), runtime::model::RuntimeFailure>,
+) -> ! {
+    match result {
+        Ok(()) => std::process::exit(0),
+        Err(cause) => {
+            eprintln!("{}", cause.message);
+            std::process::exit(31);
         }
     }
 }
