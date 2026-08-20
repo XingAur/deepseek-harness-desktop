@@ -2,9 +2,10 @@ import { createHash } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { assertRuntimePeerDependencies, runtimePeerDependencies } from './runtime-peer-dependencies.mjs'
 
 const NODE_VERSION = '24.14.0'
-const DSH_VERSION = '0.1.0-rc.7'
+const DSH_VERSION = '0.1.0-rc.8'
 const PNPM_VERSION = '11.7.0'
 const args = Object.fromEntries(process.argv.slice(2).map((item) => {
   const [key, ...value] = item.replace(/^--/, '').split('=')
@@ -53,16 +54,18 @@ writeFileSync(join(appDir, 'package.json'), JSON.stringify({
     '@deepseek-ai/dsh': DSH_VERSION,
     '@dsh/desktop-plugin': 'file:desktop-plugin.tgz',
     pnpm: PNPM_VERSION,
+    ...runtimePeerDependencies(DSH_VERSION),
   },
 }, null, 2))
-// --no-legacy-peer-deps：dsh-app-boot 的 peerDependencies（cordis-plugin-group、
-// dsh-invariants）必须由这里的安装补齐，否则 Runtime 启动时 ERR_MODULE_NOT_FOUND。
+// DSH 的 peer 图会让 npm 严格解析器发生指数级回溯。完整 peer 闭包已显式
+// 固定在 package.json 中，安装后还会扫描依赖树并由真实 Runtime 探活兜底。
 const reusedDependencies = restoreDependencyCache(appDir, args['dependency-cache'])
 if (!reusedDependencies) {
-  run('npm', ['install', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--no-legacy-peer-deps'], { cwd: appDir })
+  run('npm', ['install', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--legacy-peer-deps'], { cwd: appDir })
 } else {
   replaceCachedDesktopPlugin(appDir, pluginTarball, output)
 }
+assertRuntimePeerDependencies(appDir)
 writeLauncher(appDir, desktopPluginVersion, desktopPluginSha256, args.version || '0.1.0')
 writePnpmShim(stage, target)
 

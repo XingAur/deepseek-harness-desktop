@@ -97,6 +97,29 @@ describe('product copy', () => {
     expect(source).toContain("request.url === '/__desktop/control/health'")
   })
 
+  it('pins the managed Runtime to one DSH release candidate', () => {
+    const source = readFileSync('scripts/build-runtime.mjs', 'utf8')
+    const runtimeReadme = readFileSync('runtime/README.md', 'utf8')
+
+    expect(source).toContain("const DSH_VERSION = '0.1.0-rc.8'")
+    expect(source).not.toContain("const DSH_VERSION = '0.1.0-rc.7'")
+    expect(runtimeReadme).toContain('DeepSeek Harness `0.1.0-rc.8`')
+  })
+
+  it('installs the required Runtime peers without npm peer backtracking', () => {
+    const source = readFileSync('scripts/build-runtime.mjs', 'utf8')
+    const peerSource = readFileSync('scripts/runtime-peer-dependencies.mjs', 'utf8')
+
+    expect(peerSource).toContain("'@deepseek-ai/cordis-plugin-group': '1.0.1'")
+    expect(peerSource).toContain("'@deepseek-ai/dsh-invariants': dshVersion")
+    expect(peerSource).toContain("react: '18.3.1'")
+    expect(peerSource).toContain("'react-dom': '18.3.1'")
+    expect(source).toContain('runtimePeerDependencies(DSH_VERSION)')
+    expect(source).toContain('assertRuntimePeerDependencies(appDir)')
+    expect(source).toContain("'--legacy-peer-deps'")
+    expect(source).not.toContain("'--no-legacy-peer-deps'")
+  })
+
   it('does not ship community market modules', () => {
     for (const file of removedCommunityModules) {
       expect(existsSync(join('packages/dsh-plugin-desktop', file)), file).toBe(false)

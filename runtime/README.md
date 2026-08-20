@@ -4,7 +4,7 @@
 platform archive plus an unsigned manifest. Supported targets are exactly
 `windows-x86_64` and `darwin-aarch64`.
 
-The archive contains the official Node.js runtime, DeepSeek Harness `0.1.0-rc.7`, pnpm,
+The archive contains the official Node.js runtime, DeepSeek Harness `0.1.0-rc.8`, pnpm,
 the local Desktop Client plugin and a launcher. The Rust Runtime Manager verifies the signed manifest and SHA-256
 before extraction and activation.
 
