@@ -38,9 +38,10 @@ jobs:
             tauri_args: '--target aarch64-apple-darwin'
     runs-on: ${{ matrix.runner }}
     env:
-      DSH_DESKTOP_SIGNING_PUBLIC_KEY: ${{ secrets.DSH_DESKTOP_SIGNING_PUBLIC_KEY || 'cmFlmJvjXIrMN8AbIXxF2c6Gnpt9rDFd_Zhbl0U7AlI' }}
-      DSH_DESKTOP_SIGNING_PRIVATE_KEY: ${{ secrets.DSH_DESKTOP_SIGNING_PRIVATE_KEY || 'wbAbExHsjryIT22fTuRA3W61tJdaXFC7YxoAeN9uKnQ' }}
-      DSH_DESKTOP_RELEASE_PUBLIC_KEY: ${{ secrets.DSH_DESKTOP_SIGNING_PUBLIC_KEY || 'cmFlmJvjXIrMN8AbIXxF2c6Gnpt9rDFd_Zhbl0U7AlI' }}
+      DSH_DESKTOP_SIGNING_PUBLIC_KEY: ${{ startsWith(github.ref, 'refs/tags/') && secrets.DSH_DESKTOP_SIGNING_PUBLIC_KEY || 'cmFlmJvjXIrMN8AbIXxF2c6Gnpt9rDFd_Zhbl0U7AlI' }}
+      DSH_DESKTOP_SIGNING_PRIVATE_KEY: ${{ startsWith(github.ref, 'refs/tags/') && secrets.DSH_DESKTOP_SIGNING_PRIVATE_KEY || 'wbAbExHsjryIT22fTuRA3W61tJdaXFC7YxoAeN9uKnQ' }}
+      DSH_DESKTOP_RELEASE_PUBLIC_KEY: ${{ startsWith(github.ref, 'refs/tags/') && secrets.DSH_DESKTOP_SIGNING_PUBLIC_KEY || 'cmFlmJvjXIrMN8AbIXxF2c6Gnpt9rDFd_Zhbl0U7AlI' }}
+      TAURI_RELEASE_CONFIG_ARGS: ${{ startsWith(github.ref, 'refs/tags/') && '--config src-tauri/tauri.release.conf.json' || '' }}
       APPLE_SIGNING_CONFIGURED: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.APPLE_SIGNING_IDENTITY != '' }}
     steps:
       - uses: actions/checkout@v4
@@ -59,12 +60,19 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - name: Require production Runtime keys for a tagged release
+      - name: Require production signing keys for a tagged release
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
+        env:
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           test -n "${{ secrets.DSH_DESKTOP_SIGNING_PUBLIC_KEY }}"
           test -n "${{ secrets.DSH_DESKTOP_SIGNING_PRIVATE_KEY }}"
+          test -n "${TAURI_UPDATER_PUBLIC_KEY}"
+          test -n "${TAURI_SIGNING_PRIVATE_KEY}"
+          test -n "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD}"
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
@@ -75,8 +83,38 @@ jobs:
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked
 
-      - name: Sign curated community catalog
-        run: node scripts/sign-catalog.mjs runtime/catalog/community.json runtime/catalog/community.json
+      - name: Prepare ephemeral updater key for CI
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        shell: bash
+        run: |
+          CI_KEY="${RUNNER_TEMP}/dsh-ci-updater.key"
+          npm run tauri -- signer generate --ci --write-keys "${CI_KEY}"
+          TAURI_UPDATER_PUBLIC_KEY="$(cat "${CI_KEY}.pub")" node scripts/write-updater-config.mjs
+          {
+            echo "TAURI_SIGNING_PRIVATE_KEY=${CI_KEY}"
+            echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD="
+            echo "TAURI_RELEASE_CONFIG_ARGS=--config src-tauri/tauri.release.conf.json"
+          } >> "${GITHUB_ENV}"
+
+      - name: Prepare signed application updater config
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          APP_VERSION="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          test "${GITHUB_REF_NAME}" = "desktop-v${APP_VERSION}"
+          node scripts/write-updater-config.mjs
+          {
+            echo "TAURI_SIGNING_PRIVATE_KEY<<DSH_UPDATER_PRIVATE_KEY"
+            echo "${TAURI_SIGNING_PRIVATE_KEY}"
+            echo "DSH_UPDATER_PRIVATE_KEY"
+            echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD<<DSH_UPDATER_PASSWORD"
+            echo "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD}"
+            echo "DSH_UPDATER_PASSWORD"
+          } >> "${GITHUB_ENV}"
 
       - name: Assemble managed Runtime
         shell: bash
@@ -98,19 +136,28 @@ jobs:
 
       - name: Build Tauri installer
         if: runner.os != 'macOS' || env.APPLE_SIGNING_CONFIGURED != 'true'
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: .
           tauriScript: npm run tauri
-          args: ${{ matrix.tauri_args }}
+          args: ${{ matrix.tauri_args }} ${{ env.TAURI_RELEASE_CONFIG_ARGS }}
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          releaseName: DeepSeek Harness Desktop ${{ github.ref_name }}
+          releaseBody: Windows x64 与 macOS Apple Silicon 候选构建，包含独立签名的应用更新与 Runtime 更新制品。
+          releaseDraft: true
+          prerelease: false
+          retryAttempts: 3
+          uploadUpdaterJson: true
+          updaterJsonPreferNsis: true
+          uploadUpdaterSignatures: true
           uploadWorkflowArtifacts: true
           workflowArtifactNamePattern: desktop-[platform]-[arch]-[bundle]
 
       - name: Build signed Tauri installer
         if: runner.os == 'macOS' && env.APPLE_SIGNING_CONFIGURED == 'true'
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -122,7 +169,16 @@ jobs:
         with:
           projectPath: .
           tauriScript: npm run tauri
-          args: ${{ matrix.tauri_args }}
+          args: ${{ matrix.tauri_args }} ${{ env.TAURI_RELEASE_CONFIG_ARGS }}
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          releaseName: DeepSeek Harness Desktop ${{ github.ref_name }}
+          releaseBody: Windows x64 与 macOS Apple Silicon 候选构建，包含独立签名的应用更新与 Runtime 更新制品。
+          releaseDraft: true
+          prerelease: false
+          retryAttempts: 3
+          uploadUpdaterJson: true
+          updaterJsonPreferNsis: true
+          uploadUpdaterSignatures: true
           uploadWorkflowArtifacts: true
           workflowArtifactNamePattern: desktop-[platform]-[arch]-[bundle]
 
@@ -143,14 +199,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: release-assets
+          pattern: runtime-*
           merge-multiple: true
-      - name: Create draft GitHub release
+      - name: Add managed Runtime files to draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ github.ref_name }}" \
-            --repo "${{ github.repository }}" \
-            --draft \
-            --title "DeepSeek Harness Desktop ${{ github.ref_name }}" \
-            --notes "Windows x64 与 macOS Apple Silicon 首版候选构建。"
-          find release-assets -type f -print0 | xargs -0 gh release upload "${{ github.ref_name }}" --repo "${{ github.repository }}"
+          find release-assets -type f -print0 | xargs -0 gh release upload "${{ github.ref_name }}" --repo "${{ github.repository }}" --clobber
