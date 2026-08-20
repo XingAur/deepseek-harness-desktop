@@ -1,11 +1,13 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { App } from './App'
-import type { BootstrapReply, RuntimeClient, RuntimeEvent } from './runtime-contract'
+import type { AppUpdateEvent, BootstrapReply, DesktopEvent, RuntimeClient, RuntimeEvent, RuntimeFailureCode } from './runtime-contract'
 import type { WindowControls } from './window-client'
 
 function fakeRuntime() {
   let listener: ((event: RuntimeEvent) => void) | undefined
+  let desktopListener: ((event: DesktopEvent) => void) | undefined
+  let appUpdateListener: ((event: AppUpdateEvent) => void) | undefined
   const runtime: RuntimeClient = {
     bootstrapRuntime: vi.fn(async (): Promise<BootstrapReply> => ({
       operationId: 'op-1', phase: 'checking', rendererUrl: null,
@@ -15,14 +17,30 @@ function fakeRuntime() {
       operationId: 'repair-1', phase: 'checking', rendererUrl: null,
     })),
     exportDiagnostics: vi.fn(async () => 'C:\\Temp\\dsh-diagnostics.zip'),
+    migrationStatus: vi.fn(async () => ({ phase: 'ready' as const })),
+    confirmMigration: vi.fn(async () => undefined),
+    deferMigration: vi.fn(async () => undefined),
+    checkAppUpdate: vi.fn(async () => ({ phase: 'idle' as const })),
+    downloadAppUpdate: vi.fn(async () => ({ phase: 'idle' as const })),
+    installAppUpdateNow: vi.fn(async () => undefined),
+    installAppUpdateOnExit: vi.fn(async () => ({ phase: 'idle' as const })),
+    deferAppUpdate: vi.fn(async () => ({ phase: 'idle' as const })),
+    takeAppUpdateReceipt: vi.fn(async () => null),
     subscribeRuntimeProgress: vi.fn(async (next) => { listener = next; return () => undefined }),
+    subscribeDesktopEvents: vi.fn(async (next) => { desktopListener = next; return () => undefined }),
+    subscribeAppUpdates: vi.fn(async (next) => { appUpdateListener = next; return () => undefined }),
   }
-  return { runtime, emit: (event: RuntimeEvent) => listener?.(event) }
+  return {
+    runtime,
+    emit: (event: RuntimeEvent) => listener?.(event),
+    emitDesktop: (event: DesktopEvent) => desktopListener?.(event),
+    emitAppUpdate: (event: AppUpdateEvent) => appUpdateListener?.(event),
+  }
 }
 
 function fakeWindowControls(): WindowControls {
   return {
-    close: vi.fn(async () => undefined),
+    hide: vi.fn(async () => undefined),
     minimize: vi.fn(async () => undefined),
     toggleMaximize: vi.fn(async () => undefined),
     startDragging: vi.fn(async () => undefined),
@@ -30,6 +48,177 @@ function fakeWindowControls(): WindowControls {
 }
 
 describe('App', () => {
+  it('offers restart, install on exit, and defer after a signed download', async () => {
+    const { runtime, emitDesktop } = fakeRuntime()
+    vi.mocked(runtime.checkAppUpdate).mockResolvedValue({
+      phase: 'ready',
+      update: { version: '0.2.0', notes: '稳定性更新', size: 1024 },
+    })
+    render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
+    await waitFor(() => expect(runtime.bootstrapRuntime).toHaveBeenCalled())
+    emitDesktop({
+      kind: 'generation-active', generationId: 'op-1',
+      snapshot: {
+        generationId: 'op-1', phase: 'active', runtimeVersion: '1.8.2',
+        rendererUrl: 'http://127.0.0.1:39000/',
+        profile: { profileId: 'a', revision: 1, name: '默认' },
+      },
+    })
+
+    expect(await screen.findByText('DeepSeek Harness 0.2.0 已准备好')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '立即重启安装' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '退出时安装' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '暂不安装' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '退出时安装' }))
+    await waitFor(() => expect(runtime.installAppUpdateOnExit).toHaveBeenCalled())
+  })
+
+  it('keeps automatic application update failures silent', async () => {
+    const { runtime, emitDesktop } = fakeRuntime()
+    vi.mocked(runtime.checkAppUpdate).mockRejectedValue({
+      code: 'check', message: '更新服务器暂时不可用', recoverable: true,
+    })
+    render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
+    await waitFor(() => expect(runtime.bootstrapRuntime).toHaveBeenCalled())
+    emitDesktop({
+      kind: 'generation-active', generationId: 'op-1',
+      snapshot: {
+        generationId: 'op-1', phase: 'active', runtimeVersion: '1.8.2',
+        rendererUrl: 'http://127.0.0.1:39000/',
+        profile: { profileId: 'a', revision: 1, name: '默认' },
+      },
+    })
+
+    await waitFor(() => expect(runtime.checkAppUpdate).toHaveBeenCalledWith('automatic'))
+    expect(screen.queryByText('应用更新暂时不可用')).not.toBeInTheDocument()
+    expect(screen.getByTitle('DeepSeek Harness 工作台')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '启动遇到问题' })).not.toBeInTheDocument()
+  })
+
+  it('shows an actionable banner for a manual native-menu failure', async () => {
+    const { runtime, emitDesktop, emitAppUpdate } = fakeRuntime()
+    render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
+    await waitFor(() => expect(runtime.bootstrapRuntime).toHaveBeenCalled())
+    emitDesktop({
+      kind: 'generation-active', generationId: 'op-1',
+      snapshot: {
+        generationId: 'op-1', phase: 'active', runtimeVersion: '1.8.2',
+        rendererUrl: 'http://127.0.0.1:39000/',
+        profile: { profileId: 'a', revision: 1, name: '默认' },
+      },
+    })
+    await waitFor(() => expect(runtime.checkAppUpdate).toHaveBeenCalledWith('automatic'))
+    emitAppUpdate({
+      source: 'manual',
+      state: { phase: 'failed', update: { code: 'check', message: '更新服务器暂时不可用', recoverable: true } },
+    })
+
+    expect(await screen.findByText('应用更新暂时不可用')).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+    await waitFor(() => expect(runtime.checkAppUpdate).toHaveBeenCalledWith('manual'))
+  })
+
+  it('shows a completed application version transition once the workbench is active', async () => {
+    const { runtime, emitDesktop } = fakeRuntime()
+    vi.mocked(runtime.takeAppUpdateReceipt).mockResolvedValue({
+      previousVersion: '0.1.0', targetVersion: '0.2.0', installedAt: '2026-08-19T12:00:00Z',
+    })
+    render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
+    await waitFor(() => expect(runtime.bootstrapRuntime).toHaveBeenCalled())
+    emitDesktop({
+      kind: 'generation-active', generationId: 'op-1',
+      snapshot: {
+        generationId: 'op-1', phase: 'active', runtimeVersion: '1.8.2',
+        rendererUrl: 'http://127.0.0.1:39000/',
+        profile: { profileId: 'a', revision: 1, name: '默认' },
+      },
+    })
+
+    expect(await screen.findByText('DeepSeek Harness 已更新')).toBeInTheDocument()
+    expect(screen.getByText('0.1.0 → 0.2.0')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '知道了' }))
+    expect(screen.queryByText('DeepSeek Harness 已更新')).not.toBeInTheDocument()
+  })
+
+  it('does not bootstrap until a discovered migration is deferred', async () => {
+    const { runtime } = fakeRuntime()
+    vi.mocked(runtime.migrationStatus).mockResolvedValue({
+      phase: 'candidate', source: 'C:\\旧数据', target: 'C:\\新数据',
+      bytes: 4096, profiles: 2, workspaces: 3,
+    })
+    render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
+    expect(await screen.findByText('发现旧版桌面数据')).toBeInTheDocument()
+    expect(runtime.bootstrapRuntime).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '稍后处理' }))
+    await waitFor(() => expect(runtime.deferMigration).toHaveBeenCalled())
+    await waitFor(() => expect(runtime.bootstrapRuntime).toHaveBeenCalled())
+  })
+
+  it('shows version transition and last-known-good recovery events', async () => {
+    const { runtime, emitDesktop } = fakeRuntime()
+    render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
+    await waitFor(() => expect(runtime.bootstrapRuntime).toHaveBeenCalled())
+    emitDesktop({
+      kind: 'generation-progress', generationId: 'op-1',
+      payload: {
+        phase: 'preparing-runtime', message: '正在升级', completed: 5, total: 10,
+        installedVersion: '1.7.0', requiredVersion: '1.8.2',
+      },
+    })
+    expect(await screen.findByText('Runtime v1.7.0 → v1.8.2')).toBeInTheDocument()
+    emitDesktop({
+      kind: 'profile-recovered', generationId: 'op-1',
+      profile: { profileId: 'a', revision: 3, name: '默认开发环境' },
+      reason: '目标 Profile 启动失败',
+    })
+    expect(await screen.findByText('已恢复到默认开发环境')).toBeInTheDocument()
+  })
+
+  it.each([
+    ['checking', '版本一致，正在快速启动…'],
+    ['fetching-manifest', '发现新版本 0.2.0，正在自动更新…'],
+    ['starting', '更新完成（已更新到 0.2.0），正在启动 DeepSeek Harness…'],
+  ] as const)('shows %s decision messages', async (phase, message) => {
+    const { runtime, emit } = fakeRuntime()
+    render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
+    await waitFor(() => expect(runtime.bootstrapRuntime).toHaveBeenCalled())
+    emit({
+      kind: 'progress',
+      payload: { operationId: 'op-1', phase, completed: 0, total: null, message },
+    })
+    expect(await screen.findByText(message)).toBeInTheDocument()
+  })
+
+  it('shows first launch and automatic repair copy from runtime progress', async () => {
+    const { runtime, emit } = fakeRuntime()
+    render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
+    await waitFor(() => expect(runtime.bootstrapRuntime).toHaveBeenCalled())
+    emit({
+      kind: 'progress',
+      payload: {
+        operationId: 'op-1', phase: 'fetching-manifest', completed: 0, total: null,
+        message: '首次使用，需要下载运行组件',
+      },
+    })
+    expect(await screen.findByText('首次使用，需要下载运行组件')).toBeVisible()
+    emit({
+      kind: 'progress',
+      payload: {
+        operationId: 'op-1', phase: 'fetching-manifest', completed: 0, total: null,
+        message: '本地运行组件需要修复，正在重新下载',
+      },
+    })
+    expect(await screen.findByText('本地运行组件需要修复，正在重新下载')).toBeVisible()
+  })
+
+  it('uses the official DeepSeek brand on the bootstrap card', async () => {
+    const { runtime } = fakeRuntime()
+    const { container } = render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
+
+    expect(await screen.findByRole('heading', { name: '准备你的 DeepSeek Harness' })).toBeInTheDocument()
+    expect(container.querySelector('svg[data-deepseek-fish-logo]')).toHaveAttribute('viewBox', '0 0 23.16 17.04')
+  })
+
   it('restores an already-ready workbench without waiting for another event', async () => {
     const { runtime } = fakeRuntime()
     vi.mocked(runtime.bootstrapRuntime).mockResolvedValue({
@@ -42,6 +231,30 @@ describe('App', () => {
 
     const frame = await screen.findByTitle('DeepSeek Harness 工作台')
     expect(frame).toHaveAttribute('src', expect.stringContaining('127.0.0.1:39000'))
+  })
+
+  it('syncs only trusted workbench theme messages to the desktop chrome', async () => {
+    const { runtime } = fakeRuntime()
+    vi.mocked(runtime.bootstrapRuntime).mockResolvedValue({
+      operationId: 'op-ready',
+      phase: 'ready',
+      rendererUrl: 'http://127.0.0.1:39000/',
+    })
+    const { container } = render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
+    const frame = await screen.findByTitle<HTMLIFrameElement>('DeepSeek Harness 工作台')
+    const shell = container.querySelector('.windowShell')
+
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'dsh-desktop-theme', colorScheme: 'light' },
+      source: frame.contentWindow,
+    }))
+    await waitFor(() => expect(shell).toHaveAttribute('data-theme', 'light'))
+
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'dsh-desktop-theme', colorScheme: 'dark' },
+      source: window,
+    }))
+    expect(shell).toHaveAttribute('data-theme', 'light')
   })
 
   it('starts bootstrap and renders download progress with cancel', async () => {
@@ -57,26 +270,78 @@ describe('App', () => {
     expect(runtime.cancelRuntime).toHaveBeenCalled()
   })
 
-  it('shows retry, repair and diagnostic actions after failure', async () => {
+  it('shows an indeterminate hint when no percentage is known', async () => {
+    const { runtime, emit } = fakeRuntime()
+    render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
+    await waitFor(() => expect(runtime.bootstrapRuntime).toHaveBeenCalled())
+    emit({
+      kind: 'progress',
+      payload: { operationId: 'op-1', phase: 'checking', completed: 0, total: null, message: '正在检查 DeepSeek Harness…' },
+    })
+    expect(await screen.findByText('请稍候…')).toBeInTheDocument()
+  })
+
+  it('shows human failure copy with technical details behind the toggle', async () => {
+    const { runtime, emit } = fakeRuntime()
+    const { container } = render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
+    await waitFor(() => expect(runtime.bootstrapRuntime).toHaveBeenCalled())
+    emit({
+      kind: 'failure', operationId: 'op-1',
+      payload: { code: 'process', message: 'Io error: entity not found (os error 2)', recoverable: true },
+    })
+    expect(await screen.findByRole('heading', { name: '启动遇到问题' })).toBeInTheDocument()
+    expect(screen.getByText('DeepSeek Harness 意外退出，未能完成启动。请重试或修复。')).toBeInTheDocument()
+    expect(screen.queryByText(/entity not found/)).not.toBeInTheDocument()
+    expect(container.querySelector('.bootstrapCard')).toHaveAttribute('data-failed', 'true')
+    fireEvent.click(screen.getByRole('button', { name: '查看详情' }))
+    expect(screen.getByText('技术信息')).toBeInTheDocument()
+    expect(screen.getByText(/entity not found/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '导出诊断' }))
+    expect(await screen.findByText(/dsh-diagnostics\.zip/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '修复 DeepSeek Harness' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: '修复 DeepSeek Harness' }))
+    await waitFor(() => expect(runtime.repairRuntime).toHaveBeenCalled())
+  })
+
+  it('clears stale failure copy once a retry starts', async () => {
     const { runtime, emit } = fakeRuntime()
     render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
     await waitFor(() => expect(runtime.bootstrapRuntime).toHaveBeenCalled())
     emit({
       kind: 'failure', operationId: 'op-1',
-      payload: { code: 'process', message: '启动失败', recoverable: true },
+      payload: { code: 'process', message: 'Io error: entity not found (os error 2)', recoverable: true },
     })
-    expect(await screen.findByRole('button', { name: '重试' })).toBeEnabled()
-    fireEvent.click(screen.getByRole('button', { name: '导出诊断' }))
-    expect(await screen.findByText(/dsh-diagnostics\.zip/)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '修复运行时' }))
-    await waitFor(() => expect(runtime.repairRuntime).toHaveBeenCalled())
+    expect(await screen.findByText(/意外退出/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+    expect(await screen.findByText('正在检查 DeepSeek Harness…')).toBeInTheDocument()
+    expect(screen.queryByText(/意外退出/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '修复 DeepSeek Harness' })).not.toBeInTheDocument()
+  })
+
+  it('maps each failure code to plain-language copy', async () => {
+    const cases: [RuntimeFailureCode, RegExp][] = [
+      ['network', /网络连接不可用或太慢/],
+      ['signature', /下载的文件未通过安全校验/],
+      ['archive', /安装包似乎已损坏/],
+      ['health-timeout', /启动等待超时/],
+      ['cancelled', /本次启动已取消/],
+      ['internal', /程序内部出现了一点问题/],
+    ]
+    for (const [code, pattern] of cases) {
+      const { runtime, emit } = fakeRuntime()
+      render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
+      await waitFor(() => expect(runtime.bootstrapRuntime).toHaveBeenCalled())
+      emit({ kind: 'failure', operationId: 'op-1', payload: { code, message: `raw ${code}`, recoverable: true } })
+      expect(await screen.findByText(pattern)).toBeInTheDocument()
+      cleanup()
+    }
   })
 
   it('keeps the trusted title bar when the workbench becomes ready', async () => {
     const { runtime, emit } = fakeRuntime()
     render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
     await waitFor(() => expect(runtime.bootstrapRuntime).toHaveBeenCalled())
-    expect(screen.getByText('DeepSeek Harness Desktop')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '关闭窗口' })).toBeInTheDocument()
 
     emit({
       kind: 'ready', operationId: 'op-1',
@@ -85,7 +350,7 @@ describe('App', () => {
 
     const frame = await screen.findByTitle('DeepSeek Harness 工作台')
     expect(frame).toHaveAttribute('src', expect.stringContaining('127.0.0.1:39000'))
-    expect(screen.getByText('DeepSeek Harness Desktop')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '关闭窗口' })).toBeInTheDocument()
   })
 
   it('returns from a ready workbench to recovery when the Runtime exits', async () => {
@@ -102,6 +367,6 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { name: '启动遇到问题' })).toBeInTheDocument()
     expect(screen.queryByTitle('DeepSeek Harness 工作台')).not.toBeInTheDocument()
-    expect(screen.getByText('DeepSeek Harness Desktop')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '关闭窗口' })).toBeInTheDocument()
   })
 })

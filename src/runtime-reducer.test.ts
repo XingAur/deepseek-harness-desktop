@@ -2,6 +2,19 @@ import { describe, expect, it } from 'vitest'
 import { initialRuntimeState, runtimeReducer, type RuntimeViewState } from './runtime-reducer'
 
 describe('runtimeReducer', () => {
+  it('ignores an event from a superseded generation', () => {
+    const active = { ...initialRuntimeState, generationId: 'g-2', phase: 'active' as const }
+    const next = runtimeReducer(active, {
+      type: 'desktop-event',
+      event: {
+        kind: 'generation-failed',
+        generationId: 'g-1',
+        failure: { code: 'process', message: 'late', recoverable: true },
+      },
+    })
+    expect(next).toBe(active)
+  })
+
   it('restores a ready renderer from a repeated bootstrap reply', () => {
     const next = runtimeReducer(initialRuntimeState, {
       type: 'bootstrap-started',
@@ -106,5 +119,19 @@ describe('runtimeReducer', () => {
 
     expect(next.rendererUrl).toBeNull()
     expect(next.phase).toBe('failed')
+  })
+
+  it('resets the stale failure message when a new bootstrap starts', () => {
+    let state = runtimeReducer(initialRuntimeState, {
+      type: 'request-failed',
+      error: { code: 'network', message: 'raw boom', recoverable: true },
+    })
+    state = runtimeReducer(state, {
+      type: 'bootstrap-started',
+      reply: { operationId: 'op-2', phase: 'checking', rendererUrl: null },
+    })
+
+    expect(state.error).toBeNull()
+    expect(state.message).toBe('正在检查 DeepSeek Harness…')
   })
 })

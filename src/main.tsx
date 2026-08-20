@@ -8,8 +8,16 @@ import './app.css'
 const container = document.getElementById('root')
 if (container === null) throw new Error('Missing #root mount point')
 
-createRoot(container).render(
-  <StrictMode>
-    <App runtime={tauriRuntimeClient} windowControls={tauriWindowControls} />
-  </StrictMode>,
-)
+async function bootstrap(rootContainer: HTMLElement) {
+  if (import.meta.env.MODE === 'e2e') {
+    await import('@wdio/tauri-plugin')
+  }
+
+  createRoot(rootContainer).render(
+    <StrictMode>
+      <App runtime={tauriRuntimeClient} windowControls={tauriWindowControls} />
+    </StrictMode>,
+  )
+}
+
+void bootstrap(container)

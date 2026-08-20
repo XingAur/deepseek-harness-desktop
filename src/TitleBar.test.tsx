@@ -5,7 +5,7 @@ import type { WindowControls } from './window-client'
 
 function fakeControls(): WindowControls {
   return {
-    close: vi.fn(async () => undefined),
+    hide: vi.fn(async () => undefined),
     minimize: vi.fn(async () => undefined),
     toggleMaximize: vi.fn(async () => undefined),
     startDragging: vi.fn(async () => undefined),
@@ -21,9 +21,10 @@ describe('TitleBar', () => {
     fireEvent.click(screen.getByRole('button', { name: '最小化窗口' }))
     fireEvent.click(screen.getByRole('button', { name: '最大化或还原窗口' }))
 
-    expect(controls.close).toHaveBeenCalledOnce()
+    expect(controls.hide).toHaveBeenCalledOnce()
     expect(controls.minimize).toHaveBeenCalledOnce()
     expect(controls.toggleMaximize).toHaveBeenCalledOnce()
+    expect(screen.queryByText('DeepSeek Harness Desktop')).not.toBeInTheDocument()
   })
 
   it('starts native dragging from blank primary-button title space', () => {
@@ -32,7 +33,7 @@ describe('TitleBar', () => {
     const bar = screen.getByRole('banner')
 
     expect(bar).not.toHaveAttribute('data-tauri-drag-region')
-    fireEvent.mouseDown(screen.getByText('DeepSeek Harness Desktop'), { buttons: 1, detail: 1 })
+    fireEvent.mouseDown(bar, { buttons: 1, detail: 1 })
     expect(controls.startDragging).not.toHaveBeenCalled()
     fireEvent.mouseMove(bar, { buttons: 1 })
 

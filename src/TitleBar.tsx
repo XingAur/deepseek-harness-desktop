@@ -43,7 +43,7 @@ export function TitleBar({ controls }: TitleBarProps) {
       onMouseLeave={resetDrag}
     >
       <div className="windowControls">
-        <TrafficButton label="关闭窗口" className="trafficClose" onClick={() => void controls.close()}>
+        <TrafficButton label="关闭窗口" className="trafficClose" onClick={() => void controls.hide()}>
           <path d="M5 5l10 10M15 5L5 15" />
         </TrafficButton>
         <TrafficButton label="最小化窗口" className="trafficMinimize" onClick={() => void controls.minimize()}>
@@ -53,7 +53,6 @@ export function TitleBar({ controls }: TitleBarProps) {
           <path d="M6 14l8-8M8 6h6v6" />
         </TrafficButton>
       </div>
-      <span className="windowTitle">DeepSeek Harness Desktop</span>
     </header>
   )
 }
