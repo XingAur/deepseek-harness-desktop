@@ -20,7 +20,7 @@ use crate::provisioning::{
 use super::{
     activation::{self, ActivationReceipt, read_active_manifest, read_current},
     compatibility::{LocalRuntimeDecision, RuntimeRequirement, decide_local},
-    download::download_runtime,
+    download::{download_runtime, verify_file},
     manifest::{parse_and_verify_manifest, release_public_key},
     model::{ArchiveKind, RuntimeFailure, RuntimeFailureCode, RuntimeManifest, RuntimeTarget},
     paths::RuntimePaths,
@@ -49,6 +49,13 @@ pub struct RuntimeUpdater {
     paths: RuntimePaths,
     client: reqwest::Client,
     source: Arc<dyn RuntimeManifestSource>,
+    archive_source: CandidateArchiveSource,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CandidateArchiveSource {
+    Download,
+    Bundled,
 }
 
 impl RuntimeUpdater {
@@ -80,6 +87,22 @@ impl RuntimeUpdater {
             paths,
             client,
             source,
+            archive_source: CandidateArchiveSource::Download,
+        })
+    }
+
+    pub fn new_bundled(
+        paths: RuntimePaths,
+        client: reqwest::Client,
+    ) -> Result<Self, RuntimeFailure> {
+        let source = Arc::new(BundledManifestSource {
+            paths: paths.clone(),
+        });
+        Ok(Self {
+            paths,
+            client,
+            source,
+            archive_source: CandidateArchiveSource::Bundled,
         })
     }
 
@@ -92,7 +115,17 @@ impl RuntimeUpdater {
             paths,
             client,
             source,
+            archive_source: CandidateArchiveSource::Download,
         }
+    }
+
+    pub async fn required_bundled_manifest(&self) -> Result<RuntimeManifest, RuntimeFailure> {
+        if self.archive_source != CandidateArchiveSource::Bundled {
+            return Err(RuntimeFailure::internal(
+                "只有捆绑 Runtime 更新器可以读取内置清单",
+            ));
+        }
+        self.source.fetch(RuntimeTarget::current()?).await
     }
 
     pub fn local_decision(
@@ -176,7 +209,9 @@ impl RuntimeUpdater {
         )
         .await
         .map_err(|_| RuntimeFailure::new(RuntimeFailureCode::Network, "获取运行时清单超时"))??;
-        if let Some(endpoint) = manifest_endpoint()? {
+        if self.archive_source == CandidateArchiveSource::Download
+            && let Some(endpoint) = manifest_endpoint()?
+        {
             runtime_source_policy(endpoint)?.validate_redirect(&manifest.url)?;
         }
         let archive = archive_path(&self.paths, &manifest);
@@ -250,7 +285,6 @@ impl RuntimeUpdater {
         let candidates = self.paths.root.join("runtime/provisioning/candidates");
         std::fs::create_dir_all(&downloads).map_err(RuntimeFailure::internal)?;
         std::fs::create_dir_all(&candidates).map_err(RuntimeFailure::internal)?;
-        let archive = provisioning_archive_path(&downloads, session, &manifest);
         let download_started = std::time::Instant::now();
         progress(provisioning_event(
             session.id,
@@ -260,24 +294,61 @@ impl RuntimeUpdater {
             Some(manifest.size),
             None,
         ));
-        download_runtime(
-            &self.client,
-            &manifest,
-            &archive,
-            cancellation,
-            |completed, total| {
-                let elapsed = download_started.elapsed().as_secs_f64().max(0.001);
+        let (archive, remove_archive_after_prepare) = match self.archive_source {
+            CandidateArchiveSource::Download => {
+                let archive = provisioning_archive_path(&downloads, session, &manifest);
+                download_runtime(
+                    &self.client,
+                    &manifest,
+                    &archive,
+                    cancellation,
+                    |completed, total| {
+                        let elapsed = download_started.elapsed().as_secs_f64().max(0.001);
+                        progress(provisioning_event(
+                            session.id,
+                            ProvisioningPhase::Downloading,
+                            "正在下载运行组件",
+                            Some(completed),
+                            Some(total),
+                            Some((completed as f64 / elapsed) as u64),
+                        ));
+                    },
+                )
+                .await?;
+                (archive, true)
+            }
+            CandidateArchiveSource::Bundled => {
+                let archive = self
+                    .paths
+                    .bundled_runtime
+                    .join(bundled_archive_name(manifest.target, manifest.archive));
+                let size = tokio::fs::metadata(&archive)
+                    .await
+                    .map_err(|cause| {
+                        RuntimeFailure::new(
+                            RuntimeFailureCode::Archive,
+                            format!("找不到捆绑 Runtime：{cause}"),
+                        )
+                    })?
+                    .len();
+                if size != manifest.size {
+                    return Err(RuntimeFailure::new(
+                        RuntimeFailureCode::Archive,
+                        format!("捆绑 Runtime 大小不匹配：{size}/{}", manifest.size),
+                    ));
+                }
+                verify_file(&archive, &manifest).await?;
                 progress(provisioning_event(
                     session.id,
                     ProvisioningPhase::Downloading,
-                    "正在下载运行组件",
-                    Some(completed),
-                    Some(total),
-                    Some((completed as f64 / elapsed) as u64),
+                    "正在读取内置运行组件",
+                    Some(manifest.size),
+                    Some(manifest.size),
+                    None,
                 ));
-            },
-        )
-        .await?;
+                (archive, false)
+            }
+        };
         progress(provisioning_event(
             session.id,
             ProvisioningPhase::Verifying,
@@ -324,7 +395,9 @@ impl RuntimeUpdater {
         })
         .await
         .map_err(RuntimeFailure::internal)?;
-        let _ = std::fs::remove_file(&archive);
+        if remove_archive_after_prepare {
+            let _ = std::fs::remove_file(&archive);
+        }
         if let Err(cause) = prepared {
             return Err(cause);
         }
@@ -603,6 +676,32 @@ struct ReleaseManifestSource {
     client: reqwest::Client,
 }
 
+struct BundledManifestSource {
+    paths: RuntimePaths,
+}
+
+impl RuntimeManifestSource for BundledManifestSource {
+    fn fetch<'a>(
+        &'a self,
+        target: RuntimeTarget,
+    ) -> Pin<Box<dyn Future<Output = Result<RuntimeManifest, RuntimeFailure>> + Send + 'a>> {
+        Box::pin(async move {
+            let path = self
+                .paths
+                .bundled_runtime
+                .join("manifests")
+                .join(format!("runtime-{}.json", target.as_str()));
+            let bytes = tokio::fs::read(path).await.map_err(|cause| {
+                RuntimeFailure::new(
+                    RuntimeFailureCode::Archive,
+                    format!("找不到捆绑运行时清单：{cause}"),
+                )
+            })?;
+            parse_and_verify_manifest(&bytes, target, release_public_key())
+        })
+    }
+}
+
 impl RuntimeManifestSource for ReleaseManifestSource {
     fn fetch<'a>(
         &'a self,
@@ -671,6 +770,14 @@ fn provisioning_archive_path(
         ArchiveKind::TarGz => "tar.gz",
     };
     downloads.join(format!("{}.{extension}.part", session.id))
+}
+
+fn bundled_archive_name(target: RuntimeTarget, archive: ArchiveKind) -> String {
+    let extension = match archive {
+        ArchiveKind::Zip => "zip",
+        ArchiveKind::TarGz => "tar.gz",
+    };
+    format!("dsh-runtime-{}.{extension}", target.as_str())
 }
 
 fn validate_exact_candidate(expected: &Path, actual: &Path) -> Result<(), RuntimeFailure> {
@@ -919,6 +1026,88 @@ mod tests {
             minimum_runtime: Version::parse(version).unwrap(),
             dsh: semver::VersionReq::parse("^0.1.0-rc.7").unwrap(),
         }
+    }
+
+    fn write_bundled_runtime(fixture: &UpdaterFixture, manifest: &RuntimeManifest) {
+        let manifests = fixture.paths.bundled_runtime.join("manifests");
+        std::fs::create_dir_all(&manifests).unwrap();
+        std::fs::copy(
+            manifest.url.to_file_path().unwrap(),
+            fixture
+                .paths
+                .bundled_runtime
+                .join("dsh-runtime-windows-x86_64.tar.gz"),
+        )
+        .unwrap();
+        std::fs::write(
+            manifests.join("runtime-windows-x86_64.json"),
+            serde_json::to_vec_pretty(manifest).unwrap(),
+        )
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn bundled_candidate_uses_packaged_archive_without_network() {
+        let fixture = UpdaterFixture::with_current("1.0.0").await;
+        let manifest = fixture.manifest("1.1.0");
+        write_bundled_runtime(&fixture, &manifest);
+        let updater = RuntimeUpdater::new_bundled(
+            fixture.paths.clone(),
+            reqwest::Client::new(),
+        )
+        .unwrap();
+        let session = ProvisioningSession {
+            id: uuid::Uuid::new_v4(),
+            desktop_version: Version::new(0, 1, 0),
+            target: RuntimeTarget::WindowsX86_64,
+            started_at: chrono::Utc::now(),
+        };
+
+        let prepared = updater
+            .prepare_candidate(&session, &CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert!(prepared.candidate_dir.join("app/runtime.txt").is_file());
+        assert!(fixture
+            .paths
+            .bundled_runtime
+            .join("dsh-runtime-windows-x86_64.tar.gz")
+            .is_file());
+        assert_eq!(std::fs::read_dir(&fixture.paths.downloads).unwrap().count(), 0);
+        assert_eq!(fixture.manifest_source.fetches.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn bundled_candidate_rejects_hash_mismatch_and_preserves_source() {
+        let fixture = UpdaterFixture::with_current("1.0.0").await;
+        let manifest = fixture.manifest("1.1.0");
+        write_bundled_runtime(&fixture, &manifest);
+        let bundled_archive = fixture
+            .paths
+            .bundled_runtime
+            .join("dsh-runtime-windows-x86_64.tar.gz");
+        std::fs::write(&bundled_archive, vec![0_u8; manifest.size as usize]).unwrap();
+        let updater = RuntimeUpdater::new_bundled(
+            fixture.paths.clone(),
+            reqwest::Client::new(),
+        )
+        .unwrap();
+        let session = ProvisioningSession {
+            id: uuid::Uuid::new_v4(),
+            desktop_version: Version::new(0, 1, 0),
+            target: RuntimeTarget::WindowsX86_64,
+            started_at: chrono::Utc::now(),
+        };
+
+        let failure = updater
+            .prepare_candidate(&session, &CancellationToken::new())
+            .await
+            .unwrap_err();
+
+        assert_eq!(failure.code, RuntimeFailureCode::Signature);
+        assert!(bundled_archive.is_file());
+        assert_eq!(fixture.manifest_source.fetches.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
