@@ -56,6 +56,16 @@ const abbreviatedProductCopy = [
 ]
 
 describe('product copy', () => {
+  it('keeps bootstrap scrolling native while styling a subtle themed scrollbar', () => {
+    const css = readFileSync('src/app.css', 'utf8')
+
+    expect(css).toContain('scrollbar-width: thin')
+    expect(css).toContain('scrollbar-color:')
+    expect(css).toContain('.bootstrapShell::-webkit-scrollbar')
+    expect(css).toContain('.bootstrapShell::-webkit-scrollbar-thumb:hover')
+    expect(css).not.toMatch(/\.bootstrapShell::?-webkit-scrollbar[^}]*display:\s*none/s)
+  })
+
   it('ships one in-app runtime preparation surface', () => {
     const main = readFileSync('src/main.tsx', 'utf8')
     const lib = readFileSync('src-tauri/src/lib.rs', 'utf8')

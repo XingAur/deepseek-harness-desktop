@@ -158,10 +158,35 @@ button { font: inherit; }
   place-items: center;
   padding: 18px 24px;
   overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--shell-muted) 34%, transparent) transparent;
   background:
     radial-gradient(circle at 15% 10%, var(--shell-brand-soft), transparent 34%),
     radial-gradient(circle at 85% 80%, color-mix(in srgb, var(--shell-brand) 10%, transparent), transparent 36%),
     var(--shell-bg);
+}
+
+.bootstrapShell::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+.bootstrapShell::-webkit-scrollbar-track,
+.bootstrapShell::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.bootstrapShell::-webkit-scrollbar-thumb {
+  min-height: 48px;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--shell-muted) 34%, transparent);
+  background-clip: content-box;
+}
+
+.bootstrapShell::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--shell-muted) 52%, transparent);
+  background-clip: content-box;
 }
 
 .bootstrapCard {
