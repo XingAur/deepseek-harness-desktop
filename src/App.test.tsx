@@ -1,13 +1,14 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { App } from './App'
-import type { AppUpdateEvent, BootstrapReply, DesktopEvent, RuntimeClient, RuntimeEvent, RuntimeFailureCode } from './runtime-contract'
+import type { AppUpdateEvent, BootstrapReply, DesktopEvent, LocalAppEvent, RuntimeClient, RuntimeEvent, RuntimeFailureCode } from './runtime-contract'
 import type { WindowControls } from './window-client'
 
 function fakeRuntime() {
   let listener: ((event: RuntimeEvent) => void) | undefined
   let desktopListener: ((event: DesktopEvent) => void) | undefined
   let appUpdateListener: ((event: AppUpdateEvent) => void) | undefined
+  let localAppListener: ((event: LocalAppEvent) => void) | undefined
   const runtime: RuntimeClient = {
     bootstrapRuntime: vi.fn(async (): Promise<BootstrapReply> => ({
       operationId: 'op-1', phase: 'checking', rendererUrl: null,
@@ -29,12 +30,14 @@ function fakeRuntime() {
     subscribeRuntimeProgress: vi.fn(async (next) => { listener = next; return () => undefined }),
     subscribeDesktopEvents: vi.fn(async (next) => { desktopListener = next; return () => undefined }),
     subscribeAppUpdates: vi.fn(async (next) => { appUpdateListener = next; return () => undefined }),
+    subscribeLocalAppEvents: vi.fn(async (next) => { localAppListener = next; return () => undefined }),
   }
   return {
     runtime,
     emit: (event: RuntimeEvent) => listener?.(event),
     emitDesktop: (event: DesktopEvent) => desktopListener?.(event),
     emitAppUpdate: (event: AppUpdateEvent) => appUpdateListener?.(event),
+    emitLocalApp: (event: LocalAppEvent) => localAppListener?.(event),
   }
 }
 

@@ -142,17 +142,17 @@ export interface AppUpdateEvent {
   state: AppUpdateState
 }
 
+export interface AppUpdateReceipt {
+  previousVersion: string
+  targetVersion: string
+  installedAt: string
+}
+
 export interface LocalAppEvent {
   kind: 'launched' | 'stopped' | 'exited'
   workspaceId: string
   origin: string | null
   title: string | null
-}
-
-export interface AppUpdateReceipt {
-  previousVersion: string
-  targetVersion: string
-  installedAt: string
 }
 
 export interface RuntimeClient {
