@@ -129,7 +129,8 @@ mod tests {
 
     use super::*;
     use crate::runtime::model::{
-        RuntimeDiagnosticSnapshot, RuntimeFailureCode, RuntimePhase, RuntimeTarget,
+        RuntimeDiagnosticSnapshot, RuntimeFailureCode, RuntimeFailureContext, RuntimeFailureStage,
+        RuntimePhase, RuntimeTarget,
     };
 
     #[test]
@@ -172,7 +173,15 @@ mod tests {
             target: Some(RuntimeTarget::WindowsX86_64),
             phase: RuntimePhase::Failed,
             failure_phase: Some(RuntimePhase::Starting),
-            failure: Some(RuntimeFailure::new(RuntimeFailureCode::Process, "退出码 7")),
+            failure: Some(
+                RuntimeFailure::new(RuntimeFailureCode::Process, "退出码 7").with_context(
+                    RuntimeFailureContext {
+                        stage: RuntimeFailureStage::ManagedRuntimeShutdown,
+                        process_ids: vec![11, 14],
+                        managed_relative_path: Some("versions/0.1.0-preview/node.exe".to_string()),
+                    },
+                ),
+            ),
             exit_code: Some(7),
             log_file: Some("dsh-2026-08-18.log".into()),
         };
@@ -192,6 +201,13 @@ mod tests {
         assert!(summary.contains("process"));
         assert!(summary.contains("\"exitCode\": 7"));
         assert!(summary.contains("dsh-2026-08-18.log"));
+        assert!(summary.contains("managed-runtime-shutdown"));
+        assert!(summary.contains("\"processIds\": ["));
+        assert!(summary.contains("11"));
+        assert!(summary.contains("14"));
+        assert!(summary.contains("versions/0.1.0-preview/node.exe"));
+        assert!(!summary.contains(r"C:\Users\"));
+        assert!(!summary.contains("CommandLine"));
 
         let mut log = String::new();
         archive

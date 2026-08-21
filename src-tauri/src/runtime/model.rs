@@ -30,6 +30,24 @@ pub enum RuntimeFailureCode {
     Internal,
 }
 
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeFailureStage {
+    ManagedRuntimeShutdown,
+    ActivationFileLock,
+    CandidateActivation,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeFailureContext {
+    pub stage: RuntimeFailureStage,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub process_ids: Vec<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub managed_relative_path: Option<String>,
+}
+
 #[derive(Clone, Debug, Serialize, thiserror::Error)]
 #[serde(rename_all = "camelCase")]
 #[error("{message}")]
@@ -37,6 +55,8 @@ pub struct RuntimeFailure {
     pub code: RuntimeFailureCode,
     pub message: String,
     pub recoverable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<RuntimeFailureContext>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -73,7 +93,13 @@ impl RuntimeFailure {
             code,
             message: message.into(),
             recoverable: true,
+            context: None,
         }
+    }
+
+    pub fn with_context(mut self, context: RuntimeFailureContext) -> Self {
+        self.context = Some(context);
+        self
     }
 
     pub fn internal(cause: impl std::fmt::Display) -> Self {
@@ -135,6 +161,7 @@ impl RuntimeTarget {
                 code: RuntimeFailureCode::Internal,
                 message: format!("首版不支持当前平台 {os}-{arch}"),
                 recoverable: false,
+                context: None,
             }),
         }
     }

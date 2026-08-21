@@ -13,6 +13,7 @@ use crate::{
         diagnostics,
         model::{RuntimeDiagnosticSnapshot, RuntimeFailure, RuntimeManifest, RuntimePhase},
         paths::RuntimePaths,
+        process_cleanup::shutdown_managed_runtimes,
         redaction::redact_secrets,
         updater::RuntimeUpdater,
     },
@@ -60,17 +61,23 @@ pub fn install() -> Result<(), RuntimeFailure> {
     let runtime_paths = RuntimePaths::from_app_paths(&app_paths)?;
     let result = tauri::async_runtime::block_on(install_from_paths(runtime_paths.clone()));
     if let Err(cause) = &result {
-        let snapshot = RuntimeDiagnosticSnapshot {
-            phase: RuntimePhase::Failed,
-            failure: Some(RuntimeFailure::new(
-                cause.code,
-                redact_secrets(&cause.message),
-            )),
-            ..RuntimeDiagnosticSnapshot::default()
-        };
+        let snapshot = failed_snapshot(cause);
         let _ = diagnostics::export(&runtime_paths, &snapshot);
     }
     result
+}
+
+fn failed_snapshot(cause: &RuntimeFailure) -> RuntimeDiagnosticSnapshot {
+    let safe_failure = RuntimeFailure {
+        message: redact_secrets(&cause.message),
+        ..cause.clone()
+    };
+    RuntimeDiagnosticSnapshot {
+        phase: RuntimePhase::Failed,
+        failure_phase: cause.context.as_ref().map(|_| RuntimePhase::Activating),
+        failure: Some(safe_failure),
+        ..RuntimeDiagnosticSnapshot::default()
+    }
 }
 
 async fn install_from_paths(paths: RuntimePaths) -> Result<(), RuntimeFailure> {
@@ -99,6 +106,7 @@ async fn install_from_paths(paths: RuntimePaths) -> Result<(), RuntimeFailure> {
     );
     let session = coordinator.start_session().await?;
     let prepared = coordinator.prepare_fresh(&session).await?;
+    shutdown_managed_runtimes(&paths)?;
     coordinator
         .commit(session.id, &prepared.manifest_sha256)
         .await?;
@@ -110,10 +118,13 @@ mod tests {
     use semver::Version;
     use url::Url;
 
-    use super::{BundledInstallDecision, install_decision};
+    use super::{BundledInstallDecision, failed_snapshot, install_decision};
     use crate::runtime::{
         compatibility::LocalRuntimeDecision,
-        model::{ArchiveKind, RuntimeManifest, RuntimeTarget},
+        model::{
+            ArchiveKind, RuntimeFailure, RuntimeFailureCode, RuntimeFailureContext,
+            RuntimeFailureStage, RuntimeManifest, RuntimeTarget,
+        },
     };
 
     fn manifest(version: &str, sha256: &str) -> RuntimeManifest {
@@ -157,5 +168,22 @@ mod tests {
             install_decision(LocalRuntimeDecision::FastStart(different), &bundled),
             BundledInstallDecision::Provision,
         );
+    }
+
+    #[test]
+    fn installer_snapshot_preserves_safe_context_and_redacts_the_message() {
+        let cause =
+            RuntimeFailure::new(RuntimeFailureCode::Process, "Authorization: Bearer secret")
+                .with_context(RuntimeFailureContext {
+                    stage: RuntimeFailureStage::ManagedRuntimeShutdown,
+                    process_ids: vec![41],
+                    managed_relative_path: None,
+                });
+
+        let snapshot = failed_snapshot(&cause);
+
+        let failure = snapshot.failure.unwrap();
+        assert_eq!(failure.message, "Authorization: [REDACTED]");
+        assert_eq!(failure.context, cause.context);
     }
 }
