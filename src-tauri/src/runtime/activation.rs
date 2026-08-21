@@ -5,7 +5,7 @@ use std::{
 };
 
 use super::{
-    archive::extract_archive,
+    archive::{ExtractionProgress, extract_archive_with_progress},
     model::{
         CurrentRuntime, RuntimeFailure, RuntimeFailureContext, RuntimeFailureStage, RuntimeManifest,
     },
@@ -62,6 +62,16 @@ pub fn stage(
     manifest: &RuntimeManifest,
     operation_id: &str,
 ) -> Result<ActivationReceipt, RuntimeFailure> {
+    stage_with_progress(paths, archive, manifest, operation_id, &|_, _| {})
+}
+
+pub fn stage_with_progress(
+    paths: &RuntimePaths,
+    archive: &Path,
+    manifest: &RuntimeManifest,
+    operation_id: &str,
+    progress: ExtractionProgress<'_>,
+) -> Result<ActivationReceipt, RuntimeFailure> {
     let previous = read_current(paths)?;
     let final_dir = paths.version_dir(&manifest.version);
     let staging = paths
@@ -77,7 +87,8 @@ pub fn stage(
         fs::remove_dir_all(&backup).map_err(RuntimeFailure::internal)?;
     }
     fs::create_dir_all(&staging).map_err(RuntimeFailure::internal)?;
-    if let Err(cause) = extract_archive(archive, &staging, manifest.archive) {
+    if let Err(cause) = extract_archive_with_progress(archive, &staging, manifest.archive, progress)
+    {
         let _ = fs::remove_dir_all(&staging);
         return Err(cause);
     }

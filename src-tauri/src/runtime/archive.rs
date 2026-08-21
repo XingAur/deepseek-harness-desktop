@@ -1,6 +1,6 @@
 use std::{
     fs::{self, File},
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf},
 };
 
@@ -13,16 +13,28 @@ use super::{
 
 const MAX_FILES: usize = 200_000;
 const MAX_UNCOMPRESSED: u64 = 8 * 1024 * 1024 * 1024;
+const COPY_BUFFER_SIZE: usize = 64 * 1024;
+
+pub type ExtractionProgress<'a> = &'a (dyn Fn(u64, u64) + Send + Sync);
 
 pub fn extract_archive(
     archive: &Path,
     destination: &Path,
     kind: ArchiveKind,
 ) -> Result<(), RuntimeFailure> {
+    extract_archive_with_progress(archive, destination, kind, &|_, _| {})
+}
+
+pub fn extract_archive_with_progress(
+    archive: &Path,
+    destination: &Path,
+    kind: ArchiveKind,
+    progress: ExtractionProgress<'_>,
+) -> Result<(), RuntimeFailure> {
     fs::create_dir_all(destination).map_err(RuntimeFailure::internal)?;
     match kind {
-        ArchiveKind::Zip => extract_zip(archive, destination),
-        ArchiveKind::TarGz => extract_tar_gz(archive, destination),
+        ArchiveKind::Zip => extract_zip(archive, destination, progress),
+        ArchiveKind::TarGz => extract_tar_gz(archive, destination, progress),
     }
 }
 
@@ -34,7 +46,7 @@ fn confined_destination(root: &Path, value: &Path) -> Result<PathBuf, RuntimeFai
     Ok(root.join(relative))
 }
 
-fn extract_zip(source: &Path, destination: &Path) -> Result<(), RuntimeFailure> {
+fn validate_zip(source: &Path, destination: &Path) -> Result<u64, RuntimeFailure> {
     let file = File::open(source).map_err(RuntimeFailure::internal)?;
     let mut zip = zip::ZipArchive::new(file)
         .map_err(|cause| RuntimeFailure::new(RuntimeFailureCode::Archive, cause.to_string()))?;
@@ -46,7 +58,7 @@ fn extract_zip(source: &Path, destination: &Path) -> Result<(), RuntimeFailure> 
     }
     let mut total = 0_u64;
     for index in 0..zip.len() {
-        let mut entry = zip
+        let entry = zip
             .by_index(index)
             .map_err(|cause| RuntimeFailure::new(RuntimeFailureCode::Archive, cause.to_string()))?;
         if entry
@@ -70,6 +82,29 @@ fn extract_zip(source: &Path, destination: &Path) -> Result<(), RuntimeFailure> 
         let enclosed = entry.enclosed_name().ok_or_else(|| {
             RuntimeFailure::new(RuntimeFailureCode::Archive, "Runtime ZIP 包含逃逸路径")
         })?;
+        confined_destination(destination, &enclosed)?;
+    }
+    Ok(total)
+}
+
+fn extract_zip(
+    source: &Path,
+    destination: &Path,
+    progress: ExtractionProgress<'_>,
+) -> Result<(), RuntimeFailure> {
+    let total = validate_zip(source, destination)?;
+    progress(0, total);
+    let file = File::open(source).map_err(RuntimeFailure::internal)?;
+    let mut zip = zip::ZipArchive::new(file)
+        .map_err(|cause| RuntimeFailure::new(RuntimeFailureCode::Archive, cause.to_string()))?;
+    let mut completed = 0_u64;
+    for index in 0..zip.len() {
+        let mut entry = zip
+            .by_index(index)
+            .map_err(|cause| RuntimeFailure::new(RuntimeFailureCode::Archive, cause.to_string()))?;
+        let enclosed = entry.enclosed_name().ok_or_else(|| {
+            RuntimeFailure::new(RuntimeFailureCode::Archive, "Runtime ZIP 包含逃逸路径")
+        })?;
         let output = confined_destination(destination, &enclosed)?;
         if entry.is_dir() {
             fs::create_dir_all(&output).map_err(RuntimeFailure::internal)?;
@@ -79,13 +114,14 @@ fn extract_zip(source: &Path, destination: &Path) -> Result<(), RuntimeFailure> 
             fs::create_dir_all(parent).map_err(RuntimeFailure::internal)?;
         }
         let mut target = File::create(&output).map_err(RuntimeFailure::internal)?;
-        std::io::copy(&mut entry, &mut target).map_err(RuntimeFailure::internal)?;
+        copy_with_progress(&mut entry, &mut target, &mut completed, total, progress)?;
         target.flush().map_err(RuntimeFailure::internal)?;
     }
+    progress(total, total);
     Ok(())
 }
 
-fn extract_tar_gz(source: &Path, destination: &Path) -> Result<(), RuntimeFailure> {
+fn validate_tar_gz(source: &Path, destination: &Path) -> Result<u64, RuntimeFailure> {
     let file = File::open(source).map_err(RuntimeFailure::internal)?;
     let mut archive = tar::Archive::new(GzDecoder::new(file));
     let mut files = 0_usize;
@@ -94,7 +130,7 @@ fn extract_tar_gz(source: &Path, destination: &Path) -> Result<(), RuntimeFailur
         .entries()
         .map_err(|cause| RuntimeFailure::new(RuntimeFailureCode::Archive, cause.to_string()))?;
     for entry in entries {
-        let mut entry = entry
+        let entry = entry
             .map_err(|cause| RuntimeFailure::new(RuntimeFailureCode::Archive, cause.to_string()))?;
         files += 1;
         if files > MAX_FILES {
@@ -120,6 +156,29 @@ fn extract_tar_gz(source: &Path, destination: &Path) -> Result<(), RuntimeFailur
             ));
         }
         let path = entry.path().map_err(RuntimeFailure::internal)?;
+        confined_destination(destination, &path)?;
+    }
+    Ok(total)
+}
+
+fn extract_tar_gz(
+    source: &Path,
+    destination: &Path,
+    progress: ExtractionProgress<'_>,
+) -> Result<(), RuntimeFailure> {
+    let total = validate_tar_gz(source, destination)?;
+    progress(0, total);
+    let file = File::open(source).map_err(RuntimeFailure::internal)?;
+    let mut archive = tar::Archive::new(GzDecoder::new(file));
+    let entries = archive
+        .entries()
+        .map_err(|cause| RuntimeFailure::new(RuntimeFailureCode::Archive, cause.to_string()))?;
+    let mut completed = 0_u64;
+    for entry in entries {
+        let mut entry = entry
+            .map_err(|cause| RuntimeFailure::new(RuntimeFailureCode::Archive, cause.to_string()))?;
+        let kind = entry.header().entry_type();
+        let path = entry.path().map_err(RuntimeFailure::internal)?;
         let output = confined_destination(destination, &path)?;
         if kind.is_dir() {
             fs::create_dir_all(output).map_err(RuntimeFailure::internal)?;
@@ -128,18 +187,109 @@ fn extract_tar_gz(source: &Path, destination: &Path) -> Result<(), RuntimeFailur
                 fs::create_dir_all(parent).map_err(RuntimeFailure::internal)?;
             }
             let mut target = File::create(output).map_err(RuntimeFailure::internal)?;
-            std::io::copy(&mut entry, &mut target).map_err(RuntimeFailure::internal)?;
+            copy_with_progress(&mut entry, &mut target, &mut completed, total, progress)?;
+            target.flush().map_err(RuntimeFailure::internal)?;
         }
     }
+    progress(total, total);
     Ok(())
+}
+
+fn copy_with_progress(
+    source: &mut impl Read,
+    destination: &mut impl Write,
+    completed: &mut u64,
+    total: u64,
+    progress: ExtractionProgress<'_>,
+) -> Result<(), RuntimeFailure> {
+    let mut buffer = [0_u8; COPY_BUFFER_SIZE];
+    loop {
+        let read = source.read(&mut buffer).map_err(RuntimeFailure::internal)?;
+        if read == 0 {
+            return Ok(());
+        }
+        destination
+            .write_all(&buffer[..read])
+            .map_err(RuntimeFailure::internal)?;
+        *completed = completed.checked_add(read as u64).ok_or_else(|| {
+            RuntimeFailure::new(RuntimeFailureCode::Archive, "Runtime 解压进度溢出")
+        })?;
+        progress(*completed, total);
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::{io::Write, sync::Mutex};
+
+    use flate2::{Compression, write::GzEncoder};
+    use zip::write::SimpleFileOptions;
+
     use super::*;
 
     #[test]
     fn rejects_parent_paths() {
         assert!(confined_destination(Path::new("safe"), Path::new("../escape")).is_err());
+    }
+
+    #[test]
+    fn reports_monotonic_zip_extraction_progress() {
+        let temporary = tempfile::tempdir().unwrap();
+        let archive = temporary.path().join("runtime.zip");
+        let destination = temporary.path().join("output");
+        let file = File::create(&archive).unwrap();
+        let mut writer = zip::ZipWriter::new(file);
+        let options = SimpleFileOptions::default();
+        writer.start_file("first.txt", options).unwrap();
+        writer.write_all(b"four").unwrap();
+        writer.start_file("second.txt", options).unwrap();
+        writer.write_all(b"fives").unwrap();
+        writer.finish().unwrap();
+        let events = Mutex::new(Vec::new());
+
+        extract_archive_with_progress(&archive, &destination, ArchiveKind::Zip, &|done, total| {
+            events.lock().unwrap().push((done, total));
+        })
+        .unwrap();
+
+        assert_progress(events.into_inner().unwrap(), 9);
+    }
+
+    #[test]
+    fn reports_monotonic_tar_gz_extraction_progress() {
+        let temporary = tempfile::tempdir().unwrap();
+        let archive = temporary.path().join("runtime.tar.gz");
+        let destination = temporary.path().join("output");
+        let encoder = GzEncoder::new(File::create(&archive).unwrap(), Compression::default());
+        let mut builder = tar::Builder::new(encoder);
+        append_tar_file(&mut builder, "first.txt", b"four");
+        append_tar_file(&mut builder, "second.txt", b"fives");
+        builder.into_inner().unwrap().finish().unwrap();
+        let events = Mutex::new(Vec::new());
+
+        extract_archive_with_progress(
+            &archive,
+            &destination,
+            ArchiveKind::TarGz,
+            &|done, total| events.lock().unwrap().push((done, total)),
+        )
+        .unwrap();
+
+        assert_progress(events.into_inner().unwrap(), 9);
+    }
+
+    fn append_tar_file(builder: &mut tar::Builder<GzEncoder<File>>, path: &str, contents: &[u8]) {
+        let mut header = tar::Header::new_gnu();
+        header.set_size(contents.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        builder.append_data(&mut header, path, contents).unwrap();
+    }
+
+    fn assert_progress(events: Vec<(u64, u64)>, total: u64) {
+        assert_eq!(events.first(), Some(&(0, total)));
+        assert_eq!(events.last(), Some(&(total, total)));
+        assert!(events.windows(2).all(|pair| pair[0].0 <= pair[1].0));
+        assert!(events.iter().all(|(done, size)| *done <= *size));
     }
 }

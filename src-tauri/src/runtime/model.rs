@@ -9,6 +9,7 @@ pub enum RuntimePhase {
     FetchingManifest,
     Downloading,
     Verifying,
+    Extracting,
     Activating,
     Starting,
     Ready,
@@ -204,4 +205,17 @@ pub struct RuntimeManifest {
 pub struct CurrentRuntime {
     pub version: Version,
     pub previous_version: Option<Version>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serializes_extracting_phase_for_the_desktop_contract() {
+        assert_eq!(
+            serde_json::to_string(&RuntimePhase::Extracting).unwrap(),
+            "\"extracting\""
+        );
+    }
 }
