@@ -67,11 +67,13 @@ describe('product copy', () => {
   it('presents the repository to ordinary users without advertising an unavailable download', () => {
     const readme = readFileSync('README.md', 'utf8')
 
-    expect(readme).toContain('首个公开预览版正在准备中')
+    expect(readme).toContain('首个公开版本还需要完成')
     expect(readme).toContain('首次打开应用')
     expect(readme).toContain('后续启动')
     expect(readme).toContain('本地项目')
+    expect(readme).toContain('文档\\DeepSeek Harness\\Projects')
     expect(readme).toContain('Profile')
+    expect(readFileSync('packages/dsh-plugin-desktop/README.md', 'utf8')).toContain('项目路径、Profile 和权限由桌面端自动处理')
     expect(readme).toContain('## 开发者指南')
     expect(readme).not.toMatch(/releases\/latest\/download\/.+setup/i)
     expect(readme).not.toContain('手机远程控制')
@@ -105,6 +107,13 @@ describe('product copy', () => {
     expect(source).toContain("healthPath: '/__desktop/health'")
     expect(source).toContain('DSH_DESKTOP_PROFILE_REVISION')
     expect(source).toContain("request.url === '/__desktop/control/health'")
+  })
+
+  it('ships and attaches the managed Runtime WebSocket event proxy', () => {
+    const source = readFileSync('scripts/build-runtime.mjs', 'utf8')
+    expect(source).toContain("cpSync(join('scripts', 'runtime-websocket-proxy.mjs'")
+    expect(source).toContain("import { attachRuntimeWebSocketProxy } from './runtime-websocket-proxy.mjs'")
+    expect(source).toContain('attachRuntimeWebSocketProxy(proxy, { port: backendPort })')
   })
 
   it('hides Windows Runtime startup and shutdown helper windows', () => {
@@ -199,8 +208,26 @@ describe('product copy', () => {
 
   it('requires the current managed Runtime identity for Windows releases', () => {
     const source = readFileSync('scripts/windows-installer.mjs', 'utf8')
+    const workflow = readFileSync('.github/workflows/desktop.yml', 'utf8')
 
-    expect(source).toContain("manifest.version !== '0.1.2-preview'")
+    expect(source).toContain("export const MANAGED_RUNTIME_VERSION = '0.1.4-preview'")
+    expect(workflow).toContain('MANAGED_RUNTIME_VERSION: 0.1.4-preview')
+    expect(workflow).toContain(
+      'releases/download/runtime-v${MANAGED_RUNTIME_VERSION}/dsh-runtime-',
+    )
+    expect(workflow).toContain(
+      "tauri_args: '--config src-tauri/target/windows-installer/tauri.windows-installer.conf.json'",
+    )
+    const prepareConfig = workflow.indexOf('- name: Prepare Windows installer config')
+    const signManifest = workflow.indexOf('- name: Sign and stage Runtime manifest')
+    const buildInstaller = workflow.indexOf('- name: Build Tauri installer')
+    expect(prepareConfig).toBeGreaterThan(-1)
+    expect(signManifest).toBeLessThan(prepareConfig)
+    expect(prepareConfig).toBeLessThan(buildInstaller)
+    expect(workflow).toContain('node scripts/windows-installer.mjs --prepare-config')
+    expect(workflow).toContain(
+      'args: ${{ matrix.tauri_args }} ${{ env.TAURI_RELEASE_CONFIG_ARGS }}',
+    )
   })
 
   it('never replaces an existing managed Runtime release asset', () => {
@@ -210,6 +237,17 @@ describe('product copy', () => {
 
     expect(runtimeUpload).toContain('gh release upload')
     expect(runtimeUpload).not.toContain('--clobber')
+  })
+
+  it('publishes Runtime assets to the immutable managed Runtime tag', () => {
+    const workflow = readFileSync('.github/workflows/desktop.yml', 'utf8')
+    const release = workflow.slice(workflow.indexOf('  release:'))
+
+    expect(release).toContain('RUNTIME_TAG="runtime-v${MANAGED_RUNTIME_VERSION}"')
+    expect(release).toContain('gh release view "${RUNTIME_TAG}"')
+    expect(release).toContain('gh release create "${RUNTIME_TAG}"')
+    expect(release).toContain('gh release upload "${RUNTIME_TAG}"')
+    expect(release).not.toContain('gh release upload "${{ github.ref_name }}"')
   })
 
   it('always ships a parseable fallback updater configuration', () => {

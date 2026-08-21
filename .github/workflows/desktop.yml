@@ -17,6 +17,10 @@ concurrency:
   group: desktop-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  MANAGED_RUNTIME_VERSION: 0.1.4-preview
+  DSH_DESKTOP_RUNTIME_MANIFEST_URL: https://github.com/${{ github.repository }}/releases/download/runtime-v0.1.4-preview/runtime-{target}.json
+
 jobs:
   desktop:
     name: ${{ matrix.name }}
@@ -29,7 +33,7 @@ jobs:
             runtime_target: windows-x86_64
             runtime_extension: zip
             rust_target: x86_64-pc-windows-msvc
-            tauri_args: ''
+            tauri_args: '--config src-tauri/target/windows-installer/tauri.windows-installer.conf.json'
           - name: macOS Apple Silicon
             runner: macos-15
             runtime_target: darwin-aarch64
@@ -119,12 +123,10 @@ jobs:
       - name: Assemble managed Runtime
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#desktop-v}"
-          if [[ "${VERSION}" == "${GITHUB_REF_NAME}" ]]; then VERSION="0.1.0"; fi
           node scripts/build-runtime.mjs \
             --target=${{ matrix.runtime_target }} \
-            --version="${VERSION}" \
-            --url=https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/dsh-runtime-${{ matrix.runtime_target }}.${{ matrix.runtime_extension }}
+            --version="${MANAGED_RUNTIME_VERSION}" \
+            --url=https://github.com/${{ github.repository }}/releases/download/runtime-v${MANAGED_RUNTIME_VERSION}/dsh-runtime-${{ matrix.runtime_target }}.${{ matrix.runtime_extension }}
 
       - name: Sign and stage Runtime manifest
         shell: bash
@@ -132,7 +134,14 @@ jobs:
           mkdir -p runtime/manifests
           node scripts/sign-manifest.mjs \
             runtime-build/${{ matrix.runtime_target }}/manifest-${{ matrix.runtime_target }}.unsigned.json \
+            runtime-build/${{ matrix.runtime_target }}/runtime-${{ matrix.runtime_target }}.json
+          cp \
+            runtime-build/${{ matrix.runtime_target }}/runtime-${{ matrix.runtime_target }}.json \
             runtime/manifests/runtime-${{ matrix.runtime_target }}.json
+
+      - name: Prepare Windows installer config
+        if: runner.os == 'Windows'
+        run: node scripts/windows-installer.mjs --prepare-config
 
       - name: Build Tauri installer
         if: runner.os != 'macOS' || env.APPLE_SIGNING_CONFIGURED != 'true'
@@ -205,11 +214,21 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          RUNTIME_TAG="runtime-v${MANAGED_RUNTIME_VERSION}"
           mapfile -d '' runtime_assets < <(
             find release-assets -maxdepth 1 -type f \
               \( -name 'runtime-*.json' -o -name 'dsh-runtime-*' \) -print0
           )
           test "${#runtime_assets[@]}" -gt 0
-          gh release upload "${{ github.ref_name }}" \
+          if ! gh release view "${RUNTIME_TAG}" \
+            --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release create "${RUNTIME_TAG}" \
+              --repo "${{ github.repository }}" \
+              --target "${GITHUB_SHA}" \
+              --title "DeepSeek Harness Runtime ${MANAGED_RUNTIME_VERSION}" \
+              --notes "Immutable managed Runtime assets for DeepSeek Harness Desktop." \
+              --prerelease
+          fi
+          gh release upload "${RUNTIME_TAG}" \
             --repo "${{ github.repository }}" \
             "${runtime_assets[@]}"

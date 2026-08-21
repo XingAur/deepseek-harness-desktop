@@ -49,7 +49,7 @@ DeepSeek Harness Desktop 把官方 DeepSeek Harness Web 工作台放进原生桌
 - 双击卡片启动项目；
 - 右键可以修改名称、选择内置颜色或渐变封面、置顶或删除项目；
 - 删除操作必须二次确认，并由用户选择只移除记录，还是把已登记的项目目录移到 Windows 回收站；
-- 列表为空时，可以直接描述想做的项目；应用会先确认需求、绝对路径、Profile、权限和命令类别，再通过真实 DeepSeek Harness 会话开始构建。
+- 列表为空时，只需描述想做的项目；桌面端会在“文档\DeepSeek Harness\Projects”中自动创建安全且不重名的目录，并在后台使用当前 Profile 和工作区可写权限，再通过真实 DeepSeek Harness 会话开始构建。
 
 ### Profile
 
@@ -177,7 +177,7 @@ DSH_DESKTOP_RUNTIME_MANIFEST_URL=<manifest-url> npm run tauri dev
 ### Runtime 组装与签名
 
 ```bash
-npm run runtime:build -- --target=windows-x86_64 --version=0.1.2-preview --url=https://example.com/dsh-runtime-windows-x86_64.zip
+npm run runtime:build -- --target=windows-x86_64 --version=0.1.4-preview --url=https://github.com/XingAur/deepseek-harness-desktop/releases/download/runtime-v0.1.4-preview/dsh-runtime-windows-x86_64.zip
 
 node scripts/sign-manifest.mjs \
   runtime-build/windows-x86_64/manifest-windows-x86_64.unsigned.json \
@@ -197,7 +197,7 @@ node scripts/sign-manifest.mjs \
 
 ```bash
 export DSH_DESKTOP_RELEASE_PUBLIC_KEY='<Ed25519 raw public JWK x>'
-export DSH_DESKTOP_RUNTIME_MANIFEST_URL='https://github.com/<owner>/<repo>/releases/download/runtime-v0.1.2-preview/runtime-{target}.json'
+export DSH_DESKTOP_RUNTIME_MANIFEST_URL='https://github.com/XingAur/deepseek-harness-desktop/releases/download/runtime-v0.1.4-preview/runtime-{target}.json'
 npm run installer:windows
 ```
 
