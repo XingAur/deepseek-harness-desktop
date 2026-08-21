@@ -1,11 +1,14 @@
 use std::{
-    fs,
+    fs, io,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use super::{
     archive::extract_archive,
-    model::{CurrentRuntime, RuntimeFailure, RuntimeManifest},
+    model::{
+        CurrentRuntime, RuntimeFailure, RuntimeFailureContext, RuntimeFailureStage, RuntimeManifest,
+    },
     paths::RuntimePaths,
 };
 
@@ -84,16 +87,16 @@ pub fn stage(
     )
     .map_err(RuntimeFailure::internal)?;
     let replaced_directory = if final_dir.exists() {
-        fs::rename(&final_dir, &backup).map_err(RuntimeFailure::internal)?;
+        activation_rename(paths, &final_dir, &backup)?;
         Some(backup)
     } else {
         None
     };
-    if let Err(cause) = fs::rename(&staging, &final_dir) {
+    if let Err(cause) = activation_rename(paths, &staging, &final_dir) {
         if let Some(replaced) = &replaced_directory {
             let _ = fs::rename(replaced, &final_dir);
         }
-        return Err(RuntimeFailure::internal(cause));
+        return Err(cause);
     }
     Ok(ActivationReceipt {
         installed_version: manifest.version.clone(),
@@ -118,16 +121,16 @@ pub fn stage_candidate(
         fs::remove_dir_all(&backup).map_err(RuntimeFailure::internal)?;
     }
     let replaced_directory = if final_dir.exists() {
-        fs::rename(&final_dir, &backup).map_err(RuntimeFailure::internal)?;
+        activation_rename(paths, &final_dir, &backup)?;
         Some(backup)
     } else {
         None
     };
-    if let Err(cause) = fs::rename(candidate, &final_dir) {
+    if let Err(cause) = activation_rename(paths, candidate, &final_dir) {
         if let Some(replaced) = &replaced_directory {
             let _ = fs::rename(replaced, &final_dir);
         }
-        return Err(RuntimeFailure::internal(cause));
+        return Err(cause);
     }
     Ok(ActivationReceipt {
         installed_version: manifest.version.clone(),
@@ -206,9 +209,107 @@ fn write_current(paths: &RuntimePaths, current: &CurrentRuntime) -> Result<(), R
     fs::rename(temporary, &paths.current).map_err(RuntimeFailure::internal)
 }
 
+fn activation_rename(
+    paths: &RuntimePaths,
+    source: &Path,
+    destination: &Path,
+) -> Result<(), RuntimeFailure> {
+    const RETRY_DELAYS: [Duration; 5] = [
+        Duration::from_millis(100),
+        Duration::from_millis(200),
+        Duration::from_millis(400),
+        Duration::from_millis(800),
+        Duration::from_millis(1_500),
+    ];
+    rename_with_policy(&RETRY_DELAYS, || fs::rename(source, destination)).map_err(|cause| {
+        let stage = if is_retryable_windows_lock(&cause) {
+            RuntimeFailureStage::ActivationFileLock
+        } else {
+            RuntimeFailureStage::CandidateActivation
+        };
+        RuntimeFailure::internal(cause).with_context(RuntimeFailureContext {
+            stage,
+            process_ids: Vec::new(),
+            managed_relative_path: managed_relative_path(paths, source),
+        })
+    })
+}
+
+fn rename_with_policy(
+    retry_delays: &[Duration],
+    mut rename: impl FnMut() -> io::Result<()>,
+) -> io::Result<()> {
+    let mut attempt = 0;
+    loop {
+        match rename() {
+            Ok(()) => return Ok(()),
+            Err(cause) if is_retryable_windows_lock(&cause) && attempt < retry_delays.len() => {
+                let delay = retry_delays[attempt];
+                attempt += 1;
+                if !delay.is_zero() {
+                    std::thread::sleep(delay);
+                }
+            }
+            Err(cause) => return Err(cause),
+        }
+    }
+}
+
+fn is_retryable_windows_lock(cause: &io::Error) -> bool {
+    cfg!(windows) && matches!(cause.raw_os_error(), Some(5 | 32 | 33))
+}
+
+fn managed_relative_path(paths: &RuntimePaths, path: &Path) -> Option<String> {
+    path.strip_prefix(paths.root.join("runtime"))
+        .ok()
+        .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+}
+
 #[cfg(test)]
 mod tests {
+    use std::{cell::Cell, io, time::Duration};
+
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn retries_windows_sharing_violations_then_succeeds() {
+        let attempts = Cell::new(0);
+        let result = rename_with_policy(&[Duration::ZERO, Duration::ZERO], || {
+            attempts.set(attempts.get() + 1);
+            if attempts.get() < 3 {
+                Err(io::Error::from_raw_os_error(32))
+            } else {
+                Ok(())
+            }
+        });
+
+        assert!(result.is_ok());
+        assert_eq!(attempts.get(), 3);
+    }
+
+    #[test]
+    fn does_not_retry_unrelated_io_errors() {
+        let attempts = Cell::new(0);
+        let result = rename_with_policy(&[Duration::ZERO, Duration::ZERO], || {
+            attempts.set(attempts.get() + 1);
+            Err(io::Error::from_raw_os_error(3))
+        });
+
+        assert!(result.is_err());
+        assert_eq!(attempts.get(), 1);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn classifies_only_windows_lock_errors_as_retryable() {
+        for code in [5, 32, 33] {
+            assert!(is_retryable_windows_lock(&io::Error::from_raw_os_error(
+                code
+            )));
+        }
+        assert!(!is_retryable_windows_lock(&io::Error::from_raw_os_error(3)));
+    }
 
     #[test]
     fn rollback_restores_same_version_directory_and_pointer() {
