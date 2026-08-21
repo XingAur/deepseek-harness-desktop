@@ -13,22 +13,16 @@ import { describe, expect, it } from 'vitest'
 
 import { canonicalJson } from './canonical-json.mjs'
 import {
-  createFullTauriConfig,
-  fullInstallerName,
+  createWindowsTauriConfig,
+  replaceReleaseInstaller,
   tauriBuildInvocation,
   verifyBundledRuntime,
-  withPreservedOnlineInstaller,
-} from './full-windows-installer.mjs'
+  windowsInstallerName,
+} from './windows-installer.mjs'
 
-describe('full Windows installer contract', () => {
-  it('keeps the online installer free of Runtime resources and install hooks', () => {
-    const online = JSON.parse(readFileSync('src-tauri/tauri.windows.conf.json', 'utf8'))
-    expect(online.bundle.resources).toBeUndefined()
-    expect(online.bundle.windows.nsis.installerHooks).toBeUndefined()
-  })
-
-  it('keeps the full installer copy-only while embedding Runtime resources', () => {
-    const config = createFullTauriConfig('E:/repo')
+describe('Windows installer contract', () => {
+  it('embeds the signed Runtime without installer-time hooks', () => {
+    const config = createWindowsTauriConfig('E:/repo')
     expect(config.bundle.resources).toEqual({
       'E:/repo/runtime-build/windows-x86_64/dsh-runtime-windows-x86_64.zip':
         'runtime/dsh-runtime-windows-x86_64.zip',
@@ -40,7 +34,7 @@ describe('full Windows installer contract', () => {
   })
 
   it('verifies the signed Windows Runtime and rejects a changed archive', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'dsh-full-installer-'))
+    const directory = mkdtempSync(join(tmpdir(), 'dsh-windows-installer-'))
     try {
       const archivePath = join(directory, 'dsh-runtime-windows-x86_64.zip')
       const corruptDirectory = join(directory, 'corrupt')
@@ -54,7 +48,7 @@ describe('full Windows installer contract', () => {
       const publicJwk = publicKey.export({ format: 'jwk' })
       const manifest = {
         schemaVersion: 1,
-        version: '0.1.0-preview',
+        version: '0.1.2-preview',
         dshVersion: '0.1.0-rc.8',
         target: 'windows-x86_64',
         url: 'https://github.com/example/runtime.zip',
@@ -80,7 +74,7 @@ describe('full Windows installer contract', () => {
       })).toMatchObject({
         target: 'windows-x86_64',
         archive: 'zip',
-        version: '0.1.0-preview',
+        version: '0.1.2-preview',
       })
       expect(() => verifyBundledRuntime({
         manifestPath,
@@ -92,9 +86,9 @@ describe('full Windows installer contract', () => {
     }
   })
 
-  it('uses the deterministic full installer name', () => {
-    expect(fullInstallerName('0.1.0')).toBe(
-      'DeepSeek Harness Desktop_0.1.0_x64-full-setup.exe',
+  it('uses the deterministic Release installer name', () => {
+    expect(windowsInstallerName('0.1.0')).toBe(
+      'DeepSeek-Harness-v0.1.0-Windows-x64.exe',
     )
   })
 
@@ -111,41 +105,56 @@ describe('full Windows installer contract', () => {
     ])
   })
 
-  it('restores an existing online installer after moving the full build', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'dsh-full-artifacts-'))
+  it('promotes the generated installer as the only Release artifact', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'dsh-release-artifact-'))
     try {
-      const outputDirectory = join(directory, 'src-tauri/target/release/bundle/nsis')
-      mkdirSync(outputDirectory, { recursive: true })
-      const onlinePath = join(outputDirectory, 'online.exe')
-      const fullPath = join(outputDirectory, 'full.exe')
-      writeFileSync(onlinePath, 'existing-online-build')
+      const generatedPath = join(directory, 'generated.exe')
+      const releasePath = join(directory, 'DeepSeek-Harness-v0.1.0-Windows-x64.exe')
 
-      await withPreservedOnlineInstaller({ onlinePath, fullPath }, async () => {
-        expect(existsSync(onlinePath)).toBe(false)
-        writeFileSync(onlinePath, 'new-full-build')
+      await replaceReleaseInstaller({ generatedPath, releasePath }, async () => {
+        writeFileSync(generatedPath, 'new-release')
       })
 
-      expect(readFileSync(onlinePath, 'utf8')).toBe('existing-online-build')
-      expect(readFileSync(fullPath, 'utf8')).toBe('new-full-build')
+      expect(readFileSync(releasePath, 'utf8')).toBe('new-release')
+      expect(existsSync(generatedPath)).toBe(false)
+      expect(existsSync(`${releasePath}.previous`)).toBe(false)
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }
   })
 
-  it('restores the online installer when the full build fails', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'dsh-full-failure-'))
+  it('keeps the previous Release installer and removes a partial default build on failure', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'dsh-release-failure-'))
     try {
-      const onlinePath = join(directory, 'online.exe')
-      const fullPath = join(directory, 'full.exe')
-      writeFileSync(onlinePath, 'existing-online-build')
+      const generatedPath = join(directory, 'generated.exe')
+      const releasePath = join(directory, 'DeepSeek-Harness-v0.1.0-Windows-x64.exe')
+      writeFileSync(releasePath, 'previous-release')
 
-      await expect(withPreservedOnlineInstaller({ onlinePath, fullPath }, async () => {
-        writeFileSync(onlinePath, 'partial-full-build')
+      await expect(replaceReleaseInstaller({ generatedPath, releasePath }, async () => {
+        writeFileSync(generatedPath, 'partial-build')
         throw new Error('simulated build failure')
       })).rejects.toThrow(/simulated build failure/)
 
-      expect(readFileSync(onlinePath, 'utf8')).toBe('existing-online-build')
-      expect(existsSync(fullPath)).toBe(false)
+      expect(readFileSync(releasePath, 'utf8')).toBe('previous-release')
+      expect(existsSync(generatedPath)).toBe(false)
+      expect(existsSync(`${releasePath}.previous`)).toBe(false)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects paths outside one fixed NSIS output directory', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'dsh-release-paths-'))
+    try {
+      const generatedPath = join(directory, 'generated.exe')
+      await expect(replaceReleaseInstaller({
+        generatedPath,
+        releasePath: join(directory, 'nested', 'release.exe'),
+      }, async () => {})).rejects.toThrow(/固定 NSIS 目录/)
+      await expect(replaceReleaseInstaller({
+        generatedPath,
+        releasePath: generatedPath,
+      }, async () => {})).rejects.toThrow(/不同文件/)
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }

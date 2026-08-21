@@ -15,67 +15,80 @@
 
 DeepSeek Harness Desktop 把官方 DeepSeek Harness Web 工作台放进原生桌面窗口，并负责普通用户不应该手动处理的本地环境工作：
 
-- 自动准备并启动受管 Runtime，无需预装 Node.js、pnpm 或 DeepSeek Harness。
-- 直接进入官方工作台，不另外复制一套 Agent、会话或工具界面。
-- 使用当前 Profile 的官方 Workspace 数据展示“本地项目”。
-- 管理 Runtime 的下载、签名验证、健康检查、升级、回滚和诊断。
-- 支持浅色、深色和跟随系统主题，并让桌面标题栏与工作台保持一致。
+- 自动准备并启动受管 Runtime（Node.js 24 + pnpm + 官方 DeepSeek Harness），无需预装任何依赖。
+- 在原生窗口中呈现桌面版工作台布局：官方侧栏、会话区、详情面板三栏结构，侧栏与详情宽度可调，并带“本地项目”快捷入口。
+- 使用当前 Profile 的官方 Workspace 数据展示“本地项目”，不维护第二份容易失真的项目数据库。
+- 通过 Profile 隔离不同的工作环境，支持创建、复制、编辑、删除和切换。
+- 支持浅色、深色和跟随系统主题，桌面标题栏与工作台保持一致。
 - 提供系统托盘、应用更新、受限导航和固定用户数据目录。
+- 管理 Runtime 的下载、签名验证、健康检查、升级、回滚和诊断导出。
 
 ## 安装与首次启动
 
-当前交付重点是 **Windows x64 在线安装版**。
+当前交付重点是 **Windows x64 完整安装包**。
 
-安装程序只安装体积较小的桌面壳。首次打开应用时，启动页会自动：
+安装程序同时携带桌面应用和已签名的受管 Runtime。首次打开应用时，启动页会自动：
 
-1. 获取固定版本的 Runtime 清单；
-2. 下载 Runtime；
+1. 读取并验证内置 Runtime 清单；
+2. 解压内置 Runtime；
 3. 校验 Ed25519 签名和 SHA-256；
 4. 在隔离环境中启动并检查工作台是否真正可用；
 5. 验证成功后进入 DeepSeek Harness 工作台。
 
-整个过程都在应用启动页中完成，不会在安装器中额外弹出命令行或下载窗口。首次准备需要联网；失败时可以重试、修复或导出诊断文件。
+整个过程都在应用启动页中完成，不会在安装器中额外弹出命令行或下载窗口。正常的首次准备不依赖网络；如果内置 Runtime 损坏、版本需要升级或用户主动修复，应用才会从不可变 Runtime Release 下载并验证替代版本。失败时可以重试、修复或导出诊断文件。
 
 目前 GitHub 上尚未发布项目所需的不可变 Runtime Release，因此暂不提供面向普通用户的下载按钮。Release 就绪并完成安装包端到端验证后，会在这里提供正式入口。
 
 ## 日常使用
 
-### 本地项目
+### 工作台与本地项目
 
-侧栏中的“本地项目”来自当前 Profile 的 Workspace 列表，不维护第二份容易失真的项目数据库。
+应用启动后直接进入官方工作台的桌面布局。侧栏中的“本地项目”来自当前 Profile 的 Workspace 列表：
 
-- 单击卡片选中项目，并可在下方对话框快捷修改。
-- 双击卡片启动项目。
-- 右键可以修改名称、选择内置颜色或渐变封面、置顶或删除项目。
-- 删除操作必须二次确认，并由用户选择只移除记录，还是把已登记的项目目录移到 Windows 回收站。
+- 单击卡片选中项目，并可在下方对话框快捷修改；
+- 双击卡片启动项目；
+- 右键可以修改名称、选择内置颜色或渐变封面、置顶或删除项目；
+- 删除操作必须二次确认，并由用户选择只移除记录，还是把已登记的项目目录移到 Windows 回收站；
 - 列表为空时，可以直接描述想做的项目；应用会先确认需求、绝对路径、Profile、权限和命令类别，再通过真实 DeepSeek Harness 会话开始构建。
 
 ### Profile
 
-Profile 是一套相互隔离的工作环境。不同 Profile 可以拥有不同的工作区、会话、插件配置、权限和数据根。
+Profile 是一套相互隔离的工作环境。不同 Profile 拥有各自的工作区、会话、插件配置、权限和数据根。
 
-大多数用户只需要默认 Profile。需要区分工作与个人项目、不同客户环境或不同权限时，才需要创建第二个 Profile。
+大多数用户只需要默认 Profile。需要区分工作与个人项目、不同客户环境或不同权限时，才需要创建第二个 Profile。Profile 管理入口位于工作台设置中的 Profiles 区，支持创建、复制、编辑、删除和切换。
 
 切换 Profile 使用 pending / last-known-good 机制：新环境完全就绪后才正式生效；如果启动失败或上次切换被中断，应用会自动恢复到最后一次确认可用的环境。
 
+### 系统托盘
+
+关闭窗口时应用默认驻留系统托盘。托盘菜单提供：
+
+- 显示当前 Profile 与 Runtime 版本；
+- 显示 / 隐藏窗口；
+- 重启 DeepSeek Harness；
+- 检查应用更新；
+- 导出诊断；
+- 打开用户数据目录；
+- 退出。
+
 ### 恢复、诊断与更新
 
-- Runtime 启动失败时，可以重试或执行修复下载。
-- “查看详情”显示失败阶段和技术信息，主提示保持面向普通用户。
-- “导出诊断”生成已经脱敏的 ZIP，便于定位网络、版本或进程问题。
-- 应用本体更新和 Runtime 更新是两个独立的签名通道，互不混用。
-- 应用更新检查失败不会阻止已经可用的工作台启动。
+- Runtime 启动失败时，可以重试或执行修复下载；
+- “查看详情”显示失败阶段和技术信息，主提示保持面向普通用户；
+- “导出诊断”生成已经脱敏的 ZIP，便于定位网络、版本或进程问题；
+- 应用本体更新和 Runtime 更新是两个独立的签名通道，互不混用；
+- 应用更新可以立即安装、在退出应用时安装，或暂时跳过；更新检查失败不会阻止已经可用的工作台启动。
 
 ## 为什么后续启动更快
 
-首次启动必须下载并验证 Runtime，因此耗时取决于网络和压缩包大小。
+首次启动需要验证并解压内置 Runtime，因此耗时主要取决于压缩包大小、磁盘性能和安全软件扫描。
 
 后续启动会优先检查本地的验证凭据和 Runtime 版本。只要版本一致、文件完整且健康检查通过，应用会直接启动本地 Runtime，不等待联网检查。只有版本不兼容、文件损坏或用户主动修复时，才会重新下载。
 
 ## 数据与安全
 
 - Windows 用户数据固定保存在 `%LOCALAPPDATA%\ai.deepseek.harness.desktop`，不会跟随安装目录漂移。
-- 默认卸载只移除应用，保留 Profile、Workspace 和会话数据。
+- 默认卸载只移除应用，保留 Profile、Workspace 和会话数据；卸载过程不阻塞等待大文件删除。
 - 如果卸载时选择删除本地数据，卸载器会先把固定数据目录原子移动到待清理位置，再由后台清理程序释放磁盘空间。
 - Runtime 清单使用 Ed25519 签名，下载制品使用 SHA-256 校验；新版本通过完整健康检查后才提交，失败会回滚。
 - 工作台只监听随机的 `127.0.0.1` 端口。
@@ -87,7 +100,7 @@ Profile 是一套相互隔离的工作环境。不同 Profile 可以拥有不同
 
 | 平台 | 状态 |
 | --- | --- |
-| Windows x64 | 当前发布目标；在线安装、首次 Runtime 准备和后续快速启动已实现 |
+| Windows x64 | 当前发布目标；完整安装包、首次内置 Runtime 准备和后续快速启动已实现 |
 | macOS Apple Silicon | 保留构建配置，当前 Windows 预览版不以它作为发布承诺 |
 | Windows ARM64、macOS Intel、Linux | 当前不支持 |
 
@@ -96,23 +109,23 @@ Profile 是一套相互隔离的工作环境。不同 Profile 可以拥有不同
 ## 常见问题
 
 <details>
-<summary><strong>为什么安装包很小，第一次打开却需要下载？</strong></summary>
+<summary><strong>为什么完整安装包较大，第一次打开仍要准备？</strong></summary>
 
-在线安装包只携带 Tauri 桌面壳。DeepSeek Harness、Node.js、pnpm 和桌面插件组成受管 Runtime，在首次打开应用时按平台下载。这样可以缩小安装包，也能独立升级和回滚 Runtime。
+完整安装包内置了 DeepSeek Harness、Node.js、pnpm 和桌面插件组成的受管 Runtime，因此体积会更大。首次打开时，应用仍需验证签名与哈希、解压文件并完成健康检查；这通常取决于磁盘和安全软件的扫描速度，而不是网络下载速度。
 
 </details>
 
 <details>
 <summary><strong>第二次打开还会等很久吗？</strong></summary>
 
-通常不会。健康且版本一致的本地 Runtime 会直接启动，不等待远程更新检查。版本变化、文件损坏或修复操作才会进入下载流程。
+通常不会。健康且版本一致的本地 Runtime 会直接启动，不等待远程更新检查。只有版本变化、文件损坏或用户主动修复时，才可能进入在线下载流程。
 
 </details>
 
 <details>
 <summary><strong>为什么现在会提示网络不可用？</strong></summary>
 
-当前预览安装包指向的 Runtime Release 尚未发布，对应 URL 会返回 404。代码推送和 Runtime 发布是两个步骤；必须先生成、签名并上传 Runtime 清单与压缩包，在线首次启动才能完成。
+正常的首次启动会使用安装包内置 Runtime，不需要联网。只有内置或本地 Runtime 损坏、版本需要升级，或者用户主动修复时，应用才会访问不可变 Runtime Release；如果该 Release 尚未发布、网络受限或下载地址不可达，就会提示网络不可用。
 
 </details>
 
@@ -126,15 +139,15 @@ Profile 是一套相互隔离的工作环境。不同 Profile 可以拥有不同
 ## 工作原理
 
 ```text
-Tauri 2 可信桌面壳
+Tauri 2 可信桌面壳（React 启动页 + 自定义标题栏）
   └─ Rust Runtime Manager
       ├─ 签名验证 / 下载 / 激活 / 回滚 / 诊断
       ├─ Generation 与 Profile 生命周期
       └─ Managed Node 24 + DeepSeek Harness + Desktop 插件
-          └─ 127.0.0.1:<随机端口> 官方工作台 UI
+          └─ 127.0.0.1:<随机端口> 官方工作台 UI（桌面布局）
 ```
 
-桌面壳只负责原生窗口、受管 Runtime 和安全边界。Agent、会话、工具、模型与 Web UI 仍由 DeepSeek Harness 提供；桌面布局和本地项目入口通过普通 DeepSeek Harness 插件组合进去。
+桌面壳只负责原生窗口、受管 Runtime 和安全边界。Agent、会话、工具、模型与 Web UI 仍由 DeepSeek Harness 提供；桌面布局、本地项目入口和 Profile 界面通过普通 DeepSeek Harness 插件组合进去。
 
 ## 开发者指南
 
@@ -142,34 +155,32 @@ Tauri 2 可信桌面壳
 
 需要 Node.js、npm、Rust stable，以及 Windows 原生构建工具。安装依赖并运行完整前端门禁：
 
-```powershell
+```bash
 npm ci --legacy-peer-deps
-npm run check
+npm run check        # 根测试 + 插件测试 + Web 构建 + 插件构建
 ```
 
 运行 Rust 测试及安装器资源校验：
 
-```powershell
+```bash
 cargo test --manifest-path src-tauri/Cargo.toml --locked
 npm run installer:verify
 npm run icon:verify
 ```
 
-本地启动 Tauri 开发壳：
+本地启动 Tauri 开发壳（需要可访问且签名有效的 Runtime 清单）：
 
-```powershell
-npm run tauri dev
+```bash
+DSH_DESKTOP_RUNTIME_MANIFEST_URL=<manifest-url> npm run tauri dev
 ```
-
-开发壳需要可访问且签名有效的 Runtime 清单。
 
 ### Runtime 组装与签名
 
-```powershell
-npm run runtime:build -- --target=windows-x86_64 --version=0.1.0-preview --url=https://example.com/dsh-runtime-windows-x86_64.zip
+```bash
+npm run runtime:build -- --target=windows-x86_64 --version=0.1.2-preview --url=https://example.com/dsh-runtime-windows-x86_64.zip
 
-node scripts/sign-manifest.mjs `
-  runtime-build/windows-x86_64/manifest-windows-x86_64.unsigned.json `
+node scripts/sign-manifest.mjs \
+  runtime-build/windows-x86_64/manifest-windows-x86_64.unsigned.json \
   runtime/manifests/runtime-windows-x86_64.json
 ```
 
@@ -182,17 +193,18 @@ node scripts/sign-manifest.mjs `
 
 ### Windows 构建
 
-正式在线安装包必须把不可变 Runtime 清单地址编译进应用：
+正式 Windows 完整安装包会嵌入已签名 Runtime，同时必须把不可变 Runtime 清单地址和对应公钥编译进应用，用于后续修复与升级：
 
-```powershell
-$env:DSH_DESKTOP_RUNTIME_MANIFEST_URL = 'https://github.com/<owner>/<repo>/releases/download/runtime-v0.1.0-preview/runtime-windows-x86_64.json'
-npm run tauri -- build --bundles nsis --target x86_64-pc-windows-msvc
+```bash
+export DSH_DESKTOP_RELEASE_PUBLIC_KEY='<Ed25519 raw public JWK x>'
+export DSH_DESKTOP_RUNTIME_MANIFEST_URL='https://github.com/<owner>/<repo>/releases/download/runtime-v0.1.2-preview/runtime-{target}.json'
+npm run installer:windows
 ```
 
 输出位于：
 
 ```text
-src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/
+src-tauri/target/release/bundle/nsis/DeepSeek-Harness-v0.1.0-Windows-x64.exe
 ```
 
 ### 项目结构
@@ -200,7 +212,7 @@ src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/
 ```text
 src/                           Tauri 启动、恢复和诊断 React UI
 src-tauri/                     Rust Runtime Manager、原生窗口与安全边界
-packages/dsh-plugin-desktop/   工作台布局、本地项目和 Profile 界面
+packages/dsh-plugin-desktop/   桌面布局、本地项目和 Profile 界面插件
 runtime/                       Runtime 格式与签名清单说明
 scripts/                       构建、签名、验证和端到端测试工具
 e2e/                           真实安装包与工作台测试
@@ -213,7 +225,7 @@ e2e/                           真实安装包与工作台测试
 1. 创建不可变的 `runtime-v<version>` 预发布版本；
 2. 上传签名后的 `runtime-windows-x86_64.json` 和对应 Runtime ZIP；
 3. 配置 Runtime 与 Tauri updater 的生产签名密钥；
-4. 构建真实 Windows x64 在线安装包；
+4. 构建并只发布正式命名的 Windows x64 完整安装包；
 5. 在干净 Windows 环境验证首次安装、首次启动、后续启动、兼容重装和卸载；
 6. 所有门禁通过后再公开桌面 Release。
 

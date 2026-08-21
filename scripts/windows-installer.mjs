@@ -15,7 +15,7 @@ import { canonicalJson } from './canonical-json.mjs'
 
 const portable = (value) => value.replaceAll('\\', '/')
 
-export function createFullTauriConfig(rootDirectory) {
+export function createWindowsTauriConfig(rootDirectory) {
   const root = resolve(rootDirectory)
   return {
     bundle: {
@@ -44,8 +44,8 @@ export function verifyBundledRuntime({ manifestPath, archivePath, publicKey }) {
   if (manifest.archive !== 'zip') {
     throw new Error('Windows Runtime archive 必须是 zip')
   }
-  if (manifest.version !== '0.1.0-preview') {
-    throw new Error('Runtime version 必须是 0.1.0-preview')
+  if (manifest.version !== '0.1.2-preview') {
+    throw new Error('Runtime version 必须是 0.1.2-preview')
   }
   if (typeof manifest.url !== 'string' || !manifest.url.startsWith('https://')) {
     throw new Error('Runtime URL 必须使用 HTTPS')
@@ -69,8 +69,8 @@ export function verifyBundledRuntime({ manifestPath, archivePath, publicKey }) {
   return manifest
 }
 
-export function fullInstallerName(version) {
-  return `DeepSeek Harness Desktop_${version}_x64-full-setup.exe`
+export function windowsInstallerName(version) {
+  return `DeepSeek-Harness-v${version}-Windows-x64.exe`
 }
 
 export function tauriBuildInvocation(rootDirectory, generatedConfig) {
@@ -87,31 +87,35 @@ export function tauriBuildInvocation(rootDirectory, generatedConfig) {
   }
 }
 
-export async function withPreservedOnlineInstaller({ onlinePath, fullPath }, build) {
-  const online = resolve(onlinePath)
-  const full = resolve(fullPath)
-  if (dirname(online) !== dirname(full)) {
-    throw new Error('线上包和完全包必须位于同一个 NSIS 输出目录')
+export async function replaceReleaseInstaller({ generatedPath, releasePath }, build) {
+  const generated = resolve(generatedPath)
+  const release = resolve(releasePath)
+  if (dirname(generated) !== dirname(release) || generated === release) {
+    throw new Error('生成包和正式包必须是固定 NSIS 目录中的不同文件')
   }
-  const backup = `${online}.preserved-online`
-  if (existsSync(backup)) throw new Error(`发现未恢复的线上包备份：${backup}`)
-  const hadOnline = existsSync(online)
-  if (hadOnline) renameSync(online, backup)
+  const previous = `${release}.previous`
+  if (existsSync(previous)) throw new Error(`发现未恢复的正式包备份：${previous}`)
+  rmSync(generated, { force: true })
   try {
     await build()
-    if (!existsSync(online)) throw new Error(`Tauri 未生成 NSIS 安装包：${online}`)
-    rmSync(full, { force: true })
-    renameSync(online, full)
-  } finally {
-    if (existsSync(backup)) {
-      rmSync(online, { force: true })
-      renameSync(backup, online)
+    if (!existsSync(generated)) throw new Error(`Tauri 未生成 NSIS 安装包：${generated}`)
+    if (existsSync(release)) renameSync(release, previous)
+    try {
+      renameSync(generated, release)
+      rmSync(previous, { force: true })
+    } catch (error) {
+      rmSync(release, { force: true })
+      if (existsSync(previous)) renameSync(previous, release)
+      throw error
     }
+  } catch (error) {
+    rmSync(generated, { force: true })
+    throw error
   }
-  return full
+  return release
 }
 
-export function buildFullWindowsInstaller({
+export async function buildWindowsInstaller({
   rootDirectory = process.cwd(),
   environment = process.env,
   run = spawnSync,
@@ -137,24 +141,24 @@ export function buildFullWindowsInstaller({
 
   const appConfig = JSON.parse(readFileSync(resolve(root, 'src-tauri/tauri.conf.json'), 'utf8'))
   const outputDirectory = resolve(root, 'src-tauri/target/release/bundle/nsis')
-  const onlinePath = resolve(
+  const generatedPath = resolve(
     outputDirectory,
     `${appConfig.productName}_${appConfig.version}_x64-setup.exe`,
   )
-  const fullPath = resolve(outputDirectory, fullInstallerName(appConfig.version))
-  if (dirname(onlinePath) !== outputDirectory || dirname(fullPath) !== outputDirectory) {
+  const releasePath = resolve(outputDirectory, windowsInstallerName(appConfig.version))
+  if (dirname(generatedPath) !== outputDirectory || dirname(releasePath) !== outputDirectory) {
     throw new Error('安装包输出路径越过固定 NSIS 目录')
   }
-  const generatedDirectory = resolve(root, 'src-tauri/target/full-installer')
-  const generatedConfig = resolve(generatedDirectory, 'tauri.full.conf.json')
+  const generatedDirectory = resolve(root, 'src-tauri/target/windows-installer')
+  const generatedConfig = resolve(generatedDirectory, 'tauri.windows-installer.conf.json')
   mkdirSync(generatedDirectory, { recursive: true })
   writeFileSync(
     generatedConfig,
-    `${JSON.stringify(createFullTauriConfig(root), null, 2)}\n`,
+    `${JSON.stringify(createWindowsTauriConfig(root), null, 2)}\n`,
     'utf8',
   )
 
-  return withPreservedOnlineInstaller({ onlinePath, fullPath }, async () => {
+  const output = await replaceReleaseInstaller({ generatedPath, releasePath }, async () => {
     const { command, args } = tauriBuildInvocation(root, generatedConfig)
     const result = run(
       command,
@@ -163,13 +167,20 @@ export function buildFullWindowsInstaller({
     )
     if (result.error) throw result.error
     if (result.status !== 0) {
-      throw new Error(`Tauri 完全安装包构建失败，退出码：${result.status ?? 'unknown'}`)
+      throw new Error(`Tauri Windows 安装包构建失败，退出码：${result.status ?? 'unknown'}`)
     }
   })
+
+  const legacyPath = resolve(
+    outputDirectory,
+    `DeepSeek Harness Desktop_${appConfig.version}_x64-full-setup.exe`,
+  )
+  if (legacyPath !== releasePath) rmSync(legacyPath, { force: true })
+  return output
 }
 
 const invokedPath = process.argv[1] ? resolve(process.argv[1]) : ''
 if (invokedPath === resolve(fileURLToPath(import.meta.url))) {
-  const output = await buildFullWindowsInstaller()
-  console.log(`Full Windows installer created: ${output}`)
+  const output = await buildWindowsInstaller()
+  console.log(`Windows installer created: ${output}`)
 }

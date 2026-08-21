@@ -1,10 +1,10 @@
-export interface FullTauriConfig {
+export interface WindowsTauriConfig {
   bundle: {
     resources: Record<string, string>
   }
 }
 
-export function createFullTauriConfig(rootDirectory: string): FullTauriConfig
+export function createWindowsTauriConfig(rootDirectory: string): WindowsTauriConfig
 
 export interface VerifyBundledRuntimeInput {
   manifestPath: string
@@ -20,22 +20,22 @@ export interface RuntimeManifestSummary {
 }
 
 export function verifyBundledRuntime(input: VerifyBundledRuntimeInput): RuntimeManifestSummary
-export function fullInstallerName(version: string): string
+export function windowsInstallerName(version: string): string
 export function tauriBuildInvocation(
   rootDirectory: string,
   generatedConfig: string,
 ): { command: string; args: string[] }
-export function withPreservedOnlineInstaller(
-  paths: { onlinePath: string; fullPath: string },
+export function replaceReleaseInstaller(
+  paths: { generatedPath: string; releasePath: string },
   build: () => void | Promise<void>,
 ): Promise<string>
 
-export interface BuildFullWindowsInstallerInput {
+export interface BuildWindowsInstallerInput {
   rootDirectory?: string
   environment?: NodeJS.ProcessEnv
   run?: typeof import('node:child_process').spawnSync
 }
 
-export function buildFullWindowsInstaller(
-  input?: BuildFullWindowsInstallerInput,
+export function buildWindowsInstaller(
+  input?: BuildWindowsInstallerInput,
 ): Promise<string>

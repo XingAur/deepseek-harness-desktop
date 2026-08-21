@@ -15,12 +15,13 @@ Production private keys must only exist in a release secret store.
 ## First-launch Runtime release contract
 
 Publish the signed archive and `runtime-<target>.json` to an immutable
-`runtime-v<semver>` GitHub prerelease before building the Windows online installer.
+`runtime-v<semver>` GitHub prerelease before building the complete Windows installer.
 The desktop binary must compile that exact manifest URL into the executable;
 release builds must never reference a branch or `latest`.
 
-The installer deploys only the desktop shell. The first application launch shows
-Runtime progress in the normal startup page, then downloads, verifies, probes,
-and commits the Runtime before opening the workbench. Later launches use the
-verified local receipt first; a healthy matching version starts without waiting
-for the network, while an incompatible version is upgraded in the startup page.
+The complete installer embeds the signed Windows Runtime. The first application
+launch verifies, extracts, probes, and commits that Runtime in the normal startup
+page before opening the workbench. Later launches use the verified local receipt
+first; a healthy matching version starts without waiting for the network. If the
+embedded or local Runtime is invalid or incompatible, the startup page can still
+repair or upgrade it from the immutable online Runtime release.

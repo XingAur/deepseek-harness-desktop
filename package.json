@@ -25,7 +25,7 @@
     "runtime:source-config": "node scripts/write-runtime-source-config.mjs",
     "updater:config": "node scripts/write-updater-config.mjs",
     "installer:verify": "node scripts/verify-nsis-template.mjs",
-    "installer:full": "node scripts/full-windows-installer.mjs",
+    "installer:windows": "node scripts/windows-installer.mjs",
     "icon:verify": "node scripts/verify-windows-icon.mjs"
   },
   "dependencies": {
