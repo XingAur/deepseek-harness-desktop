@@ -27,6 +27,26 @@ describe('advanced styles', () => {
     dispose()
   })
 
+  it('keeps the local-project entry in the neutral sidebar color family', () => {
+    const dispose = installAdvancedStyles()
+    const css = document.getElementById('dsh-desktop-advanced-styles')?.textContent ?? ''
+
+    expect(css).toMatch(
+      /\.dshDesktopSidebarSurface \{[^}]*background: var\(--dsw-specific-sidebar-fill/,
+    )
+    expect(css).not.toMatch(
+      /\[data-desktop-platform="darwin"\] \.dshDesktopSidebarSurface \{[^}]*background:/,
+    )
+    expect(css).toMatch(/\.dshDesktopProjectsEntry \{[^}]*color: var\(--dsw-alias-label-primary/)
+    expect(css).toMatch(/\.dshDesktopProjectsEntry \{[^}]*background: transparent/)
+    expect(css).toMatch(/\.dshDesktopProjectsEntry:hover \{[^}]*background: var\(--dsw-alias-interactive-bg-hover/)
+    expect(css).toMatch(/\.dshDesktopProjectsEntry\[data-active="true"\] \{[^}]*background: var\(--dsw-specific-sidebar-nav-item-active/)
+    expect(css).not.toMatch(/\.dshDesktopProjectsEntry\[data-active="true"\][^}]*#6482dc/)
+    expect(css).not.toMatch(/\.dshDesktopProjectsEntry\[data-active="true"\][^}]*border-color:/)
+
+    dispose()
+  })
+
   it('ships restrained project motion and reduced-motion overrides', () => {
     const dispose = installAdvancedStyles()
     const css = document.getElementById('dsh-desktop-advanced-styles')?.textContent ?? ''

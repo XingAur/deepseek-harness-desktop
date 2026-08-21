@@ -10,15 +10,14 @@ export function installAdvancedStyles(): () => void {
     body[data-dsh-desktop-mode="advanced"][data-dsh-desktop-theme="light"] { --dsh-desktop-divider: rgba(29,38,58,.035); }
     .dshDesktopFrame { position: relative; display: grid; width: 100%; height: 100%; min-width: 0; background: var(--dsw-alias-bg-base, #151517); }
     .dshDesktopSidebarSurface, .dshDesktopConversationSurface, .dshDesktopDetailsSurface { min-width: 0; min-height: 0; overflow: hidden; border-color: var(--dsh-desktop-divider); }
-    .dshDesktopSidebarSurface { position: relative; display: flex; flex-direction: column; background: var(--dsw-alias-bg-layer-2, #2c2c2f); border-right: 1px solid var(--dsh-desktop-divider); }
-    [data-desktop-platform="darwin"] .dshDesktopSidebarSurface { background: color-mix(in srgb, var(--dsw-alias-bg-layer-2, #262629) 88%, transparent); }
+    .dshDesktopSidebarSurface { position: relative; display: flex; flex-direction: column; background: var(--dsw-specific-sidebar-fill, var(--dsw-alias-bg-layer-2, #2c2c2f)); border-right: 1px solid var(--dsh-desktop-divider); }
     .dshDesktopUpstreamSidebar { flex: 1; min-height: 0; }
-    .dshDesktopProjectsEntry { display: flex; align-items: center; gap: 10px; min-height: 44px; margin: 10px 12px 14px; padding: 0 15px; border: 1px solid transparent; border-radius: 10px; color: var(--dsw-alias-label-primary, #e8edf2); background: color-mix(in srgb, currentColor 3.5%, transparent); font: 500 15px/1 system-ui, sans-serif; text-align: left; cursor: pointer; transition: color .15s ease, background .15s ease, border-color .15s ease; }
+    .dshDesktopProjectsEntry { box-sizing: border-box; display: flex; align-items: center; gap: 8px; min-height: 42px; margin: 4px 12px 10px; padding: 0 10px 0 8px; border: 0; border-radius: 12px; color: var(--dsw-alias-label-primary, #e8edf2); background: transparent; font: 400 14px/22px var(--dsw-font-family, system-ui, sans-serif); text-align: left; cursor: pointer; transition: background-color .15s ease; }
     .dshDesktopProjectsEntry svg { width: 18px; height: 18px; flex: 0 0 18px; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-    .dshDesktopProjectsEntry:hover { background: color-mix(in srgb, currentColor 7.5%, transparent); }
-    .dshDesktopProjectsEntry[data-active="true"] { border-color: color-mix(in srgb, #6f8fe9 40%, transparent); background: color-mix(in srgb, #6482dc 16%, transparent); }
-    .dshDesktopProjectsEntry[data-collapsed="true"] { width: 44px; min-height: 44px; justify-content: center; margin: 8px auto 14px; padding: 0; border-radius: 11px; }
-    .dshDesktopProjectsEntry:focus-visible { outline: 2px solid #7d9cf0; outline-offset: 2px; }
+    .dshDesktopProjectsEntry:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.1)); }
+    .dshDesktopProjectsEntry[data-active="true"] { background: var(--dsw-specific-sidebar-nav-item-active, var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.1))); }
+    .dshDesktopProjectsEntry[data-collapsed="true"] { width: 36px; min-height: 36px; justify-content: center; gap: 0; margin: 8px auto 10px; padding: 0; border-radius: 50%; }
+    .dshDesktopProjectsEntry:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, #7d9cf0); outline-offset: 2px; }
     .dshDesktopConversationSurface { background: var(--dsw-alias-bg-base, #141416); }
     .dshDesktopDetailsSurface { background: var(--dsw-alias-bg-layer-1, #1c1c1f); border-left: 1px solid var(--dsh-desktop-divider); }
     .dshDesktopOverlay { position: absolute; inset: 0; pointer-events: none; z-index: 30; }

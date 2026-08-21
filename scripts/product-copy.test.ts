@@ -107,6 +107,20 @@ describe('product copy', () => {
     expect(source).toContain("request.url === '/__desktop/control/health'")
   })
 
+  it('hides Windows Runtime startup and shutdown helper windows', () => {
+    const launcher = readFileSync('scripts/build-runtime.mjs', 'utf8')
+    const runtimeProcess = readFileSync('src-tauri/src/runtime/process.rs', 'utf8')
+    const windowsShutdownStart = runtimeProcess.indexOf('async fn terminate_tree(pid: u32)')
+    const windowsShutdown = runtimeProcess.slice(
+      windowsShutdownStart,
+      runtimeProcess.indexOf('#[cfg(unix)]', windowsShutdownStart),
+    )
+
+    expect(launcher.match(/windowsHide: process\.platform === 'win32'/g)).toHaveLength(2)
+    expect(runtimeProcess).toContain('const CREATE_NO_WINDOW: u32 = 0x0800_0000;')
+    expect(windowsShutdown).toContain('.creation_flags(CREATE_NO_WINDOW)')
+  })
+
   it('pins the managed Runtime to one DSH release candidate', () => {
     const source = readFileSync('scripts/build-runtime.mjs', 'utf8')
     const runtimeReadme = readFileSync('runtime/README.md', 'utf8')
@@ -148,7 +162,7 @@ describe('product copy', () => {
     expect(sources).toContain('移到 Windows 回收站')
     expect(sources).not.toContain('dshDesktopProjectCreatePanel')
     expect(sources).not.toMatch(/MarketPage|community\/plugins|PluginDialog|社区插件/)
-    expect(pluginPackage.version).toBe('0.3.0')
+    expect(pluginPackage.version).toBe('0.3.2')
   })
 
   it('does not reference the removed community catalog', () => {
@@ -181,6 +195,12 @@ describe('product copy', () => {
     expect(workflow).toContain('uploadUpdaterJson: true')
     expect(workflow).toContain('updaterJsonPreferNsis: true')
     expect(workflow).toContain('uploadUpdaterSignatures: true')
+  })
+
+  it('requires the current managed Runtime identity for Windows releases', () => {
+    const source = readFileSync('scripts/windows-installer.mjs', 'utf8')
+
+    expect(source).toContain("manifest.version !== '0.1.2-preview'")
   })
 
   it('never replaces an existing managed Runtime release asset', () => {
