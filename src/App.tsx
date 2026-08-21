@@ -329,7 +329,14 @@ export function App({ runtime, windowControls }: AppProps) {
           />
         )}
         {state.rendererUrl !== null ? (
-          <iframe ref={iframeRef} className="workbenchFrame" title="DeepSeek Harness 工作台" src={state.rendererUrl} />
+          // 受管工作台与桌面壳不同源；不委托 clipboard-write 时 WebView2 会拦截官方 UI 的复制操作。
+          <iframe
+            ref={iframeRef}
+            className="workbenchFrame"
+            title="DeepSeek Harness 工作台"
+            src={state.rendererUrl}
+            allow="clipboard-write"
+          />
         ) : (
           <div className="bootstrapShell">
             <section className="bootstrapCard" aria-live="polite" data-failed={failed || undefined}>
