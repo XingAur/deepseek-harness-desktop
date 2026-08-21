@@ -270,6 +270,33 @@ describe('App', () => {
     expect(runtime.cancelRuntime).toHaveBeenCalled()
   })
 
+  it('shows real embedded extraction progress without a cancel action', async () => {
+    const { runtime, emit } = fakeRuntime()
+    render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
+    await waitFor(() => expect(runtime.bootstrapRuntime).toHaveBeenCalled())
+    for (const completed of [0, 36, 100]) {
+      emit({
+        kind: 'progress',
+        payload: {
+          operationId: 'op-1', phase: 'extracting', completed, total: 100,
+          message: `正在解压内置组件 ${completed}%`,
+        },
+      })
+    }
+    expect(await screen.findByText('正在解压内置组件 100%')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: '运行时准备进度' })).toHaveAttribute('aria-valuenow', '100')
+    expect(screen.queryByRole('button', { name: '取消' })).not.toBeInTheDocument()
+
+    emit({
+      kind: 'progress',
+      payload: {
+        operationId: 'op-1', phase: 'verifying', completed: 100, total: 100,
+        message: '正在验证组件',
+      },
+    })
+    expect(await screen.findByText('正在验证组件')).toBeInTheDocument()
+  })
+
   it('shows an indeterminate hint when no percentage is known', async () => {
     const { runtime, emit } = fakeRuntime()
     render(<App runtime={runtime} windowControls={fakeWindowControls()} />)

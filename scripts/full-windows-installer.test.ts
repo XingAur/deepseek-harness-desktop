@@ -35,7 +35,7 @@ describe('full Windows installer contract', () => {
       'E:/repo/runtime-build/windows-x86_64/runtime-windows-x86_64.json':
         'runtime/manifests/runtime-windows-x86_64.json',
     })
-    expect(config.bundle.windows?.nsis?.installerHooks).toBeUndefined()
+    expect(config.bundle).not.toHaveProperty('windows')
     expect(existsSync('src-tauri/windows/full-installer-hooks.nsh')).toBe(false)
   })
 

@@ -46,6 +46,35 @@ describe('runtimeReducer', () => {
     expect(next).toMatchObject({ phase: 'downloading', progress: { completed: 20, total: 100 }, message: '下载中' })
   })
 
+  it('keeps real embedded extraction progress through 100 before verification', () => {
+    let state = runtimeReducer(initialRuntimeState, {
+      type: 'runtime-event',
+      event: {
+        kind: 'progress',
+        payload: {
+          operationId: 'op-1', phase: 'extracting', completed: 36, total: 100,
+          message: '正在解压内置组件 36%',
+        },
+      },
+    })
+    expect(state).toMatchObject({
+      phase: 'extracting',
+      progress: { completed: 36, total: 100 },
+      message: '正在解压内置组件 36%',
+    })
+    state = runtimeReducer(state, {
+      type: 'runtime-event',
+      event: {
+        kind: 'progress',
+        payload: {
+          operationId: 'op-1', phase: 'extracting', completed: 100, total: 100,
+          message: '正在解压内置组件 100%',
+        },
+      },
+    })
+    expect(state.progress).toEqual({ completed: 100, total: 100 })
+  })
+
   it('ignores stale operation events', () => {
     const state: RuntimeViewState = { ...initialRuntimeState, operationId: 'op-new' }
     const next = runtimeReducer(state, {

@@ -2,6 +2,7 @@ export type RuntimePhase =
   | 'checking'
   | 'fetching-manifest'
   | 'downloading'
+  | 'extracting'
   | 'verifying'
   | 'activating'
   | 'starting'
@@ -32,6 +33,8 @@ export type RuntimeFailureCode =
   | 'cancelled'
   | 'internal'
 
+export type RuntimeSourceKind = 'local' | 'bundled' | 'online'
+
 export interface RuntimeProgressEvent {
   operationId: string
   phase: RuntimePhase
@@ -44,6 +47,8 @@ export interface RuntimeFailure {
   code: RuntimeFailureCode
   message: string
   recoverable: boolean
+  source?: RuntimeSourceKind
+  extractionPercent?: number
 }
 
 export interface BootstrapReply {

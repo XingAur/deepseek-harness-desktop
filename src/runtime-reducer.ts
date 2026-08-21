@@ -145,6 +145,8 @@ export function failureFromUnknown(cause: unknown): RuntimeFailure {
         code: candidate.code ?? 'internal',
         message: candidate.message,
         recoverable: candidate.recoverable ?? true,
+        source: candidate.source,
+        extractionPercent: candidate.extractionPercent,
       }
     }
   }

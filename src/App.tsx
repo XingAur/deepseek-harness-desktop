@@ -14,6 +14,7 @@ const phaseLabels: Record<RuntimePhase | GenerationPhase, string> = {
   checking: '检查环境',
   'fetching-manifest': '检查更新',
   downloading: '下载组件',
+  extracting: '正在准备',
   verifying: '校验文件',
   activating: '安装组件',
   starting: '启动应用',
