@@ -42,12 +42,21 @@ describe('project card', () => {
 
     fireEvent.contextMenu(card, { clientX: 120, clientY: 160 })
     expect(screen.getByRole('menu', { name: '项目操作' })).toBeVisible()
+    expect(screen.getByRole('menuitem', { name: '打开会话继续开发' })).toBeVisible()
+    expect(screen.getByRole('menuitem', { name: '停止应用' })).toBeVisible()
+    expect(screen.getByRole('menuitem', { name: '停止应用' })).toBeDisabled()
     expect(screen.getByRole('menuitem', { name: '修改名称' })).toBeVisible()
     expect(screen.getByRole('menuitem', { name: '修改封面' })).toBeVisible()
     expect(screen.getByRole('menuitem', { name: '置顶' })).toBeVisible()
     expect(screen.getByRole('menuitem', { name: '删除项目' })).toBeVisible()
 
+    fireEvent.click(screen.getByRole('menuitem', { name: '打开会话继续开发' }))
+    expect(callbacks.onOpenSession).toHaveBeenCalledOnce()
+
+    fireEvent.contextMenu(card)
     fireEvent.keyDown(screen.getByRole('menu', { name: '项目操作' }), { key: 'Home' })
+    fireEvent.keyDown(screen.getByRole('menu', { name: '项目操作' }), { key: 'ArrowDown' })
+    fireEvent.keyDown(screen.getByRole('menu', { name: '项目操作' }), { key: 'ArrowDown' })
     fireEvent.keyDown(screen.getByRole('menu', { name: '项目操作' }), { key: 'Enter' })
     expect(screen.getByRole('textbox', { name: '项目名称' })).toBeVisible()
   })

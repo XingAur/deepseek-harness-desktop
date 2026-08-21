@@ -21,7 +21,7 @@ export interface ProjectCardProps {
 }
 
 export function ProjectCard(props: ProjectCardProps) {
-  const { card, selected, unavailable, recent = false, disabled = false, launchable = false, running = false, onSelect, onOpen, onRename, onCoverChange, onPinChange, onDelete } = props
+  const { card, selected, unavailable, recent = false, disabled = false, launchable = false, running = false, onSelect, onOpen, onOpenSession, onStopApp, onRename, onCoverChange, onPinChange, onDelete } = props
   const surfaceRef = useRef<HTMLDivElement>(null)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [editing, setEditing] = useState(false)
@@ -135,6 +135,9 @@ export function ProjectCard(props: ProjectCardProps) {
           cover={card.cover}
           pinned={card.pinned}
           disabled={disabled}
+          running={running}
+          onOpenSession={onOpenSession}
+          onStopApp={onStopApp}
           onRename={startRename}
           onCoverChange={onCoverChange}
           onPinChange={onPinChange}

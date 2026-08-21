@@ -234,4 +234,29 @@ describe('local projects page', () => {
     expect(await screen.findByText('运行中')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '项目 lib' })).not.toBeInTheDocument()
   })
+
+  it('offers session continuation and app stop in the card menu', async () => {
+    const workspaces = workspaceFixture([{
+      workspaceId: 'w-1', path: 'C:\\code\\demo', title: 'demo', sessionIds: [],
+      createdAt: '2026-08-19T00:00:00Z', updatedAt: '2026-08-19T00:00:00Z',
+    }])
+    const bridge = bridgeFixture()
+    vi.mocked(bridge.request).mockImplementation(async (action) => {
+      if (action === 'profile.list') return { selectedProfileId: 'p-default', pendingProfileId: null, lastKnownGoodProfileId: 'p-default', profiles: [] }
+      if (action === 'project.metadata.list') return { schemaVersion: 1, projects: {} }
+      if (action === 'app.status') return { projectsRoot: 'C:\\code', running: [{ workspaceId: 'w-1', origin: 'http://127.0.0.1:39333', title: 'demo', startedAt: '2026-08-21T00:00:00Z' }], launchable: ['w-1'] }
+      return undefined
+    })
+    renderFrame({ workspaces, bridge })
+    fireEvent.click(screen.getByRole('button', { name: '本地项目' }))
+    const card = await screen.findByRole('button', { name: '项目 demo' })
+    fireEvent.contextMenu(card)
+
+    fireEvent.click(screen.getByRole('menuitem', { name: '停止应用' }))
+    await waitFor(() => expect(bridge.request).toHaveBeenCalledWith('app.stop', { workspaceId: 'w-1' }))
+
+    fireEvent.contextMenu(card)
+    fireEvent.click(screen.getByRole('menuitem', { name: '打开会话继续开发' }))
+    await waitFor(() => expect(workspaces.connectWorkspace).toHaveBeenCalledWith('w-1'))
+  })
 })
