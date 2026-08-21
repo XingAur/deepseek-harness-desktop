@@ -112,6 +112,7 @@ export function installAdvancedStyles(): () => void {
     .dshDesktopProjectEmpty h2 { margin: 17px 0 7px; font-size: 22px; }
     .dshDesktopProjectEmpty p { margin: 0; color: var(--dsw-alias-label-tertiary, #85858d); }
     .dshDesktopProjectComposerDock { position: sticky; bottom: 0; z-index: 4; margin-top: 24px; padding: 12px 0 22px; background: linear-gradient(180deg, transparent, var(--dsw-alias-bg-base, #151517) 18%); }
+    .dshDesktopAdoptDialog > header p { color: #86a2ef; }
     .dshDesktopAdoptRow { display: flex; justify-content: center; margin-bottom: 8px; }
     .dshDesktopAdoptButton { min-height: 30px; padding: 0 14px; border: 1px dashed color-mix(in srgb, #7196ff 40%, var(--dsh-desktop-divider)); border-radius: 999px; color: #9ab2f5; background: transparent; font-size: 12px; cursor: pointer; }
     .dshDesktopAdoptButton:hover:not(:disabled) { background: color-mix(in srgb, #7196ff 9%, transparent); }

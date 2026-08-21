@@ -7,13 +7,15 @@ export interface AdoptCandidate {
 export interface AdoptProjectDialogProps {
   candidates: readonly AdoptCandidate[]
   busy: boolean
+  // 收录失败的错误文案：留在对话框内就地提示，不关闭对话框、不落到页面级错误条。
+  error?: string | null
   onAdopt(workspaceId: string): Promise<void>
   onClose(): void
 }
 
 // 收录已有项目对话框：列出当前 Profile 中尚未进入本地项目列表的工作区，点选即通过
 // project.metadata.patch 打上 localApp 标记；样式沿用删除确认对话框的背板与面板模式。
-export function AdoptProjectDialog({ candidates, busy, onAdopt, onClose }: AdoptProjectDialogProps) {
+export function AdoptProjectDialog({ candidates, busy, error, onAdopt, onClose }: AdoptProjectDialogProps) {
   return (
     <div
       className="dshDesktopProjectDialogBackdrop"
@@ -47,6 +49,7 @@ export function AdoptProjectDialog({ candidates, busy, onAdopt, onClose }: Adopt
             ))}
           </ul>
         )}
+        {error != null && <p className="dshDesktopProjectDeleteError" role="alert">{error}</p>}
       </section>
     </div>
   )

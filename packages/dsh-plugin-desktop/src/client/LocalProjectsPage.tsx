@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { SessionsLike, WorkspaceListState, WorkspacesLike } from './contracts'
 import type { DesktopBridgeLike } from './desktop-bridge'
 import { AdoptProjectDialog } from './AdoptProjectDialog'
@@ -49,6 +49,9 @@ export function LocalProjectsPage({ state, workspaces, sessions, bridge, onClose
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
   const [adoptOpen, setAdoptOpen] = useState(false)
+  // 收录错误只进对话框内部提示；"收录已有项目"按钮保留引用，取消/失败关闭后把焦点还给它。
+  const [adoptError, setAdoptError] = useState<string | null>(null)
+  const adoptButtonRef = useRef<HTMLButtonElement>(null)
   // 收录候选 = 当前 Profile 中既不在项目根目录下、也没有 localApp 标记的工作区（即未出现在 visibleCards 里的）。
   const adoptable = useMemo(() => state.state !== 'loading' && apps !== null
     ? state.items
@@ -198,18 +201,33 @@ export function LocalProjectsPage({ state, workspaces, sessions, bridge, onClose
   }
 
   // 收录根目录之外的工作区：只补写 localApp 元数据标记，不移动目录、不新建会话。
+  // 成功后关闭对话框并把焦点移到新出现卡片的 surface；失败则留在对话框内展示错误。
   const adopt = async (workspaceId: string) => {
     setBusyId(workspaceId)
-    setActionError(null)
+    setAdoptError(null)
     try {
       const snapshot = await bridge.request<ProjectMetadataSnapshot>('project.metadata.patch', { workspaceId, patch: { localApp: true } })
       if (snapshot?.projects !== undefined) setMetadata(snapshot)
       setAdoptOpen(false)
+      queueMicrotask(() => {
+        for (const card of document.querySelectorAll<HTMLElement>('[data-project-id]')) {
+          if (card.dataset.projectId === workspaceId) {
+            card.querySelector<HTMLElement>('.dshDesktopProjectCardSurface')?.focus()
+            break
+          }
+        }
+      })
     } catch (cause) {
-      setActionError(workspaceFailure(cause).message)
+      setAdoptError(workspaceFailure(cause).message)
     } finally {
       setBusyId(null)
     }
+  }
+
+  // 取消收录：关闭对话框并把焦点还给触发它的按钮，避免焦点回落到 body。
+  const closeAdoptDialog = () => {
+    setAdoptOpen(false)
+    queueMicrotask(() => { adoptButtonRef.current?.focus() })
   }
 
   return (
@@ -259,7 +277,13 @@ export function LocalProjectsPage({ state, workspaces, sessions, bridge, onClose
         {state.state !== 'loading' && state.state !== 'error' && (
           <div className="dshDesktopProjectComposerDock">
             <div className="dshDesktopAdoptRow">
-              <button type="button" className="dshDesktopAdoptButton" disabled={profilePending || busyId !== null} onClick={() => setAdoptOpen(true)}>收录已有项目</button>
+              <button
+                ref={adoptButtonRef}
+                type="button"
+                className="dshDesktopAdoptButton"
+                disabled={apps === null || profilePending || busyId !== null}
+                onClick={() => { setAdoptError(null); setAdoptOpen(true) }}
+              >收录已有项目</button>
             </div>
             <ProjectComposer
               bridge={bridge}
@@ -286,8 +310,9 @@ export function LocalProjectsPage({ state, workspaces, sessions, bridge, onClose
           <AdoptProjectDialog
             candidates={adoptable}
             busy={busyId !== null}
+            error={adoptError}
             onAdopt={adopt}
-            onClose={() => setAdoptOpen(false)}
+            onClose={closeAdoptDialog}
           />
         )}
       </div>

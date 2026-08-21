@@ -284,5 +284,7 @@ describe('local projects page', () => {
     fireEvent.click(await screen.findByRole('button', { name: /legacy/ }))
 
     expect(await screen.findByRole('button', { name: '项目 legacy' })).toBeInTheDocument()
+    expect(bridge.request).toHaveBeenCalledWith('project.metadata.patch', { workspaceId: 'w-9', patch: { localApp: true } })
+    expect(screen.queryByRole('dialog', { name: '收录已有项目' })).not.toBeInTheDocument()
   })
 })
