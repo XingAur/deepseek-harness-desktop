@@ -27,6 +27,8 @@ pub struct ProjectMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover: Option<ProjectCover>,
     pub pinned: bool,
+    #[serde(default)]
+    pub local_app: bool,
     pub updated_at: DateTime<Utc>,
 }
 
@@ -45,6 +47,7 @@ pub enum ProjectCover {
 pub struct ProjectMetadataPatch {
     pub cover: Option<ProjectCover>,
     pub pinned: Option<bool>,
+    pub local_app: Option<bool>,
 }
 
 pub struct ProjectMetadataRepository {
@@ -93,6 +96,7 @@ impl ProjectMetadataRepository {
             .or_insert_with(|| ProjectMetadata {
                 cover: None,
                 pinned: false,
+                local_app: false,
                 updated_at: Utc::now(),
             });
         if let Some(cover) = patch.cover {
@@ -100,6 +104,9 @@ impl ProjectMetadataRepository {
         }
         if let Some(pinned) = patch.pinned {
             project.pinned = pinned;
+        }
+        if let Some(local_app) = patch.local_app {
+            project.local_app = local_app;
         }
         project.updated_at = Utc::now();
         write_atomic(&self.path, &snapshot)?;
@@ -150,6 +157,7 @@ mod tests {
             ProjectMetadataPatch {
                 cover: Some(ProjectCover::AuroraBlue),
                 pinned: Some(true),
+                local_app: None,
             },
         )
         .unwrap();
@@ -171,6 +179,23 @@ mod tests {
     }
 
     #[test]
+    fn patch_persists_local_app_flag() {
+        let dir = tempfile::tempdir().unwrap();
+        let repository = ProjectMetadataRepository::new(dir.path().to_path_buf());
+        repository
+            .patch(
+                "w-1",
+                ProjectMetadataPatch {
+                    cover: None,
+                    pinned: None,
+                    local_app: Some(true),
+                },
+            )
+            .unwrap();
+        assert!(repository.snapshot().unwrap().projects["w-1"].local_app);
+    }
+
+    #[test]
     fn patch_and_remove_leave_no_atomic_temporary_file() {
         let dir = tempfile::tempdir().unwrap();
         let repository = ProjectMetadataRepository::new(dir.path().to_path_buf());
@@ -180,6 +205,7 @@ mod tests {
                 ProjectMetadataPatch {
                     cover: Some(ProjectCover::Forest),
                     pinned: Some(false),
+                    local_app: None,
                 },
             )
             .unwrap();
