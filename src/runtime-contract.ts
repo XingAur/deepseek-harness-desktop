@@ -142,6 +142,13 @@ export interface AppUpdateEvent {
   state: AppUpdateState
 }
 
+export interface LocalAppEvent {
+  kind: 'launched' | 'stopped' | 'exited'
+  workspaceId: string
+  origin: string | null
+  title: string | null
+}
+
 export interface AppUpdateReceipt {
   previousVersion: string
   targetVersion: string
@@ -165,4 +172,5 @@ export interface RuntimeClient {
   subscribeRuntimeProgress(listener: (event: RuntimeEvent) => void): Promise<() => void>
   subscribeDesktopEvents(listener: (event: DesktopEvent) => void): Promise<() => void>
   subscribeAppUpdates(listener: (event: AppUpdateEvent) => void): Promise<() => void>
+  subscribeLocalAppEvents(listener: (event: LocalAppEvent) => void): Promise<() => void>
 }

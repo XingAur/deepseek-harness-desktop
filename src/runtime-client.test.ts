@@ -35,4 +35,27 @@ describe('runtime client app updates', () => {
     } })
     expect(listener).toHaveBeenCalledWith(expect.objectContaining({ source: 'manual' }))
   })
+
+  it('subscribes to local-app-event channel and forwards payloads', async () => {
+    let receive: ((event: { payload: unknown }) => void) | undefined
+    tauri.listen.mockImplementation(async (_name, listener) => {
+      receive = listener
+      return vi.fn()
+    })
+    const listener = vi.fn()
+    await tauriRuntimeClient.subscribeLocalAppEvents(listener)
+    receive?.({ payload: {
+      kind: 'launched',
+      workspaceId: 'w-1',
+      origin: 'http://127.0.0.1:39123',
+      title: 'demo'
+    } })
+    expect(listener).toHaveBeenCalledWith({
+      kind: 'launched',
+      workspaceId: 'w-1',
+      origin: 'http://127.0.0.1:39123',
+      title: 'demo'
+    })
+    expect(tauri.listen).toHaveBeenCalledWith('local-app-event', expect.any(Function))
+  })
 })

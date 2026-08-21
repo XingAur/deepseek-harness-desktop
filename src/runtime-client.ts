@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import type { AppUpdateEvent, AppUpdateReceipt, AppUpdateState, BootstrapReply, DesktopEvent, MigrationStatus, RuntimeClient, RuntimeEvent } from './runtime-contract'
+import type { AppUpdateEvent, AppUpdateReceipt, AppUpdateState, BootstrapReply, DesktopEvent, LocalAppEvent, MigrationStatus, RuntimeClient, RuntimeEvent } from './runtime-contract'
 
 export const tauriRuntimeClient: RuntimeClient = {
   bootstrapRuntime: () => invoke<BootstrapReply>('bootstrap_runtime'),
@@ -25,5 +25,8 @@ export const tauriRuntimeClient: RuntimeClient = {
   },
   async subscribeAppUpdates(listener) {
     return listen<AppUpdateEvent>('app-update-event', ({ payload }) => listener(payload))
+  },
+  async subscribeLocalAppEvents(listener) {
+    return listen<LocalAppEvent>('local-app-event', ({ payload }) => listener(payload))
   },
 }
