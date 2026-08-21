@@ -176,15 +176,17 @@ pub async fn spawn_runtime_from_dir(
             format!("Runtime 入口不存在：{}", executable.display()),
         ));
     }
-    let args = manifest
-        .args
-        .iter()
-        .map(|value| {
-            value
-                .replace("{port}", &port.to_string())
-                .replace("{sessionToken}", session_token)
-        })
-        .collect::<Vec<_>>();
+    let args = managed_args(
+        manifest
+            .args
+            .iter()
+            .map(|value| {
+                value
+                    .replace("{port}", &port.to_string())
+                    .replace("{sessionToken}", session_token)
+            })
+            .collect::<Vec<_>>(),
+    );
     let mut command = Command::new(&executable);
     for (key, value) in profile_environment(profile, generation_id) {
         command.env(key, value);
@@ -241,6 +243,13 @@ pub async fn spawn_runtime_from_dir(
         log_tasks,
         log_file: Some(log_file),
     })
+}
+
+fn managed_args(mut args: Vec<String>) -> Vec<String> {
+    if !args.iter().any(|argument| argument == "--no-open") {
+        args.push("--no-open".to_string());
+    }
+    args
 }
 
 fn profile_environment(profile: &ProfileRecord, generation_id: &str) -> Vec<(OsString, OsString)> {
@@ -326,5 +335,21 @@ mod tests {
         assert!(environment.contains(&("DSH_HOME".into(), profile.data_root.into_os_string())));
         assert!(environment.contains(&("DSH_DESKTOP_PROFILE_REVISION".into(), "7".into())));
         assert!(environment.contains(&("DSH_DESKTOP_GENERATION_ID".into(), "g-9".into())));
+    }
+
+    #[test]
+    fn managed_runtime_adds_no_open_once() {
+        assert_eq!(
+            managed_args(vec![
+                "app/launcher.mjs".into(),
+                "--port".into(),
+                "9000".into(),
+            ]),
+            vec!["app/launcher.mjs", "--port", "9000", "--no-open"],
+        );
+        assert_eq!(
+            managed_args(vec!["app/launcher.mjs".into(), "--no-open".into()]),
+            vec!["app/launcher.mjs", "--no-open"],
+        );
     }
 }
