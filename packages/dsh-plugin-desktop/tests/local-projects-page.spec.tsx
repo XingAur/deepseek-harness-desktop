@@ -165,12 +165,14 @@ describe('local projects page', () => {
     expect(await screen.findByText('路径不可用')).toBeInTheDocument()
   })
 
-  it('uses the conversation composer as the empty-state invitation', () => {
+  it('uses the conversation composer as the empty-state invitation', async () => {
     renderFrame({ workspaces: workspaceFixture() })
     fireEvent.click(screen.getByRole('button', { name: '本地项目' }))
 
-    expect(screen.getByRole('heading', { name: '还没有本地项目' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '还没有本地项目' })).toBeInTheDocument()
     expect(screen.getByText('可以通过对话构建你的第一个本地项目')).toBeInTheDocument()
+    // app.status 就绪前先显示骨架，就绪后骨架消失、空态出现。
+    expect(screen.queryByLabelText('正在加载本地项目')).not.toBeInTheDocument()
     const page = screen.getByRole('region', { name: '本地项目' })
     expect(page.querySelector('.dshDesktopProjectCreatePanel')).toBeNull()
     expect(page.querySelectorAll('.dshDesktopProjectComposer')).toHaveLength(1)

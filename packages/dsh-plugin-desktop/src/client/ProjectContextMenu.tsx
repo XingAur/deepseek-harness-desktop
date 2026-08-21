@@ -2,8 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import type { ProjectCoverToken } from './project-model'
 import { ProjectCoverPicker } from './ProjectCoverPicker'
 
-const ITEM_COUNT = 6
-
 export interface ProjectContextMenuProps {
   x: number
   y: number
@@ -55,10 +53,11 @@ export function ProjectContextMenu(props: ProjectContextMenuProps) {
           return
         }
         if (view !== 'actions') return
-        if (event.key === 'ArrowDown') { event.preventDefault(); setActiveIndex((activeIndex + 1) % ITEM_COUNT) }
-        else if (event.key === 'ArrowUp') { event.preventDefault(); setActiveIndex((activeIndex - 1 + ITEM_COUNT) % ITEM_COUNT) }
+        if (itemRefs.current.length === 0) return
+        if (event.key === 'ArrowDown') { event.preventDefault(); setActiveIndex((activeIndex + 1) % itemRefs.current.length) }
+        else if (event.key === 'ArrowUp') { event.preventDefault(); setActiveIndex((activeIndex - 1 + itemRefs.current.length) % itemRefs.current.length) }
         else if (event.key === 'Home') { event.preventDefault(); setActiveIndex(0) }
-        else if (event.key === 'End') { event.preventDefault(); setActiveIndex(ITEM_COUNT - 1) }
+        else if (event.key === 'End') { event.preventDefault(); setActiveIndex(itemRefs.current.length - 1) }
         else if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault(); itemRefs.current[activeIndex]?.click()
         }

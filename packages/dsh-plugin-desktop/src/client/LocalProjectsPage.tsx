@@ -233,7 +233,7 @@ export function LocalProjectsPage({ state, workspaces, sessions, bridge, onClose
   return (
     <section className="dshDesktopProjectsPage" aria-label="本地项目" aria-busy={state.state === 'loading' || profilePending || undefined}>
       <div className="dshDesktopProjectsPageInner">
-        {state.state === 'loading' && (
+        {(state.state === 'loading' || apps === null) && state.state !== 'error' && (
           <div className="dshDesktopProjectSkeletons" aria-label="正在加载本地项目">
             <span /><span /><span />
           </div>
@@ -266,7 +266,7 @@ export function LocalProjectsPage({ state, workspaces, sessions, bridge, onClose
           </div>
         )}
 
-        {state.state !== 'loading' && state.state !== 'error' && visibleCards.length === 0 && (
+        {state.state !== 'loading' && state.state !== 'error' && apps !== null && visibleCards.length === 0 && (
           <div className="dshDesktopProjectEmpty">
             <span className="dshDesktopProjectEmptyIcon" aria-hidden="true">＋</span>
             <h2>还没有本地项目</h2>

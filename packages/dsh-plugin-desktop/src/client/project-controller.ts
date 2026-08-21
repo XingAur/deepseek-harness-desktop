@@ -55,7 +55,7 @@ export function createProjectController(
       if (binding === undefined) throw new Error('项目会话尚未准备好，请重试')
       const reply = await binding.session.prompt([{
         type: 'text',
-        text: `请在当前本地项目中完成下面的修改。先检查现状，尽量保持现有结构和风格；需要额外权限时先询问。\n\n修改需求：\n${request}`,
+        text: `请在当前本地项目中完成下面的修改。先检查现状，尽量保持现有结构和风格；需要额外权限时先询问。\n\n若本次修改影响启动命令、监听端口或数据目录，请同步更新项目根的 dsh-app.json（start 首项须为 node 或 pnpm）。\n\n修改需求：\n${request}`,
       }], 'queue')
       if (!reply.ok) throw new Error(reply.error?.message ?? '项目修改请求未被接受')
       sessions.open(sessionId)

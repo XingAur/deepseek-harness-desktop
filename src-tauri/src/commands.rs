@@ -241,11 +241,11 @@ pub async fn switch_profile(
     profile_id: uuid::Uuid,
     generation_id: Option<String>,
 ) -> Result<BootstrapReply, RuntimeFailure> {
-    // 切换 Profile 会更换 data_root，本地应用必须先行全部停止。
-    launcher.inner().stop_all().await;
     if let Some(generation_id) = generation_id {
         state.validate_generation(&generation_id).await?;
     }
+    // 切换 Profile 会更换 data_root，通过校验后先停止全部本地应用再切换。
+    launcher.inner().stop_all().await;
     state.inner().switch_profile(profile_id).await
 }
 
