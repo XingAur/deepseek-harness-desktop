@@ -270,6 +270,20 @@ describe('App', () => {
     expect(screen.queryByText('正在运行：x')).not.toBeInTheDocument()
   })
 
+  it('clears the local app surface on stopped events', async () => {
+    const { runtime, emitLocalApp } = fakeRuntime()
+    vi.mocked(runtime.bootstrapRuntime).mockResolvedValue({
+      operationId: 'op-ready', phase: 'ready', rendererUrl: 'http://127.0.0.1:39000/',
+    })
+    render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
+    await screen.findByTitle('DeepSeek Harness 工作台')
+    act(() => emitLocalApp({ kind: 'launched', workspaceId: 'w-1', origin: 'http://127.0.0.1:39123', title: '记账应用' }))
+    expect(screen.getByTitle('本地应用 记账应用')).toBeInTheDocument()
+    act(() => emitLocalApp({ kind: 'stopped', workspaceId: 'w-1', origin: 'http://127.0.0.1:39123', title: '记账应用' }))
+    expect(screen.queryByTitle('本地应用 记账应用')).not.toBeInTheDocument()
+    expect(screen.getByTitle('DeepSeek Harness 工作台')).not.toHaveAttribute('data-hidden')
+  })
+
   it('syncs only trusted workbench theme messages to the desktop chrome', async () => {
     const { runtime } = fakeRuntime()
     vi.mocked(runtime.bootstrapRuntime).mockResolvedValue({

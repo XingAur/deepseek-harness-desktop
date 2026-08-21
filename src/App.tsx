@@ -237,6 +237,11 @@ export function App({ runtime, windowControls }: AppProps) {
   }, [])
 
   useEffect(() => {
+    // Runtime 离开就绪态（失败/重启）后，本地应用视图不再有效；避免陈旧状态跨 generation 存留。
+    if (state.rendererUrl === null) setActiveApp(null)
+  }, [state.rendererUrl])
+
+  useEffect(() => {
     if (state.generationId === null || state.rendererUrl === null) return
     const active = {
       generationId: state.generationId,
@@ -445,11 +450,25 @@ export function App({ runtime, windowControls }: AppProps) {
   )
 }
 
+function isValidLoopbackOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin)
+    return url.protocol === 'http:'
+      && url.hostname === '127.0.0.1'
+      && url.port !== ''
+      && url.port.length <= 5
+      && Number(url.port) > 0
+      && Number(url.port) <= 65535
+  } catch {
+    return false
+  }
+}
+
 function applyLocalAppEvent(
   current: { workspaceId: string; origin: string; title: string } | null,
   event: LocalAppEvent,
 ) {
-  if (event.origin !== null && !/^http:\/\/127\.0\.0\.1:\d+$/.test(event.origin)) return current
+  if (event.origin !== null && !isValidLoopbackOrigin(event.origin)) return current
   if (event.kind === 'launched' && event.origin !== null) {
     return { workspaceId: event.workspaceId, origin: event.origin, title: event.title ?? event.workspaceId }
   }
