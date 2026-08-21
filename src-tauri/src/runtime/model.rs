@@ -66,6 +66,10 @@ pub struct RuntimeFailure {
     pub recoverable: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<RuntimeFailureContext>,
+    #[serde(rename = "source", skip_serializing_if = "Option::is_none")]
+    pub runtime_source: Option<RuntimeSourceKind>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extraction_percent: Option<u8>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -103,11 +107,23 @@ impl RuntimeFailure {
             message: message.into(),
             recoverable: true,
             context: None,
+            runtime_source: None,
+            extraction_percent: None,
         }
     }
 
     pub fn with_context(mut self, context: RuntimeFailureContext) -> Self {
         self.context = Some(context);
+        self
+    }
+
+    pub fn with_preparation(
+        mut self,
+        source: RuntimeSourceKind,
+        extraction_percent: Option<u8>,
+    ) -> Self {
+        self.runtime_source = Some(source);
+        self.extraction_percent = extraction_percent.map(|value| value.min(100));
         self
     }
 
@@ -171,6 +187,8 @@ impl RuntimeTarget {
                 message: format!("首版不支持当前平台 {os}-{arch}"),
                 recoverable: false,
                 context: None,
+                runtime_source: None,
+                extraction_percent: None,
             }),
         }
     }
@@ -225,5 +243,15 @@ mod tests {
             serde_json::to_string(&RuntimePhase::Extracting).unwrap(),
             "\"extracting\""
         );
+    }
+
+    #[test]
+    fn serializes_safe_preparation_failure_metadata() {
+        let failure = RuntimeFailure::new(RuntimeFailureCode::Archive, "broken")
+            .with_preparation(RuntimeSourceKind::Bundled, Some(120));
+        let value = serde_json::to_value(failure).unwrap();
+        assert_eq!(value["source"], "bundled");
+        assert_eq!(value["extractionPercent"], 100);
+        assert!(value.get("runtimeSource").is_none());
     }
 }

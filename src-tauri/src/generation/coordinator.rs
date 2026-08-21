@@ -16,15 +16,19 @@ use crate::{
     profile::model::{ProfileRecord, ProfileSelection},
     runtime::{
         activation::read_active_manifest,
-        compatibility::LocalRuntimeDecision,
         diagnostics,
         health::{ReadinessExpectation, wait_for_readiness},
         maintenance,
         model::{
             BootstrapReply, RuntimeDiagnosticSnapshot, RuntimeEvent, RuntimeFailure,
             RuntimeFailureCode, RuntimeManifest, RuntimePhase, RuntimeProgressEvent,
+            RuntimeSourceKind,
         },
         paths::RuntimePaths,
+        preparation::{
+            PreparedRuntimeChoice, RuntimePreparationProgress, RuntimePreparationService,
+            VerifiedPayload,
+        },
         process::{ManagedRuntime, reserve_loopback_port, runtime_exit_failure, spawn_runtime},
         updater::{PreparedRuntime, RuntimeUpdater},
     },
@@ -217,13 +221,17 @@ pub trait RuntimeLauncher: Send + Sync {
 pub struct ProcessRuntimeLauncher {
     paths: RuntimePaths,
     client: reqwest::Client,
-    updater: Arc<RuntimeUpdater>,
+    preparation: Arc<RuntimePreparationService>,
+    online_updater: Arc<RuntimeUpdater>,
     sink: Arc<dyn DesktopEventSink>,
 }
 
 struct PreparedLaunch {
     manifest: RuntimeManifest,
     prepared: Option<PreparedRuntime>,
+    updater: Arc<RuntimeUpdater>,
+    source: RuntimeSourceKind,
+    verified_payload: Option<VerifiedPayload>,
     message: String,
     reused_local: bool,
 }
@@ -252,8 +260,14 @@ impl ProcessRuntimeLauncher {
             .user_agent("DeepSeek-Harness-Desktop/0.1.0")
             .build()
             .map_err(RuntimeFailure::internal)?;
+        let preparation = Arc::new(RuntimePreparationService::new(
+            paths.clone(),
+            client.clone(),
+        )?);
+        let online_updater = preparation.online_updater();
         Ok(Arc::new(Self {
-            updater: Arc::new(RuntimeUpdater::new(paths.clone(), client.clone())?),
+            preparation,
+            online_updater,
             paths,
             client,
             sink,
@@ -305,98 +319,55 @@ impl ProcessRuntimeLauncher {
         repair: bool,
         cancellation: &CancellationToken,
     ) -> Result<PreparedLaunch, RuntimeFailure> {
-        let local = if repair {
-            LocalRuntimeDecision::UpgradeRequired
-        } else {
-            self.updater.local_provisioned_decision()?
-        };
-        match (repair, local) {
-            (false, LocalRuntimeDecision::FastStart(manifest)) => {
-                let message = format!("Runtime v{} 已就绪，正在快速启动…", manifest.version);
-                self.emit_progress(generation_id, RuntimePhase::Checking, 0, None, &message);
-                Ok(PreparedLaunch {
-                    manifest,
-                    prepared: None,
-                    message,
-                    reused_local: true,
-                })
-            }
-            (_, decision) => {
-                let installed_version =
-                    read_active_manifest(&self.paths)?.map(|manifest| manifest.version);
-                let first_install = installed_version.is_none();
-                let upgrade = matches!(decision, LocalRuntimeDecision::UpgradeRequired)
-                    && !repair
-                    && !first_install;
-                let upgrade_message = if repair {
+        let installed_version = read_active_manifest(&self.paths)?.map(|manifest| manifest.version);
+        if repair || installed_version.is_none() {
+            self.emit_generation_progress(
+                generation_id,
+                if repair {
                     "正在修复 Runtime"
                 } else {
-                    "检测到版本不兼容，正在自动升级 Runtime"
-                };
-                self.emit_generation_progress(
-                    generation_id,
-                    upgrade_message,
-                    installed_version,
-                    None,
-                );
-                self.emit_progress(
-                    generation_id,
-                    RuntimePhase::FetchingManifest,
-                    0,
-                    None,
-                    if repair {
-                        "本地运行组件需要修复，正在重新下载"
-                    } else if first_install {
-                        "首次使用，需要下载运行组件"
-                    } else {
-                        "本地 Runtime 不兼容，正在获取所需版本…"
+                    "正在准备 Runtime"
+                },
+                installed_version,
+                None,
+            );
+        }
+        let sink = Arc::clone(&self.sink);
+        let operation_id = generation_id.to_string();
+        let progress: Arc<dyn Fn(RuntimePreparationProgress) + Send + Sync> =
+            Arc::new(move |event| {
+                sink.runtime(RuntimeEvent::Progress {
+                    payload: RuntimeProgressEvent {
+                        operation_id: operation_id.clone(),
+                        phase: event.phase,
+                        completed: event.completed,
+                        total: event.total,
+                        message: event.message,
                     },
-                );
-                self.emit_progress(
-                    generation_id,
-                    RuntimePhase::Downloading,
-                    0,
-                    None,
-                    if upgrade {
-                        "正在下载更新…"
-                    } else {
-                        "正在下载组件…"
-                    },
-                );
-                let prepared = self
-                    .updater
-                    .prepare_required(generation_id, cancellation)
-                    .await?;
-                let manifest = prepared.manifest.clone();
-                self.emit_progress(
-                    generation_id,
-                    RuntimePhase::Verifying,
-                    manifest.size,
-                    Some(manifest.size),
-                    "正在校验下载的文件…",
-                );
-                self.emit_progress(
-                    generation_id,
-                    RuntimePhase::Activating,
-                    0,
-                    None,
-                    "正在安装组件…",
-                );
-                let message = if upgrade {
-                    format!(
-                        "Runtime v{} 已就绪，正在启动 DeepSeek Harness…",
-                        manifest.version
-                    )
-                } else {
-                    "组件已就绪，正在启动 DeepSeek Harness…".to_string()
-                };
-                Ok(PreparedLaunch {
-                    manifest,
-                    prepared: Some(prepared),
-                    message,
-                    reused_local: false,
-                })
-            }
+                });
+            });
+        let choice = self
+            .preparation
+            .prepare(generation_id, repair, cancellation, progress)
+            .await?;
+        Ok(self.choice_to_launch(choice))
+    }
+
+    fn choice_to_launch(&self, choice: PreparedRuntimeChoice) -> PreparedLaunch {
+        let reused_local = choice.source == RuntimeSourceKind::Local;
+        let message = if reused_local {
+            format!("Runtime v{} 已就绪，正在快速启动…", choice.manifest.version)
+        } else {
+            "组件已就绪，正在启动 DeepSeek Harness…".to_string()
+        };
+        PreparedLaunch {
+            manifest: choice.manifest,
+            prepared: choice.prepared,
+            updater: choice.updater,
+            source: choice.source,
+            verified_payload: choice.verified_payload,
+            message,
+            reused_local,
         }
     }
 
@@ -429,7 +400,7 @@ impl ProcessRuntimeLauncher {
             Ok(runtime) => Arc::new(Mutex::new(runtime)),
             Err(error) => {
                 if let Some(prepared) = launch.prepared.take() {
-                    self.updater.rollback(prepared)?;
+                    launch.updater.rollback(prepared)?;
                 }
                 return Err(error);
             }
@@ -459,7 +430,7 @@ impl ProcessRuntimeLauncher {
             Err(error) => {
                 let _ = runtime.lock().await.terminate().await;
                 if let Some(prepared) = launch.prepared.take() {
-                    self.updater.rollback(prepared)?;
+                    launch.updater.rollback(prepared)?;
                 }
                 return Err(error);
             }
@@ -469,13 +440,15 @@ impl ProcessRuntimeLauncher {
             Err(error) => {
                 let _ = runtime.lock().await.terminate().await;
                 if let Some(prepared) = launch.prepared.take() {
-                    self.updater.rollback(prepared)?;
+                    launch.updater.rollback(prepared)?;
                 }
                 return Err(error);
             }
         };
         let activation: Arc<dyn CandidateActivation> = match launch.prepared.take() {
-            Some(prepared) => PreparedCandidateActivation::new(Arc::clone(&self.updater), prepared),
+            Some(prepared) => {
+                PreparedCandidateActivation::new(Arc::clone(&launch.updater), prepared)
+            }
             None => Arc::new(NoopCandidateActivation),
         };
         Ok(LaunchedGeneration {
@@ -508,11 +481,54 @@ impl RuntimeLauncher for ProcessRuntimeLauncher {
                 .prepare_runtime(generation_id, repair, cancellation)
                 .await?;
             let reused_local = first.reused_local;
+            let source = first.source;
+            let verified_payload = first.verified_payload.clone();
             match self
                 .launch_prepared(generation_id, profile, first, cancellation)
                 .await
             {
                 Ok(launched) => Ok(launched),
+                Err(error)
+                    if !repair
+                        && source == RuntimeSourceKind::Bundled
+                        && verified_payload.is_some() =>
+                {
+                    let error = error.with_preparation(RuntimeSourceKind::Bundled, Some(100));
+                    let sink = Arc::clone(&self.sink);
+                    let operation_id = generation_id.to_string();
+                    let progress: Arc<dyn Fn(RuntimePreparationProgress) + Send + Sync> =
+                        Arc::new(move |event| {
+                            sink.runtime(RuntimeEvent::Progress {
+                                payload: RuntimeProgressEvent {
+                                    operation_id: operation_id.clone(),
+                                    phase: event.phase,
+                                    completed: event.completed,
+                                    total: event.total,
+                                    message: event.message,
+                                },
+                            });
+                        });
+                    let choice = self
+                        .preparation
+                        .prepare_online_after_verified_failure(
+                            generation_id,
+                            verified_payload.expect("guarded above"),
+                            error,
+                            cancellation,
+                            progress,
+                        )
+                        .await?;
+                    self.launch_prepared(
+                        generation_id,
+                        profile,
+                        self.choice_to_launch(choice),
+                        cancellation,
+                    )
+                    .await
+                    .map_err(|failure| {
+                        failure.with_preparation(RuntimeSourceKind::Online, Some(100))
+                    })
+                }
                 Err(error) if should_auto_repair(repair, reused_local, error.code) => {
                     self.emit_progress(
                         generation_id,
@@ -526,6 +542,12 @@ impl RuntimeLauncher for ProcessRuntimeLauncher {
                         .await?;
                     self.launch_prepared(generation_id, profile, fresh, cancellation)
                         .await
+                        .map_err(|failure| {
+                            failure.with_preparation(RuntimeSourceKind::Online, Some(100))
+                        })
+                }
+                Err(error) if source != RuntimeSourceKind::Local => {
+                    Err(error.with_preparation(source, Some(100)))
                 }
                 Err(error) => Err(error),
             }
@@ -536,7 +558,7 @@ impl RuntimeLauncher for ProcessRuntimeLauncher {
         &'a self,
     ) -> Pin<Box<dyn Future<Output = Result<(), RuntimeFailure>> + Send + 'a>> {
         Box::pin(async move {
-            let _ = self.updater.check_compatible_update().await?;
+            let _ = self.online_updater.check_compatible_update().await?;
             Ok(())
         })
     }

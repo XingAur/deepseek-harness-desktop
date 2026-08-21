@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicU8, Ordering},
+};
 
 use tokio_util::sync::CancellationToken;
 
@@ -43,6 +46,34 @@ impl VerifiedPayload {
 
 pub fn should_retry_online(failed: &VerifiedPayload, online: &RuntimeManifest) -> bool {
     !failed.sha256.eq_ignore_ascii_case(&online.sha256)
+}
+
+fn tracked_progress(
+    downstream: Arc<dyn Fn(RuntimePreparationProgress) + Send + Sync>,
+) -> (
+    Arc<dyn Fn(RuntimePreparationProgress) + Send + Sync>,
+    Arc<AtomicU8>,
+) {
+    let last_percent = Arc::new(AtomicU8::new(0));
+    let tracked_percent = Arc::clone(&last_percent);
+    let callback = Arc::new(move |event: RuntimePreparationProgress| {
+        if event.phase == RuntimePhase::Extracting {
+            let percent = event
+                .total
+                .map(|total| {
+                    if total == 0 {
+                        100
+                    } else {
+                        event.completed.saturating_mul(100) / total
+                    }
+                })
+                .unwrap_or(0)
+                .min(100) as u8;
+            tracked_percent.store(percent, Ordering::Relaxed);
+        }
+        downstream(event);
+    });
+    (callback, last_percent)
 }
 
 impl RuntimePreparationService {
@@ -91,12 +122,14 @@ impl RuntimePreparationService {
                 match bundled.verify_bundled_archive(&manifest).await {
                     Ok(_) => {
                         let verified = VerifiedPayload::new(manifest.sha256.clone());
+                        let (bundled_progress, extraction_percent) =
+                            tracked_progress(Arc::clone(&progress));
                         match bundled
                             .prepare_manifest_with_progress(
                                 generation_id,
                                 manifest.clone(),
                                 cancellation,
-                                Arc::clone(&progress),
+                                bundled_progress,
                             )
                             .await
                         {
@@ -110,6 +143,10 @@ impl RuntimePreparationService {
                                 });
                             }
                             Err(failure) => {
+                                let failure = failure.with_preparation(
+                                    RuntimeSourceKind::Bundled,
+                                    Some(extraction_percent.load(Ordering::Relaxed)),
+                                );
                                 return self
                                     .prepare_online_after_verified_failure(
                                         generation_id,
@@ -153,7 +190,11 @@ impl RuntimePreparationService {
         cancellation: &CancellationToken,
         progress: Arc<dyn Fn(RuntimePreparationProgress) + Send + Sync>,
     ) -> Result<PreparedRuntimeChoice, RuntimeFailure> {
-        let manifest = self.online.required_manifest().await?;
+        let manifest = self
+            .online
+            .required_manifest()
+            .await
+            .map_err(|failure| failure.with_preparation(RuntimeSourceKind::Online, None))?;
         if !should_retry_online(&failed_payload, &manifest) {
             return Err(original_failure);
         }
@@ -173,7 +214,11 @@ impl RuntimePreparationService {
         cancellation: &CancellationToken,
         progress: Arc<dyn Fn(RuntimePreparationProgress) + Send + Sync>,
     ) -> Result<PreparedRuntimeChoice, RuntimeFailure> {
-        let manifest = self.online.required_manifest().await?;
+        let manifest = self
+            .online
+            .required_manifest()
+            .await
+            .map_err(|failure| failure.with_preparation(RuntimeSourceKind::Online, None))?;
         self.prepare_online_manifest(generation_id, manifest, cancellation, progress)
             .await
     }
@@ -185,10 +230,22 @@ impl RuntimePreparationService {
         cancellation: &CancellationToken,
         progress: Arc<dyn Fn(RuntimePreparationProgress) + Send + Sync>,
     ) -> Result<PreparedRuntimeChoice, RuntimeFailure> {
+        let (online_progress, extraction_percent) = tracked_progress(progress);
         let prepared = self
             .online
-            .prepare_manifest_with_progress(generation_id, manifest.clone(), cancellation, progress)
-            .await?;
+            .prepare_manifest_with_progress(
+                generation_id,
+                manifest.clone(),
+                cancellation,
+                online_progress,
+            )
+            .await
+            .map_err(|failure| {
+                failure.with_preparation(
+                    RuntimeSourceKind::Online,
+                    Some(extraction_percent.load(Ordering::Relaxed)),
+                )
+            })?;
         Ok(PreparedRuntimeChoice {
             source: RuntimeSourceKind::Online,
             manifest,
@@ -362,13 +419,35 @@ mod tests {
     #[tokio::test]
     async fn missing_local_prefers_verified_bundled_without_online_fetch() {
         let fixture = PreparationFixture::full_package();
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let captured = Arc::clone(&events);
         let choice = fixture
             .service
-            .prepare("g-1", false, &CancellationToken::new(), Arc::new(|_| {}))
+            .prepare(
+                "g-1",
+                false,
+                &CancellationToken::new(),
+                Arc::new(move |event| captured.lock().unwrap().push(event)),
+            )
             .await
             .unwrap();
         assert_eq!(choice.source, RuntimeSourceKind::Bundled);
         assert_eq!(fixture.online_fetches(), 0);
+        let events = events.lock().unwrap();
+        let extracting_100 = events
+            .iter()
+            .position(|event| {
+                event.phase == RuntimePhase::Extracting
+                    && event.total.is_some()
+                    && event.completed == event.total.unwrap()
+            })
+            .unwrap();
+        let verifying = events
+            .iter()
+            .position(|event| event.phase == RuntimePhase::Verifying)
+            .unwrap();
+        assert!(extracting_100 < verifying);
+        assert_eq!(events[extracting_100].message, "正在解压内置组件 100%");
     }
 
     #[tokio::test]
@@ -410,5 +489,37 @@ mod tests {
             serde_json::to_string(&RuntimeSourceKind::Bundled).unwrap(),
             "\"bundled\""
         );
+    }
+
+    #[tokio::test]
+    async fn verified_failure_does_not_download_an_identical_online_payload() {
+        let fixture = PreparationFixture::full_package();
+        let manifest = fixture.service.online.required_manifest().await.unwrap();
+        let failed = VerifiedPayload::new(manifest.sha256);
+        let failure =
+            RuntimeFailure::new(crate::runtime::model::RuntimeFailureCode::Process, "probe")
+                .with_preparation(RuntimeSourceKind::Bundled, Some(100));
+
+        let result = fixture
+            .service
+            .prepare_online_after_verified_failure(
+                "g-same",
+                failed,
+                failure,
+                &CancellationToken::new(),
+                Arc::new(|_| {}),
+            )
+            .await;
+        let returned = match result {
+            Ok(_) => panic!("identical payload must not be downloaded again"),
+            Err(failure) => failure,
+        };
+
+        assert_eq!(
+            returned.code,
+            crate::runtime::model::RuntimeFailureCode::Process
+        );
+        assert_eq!(returned.runtime_source, Some(RuntimeSourceKind::Bundled));
+        assert_eq!(returned.extraction_percent, Some(100));
     }
 }
