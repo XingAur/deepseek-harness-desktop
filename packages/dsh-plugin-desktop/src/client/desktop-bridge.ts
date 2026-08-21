@@ -13,6 +13,9 @@ export type DesktopBridgeAction =
   | 'project.directory.preview'
   | 'project.directory.create'
   | 'project.directory.recycle'
+  | 'app.launch'
+  | 'app.stop'
+  | 'app.status'
   | 'external.open'
   | 'diagnostics.export'
 

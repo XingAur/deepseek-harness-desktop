@@ -8,8 +8,12 @@ export interface ProjectCardProps {
   unavailable: boolean
   recent?: boolean
   disabled?: boolean
+  launchable?: boolean
+  running?: boolean
   onSelect(): void
   onOpen(): Promise<void>
+  onOpenSession(): void
+  onStopApp(): Promise<void> | void
   onRename(title: string): Promise<void>
   onCoverChange(cover: ProjectCoverToken): Promise<void>
   onPinChange(pinned: boolean): Promise<void>
@@ -17,7 +21,7 @@ export interface ProjectCardProps {
 }
 
 export function ProjectCard(props: ProjectCardProps) {
-  const { card, selected, unavailable, recent = false, disabled = false, onSelect, onOpen, onRename, onCoverChange, onPinChange, onDelete } = props
+  const { card, selected, unavailable, recent = false, disabled = false, launchable = false, running = false, onSelect, onOpen, onRename, onCoverChange, onPinChange, onDelete } = props
   const surfaceRef = useRef<HTMLDivElement>(null)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [editing, setEditing] = useState(false)
@@ -117,6 +121,8 @@ export function ProjectCard(props: ProjectCardProps) {
           <div className="dshDesktopProjectMeta">
             <span>{card.sessionIds.length > 0 ? `${card.sessionIds.length} 个会话` : '尚无会话'}</span>
             {card.pinned && <span>已置顶</span>}
+            {running && <span className="dshDesktopProjectBadge" data-kind="running">运行中</span>}
+            {!running && launchable && <span className="dshDesktopProjectBadge" data-kind="launchable">可运行</span>}
             {unavailable && <strong>路径不可用</strong>}
           </div>
           {renameError !== null && <small className="dshDesktopProjectRenameError" role="alert">{renameError}</small>}

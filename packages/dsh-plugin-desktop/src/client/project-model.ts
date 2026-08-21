@@ -6,6 +6,7 @@ export type ProjectCoverToken = typeof PROJECT_COVERS[number]
 export interface ProjectMetadataEntry {
   cover?: ProjectCoverToken | null
   pinned: boolean
+  localApp?: boolean
   updatedAt: string
 }
 

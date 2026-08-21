@@ -66,6 +66,9 @@ export function installAdvancedStyles(): () => void {
     .dshDesktopProjectCardBody > input { box-sizing: border-box; width: 100%; min-height: 29px; margin: -5px 0 3px; padding: 0 7px; border: 1px solid #7196ff; border-radius: 6px; color: inherit; background: var(--dsw-alias-bg-layer-2, #29292e); }
     .dshDesktopProjectMeta { display: flex; justify-content: space-between; gap: 10px; margin: 15px 0 0; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 11px; }
     .dshDesktopProjectMeta strong { color: #e49a9a; }
+    .dshDesktopProjectBadge { padding: 2px 7px; border-radius: 999px; font-size: 10px; }
+    .dshDesktopProjectBadge[data-kind="running"] { color: #7fd0a4; background: color-mix(in srgb, #3f8064 18%, transparent); }
+    .dshDesktopProjectBadge[data-kind="launchable"] { color: #9ab2f5; background: color-mix(in srgb, #5b79cd 16%, transparent); }
     .dshDesktopProjectRenameError { display: block; margin-top: 7px; color: #e8aaaa; }
     .dshDesktopProjectContextMenu { position: fixed; z-index: 80; display: grid; width: 188px; padding: 6px; border: 1px solid color-mix(in srgb, var(--dsh-desktop-divider) 72%, #7196ff 28%); border-radius: 11px; color: var(--dsw-alias-label-primary, #ececf0); background: color-mix(in srgb, var(--dsw-alias-bg-layer-1, #1d1d20) 96%, transparent); box-shadow: 0 18px 45px rgba(0,0,0,.32); backdrop-filter: blur(18px); }
     .dshDesktopProjectContextMenu > button, .dshDesktopProjectMenuBack { display: flex; width: 100%; min-height: 34px; align-items: center; justify-content: space-between; padding: 0 9px; border: 0; border-radius: 7px; color: inherit; background: transparent; cursor: pointer; text-align: left; }

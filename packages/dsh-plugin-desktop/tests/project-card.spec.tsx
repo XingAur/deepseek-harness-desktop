@@ -6,6 +6,8 @@ function renderProjectCard() {
   const callbacks = {
     onSelect: vi.fn(),
     onOpen: vi.fn(async () => undefined),
+    onOpenSession: vi.fn(),
+    onStopApp: vi.fn(async () => undefined),
     onRename: vi.fn(async () => undefined),
     onCoverChange: vi.fn(async () => undefined),
     onPinChange: vi.fn(async () => undefined),

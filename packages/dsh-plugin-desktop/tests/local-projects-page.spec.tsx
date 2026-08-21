@@ -11,7 +11,7 @@ describe('local projects page', () => {
     const sessions = sessionFixture()
     renderFrame({ workspaces, sessions })
     fireEvent.click(screen.getByRole('button', { name: '本地项目' }))
-    fireEvent.doubleClick(screen.getByRole('button', { name: '项目 demo' }))
+    fireEvent.doubleClick(await screen.findByRole('button', { name: '项目 demo' }))
 
     await waitFor(() => expect(workspaces.connectWorkspace).toHaveBeenCalledWith('w-1'))
     expect(sessions.open).toHaveBeenCalledWith('s-1')
@@ -26,7 +26,7 @@ describe('local projects page', () => {
     const sessions = sessionFixture()
     renderFrame({ workspaces, sessions })
     fireEvent.click(screen.getByRole('button', { name: '本地项目' }))
-    const card = screen.getByRole('button', { name: '项目 demo' })
+    const card = await screen.findByRole('button', { name: '项目 demo' })
     await waitFor(() => expect(card).not.toHaveAttribute('aria-disabled'))
     fireEvent.click(card)
 
@@ -46,7 +46,7 @@ describe('local projects page', () => {
     }])
     renderFrame({ workspaces })
     fireEvent.click(screen.getByRole('button', { name: '本地项目' }))
-    const card = screen.getByRole('button', { name: '项目 demo' })
+    const card = await screen.findByRole('button', { name: '项目 demo' })
     await waitFor(() => expect(card).not.toHaveAttribute('aria-disabled'))
     fireEvent.keyDown(card, { key: 'Delete' })
     expect(screen.getByRole('dialog', { name: '删除 demo' })).toBeVisible()
@@ -62,7 +62,7 @@ describe('local projects page', () => {
     }])
     renderFrame({ workspaces })
     fireEvent.click(screen.getByRole('button', { name: '本地项目' }))
-    const card = screen.getByRole('button', { name: '项目 demo' })
+    const card = await screen.findByRole('button', { name: '项目 demo' })
     await waitFor(() => expect(card).not.toHaveAttribute('aria-disabled'))
     fireEvent.contextMenu(card)
     fireEvent.click(screen.getByRole('menuitem', { name: '删除项目' }))
@@ -84,12 +84,13 @@ describe('local projects page', () => {
         profiles: [{ id: 'p-default', name: '默认', revision: 1, status: 'active' }],
       }
       if (action === 'project.metadata.list') return { schemaVersion: 1, projects: {} }
+      if (action === 'app.status') return { projectsRoot: 'C:\\code', running: [], launchable: [] }
       if (action === 'project.directory.recycle') throw new Error('回收站不可用')
       return undefined
     })
     renderFrame({ workspaces, bridge })
     fireEvent.click(screen.getByRole('button', { name: '本地项目' }))
-    const card = screen.getByRole('button', { name: '项目 demo' })
+    const card = await screen.findByRole('button', { name: '项目 demo' })
     await waitFor(() => expect(card).not.toHaveAttribute('aria-disabled'))
     fireEvent.contextMenu(card)
     fireEvent.click(screen.getByRole('menuitem', { name: '删除项目' }))
@@ -115,13 +116,14 @@ describe('local projects page', () => {
         profiles: [{ id: 'p-default', name: '默认', revision: 1, status: 'active' }],
       }
       if (action === 'project.metadata.list') return { schemaVersion: 1, projects: {} }
+      if (action === 'app.status') return { projectsRoot: 'C:\\code', running: [], launchable: [] }
       if (action === 'project.directory.recycle') { order.push('recycle'); return 'C:\\code\\demo' }
       if (action === 'project.metadata.remove') { order.push('metadata'); return { schemaVersion: 1, projects: {} } }
       return undefined
     })
     renderFrame({ workspaces, bridge })
     fireEvent.click(screen.getByRole('button', { name: '本地项目' }))
-    const card = screen.getByRole('button', { name: '项目 demo' })
+    const card = await screen.findByRole('button', { name: '项目 demo' })
     await waitFor(() => expect(card).not.toHaveAttribute('aria-disabled'))
     fireEvent.contextMenu(card)
     fireEvent.click(screen.getByRole('menuitem', { name: '删除项目' }))
@@ -139,7 +141,7 @@ describe('local projects page', () => {
     }])
     renderFrame({ workspaces })
     fireEvent.click(screen.getByRole('button', { name: '本地项目' }))
-    const card = screen.getByRole('button', { name: '项目 demo' })
+    const card = await screen.findByRole('button', { name: '项目 demo' })
     await waitFor(() => expect(card).not.toHaveAttribute('aria-disabled'))
     fireEvent.contextMenu(card)
     fireEvent.click(screen.getByRole('menuitem', { name: '删除项目' }))
@@ -158,7 +160,7 @@ describe('local projects page', () => {
     })
     renderFrame({ workspaces })
     fireEvent.click(screen.getByRole('button', { name: '本地项目' }))
-    fireEvent.doubleClick(screen.getByRole('button', { name: '项目 missing' }))
+    fireEvent.doubleClick(await screen.findByRole('button', { name: '项目 missing' }))
 
     expect(await screen.findByText('路径不可用')).toBeInTheDocument()
   })
@@ -199,6 +201,7 @@ describe('local projects page', () => {
         profiles: [{ id: 'p-a', name: 'A', revision: 1 }, { id: 'p-b', name: 'B', revision: 1 }],
       }
       if (action === 'project.metadata.list') return { schemaVersion: 1, projects: {} }
+      if (action === 'app.status') return { projectsRoot: 'C:\\code', running: [], launchable: [] }
       return undefined
     })
     renderFrame({ workspaces, bridge })
@@ -207,5 +210,28 @@ describe('local projects page', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: '项目 demo' })).toHaveAttribute('aria-disabled', 'true'))
     expect(screen.getByRole('button', { name: '项目 demo' })).toHaveAttribute('tabindex', '-1')
     expect(screen.getByRole('region', { name: '本地项目' })).toHaveAttribute('aria-busy', 'true')
+  })
+
+  it('marks launchable and running projects from app.status', async () => {
+    const workspaces = workspaceFixture([
+      { workspaceId: 'w-1', path: 'C:\\Users\\t\\Documents\\DeepSeek Harness\\Projects\\demo', title: 'demo', sessionIds: [], createdAt: '2026-08-19T00:00:00Z', updatedAt: '2026-08-19T00:00:00Z' },
+      { workspaceId: 'w-2', path: 'D:\\code\\lib', title: 'lib', sessionIds: [], createdAt: '2026-08-19T00:00:00Z', updatedAt: '2026-08-19T00:00:00Z' },
+    ])
+    const bridge = bridgeFixture()
+    vi.mocked(bridge.request).mockImplementation(async (action) => {
+      if (action === 'profile.list') return { selectedProfileId: 'p-default', pendingProfileId: null, lastKnownGoodProfileId: 'p-default', profiles: [] }
+      if (action === 'project.metadata.list') return { schemaVersion: 1, projects: {} }
+      if (action === 'app.status') return {
+        projectsRoot: 'C:\\Users\\t\\Documents\\DeepSeek Harness\\Projects',
+        running: [{ workspaceId: 'w-1', origin: 'http://127.0.0.1:39222', title: 'demo', startedAt: '2026-08-21T00:00:00Z' }],
+        launchable: ['w-1'],
+      }
+      return undefined
+    })
+    renderFrame({ workspaces, bridge })
+    fireEvent.click(screen.getByRole('button', { name: '本地项目' }))
+
+    expect(await screen.findByText('运行中')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '项目 lib' })).not.toBeInTheDocument()
   })
 })

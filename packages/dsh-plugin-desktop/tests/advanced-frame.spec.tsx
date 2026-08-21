@@ -14,7 +14,7 @@ class ResizeObserverStub {
 vi.stubGlobal('ResizeObserver', ResizeObserverStub)
 
 describe('advanced frame', () => {
-  it('opens the card grid from the shared local-projects state without appending a sidebar button', () => {
+  it('opens the card grid from the shared local-projects state without appending a sidebar button', async () => {
     const workspaces = workspaceFixture([{
       workspaceId: 'w-1', path: 'C:\\code\\demo', title: 'demo', sessionIds: [],
       createdAt: '2026-08-19T00:00:00Z', updatedAt: '2026-08-19T00:00:00Z',
@@ -25,7 +25,7 @@ describe('advanced frame', () => {
     expect(container.querySelector('.dshDesktopProjectsEntry')).toBeNull()
     act(() => localProjects.open())
     expect(screen.getByRole('region', { name: '本地项目' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '项目 demo' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '项目 demo' })).toBeInTheDocument()
     expect(screen.queryByText('社区插件')).not.toBeInTheDocument()
   })
 

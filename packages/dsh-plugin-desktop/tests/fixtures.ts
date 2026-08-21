@@ -67,7 +67,9 @@ export function bridgeFixture(responses: Partial<Record<DesktopBridgeAction, unk
     request: vi.fn(async (action: DesktopBridgeAction) => responses[action]
       ?? (action === 'profile.list' ? defaultProfiles : action === 'project.metadata.list'
         ? { schemaVersion: 1, projects: {} }
-        : undefined)) as DesktopBridgeLike['request'],
+        : action === 'app.status'
+          ? { projectsRoot: 'C:\\code', running: [], launchable: [] }
+          : undefined)) as DesktopBridgeLike['request'],
     dispose: vi.fn(),
   }
   return bridge

@@ -16,9 +16,23 @@ export interface LocalProjectsPageProps {
   onClose(): void
 }
 
+// 桌面桥 app.status 的载荷：本地应用运行态，仅驱动卡片角标与"项目根目录内"的收录过滤。
+interface AppsStatus {
+  projectsRoot: string
+  running: Array<{ workspaceId: string; origin: string; title: string; startedAt: string }>
+  launchable: string[]
+}
+
 export function LocalProjectsPage({ state, workspaces, sessions, bridge, onClose }: LocalProjectsPageProps) {
   const [metadata, setMetadata] = useState<ProjectMetadataSnapshot>({ schemaVersion: 1, projects: {} })
   const cards = useMemo(() => projectCards(state.items, metadata.projects), [metadata.projects, state.items])
+  const [apps, setApps] = useState<AppsStatus | null>(null)
+  // 仅展示位于本地项目根目录下、或已通过 localApp 元数据显式收录的项目。
+  const visibleCards = useMemo(() => {
+    if (apps === null) return []
+    const root = normalizeDir(apps.projectsRoot)
+    return cards.filter((card) => isUnderRoot(normalizeDir(card.path), root) || metadata.projects[card.id]?.localApp === true)
+  }, [apps, cards, metadata])
   const controller = useMemo(() => createProjectController(
     workspaces,
     sessions,
@@ -33,7 +47,23 @@ export function LocalProjectsPage({ state, workspaces, sessions, bridge, onClose
   const [profilePending, setProfilePending] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
-  const selectedCard = selectedId === null ? undefined : cards.find((card) => card.id === selectedId)
+  const selectedCard = selectedId === null ? undefined : visibleCards.find((card) => card.id === selectedId)
+
+  const refreshApps = async () => {
+    try {
+      setApps(await bridge.request<AppsStatus>('app.status'))
+    } catch {
+      // 状态失败只影响角标与过滤，不阻塞本地项目页其余操作。
+    }
+  }
+
+  useEffect(() => {
+    void refreshApps()
+  }, [bridge])
+
+  useEffect(() => {
+    if (selectedId !== null && !visibleCards.some((card) => card.id === selectedId)) setSelectedId(null)
+  }, [visibleCards, selectedId])
 
   useEffect(() => {
     if (profilePending) return
@@ -45,10 +75,6 @@ export function LocalProjectsPage({ state, workspaces, sessions, bridge, onClose
     })
     return () => { cancelled = true }
   }, [bridge, profilePending])
-
-  useEffect(() => {
-    if (selectedId !== null && !cards.some((card) => card.id === selectedId)) setSelectedId(null)
-  }, [cards, selectedId])
 
   // 页内不再提供 Profile 切换入口；仅在宿主侧正在切换 Profile 时继续停用项目操作。
   useEffect(() => {
@@ -82,6 +108,34 @@ export function LocalProjectsPage({ state, workspaces, sessions, bridge, onClose
       }
     } finally {
       setBusyId(null)
+    }
+  }
+
+  // 可运行的项目双击/回车即启动本地应用，而不是打开新的会话。
+  const launch = async (workspaceId: string) => {
+    setBusyId(workspaceId)
+    setActionError(null)
+    try {
+      await bridge.request('app.launch', { workspaceId })
+      onClose()
+    } catch (cause) {
+      setActionError(workspaceFailure(cause).message)
+    } finally {
+      setBusyId(null)
+      void refreshApps()
+    }
+  }
+
+  const stopApp = async (workspaceId: string) => {
+    setBusyId(workspaceId)
+    setActionError(null)
+    try {
+      await bridge.request('app.stop', { workspaceId })
+    } catch (cause) {
+      setActionError(workspaceFailure(cause).message)
+    } finally {
+      setBusyId(null)
+      void refreshApps()
     }
   }
 
@@ -145,9 +199,9 @@ export function LocalProjectsPage({ state, workspaces, sessions, bridge, onClose
         {state.state === 'error' && <div className="dshDesktopProjectError" role="alert">{state.error?.message ?? '无法读取本地项目'}</div>}
         {actionError !== null && <div className="dshDesktopProjectError" role="alert">{actionError}</div>}
 
-        {state.state !== 'loading' && state.state !== 'error' && cards.length > 0 && (
+        {state.state !== 'loading' && state.state !== 'error' && visibleCards.length > 0 && (
           <div className="dshDesktopProjectGrid">
-            {cards.map((card, index) => (
+            {visibleCards.map((card, index) => (
               <ProjectCard
                 key={card.id}
                 card={card}
@@ -155,8 +209,12 @@ export function LocalProjectsPage({ state, workspaces, sessions, bridge, onClose
                 unavailable={unavailable.has(card.id)}
                 recent={index === 0}
                 disabled={busyId !== null || profilePending}
+                launchable={apps?.launchable.includes(card.id) ?? false}
+                running={apps?.running.some((entry) => entry.workspaceId === card.id) ?? false}
                 onSelect={() => setSelectedId(card.id)}
-                onOpen={() => open(card.id)}
+                onOpen={() => (apps?.launchable.includes(card.id) ?? false) ? launch(card.id) : open(card.id)}
+                onOpenSession={() => open(card.id)}
+                onStopApp={() => stopApp(card.id)}
                 onRename={(title) => rename(card.id, title)}
                 onCoverChange={(cover) => patchMetadata(card.id, { cover })}
                 onPinChange={(pinned) => patchMetadata(card.id, { pinned })}
@@ -166,7 +224,7 @@ export function LocalProjectsPage({ state, workspaces, sessions, bridge, onClose
           </div>
         )}
 
-        {state.state !== 'loading' && state.state !== 'error' && cards.length === 0 && (
+        {state.state !== 'loading' && state.state !== 'error' && visibleCards.length === 0 && (
           <div className="dshDesktopProjectEmpty">
             <span className="dshDesktopProjectEmptyIcon" aria-hidden="true">＋</span>
             <h2>还没有本地项目</h2>
@@ -187,7 +245,7 @@ export function LocalProjectsPage({ state, workspaces, sessions, bridge, onClose
           </div>
         )}
         {deleteTargetId !== null && (() => {
-          const card = cards.find((candidate) => candidate.id === deleteTargetId)
+          const card = visibleCards.find((candidate) => candidate.id === deleteTargetId)
           if (card === undefined) return null
           return (
             <ProjectDeleteDialog
@@ -212,6 +270,15 @@ function closeDeleteDialog(workspaceId: string, close: (value: null) => void) {
       }
     }
   })
+}
+
+// 路径统一成正斜杠、去尾部斜杠并小写，避免 Windows 大小写与分隔符差异误判收录关系。
+function normalizeDir(path: string): string {
+  return path.replace(/\\/g, '/').replace(/\/+$/g, '').toLowerCase()
+}
+
+function isUnderRoot(dir: string, root: string): boolean {
+  return dir === root || dir.startsWith(`${root}/`)
 }
 
 function workspaceFailure(cause: unknown): { code: string; message: string } {
