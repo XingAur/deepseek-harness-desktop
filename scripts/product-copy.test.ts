@@ -173,6 +173,15 @@ describe('product copy', () => {
     expect(workflow).toContain('uploadUpdaterSignatures: true')
   })
 
+  it('never replaces an existing managed Runtime release asset', () => {
+    const workflow = readFileSync('.github/workflows/desktop.yml', 'utf8')
+    const marker = '- name: Add managed Runtime files to draft release'
+    const runtimeUpload = workflow.slice(workflow.indexOf(marker))
+
+    expect(runtimeUpload).toContain('gh release upload')
+    expect(runtimeUpload).not.toContain('--clobber')
+  })
+
   it('always ships a parseable fallback updater configuration', () => {
     const config = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8')) as {
       plugins?: { updater?: { pubkey?: string, endpoints?: string[] } }

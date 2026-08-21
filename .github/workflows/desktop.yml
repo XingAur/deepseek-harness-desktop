@@ -205,4 +205,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          find release-assets -type f -print0 | xargs -0 gh release upload "${{ github.ref_name }}" --repo "${{ github.repository }}" --clobber
+          mapfile -d '' runtime_assets < <(
+            find release-assets -maxdepth 1 -type f \
+              \( -name 'runtime-*.json' -o -name 'dsh-runtime-*' \) -print0
+          )
+          test "${#runtime_assets[@]}" -gt 0
+          gh release upload "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" \
+            "${runtime_assets[@]}"
