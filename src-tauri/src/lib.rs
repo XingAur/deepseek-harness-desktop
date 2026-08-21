@@ -1,5 +1,6 @@
 pub mod app_mode;
 mod app_update;
+mod apps;
 mod commands;
 mod data_cleanup;
 mod desktop;
