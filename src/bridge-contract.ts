@@ -16,6 +16,9 @@ export type BridgeAction =
   | 'project.directory.recycle'
   | 'external.open'
   | 'diagnostics.export'
+  | 'app.launch'
+  | 'app.stop'
+  | 'app.status'
 
 export interface BridgeRequest {
   channel: typeof DESKTOP_BRIDGE_CHANNEL
@@ -52,6 +55,9 @@ export const bridgeCommandByAction = {
   'project.directory.recycle': 'recycle_project_directory',
   'external.open': 'open_external_https',
   'diagnostics.export': 'export_diagnostics',
+  'app.launch': 'app_launch',
+  'app.stop': 'app_stop',
+  'app.status': 'app_status',
 } as const satisfies Record<BridgeAction, string>
 
 export function isBridgeResponse(value: unknown): value is BridgeResponse {

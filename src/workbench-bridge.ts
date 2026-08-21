@@ -68,6 +68,10 @@ function bridgePayload(action: keyof typeof bridgeCommandByAction, value: unknow
     if (typeof payload.workspaceId !== 'string') throw new Error('Workspace ID 无效')
     return { workspaceId: payload.workspaceId }
   }
+  if (action === 'app.launch' || action === 'app.stop') {
+    if (typeof payload.workspaceId !== 'string' || payload.workspaceId.trim() === '') throw new Error('Workspace ID 无效')
+    return { workspaceId: payload.workspaceId }
+  }
   return payload
 }
 

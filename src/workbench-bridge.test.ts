@@ -167,4 +167,53 @@ describe('workbench bridge', () => {
       projectName: '记账应用',
     })
   })
+
+  it('forwards app actions with a validated workspaceId', async () => {
+    const invoke = vi.fn()
+      .mockResolvedValueOnce({ workspaceId: 'w-1', origin: 'http://127.0.0.1:39123', title: 'demo' })
+      .mockResolvedValueOnce({ projectsRoot: 'C:\\Projects', running: [], launchable: ['w-1'] })
+    const postMessage = vi.fn()
+    const contentWindow = { postMessage } as unknown as Window
+    const bridge = createWorkbenchBridge({
+      frame: () => ({ contentWindow }) as HTMLIFrameElement,
+      active: () => ({ generationId: 'g-active', origin: 'http://127.0.0.1:39000' }),
+      invoke,
+    })
+
+    const send = (requestId: string, action: string, payload: unknown) => bridge.onMessage({
+      source: contentWindow,
+      origin: 'http://127.0.0.1:39000',
+      data: {
+        channel: DESKTOP_BRIDGE_CHANNEL,
+        requestId,
+        action,
+        payload,
+      },
+    } as MessageEvent)
+
+    await send('r-launch', 'app.launch', { workspaceId: 'w-1' })
+    await send('r-status', 'app.status', {})
+    await send('r-stop', 'app.stop', { workspaceId: '  ' })
+
+    expect(invoke).toHaveBeenNthCalledWith(1, 'app_launch', { workspaceId: 'w-1', generationId: 'g-active' })
+    expect(postMessage).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      requestId: 'r-launch',
+      ok: true,
+      result: { workspaceId: 'w-1', origin: 'http://127.0.0.1:39123', title: 'demo' },
+    }), 'http://127.0.0.1:39000')
+
+    expect(invoke).toHaveBeenNthCalledWith(2, 'app_status', { generationId: 'g-active' })
+    expect(postMessage).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      requestId: 'r-status',
+      ok: true,
+      result: { projectsRoot: 'C:\\Projects', running: [], launchable: ['w-1'] },
+    }), 'http://127.0.0.1:39000')
+
+    expect(invoke).toHaveBeenCalledTimes(2)
+    expect(postMessage).toHaveBeenNthCalledWith(3, expect.objectContaining({
+      requestId: 'r-stop',
+      ok: false,
+      error: expect.objectContaining({ code: expect.any(String), message: expect.any(String) }),
+    }), 'http://127.0.0.1:39000')
+  })
 })
