@@ -22,8 +22,12 @@ use super::{
     compatibility::{LocalRuntimeDecision, RuntimeRequirement, decide_local},
     download::{download_runtime, verify_file},
     manifest::{parse_and_verify_manifest, release_public_key},
-    model::{ArchiveKind, RuntimeFailure, RuntimeFailureCode, RuntimeManifest, RuntimeTarget},
+    model::{
+        ArchiveKind, RuntimeFailure, RuntimeFailureCode, RuntimeManifest, RuntimePhase,
+        RuntimeSourceKind, RuntimeTarget,
+    },
     paths::RuntimePaths,
+    preparation::RuntimePreparationProgress,
 };
 
 pub trait RuntimeManifestSource: Send + Sync {
@@ -37,6 +41,7 @@ pub struct PreparedRuntime {
     pub manifest: RuntimeManifest,
     pub receipt: Option<ActivationReceipt>,
     pub archive: Option<PathBuf>,
+    pub source: RuntimeSourceKind,
 }
 
 pub struct ActivatedProvisioningCandidate {
@@ -56,6 +61,14 @@ pub struct RuntimeUpdater {
 enum CandidateArchiveSource {
     Download,
     Bundled,
+}
+
+pub fn bundled_resources_present(paths: &RuntimePaths, target: RuntimeTarget) -> bool {
+    paths
+        .bundled_runtime
+        .join("manifests")
+        .join(format!("runtime-{}.json", target.as_str()))
+        .is_file()
 }
 
 impl RuntimeUpdater {
@@ -126,6 +139,58 @@ impl RuntimeUpdater {
             ));
         }
         self.source.fetch(RuntimeTarget::current()?).await
+    }
+
+    pub async fn required_manifest(&self) -> Result<RuntimeManifest, RuntimeFailure> {
+        let target = RuntimeTarget::current()?;
+        let manifest = tokio::time::timeout(Duration::from_secs(30), self.source.fetch(target))
+            .await
+            .map_err(|_| {
+                RuntimeFailure::new(RuntimeFailureCode::Network, "获取运行时清单超时")
+            })??;
+        if manifest.target != target {
+            return Err(RuntimeFailure::internal(
+                "Runtime 清单 target 与当前平台不匹配",
+            ));
+        }
+        if self.archive_source == CandidateArchiveSource::Download
+            && let Some(endpoint) = manifest_endpoint()?
+        {
+            runtime_source_policy(endpoint)?.validate_redirect(&manifest.url)?;
+        }
+        Ok(manifest)
+    }
+
+    pub async fn verify_bundled_archive(
+        &self,
+        manifest: &RuntimeManifest,
+    ) -> Result<PathBuf, RuntimeFailure> {
+        if self.archive_source != CandidateArchiveSource::Bundled {
+            return Err(RuntimeFailure::internal(
+                "只有捆绑 Runtime 更新器可以校验内置归档",
+            ));
+        }
+        let archive = self
+            .paths
+            .bundled_runtime
+            .join(bundled_archive_name(manifest.target, manifest.archive));
+        let size = tokio::fs::metadata(&archive)
+            .await
+            .map_err(|cause| {
+                RuntimeFailure::new(
+                    RuntimeFailureCode::Archive,
+                    format!("找不到捆绑 Runtime：{cause}"),
+                )
+            })?
+            .len();
+        if size != manifest.size {
+            return Err(RuntimeFailure::new(
+                RuntimeFailureCode::Archive,
+                format!("捆绑 Runtime 大小不匹配：{size}/{}", manifest.size),
+            ));
+        }
+        verify_file(&archive, manifest).await?;
+        Ok(archive)
     }
 
     pub fn local_decision(
@@ -203,37 +268,111 @@ impl RuntimeUpdater {
         generation_id: &str,
         cancellation: &CancellationToken,
     ) -> Result<PreparedRuntime, RuntimeFailure> {
-        let manifest = tokio::time::timeout(
-            Duration::from_secs(30),
-            self.source.fetch(RuntimeTarget::current()?),
-        )
-        .await
-        .map_err(|_| RuntimeFailure::new(RuntimeFailureCode::Network, "获取运行时清单超时"))??;
-        if self.archive_source == CandidateArchiveSource::Download
-            && let Some(endpoint) = manifest_endpoint()?
-        {
-            runtime_source_policy(endpoint)?.validate_redirect(&manifest.url)?;
+        let manifest = self.required_manifest().await?;
+        self.prepare_manifest_with_progress(generation_id, manifest, cancellation, Arc::new(|_| {}))
+            .await
+    }
+
+    pub async fn prepare_manifest_with_progress(
+        &self,
+        generation_id: &str,
+        manifest: RuntimeManifest,
+        cancellation: &CancellationToken,
+        progress: Arc<dyn Fn(RuntimePreparationProgress) + Send + Sync>,
+    ) -> Result<PreparedRuntime, RuntimeFailure> {
+        if cancellation.is_cancelled() {
+            return Err(RuntimeFailure::new(
+                RuntimeFailureCode::Cancelled,
+                "Runtime 准备已取消",
+            ));
         }
-        let archive = archive_path(&self.paths, &manifest);
-        download_runtime(&self.client, &manifest, &archive, cancellation, |_, _| {}).await?;
+        let (archive, remove_archive_after_prepare, source) = match self.archive_source {
+            CandidateArchiveSource::Download => {
+                let archive = archive_path(&self.paths, &manifest);
+                progress(RuntimePreparationProgress {
+                    phase: RuntimePhase::Downloading,
+                    completed: 0,
+                    total: Some(manifest.size),
+                    message: "正在下载运行组件".into(),
+                });
+                let download_progress = Arc::clone(&progress);
+                download_runtime(
+                    &self.client,
+                    &manifest,
+                    &archive,
+                    cancellation,
+                    move |completed, total| {
+                        download_progress(RuntimePreparationProgress {
+                            phase: RuntimePhase::Downloading,
+                            completed,
+                            total: Some(total),
+                            message: "正在下载运行组件".into(),
+                        });
+                    },
+                )
+                .await?;
+                (archive, true, RuntimeSourceKind::Online)
+            }
+            CandidateArchiveSource::Bundled => (
+                self.verify_bundled_archive(&manifest).await?,
+                false,
+                RuntimeSourceKind::Bundled,
+            ),
+        };
         let paths = self.paths.clone();
         let archive_for_stage = archive.clone();
         let manifest_for_stage = manifest.clone();
         let generation_id = generation_id.to_string();
+        let extraction_progress = Arc::clone(&progress);
         let receipt = tokio::task::spawn_blocking(move || {
-            activation::stage(
+            activation::stage_with_progress(
                 &paths,
                 &archive_for_stage,
                 &manifest_for_stage,
                 &generation_id,
+                &move |completed, total| {
+                    let percent = if total == 0 {
+                        100
+                    } else {
+                        completed.saturating_mul(100) / total
+                    };
+                    extraction_progress(RuntimePreparationProgress {
+                        phase: RuntimePhase::Extracting,
+                        completed,
+                        total: Some(total),
+                        message: format!("正在解压内置组件 {}%", percent.min(100)),
+                    });
+                },
             )
         })
         .await
-        .map_err(RuntimeFailure::internal)??;
+        .map_err(RuntimeFailure::internal);
+        let receipt = match receipt {
+            Ok(Ok(receipt)) => receipt,
+            Ok(Err(cause)) => {
+                if remove_archive_after_prepare {
+                    let _ = std::fs::remove_file(&archive);
+                }
+                return Err(cause);
+            }
+            Err(cause) => {
+                if remove_archive_after_prepare {
+                    let _ = std::fs::remove_file(&archive);
+                }
+                return Err(cause);
+            }
+        };
+        progress(RuntimePreparationProgress {
+            phase: RuntimePhase::Verifying,
+            completed: manifest.size,
+            total: Some(manifest.size),
+            message: "正在验证组件".into(),
+        });
         Ok(PreparedRuntime {
             manifest,
             receipt: Some(receipt),
-            archive: Some(archive),
+            archive: remove_archive_after_prepare.then_some(archive),
+            source,
         })
     }
 
@@ -1051,11 +1190,8 @@ mod tests {
         let fixture = UpdaterFixture::with_current("1.0.0").await;
         let manifest = fixture.manifest("1.1.0");
         write_bundled_runtime(&fixture, &manifest);
-        let updater = RuntimeUpdater::new_bundled(
-            fixture.paths.clone(),
-            reqwest::Client::new(),
-        )
-        .unwrap();
+        let updater =
+            RuntimeUpdater::new_bundled(fixture.paths.clone(), reqwest::Client::new()).unwrap();
         let session = ProvisioningSession {
             id: uuid::Uuid::new_v4(),
             desktop_version: Version::new(0, 1, 0),
@@ -1069,12 +1205,17 @@ mod tests {
             .unwrap();
 
         assert!(prepared.candidate_dir.join("app/runtime.txt").is_file());
-        assert!(fixture
-            .paths
-            .bundled_runtime
-            .join("dsh-runtime-windows-x86_64.tar.gz")
-            .is_file());
-        assert_eq!(std::fs::read_dir(&fixture.paths.downloads).unwrap().count(), 0);
+        assert!(
+            fixture
+                .paths
+                .bundled_runtime
+                .join("dsh-runtime-windows-x86_64.tar.gz")
+                .is_file()
+        );
+        assert_eq!(
+            std::fs::read_dir(&fixture.paths.downloads).unwrap().count(),
+            0
+        );
         assert_eq!(fixture.manifest_source.fetches.load(Ordering::SeqCst), 0);
     }
 
@@ -1088,11 +1229,8 @@ mod tests {
             .bundled_runtime
             .join("dsh-runtime-windows-x86_64.tar.gz");
         std::fs::write(&bundled_archive, vec![0_u8; manifest.size as usize]).unwrap();
-        let updater = RuntimeUpdater::new_bundled(
-            fixture.paths.clone(),
-            reqwest::Client::new(),
-        )
-        .unwrap();
+        let updater =
+            RuntimeUpdater::new_bundled(fixture.paths.clone(), reqwest::Client::new()).unwrap();
         let session = ProvisioningSession {
             id: uuid::Uuid::new_v4(),
             desktop_version: Version::new(0, 1, 0),

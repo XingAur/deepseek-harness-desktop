@@ -31,6 +31,14 @@ pub enum RuntimeFailureCode {
     Internal,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeSourceKind {
+    Local,
+    Bundled,
+    Online,
+}
+
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum RuntimeFailureStage {
