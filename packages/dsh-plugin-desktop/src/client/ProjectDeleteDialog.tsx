@@ -60,7 +60,7 @@ export function ProjectDeleteDialog({ project, onConfirm, onCancel }: ProjectDel
           </label>
           <label data-disabled={project.unavailable || undefined}>
             <input aria-label="移到 Windows 回收站" type="radio" name="delete-scope" checked={scope === 'recycle'} disabled={project.unavailable} onChange={() => setScope('recycle')} />
-            <span><strong>移到 Windows 回收站</strong><small>{project.unavailable ? '当前路径不可用，只能移除列表记录。' : '同时移除目录，仍可从系统回收站恢复。'}</small></span>
+            <span><strong>移到 Windows 回收站</strong><small>{project.unavailable ? '当前路径不可用，只能移除列表记录。' : '同时移除目录与应用数据，仍可从系统回收站恢复。'}</small></span>
           </label>
         </fieldset>
         {scope === 'recycle' && (

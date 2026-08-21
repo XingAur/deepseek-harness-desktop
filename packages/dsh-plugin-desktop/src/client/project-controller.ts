@@ -67,6 +67,10 @@ export function createProjectController(
 function buildPrompt(draft: ProjectDraft) {
   const permission = draft.permissionMode === 'read-only' ? '只读' : '工作区可写'
   return `请在当前工作区构建下面的本地项目。先检查现状并给出简短计划，再按当前权限执行；需要额外权限时先询问。\n\n当前 Profile：${draft.profileId}\n权限模式：${permission}\n允许的命令类别：${draft.commandCategories.join('、')}\n\n项目需求：\n${draft.idea}`
+  + '\n\n收尾要求：\n'
+  + '1. 在项目根目录写 dsh-app.json（UTF-8）：{"schemaVersion":1,"type":"web","start":["pnpm","run","start"],"portEnv":"PORT","healthPath":"/","dataDir":"data"}。start 可换成 ["node","<入口文件>"]。\n'
+  + '2. 服务必须从 PORT 环境变量读取监听端口（绑定 127.0.0.1），不要写死端口。\n'
+  + '3. 业务数据一律写入 data/ 目录（本地文件或内嵌数据库），保证应用重启后数据保留。'
 }
 
 async function waitForSessionBinding(sessions: SessionsLike, sessionId: string) {
