@@ -124,7 +124,9 @@ const installMarker = join(home, 'profiles', 'desktop', '.desktop-plugin-install
 const bin = join(runtime, 'desktop-bin')
 const env = { ...process.env, PATH: bin + delimiter + (process.env.PATH ?? '') }
 if (!(await markerMatches(installMarker, '${desktopPluginVersion}', '${desktopPluginSha256}'))) {
-  const result = spawnSync(process.execPath, [dsh, 'plugin', '--profile', 'desktop', 'add', plugin], { stdio: 'inherit', env })
+  const result = spawnSync(process.execPath, [dsh, 'plugin', '--profile', 'desktop', 'add', plugin], {
+    stdio: 'inherit', env, windowsHide: process.platform === 'win32',
+  })
   if (result.status !== 0) process.exit(result.status ?? 1)
   await writeInstallMarker(installMarker, '${desktopPluginVersion}', '${desktopPluginSha256}')
 }
@@ -175,7 +177,9 @@ await new Promise((resolve, reject) => {
   proxy.once('error', reject)
   proxy.listen(publicPort, '127.0.0.1', resolve)
 })
-const child = spawn(process.execPath, [dsh, '--profile', 'desktop', ...dshArgs], { stdio: 'inherit', env })
+const child = spawn(process.execPath, [dsh, '--profile', 'desktop', ...dshArgs], {
+  stdio: 'inherit', env, windowsHide: process.platform === 'win32',
+})
 child.once('exit', (code, signal) => proxy.close(() => process.exit(code ?? (signal ? 128 : 1))))
 
 function reserveLoopbackPort() {

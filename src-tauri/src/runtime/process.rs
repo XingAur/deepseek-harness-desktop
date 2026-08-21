@@ -19,6 +19,9 @@ use super::{
 };
 use crate::profile::model::ProfileRecord;
 
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 pub struct ManagedRuntime {
     child: Child,
     log_tasks: Vec<JoinHandle<()>>,
@@ -219,7 +222,7 @@ pub async fn spawn_runtime_from_dir(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     #[cfg(windows)]
-    command.creation_flags(0x08000000);
+    command.creation_flags(CREATE_NO_WINDOW);
     #[cfg(unix)]
     command.process_group(0);
 
@@ -292,10 +295,11 @@ where
 
 #[cfg(windows)]
 async fn terminate_tree(pid: u32) {
-    let _ = Command::new("taskkill")
+    let mut command = Command::new("taskkill");
+    command
         .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .status()
-        .await;
+        .creation_flags(CREATE_NO_WINDOW);
+    let _ = command.status().await;
 }
 
 #[cfg(unix)]

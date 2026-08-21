@@ -4,6 +4,8 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { DESKTOP_BUNDLES, ensureDesktopProfile } from './desktop-profile.mjs'
 
+const desktopPatchPath = 'packages/dsh-plugin-desktop/cordis.patch.yml'
+
 function fixture(bundles: string[]) {
   const root = mkdtempSync(join(tmpdir(), 'deepseek-harness-profile-'))
   const path = join(root, 'package.json')
@@ -17,6 +19,12 @@ function fixture(bundles: string[]) {
 }
 
 describe('ensureDesktopProfile', () => {
+  it('hard-disables browser handoff for the Desktop web runtime', () => {
+    const patch = readFileSync(desktopPatchPath, 'utf8')
+
+    expect(patch).toMatch(/- id: web-runtime[\s\S]*?config:[\s\S]*?openBrowser: false/)
+  })
+
   it('inserts the official web app between base and Desktop plugin', () => {
     const path = fixture(['@deepseek-ai/dsh-base', '@dsh/desktop-plugin'])
 

@@ -6,7 +6,7 @@ use std::sync::{
 use tokio_util::sync::CancellationToken;
 
 use super::{
-    compatibility::LocalRuntimeDecision,
+    compatibility::{LocalRuntimeDecision, RuntimeRequirement, decide_local},
     model::{RuntimeFailure, RuntimeManifest, RuntimePhase, RuntimeSourceKind, RuntimeTarget},
     paths::RuntimePaths,
     updater::{PreparedRuntime, RuntimeUpdater, bundled_resources_present},
@@ -104,21 +104,33 @@ impl RuntimePreparationService {
         cancellation: &CancellationToken,
         progress: Arc<dyn Fn(RuntimePreparationProgress) + Send + Sync>,
     ) -> Result<PreparedRuntimeChoice, RuntimeFailure> {
+        let mut bundled_manifest = None;
         if !repair
-            && let Ok(LocalRuntimeDecision::FastStart(manifest)) =
+            && let Ok(LocalRuntimeDecision::FastStart(local_manifest)) =
                 self.online.local_provisioned_decision()
         {
-            return Ok(PreparedRuntimeChoice {
-                source: RuntimeSourceKind::Local,
-                manifest,
-                prepared: None,
-                updater: Arc::clone(&self.online),
-                verified_payload: None,
-            });
+            let Some(bundled) = &self.bundled else {
+                return Ok(local_choice(local_manifest, Arc::clone(&self.online)));
+            };
+            let Ok(required) = bundled.required_manifest().await else {
+                return Ok(local_choice(local_manifest, Arc::clone(&self.online)));
+            };
+            let requirement = RuntimeRequirement::from_bundled_manifest(&required);
+            if matches!(
+                decide_local(&requirement, Some(&local_manifest), true),
+                LocalRuntimeDecision::FastStart(_)
+            ) {
+                return Ok(local_choice(local_manifest, Arc::clone(&self.online)));
+            }
+            bundled_manifest = Some(required);
         }
 
         if !repair && let Some(bundled) = &self.bundled {
-            if let Ok(manifest) = bundled.required_manifest().await {
+            let required = match bundled_manifest {
+                Some(manifest) => Ok(manifest),
+                None => bundled.required_manifest().await,
+            };
+            if let Ok(manifest) = required {
                 match bundled.verify_bundled_archive(&manifest).await {
                     Ok(_) => {
                         let verified = VerifiedPayload::new(manifest.sha256.clone());
@@ -256,6 +268,19 @@ impl RuntimePreparationService {
     }
 }
 
+fn local_choice(
+    manifest: RuntimeManifest,
+    updater: Arc<RuntimeUpdater>,
+) -> PreparedRuntimeChoice {
+    PreparedRuntimeChoice {
+        source: RuntimeSourceKind::Local,
+        manifest,
+        prepared: None,
+        updater,
+        verified_payload: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -298,6 +323,7 @@ mod tests {
 
     struct PreparationFixture {
         _temporary: tempfile::TempDir,
+        paths: RuntimePaths,
         service: RuntimePreparationService,
         online_fetches: Arc<AtomicUsize>,
     }
@@ -315,12 +341,50 @@ mod tests {
             build_preparation_fixture(true, true)
         }
 
+        fn newer_bundled_than_local() -> Self {
+            let fixture = build_preparation_fixture_with_version(true, false, "1.1.0");
+            let local = fixture_manifest_for_version(fixture._temporary.path(), "1.0.0");
+            let local_dir = fixture.paths.version_dir(&local.version);
+            std::fs::create_dir_all(&local_dir).unwrap();
+            std::fs::write(
+                local_dir.join("manifest.json"),
+                serde_json::to_vec_pretty(&local).unwrap(),
+            )
+            .unwrap();
+            std::fs::write(
+                &fixture.paths.current,
+                serde_json::to_vec_pretty(&crate::runtime::model::CurrentRuntime {
+                    version: local.version.clone(),
+                    previous_version: None,
+                })
+                .unwrap(),
+            )
+            .unwrap();
+            assert!(matches!(
+                fixture.service.online.local_decision(
+                    &crate::runtime::compatibility::RuntimeRequirement::from_bundled_manifest(
+                        &local,
+                    ),
+                ),
+                Ok(LocalRuntimeDecision::FastStart(_))
+            ));
+            fixture
+        }
+
         fn online_fetches(&self) -> usize {
             self.online_fetches.load(Ordering::SeqCst)
         }
     }
 
     fn build_preparation_fixture(bundled: bool, corrupt: bool) -> PreparationFixture {
+        build_preparation_fixture_with_version(bundled, corrupt, "1.0.0")
+    }
+
+    fn build_preparation_fixture_with_version(
+        bundled: bool,
+        corrupt: bool,
+        runtime_version: &str,
+    ) -> PreparationFixture {
         let temporary = tempfile::tempdir().unwrap();
         let root = temporary.path().to_path_buf();
         let paths = RuntimePaths {
@@ -334,7 +398,7 @@ mod tests {
         };
         std::fs::create_dir_all(&paths.versions).unwrap();
         std::fs::create_dir_all(&paths.downloads).unwrap();
-        let manifest = fixture_manifest(temporary.path());
+        let manifest = fixture_manifest_for_version(temporary.path(), runtime_version);
         let online_fetches = Arc::new(AtomicUsize::new(0));
         let online = Arc::new(RuntimeUpdater::with_source(
             paths.clone(),
@@ -364,13 +428,21 @@ mod tests {
         });
         PreparationFixture {
             _temporary: temporary,
+            paths,
             service: RuntimePreparationService::with_updaters(online, bundled_updater),
             online_fetches,
         }
     }
 
     fn fixture_manifest(root: &std::path::Path) -> RuntimeManifest {
-        let archive_path = root.join("runtime.tar.gz");
+        fixture_manifest_for_version(root, "1.0.0")
+    }
+
+    fn fixture_manifest_for_version(
+        root: &std::path::Path,
+        runtime_version: &str,
+    ) -> RuntimeManifest {
+        let archive_path = root.join(format!("runtime-{runtime_version}.tar.gz"));
         let encoder = GzEncoder::new(Vec::new(), Compression::default());
         let mut archive = tar::Builder::new(encoder);
         let body = b"runtime";
@@ -388,7 +460,7 @@ mod tests {
             .unwrap();
         sign_manifest(RuntimeManifest {
             schema_version: 1,
-            version: Version::new(1, 0, 0),
+            version: Version::parse(runtime_version).unwrap(),
             dsh_version: Version::parse("0.1.0-rc.7").unwrap(),
             target: RuntimeTarget::WindowsX86_64,
             url: url::Url::from_file_path(&archive_path).unwrap(),
@@ -448,6 +520,25 @@ mod tests {
             .unwrap();
         assert!(extracting_100 < verifying);
         assert_eq!(events[extracting_100].message, "正在解压内置组件 100%");
+    }
+
+    #[tokio::test]
+    async fn newer_verified_bundled_runtime_replaces_an_older_local_fast_start() {
+        let fixture = PreparationFixture::newer_bundled_than_local();
+        let choice = fixture
+            .service
+            .prepare(
+                "g-upgrade",
+                false,
+                &CancellationToken::new(),
+                Arc::new(|_| {}),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(choice.source, RuntimeSourceKind::Bundled);
+        assert_eq!(choice.manifest.version, Version::new(1, 1, 0));
+        assert_eq!(fixture.online_fetches(), 0);
     }
 
     #[tokio::test]
