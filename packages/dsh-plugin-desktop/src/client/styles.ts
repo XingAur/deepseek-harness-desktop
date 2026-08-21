@@ -26,37 +26,6 @@ export function installAdvancedStyles(): () => void {
     .dshDesktopResizeHandle { position: absolute; top: 0; bottom: 0; width: 7px; margin-left: -3px; z-index: 20; cursor: col-resize; }
     .dshDesktopProjectsPage { box-sizing: border-box; height: 100%; overflow: auto; padding: 30px 38px 0; color: var(--dsw-alias-label-primary, #ececf0); background: var(--dsw-alias-bg-base, #151517); }
     .dshDesktopProjectsPageInner { width: min(1180px, 100%); min-height: 100%; margin: 0 auto; }
-    .dshDesktopProjectsHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding-bottom: 20px; border-bottom: 1px solid var(--dsh-desktop-divider); }
-    .dshDesktopProjectsHeader p { margin: 0 0 8px; color: #7196ff; font-size: 11px; font-weight: 700; letter-spacing: .14em; }
-    .dshDesktopProjectsHeader h1 { margin: 0; font-size: 30px; font-weight: 600; }
-    .dshDesktopProjectsHeader span { display: block; margin-top: 8px; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 13px; }
-    .dshDesktopProjectsHeader button { border: 0; color: var(--dsw-alias-label-tertiary, #8d8d95); background: transparent; font-size: 28px; cursor: pointer; }
-    .dshDesktopProfileSelector { position: relative; z-index: 8; display: flex; align-items: center; gap: 12px; margin-top: 14px; }
-    .dshDesktopProfileSelector[aria-busy="true"]::after { position: absolute; inset: 0; content: ""; pointer-events: none; background: linear-gradient(100deg, transparent 20%, color-mix(in srgb, #7196ff 9%, transparent) 45%, transparent 70%); animation: dshDesktopProfileSweep 1.25s ease-in-out infinite; }
-    .dshDesktopProfileControl { position: relative; }
-    .dshDesktopProfileTrigger { display: flex; align-items: center; gap: 9px; min-width: 205px; min-height: 40px; padding: 5px 9px; border: 1px solid var(--dsh-desktop-divider); border-radius: 999px; color: var(--dsw-alias-label-primary, #ececf0); background: color-mix(in srgb, var(--dsw-alias-bg-layer-1, #1d1d20) 88%, transparent); cursor: pointer; }
-    .dshDesktopProfileTriggerStatic { cursor: default; }
-    .dshDesktopProfileTrigger:focus-visible { outline: 2px solid #7196ff; outline-offset: 2px; }
-    .dshDesktopProfileTrigger:disabled { cursor: default; opacity: .62; }
-    .dshDesktopProfileTriggerCopy { display: grid; min-width: 0; flex: 1; text-align: left; }
-    .dshDesktopProfileTriggerCopy strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-    .dshDesktopProfileTriggerCopy small { color: var(--dsw-alias-label-tertiary, #85858d); font-size: 10px; }
-    .dshDesktopProfileChevron { color: var(--dsw-alias-label-tertiary, #85858d); font-size: 15px; }
-    .dshDesktopProfileStatusDot { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 99px; background: #6d7482; }
-    .dshDesktopProfileStatusDot[data-status="active"] { background: #70c891; box-shadow: 0 0 0 3px color-mix(in srgb, #70c891 16%, transparent); }
-    .dshDesktopProfileStatusDot[data-status="switching"] { background: #7196ff; }
-    .dshDesktopProfileStatusDot[data-status="recovered"] { background: #d6ae67; }
-    .dshDesktopProfileStatusDot[data-status="invalid"] { background: #d77b7b; }
-    .dshDesktopProfileListbox { position: absolute; top: calc(100% + 7px); left: 0; z-index: 40; display: grid; width: 286px; max-height: 280px; overflow: auto; padding: 6px; border: 1px solid color-mix(in srgb, var(--dsh-desktop-divider) 80%, #7196ff 20%); border-radius: 12px; background: var(--dsw-alias-bg-layer-1, #1d1d20); box-shadow: 0 18px 46px rgba(0,0,0,.28); }
-    .dshDesktopProfileListbox:focus { outline: none; }
-    .dshDesktopProfileListbox [role="option"] { display: grid; grid-template-columns: 9px minmax(0, 1fr) 18px; align-items: center; gap: 9px; min-height: 48px; padding: 6px 9px; border: 0; border-radius: 8px; color: inherit; background: transparent; cursor: pointer; text-align: left; }
-    .dshDesktopProfileListbox [role="option"][data-active="true"], .dshDesktopProfileListbox [role="option"][aria-selected="true"] { background: color-mix(in srgb, #6482dc 15%, transparent); }
-    .dshDesktopProfileListbox [role="option"] > span:nth-child(2) { display: grid; }
-    .dshDesktopProfileListbox [role="option"] strong { font-size: 12px; }
-    .dshDesktopProfileListbox [role="option"] small { margin-top: 2px; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 10px; }
-    .dshDesktopProfileMeta { display: flex; align-items: center; gap: 8px; min-height: 34px; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 12px; }
-    .dshDesktopProfileMeta small { padding: 3px 7px; border-radius: 6px; color: #9ab2f5; background: color-mix(in srgb, #5b79cd 16%, transparent); }
-    .dshDesktopProfileError { margin: 0 0 0 auto; color: #e8aaaa; font-size: 12px; }
     .dshDesktopProfileSettings { display: grid; gap: 18px; color: var(--dsw-alias-label-primary, #ececf0); }
     .dshDesktopProfileSettings > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
     .dshDesktopProfileSettings h2 { margin: 0; font-size: 20px; }
@@ -76,7 +45,7 @@ export function installAdvancedStyles(): () => void {
     .dshDesktopProfileSettingsList p { overflow: hidden; margin: 0; color: var(--dsw-alias-label-secondary, #b7b7bf); text-overflow: ellipsis; white-space: nowrap; }
     .dshDesktopProfileSettingsList small { grid-column: 1 / 3; color: var(--dsw-alias-label-tertiary, #85858d); }
     .dshDesktopProfileSettingsActions { grid-column: 3; grid-row: 1 / 3; display: flex; gap: 6px; }
-    .dshDesktopProjectGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; margin-top: 24px; }
+    .dshDesktopProjectGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
     .dshDesktopProjectCard { position: relative; border: 1px solid var(--dsh-desktop-divider); border-radius: 15px; background: var(--dsw-alias-bg-layer-1, #1d1d20); animation: dshDesktopProjectEnter 180ms ease-out both; transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease; }
     .dshDesktopProjectCard:hover { transform: translateY(-2px); border-color: color-mix(in srgb, #7795e8 32%, var(--dsh-desktop-divider)); box-shadow: 0 10px 28px color-mix(in srgb, #23386f 14%, transparent); }
     .dshDesktopProjectCard[data-selected="true"] { border-color: color-mix(in srgb, #7196ff 68%, var(--dsh-desktop-divider)); box-shadow: 0 0 0 2px color-mix(in srgb, #7196ff 18%, transparent), 0 12px 30px color-mix(in srgb, #23386f 12%, transparent); }
@@ -133,29 +102,41 @@ export function installAdvancedStyles(): () => void {
     .dshDesktopProjectDeleteDialog > footer .dshDesktopProjectDeleteDanger { border-color: transparent; color: white; background: #b64f54; }
     .dshDesktopProjectDeleteDialog button:disabled, .dshDesktopProjectDeleteDialog input:disabled { cursor: default; opacity: .5; }
     .dshDesktopProjectError { margin-top: 22px; padding: 16px; border: 1px solid color-mix(in srgb, #d27676 45%, transparent); border-radius: 12px; color: #e8aaaa; background: color-mix(in srgb, #6d3636 18%, transparent); }
-    .dshDesktopProjectSkeletons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 24px; }
+    .dshDesktopProjectSkeletons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
     .dshDesktopProjectSkeletons span { height: 160px; border-radius: 15px; background: var(--dsw-alias-bg-layer-1, #1d1d20); opacity: .65; }
     .dshDesktopProjectEmpty { min-height: 240px; display: grid; place-content: center; justify-items: center; text-align: center; }
     .dshDesktopProjectEmptyIcon { width: 50px; height: 50px; display: grid; place-items: center; border-radius: 15px; color: #9ab2f5; background: color-mix(in srgb, #5b79cd 16%, transparent); font-size: 25px; }
     .dshDesktopProjectEmpty h2 { margin: 17px 0 7px; font-size: 22px; }
     .dshDesktopProjectEmpty p { margin: 0; color: var(--dsw-alias-label-tertiary, #85858d); }
     .dshDesktopProjectComposerDock { position: sticky; bottom: 0; z-index: 4; margin-top: 24px; padding: 12px 0 22px; background: linear-gradient(180deg, transparent, var(--dsw-alias-bg-base, #151517) 18%); }
-    .dshDesktopProjectComposer, .dshDesktopProjectConfirm { display: grid; gap: 12px; width: min(840px, 100%); box-sizing: border-box; margin: 0 auto; padding: 16px; border: 1px solid var(--dsh-desktop-divider); border-radius: 13px; text-align: left; background: var(--dsw-alias-bg-layer-1, #1d1d20); box-shadow: 0 14px 36px color-mix(in srgb, #0b1020 14%, transparent); }
-    .dshDesktopProjectComposer label { display: grid; gap: 5px; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 12px; }
-    .dshDesktopProjectComposer textarea, .dshDesktopProjectComposer input, .dshDesktopProjectComposer select { box-sizing: border-box; width: 100%; border: 1px solid var(--dsh-desktop-divider); border-radius: 8px; color: var(--dsw-alias-label-primary, #ececf0); background: var(--dsw-alias-bg-layer-2, #29292e); }
-    .dshDesktopProjectComposer textarea { min-height: 82px; padding: 9px; resize: vertical; }
-    .dshDesktopProjectComposer input, .dshDesktopProjectComposer select { min-height: 36px; padding: 0 9px; }
-    .dshDesktopProjectComposer > small { color: var(--dsw-alias-label-tertiary, #85858d); }
-    .dshDesktopProjectModifyComposer > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-    .dshDesktopProjectModifyComposer > header div { display: grid; gap: 3px; }
-    .dshDesktopProjectModifyComposer > header small { color: #86a2ef; font-size: 10px; font-weight: 700; letter-spacing: .08em; }
-    .dshDesktopProjectModifyComposer > header strong { font-size: 15px; }
-    .dshDesktopProjectModifyComposer > header button { border: 0; color: var(--dsw-alias-label-tertiary, #85858d); background: transparent; font-size: 21px; cursor: pointer; }
-    .dshDesktopProjectModifyComposer .dshDesktopProjectComposerActions { align-items: center; }
-    .dshDesktopProjectModifyComposer .dshDesktopProjectComposerActions span { overflow: hidden; margin-right: auto; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+    .dshDesktopProjectComposer, .dshDesktopProjectConfirm { display: grid; gap: 10px; width: min(840px, 100%); box-sizing: border-box; margin: 0 auto; padding: 12px 16px 13px; border: 1px solid var(--dsh-desktop-divider); border-radius: 16px; text-align: left; background: var(--dsw-alias-bg-layer-1, #1d1d20); box-shadow: 0 14px 36px color-mix(in srgb, #0b1020 14%, transparent); transition: border-color .15s ease, box-shadow .15s ease; }
+    .dshDesktopProjectComposer:focus-within { border-color: color-mix(in srgb, #7196ff 55%, var(--dsh-desktop-divider)); box-shadow: 0 0 0 2px color-mix(in srgb, #7196ff 14%, transparent), 0 14px 36px color-mix(in srgb, #0b1020 14%, transparent); }
+    .dshDesktopProjectComposerBar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 26px; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 12px; }
+    .dshDesktopProjectComposerContext { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
+    .dshDesktopProjectComposerContext svg { width: 14px; height: 14px; flex: 0 0 14px; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+    .dshDesktopProjectComposerContext small { color: #86a2ef; font-size: 10px; font-weight: 700; letter-spacing: .08em; }
+    .dshDesktopProjectComposerContext strong { overflow: hidden; color: var(--dsw-alias-label-primary, #ececf0); font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+    .dshDesktopProjectComposerMode { flex: 0 0 auto; padding: 3px 9px; border-radius: 999px; color: #9ab2f5; background: color-mix(in srgb, #5b79cd 16%, transparent); }
+    .dshDesktopProjectComposerClear { flex: 0 0 auto; width: 26px; height: 26px; display: grid; place-items: center; border: 0; border-radius: 50%; color: var(--dsw-alias-label-tertiary, #85858d); background: transparent; font-size: 19px; line-height: 1; cursor: pointer; }
+    .dshDesktopProjectComposerClear:hover:not(:disabled) { color: var(--dsw-alias-label-primary, #ececf0); background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.1)); }
+    .dshDesktopProjectComposerClear:disabled { cursor: default; opacity: .48; }
+    .dshDesktopProjectComposer > textarea { box-sizing: border-box; width: 100%; min-height: 88px; padding: 2px 2px 4px; border: 0; resize: vertical; color: var(--dsw-alias-label-primary, #ececf0); background: transparent; font: 400 14px/22px var(--dsw-font-family, system-ui, sans-serif); outline: none; }
+    .dshDesktopProjectComposer > textarea::placeholder { color: var(--dsw-alias-label-tertiary, #85858d); }
+    .dshDesktopProjectComposer > textarea:disabled { opacity: .55; }
+    .dshDesktopProjectComposerFooter { min-height: 34px; }
+    .dshDesktopProjectComposerHint { overflow: hidden; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+    .dshDesktopProjectComposerSend { width: 34px; height: 34px; margin-left: auto; display: grid; place-items: center; border: 0; border-radius: 50%; color: white; background: #5877cf; cursor: pointer; transition: background-color .15s ease, transform .15s ease; }
+    .dshDesktopProjectComposerSend svg { width: 16px; height: 16px; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+    .dshDesktopProjectComposerSend:hover:not(:disabled) { background: #6482dc; }
+    .dshDesktopProjectComposerSend:active:not(:disabled) { transform: scale(.94); }
+    .dshDesktopProjectComposerSend:disabled { cursor: default; opacity: .42; }
+    .dshDesktopProjectComposerSend:focus-visible { outline: 2px solid #7196ff; outline-offset: 2px; }
+    .dshDesktopProjectComposerSend[data-busy="true"] svg { animation: dshDesktopSendPulse .9s ease-in-out infinite; }
+    .dshDesktopSrOnly { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+    @keyframes dshDesktopSendPulse { 50% { opacity: .35; } }
     .dshDesktopProjectComposer [role="alert"], .dshDesktopProjectConfirm [role="alert"] { margin: 0; color: #e8aaaa; }
     .dshDesktopProjectComposerActions { display: flex; justify-content: flex-end; gap: 8px; }
-    .dshDesktopProjectComposerActions button { min-height: 36px; padding: 0 13px; border: 1px solid var(--dsh-desktop-divider); border-radius: 8px; color: var(--dsw-alias-label-primary, #ececf0); background: var(--dsw-alias-bg-layer-2, #29292e); cursor: pointer; }
+    .dshDesktopProjectComposerActions button { min-height: 36px; padding: 0 14px; border: 1px solid var(--dsh-desktop-divider); border-radius: 999px; color: var(--dsw-alias-label-primary, #ececf0); background: var(--dsw-alias-bg-layer-2, #29292e); cursor: pointer; }
     .dshDesktopProjectComposerActions button:last-child { border-color: transparent; color: white; background: #5877cf; }
     .dshDesktopProjectComposerActions button:disabled { cursor: default; opacity: .55; }
     .dshDesktopProjectConfirm h3 { margin: 0; font-size: 17px; }
@@ -165,14 +146,13 @@ export function installAdvancedStyles(): () => void {
     .dshDesktopProjectConfirm dd { margin: 0; overflow-wrap: anywhere; }
     @keyframes dshDesktopProjectEnter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes dshDesktopRecentPulse { 55%, 100% { box-shadow: 0 0 0 7px transparent; } }
-    @keyframes dshDesktopProfileSweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
     @media (max-width: 760px) {
       .dshDesktopProjectsPage { padding-inline: 20px; }
       .dshDesktopProfileEditor, .dshDesktopProfileSettingsList article { grid-template-columns: 1fr; }
       .dshDesktopProfileSettingsActions, .dshDesktopProfileSettingsList small { grid-column: 1; grid-row: auto; }
     }
     @media (prefers-reduced-motion: reduce) {
-      .dshDesktopProjectCard, .dshDesktopProjectCard:hover, .dshDesktopProjectCard[data-recent="true"]::after, .dshDesktopProfileSelector[aria-busy="true"]::after { animation: none !important; transform: none !important; transition-duration: .01ms !important; }
+      .dshDesktopProjectCard, .dshDesktopProjectCard:hover, .dshDesktopProjectCard[data-recent="true"]::after, .dshDesktopProjectComposerSend[data-busy="true"] svg { animation: none !important; transform: none !important; transition-duration: .01ms !important; }
     }
   `
   document.head.append(style)

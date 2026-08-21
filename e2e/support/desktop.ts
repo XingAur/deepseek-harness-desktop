@@ -187,7 +187,7 @@ export class PackagedDesktopHarness implements DesktopHarness {
     await this.withWorkbenchTarget(async (page) => {
       await this.openLocalProjects(page)
       await page.projectAction(title, 'double-click')
-      await page.waitFor(`!Array.from(document.querySelectorAll('h1')).some((node) => node.textContent?.trim() === '本地项目')`, {
+      await page.waitFor(`document.querySelector('section[aria-label="本地项目"]') === null`, {
         timeoutMs: 30_000,
         message: `项目未启动：${title}`,
       })
@@ -300,14 +300,14 @@ export class PackagedDesktopHarness implements DesktopHarness {
   }
 
   private async openLocalProjects(page: CdpPage): Promise<void> {
-    const heading = `Array.from(document.querySelectorAll('h1')).some((node) => node.textContent?.trim() === '本地项目')`
-    if (!await page.evaluate<boolean>(heading)) {
+    const pageOpen = `document.querySelector('section[aria-label="本地项目"]') !== null`
+    if (!await page.evaluate<boolean>(pageOpen)) {
       await page.waitFor(`document.querySelector('button[aria-label="本地项目"]') !== null`, {
         timeoutMs: 30_000,
         message: '本地项目入口未随桌面插件挂载',
       })
       await page.click('button[aria-label="本地项目"]')
-      await page.waitFor(heading, { timeoutMs: 30_000, message: '本地项目页面未打开' })
+      await page.waitFor(pageOpen, { timeoutMs: 30_000, message: '本地项目页面未打开' })
     }
   }
 }

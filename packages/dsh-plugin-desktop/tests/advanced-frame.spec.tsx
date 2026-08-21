@@ -24,7 +24,7 @@ describe('advanced frame', () => {
 
     expect(container.querySelector('.dshDesktopProjectsEntry')).toBeNull()
     act(() => localProjects.open())
-    expect(screen.getByRole('heading', { name: '本地项目' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '本地项目' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '项目 demo' })).toBeInTheDocument()
     expect(screen.queryByText('社区插件')).not.toBeInTheDocument()
   })

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { DesktopBridgeLike } from './desktop-bridge'
-import type { ProfileListResult, ProfileSummary } from './ProfileSelector'
+import type { ProfileListResult, ProfileSummary } from './profile-model'
 
 type PermissionMode = 'read-only' | 'workspace-write'
 

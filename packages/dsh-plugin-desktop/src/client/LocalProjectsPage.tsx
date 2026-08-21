@@ -4,7 +4,7 @@ import type { DesktopBridgeLike } from './desktop-bridge'
 import { ProjectCard } from './ProjectCard'
 import { ProjectDeleteDialog, type ProjectDeleteScope } from './ProjectDeleteDialog'
 import { projectCards, type ProjectCoverToken, type ProjectMetadataSnapshot } from './project-model'
-import { ProfileSelector } from './ProfileSelector'
+import type { ProfileListResult } from './profile-model'
 import { ProjectComposer } from './ProjectComposer'
 import { createProjectController } from './project-controller'
 
@@ -49,6 +49,15 @@ export function LocalProjectsPage({ state, workspaces, sessions, bridge, onClose
   useEffect(() => {
     if (selectedId !== null && !cards.some((card) => card.id === selectedId)) setSelectedId(null)
   }, [cards, selectedId])
+
+  // 页内不再提供 Profile 切换入口；仅在宿主侧正在切换 Profile 时继续停用项目操作。
+  useEffect(() => {
+    let cancelled = false
+    void bridge.request<ProfileListResult>('profile.list').then((result) => {
+      if (!cancelled) setProfilePending(result?.pendingProfileId != null)
+    }).catch(() => undefined)
+    return () => { cancelled = true }
+  }, [bridge])
 
   useEffect(() => {
     if (profilePending) {
@@ -126,18 +135,8 @@ export function LocalProjectsPage({ state, workspaces, sessions, bridge, onClose
   }
 
   return (
-    <section className="dshDesktopProjectsPage" aria-busy={state.state === 'loading' || profilePending || undefined}>
+    <section className="dshDesktopProjectsPage" aria-label="本地项目" aria-busy={state.state === 'loading' || profilePending || undefined}>
       <div className="dshDesktopProjectsPageInner">
-        <header className="dshDesktopProjectsHeader">
-          <div>
-            <p>DEEPSEEK HARNESS · LOCAL</p>
-            <h1>本地项目</h1>
-            <span>项目来自当前 Profile 的 Workspace 列表</span>
-          </div>
-          <button type="button" aria-label="关闭本地项目" onClick={onClose}>×</button>
-        </header>
-        <ProfileSelector bridge={bridge} onPendingChange={setProfilePending} />
-
         {state.state === 'loading' && (
           <div className="dshDesktopProjectSkeletons" aria-label="正在加载本地项目">
             <span /><span /><span />

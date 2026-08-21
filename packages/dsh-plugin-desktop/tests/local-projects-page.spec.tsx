@@ -15,7 +15,7 @@ describe('local projects page', () => {
 
     await waitFor(() => expect(workspaces.connectWorkspace).toHaveBeenCalledWith('w-1'))
     expect(sessions.open).toHaveBeenCalledWith('s-1')
-    expect(screen.queryByRole('heading', { name: '本地项目' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '本地项目' })).not.toBeInTheDocument()
   })
 
   it('binds the composer to one selected project without opening it', async () => {
@@ -169,9 +169,9 @@ describe('local projects page', () => {
 
     expect(screen.getByRole('heading', { name: '还没有本地项目' })).toBeInTheDocument()
     expect(screen.getByText('可以通过对话构建你的第一个本地项目')).toBeInTheDocument()
-    const page = screen.getByRole('heading', { name: '本地项目' }).closest('section')
-    expect(page?.querySelector('.dshDesktopProjectCreatePanel')).toBeNull()
-    expect(page?.querySelectorAll('.dshDesktopProjectComposer')).toHaveLength(1)
+    const page = screen.getByRole('region', { name: '本地项目' })
+    expect(page.querySelector('.dshDesktopProjectCreatePanel')).toBeNull()
+    expect(page.querySelectorAll('.dshDesktopProjectComposer')).toHaveLength(1)
   })
 
   it('renders one flat composer when projects already exist', () => {
@@ -182,9 +182,9 @@ describe('local projects page', () => {
     renderFrame({ workspaces })
     fireEvent.click(screen.getByRole('button', { name: '本地项目' }))
 
-    const page = screen.getByRole('heading', { name: '本地项目' }).closest('section')
-    expect(page?.querySelector('.dshDesktopProjectCreatePanel')).toBeNull()
-    expect(page?.querySelectorAll('.dshDesktopProjectComposer')).toHaveLength(1)
+    const page = screen.getByRole('region', { name: '本地项目' })
+    expect(page.querySelector('.dshDesktopProjectCreatePanel')).toBeNull()
+    expect(page.querySelectorAll('.dshDesktopProjectComposer')).toHaveLength(1)
   })
 
   it('locks project actions while a profile generation is switching', async () => {
@@ -195,19 +195,17 @@ describe('local projects page', () => {
     const bridge = bridgeFixture()
     vi.mocked(bridge.request).mockImplementation(async (action) => {
       if (action === 'profile.list') return {
-        selectedProfileId: 'p-a', pendingProfileId: null, lastKnownGoodProfileId: 'p-a',
+        selectedProfileId: 'p-a', pendingProfileId: 'p-b', lastKnownGoodProfileId: 'p-a',
         profiles: [{ id: 'p-a', name: 'A', revision: 1 }, { id: 'p-b', name: 'B', revision: 1 }],
       }
-      return new Promise(() => undefined)
+      if (action === 'project.metadata.list') return { schemaVersion: 1, projects: {} }
+      return undefined
     })
     renderFrame({ workspaces, bridge })
     fireEvent.click(screen.getByRole('button', { name: '本地项目' }))
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Profile：A' }))
-    fireEvent.click(screen.getByRole('option', { name: /B/ }))
-
     await waitFor(() => expect(screen.getByRole('button', { name: '项目 demo' })).toHaveAttribute('aria-disabled', 'true'))
     expect(screen.getByRole('button', { name: '项目 demo' })).toHaveAttribute('tabindex', '-1')
-    expect(screen.getByRole('heading', { name: '本地项目' }).closest('section')).toHaveAttribute('aria-busy', 'true')
+    expect(screen.getByRole('region', { name: '本地项目' })).toHaveAttribute('aria-busy', 'true')
   })
 })
