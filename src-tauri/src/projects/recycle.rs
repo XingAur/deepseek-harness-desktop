@@ -217,6 +217,28 @@ pub(crate) fn list_registered_workspaces(
         .collect()
 }
 
+/// 枚举 (workspaceId, canonical path)，跳过不可访问项；用于本地应用的可运行性判定（advisory）。
+pub(crate) fn registered_workspace_records(
+    profile_root: &Path,
+) -> Result<Vec<(String, PathBuf)>, RuntimeFailure> {
+    let Some(storage) = read_workspace_storage(profile_root)? else {
+        return Ok(Vec::new());
+    };
+    let mut records = Vec::new();
+    for workspace_id in &storage.global.workspace_ids {
+        let Some(record) = storage.tables.workspaces.get(workspace_id) else {
+            continue;
+        };
+        let Ok(canonical) = record.path.canonicalize() else {
+            continue;
+        };
+        if canonical.is_dir() {
+            records.push((workspace_id.clone(), canonical));
+        }
+    }
+    Ok(records)
+}
+
 pub fn validate_recycle_target(
     candidate: &Path,
     protected: &ProtectedRoots,

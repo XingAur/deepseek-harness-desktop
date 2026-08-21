@@ -20,7 +20,7 @@ use super::{
 use crate::profile::model::ProfileRecord;
 
 #[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+pub(crate) const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 pub struct ManagedRuntime {
     child: Child,
@@ -270,7 +270,7 @@ fn profile_environment(profile: &ProfileRecord, generation_id: &str) -> Vec<(OsS
     ]
 }
 
-fn pipe_log<R>(reader: R, path: PathBuf, prefix: &'static str) -> JoinHandle<()>
+pub(crate) fn pipe_log<R>(reader: R, path: PathBuf, prefix: &'static str) -> JoinHandle<()>
 where
     R: AsyncRead + Unpin + Send + 'static,
 {
@@ -294,7 +294,7 @@ where
 }
 
 #[cfg(windows)]
-async fn terminate_tree(pid: u32) {
+pub(crate) async fn terminate_tree(pid: u32) {
     let mut command = Command::new("taskkill");
     command
         .args(["/PID", &pid.to_string(), "/T", "/F"])
@@ -303,7 +303,7 @@ async fn terminate_tree(pid: u32) {
 }
 
 #[cfg(unix)]
-async fn terminate_tree(pid: u32) {
+pub(crate) async fn terminate_tree(pid: u32) {
     unsafe {
         libc::kill(-(pid as i32), libc::SIGTERM);
     }
