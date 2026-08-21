@@ -112,6 +112,14 @@ export function installAdvancedStyles(): () => void {
     .dshDesktopProjectEmpty h2 { margin: 17px 0 7px; font-size: 22px; }
     .dshDesktopProjectEmpty p { margin: 0; color: var(--dsw-alias-label-tertiary, #85858d); }
     .dshDesktopProjectComposerDock { position: sticky; bottom: 0; z-index: 4; margin-top: 24px; padding: 12px 0 22px; background: linear-gradient(180deg, transparent, var(--dsw-alias-bg-base, #151517) 18%); }
+    .dshDesktopAdoptRow { display: flex; justify-content: center; margin-bottom: 8px; }
+    .dshDesktopAdoptButton { min-height: 30px; padding: 0 14px; border: 1px dashed color-mix(in srgb, #7196ff 40%, var(--dsh-desktop-divider)); border-radius: 999px; color: #9ab2f5; background: transparent; font-size: 12px; cursor: pointer; }
+    .dshDesktopAdoptButton:hover:not(:disabled) { background: color-mix(in srgb, #7196ff 9%, transparent); }
+    .dshDesktopAdoptButton:disabled { cursor: default; opacity: .48; }
+    .dshDesktopAdoptList { display: grid; gap: 8px; max-height: 320px; margin: 14px 0 0; padding: 0; list-style: none; overflow: auto; }
+    .dshDesktopAdoptList button { display: grid; gap: 3px; width: 100%; padding: 10px 12px; border: 1px solid var(--dsh-desktop-divider); border-radius: 10px; color: inherit; background: transparent; cursor: pointer; text-align: left; }
+    .dshDesktopAdoptList button:hover:not(:disabled) { border-color: color-mix(in srgb, #7196ff 45%, var(--dsh-desktop-divider)); background: color-mix(in srgb, #7196ff 8%, transparent); }
+    .dshDesktopAdoptList small { overflow: hidden; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
     .dshDesktopProjectComposer, .dshDesktopProjectConfirm { display: grid; gap: 10px; width: min(840px, 100%); box-sizing: border-box; margin: 0 auto; padding: 12px 16px 13px; border: 1px solid var(--dsh-desktop-divider); border-radius: 16px; text-align: left; background: var(--dsw-alias-bg-layer-1, #1d1d20); box-shadow: 0 14px 36px color-mix(in srgb, #0b1020 14%, transparent); transition: border-color .15s ease, box-shadow .15s ease; }
     .dshDesktopProjectComposer:focus-within { border-color: color-mix(in srgb, #7196ff 55%, var(--dsh-desktop-divider)); box-shadow: 0 0 0 2px color-mix(in srgb, #7196ff 14%, transparent), 0 14px 36px color-mix(in srgb, #0b1020 14%, transparent); }
     .dshDesktopProjectComposerBar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 26px; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 12px; }

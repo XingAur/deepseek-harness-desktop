@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { SessionsLike, WorkspaceListState, WorkspacesLike } from './contracts'
 import type { DesktopBridgeLike } from './desktop-bridge'
+import { AdoptProjectDialog } from './AdoptProjectDialog'
 import { ProjectCard } from './ProjectCard'
 import { ProjectDeleteDialog, type ProjectDeleteScope } from './ProjectDeleteDialog'
 import { projectCards, type ProjectCoverToken, type ProjectMetadataSnapshot } from './project-model'
@@ -47,6 +48,13 @@ export function LocalProjectsPage({ state, workspaces, sessions, bridge, onClose
   const [profilePending, setProfilePending] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
+  const [adoptOpen, setAdoptOpen] = useState(false)
+  // 收录候选 = 当前 Profile 中既不在项目根目录下、也没有 localApp 标记的工作区（即未出现在 visibleCards 里的）。
+  const adoptable = useMemo(() => state.state !== 'loading' && apps !== null
+    ? state.items
+        .filter((workspace) => !visibleCards.some((card) => card.id === workspace.workspaceId))
+        .map((workspace) => ({ id: workspace.workspaceId, title: workspace.title, path: workspace.path }))
+    : [], [state.state, state.items, visibleCards, apps])
   const selectedCard = selectedId === null ? undefined : visibleCards.find((card) => card.id === selectedId)
 
   const refreshApps = async () => {
@@ -89,6 +97,7 @@ export function LocalProjectsPage({ state, workspaces, sessions, bridge, onClose
     if (profilePending) {
       setSelectedId(null)
       setDeleteTargetId(null)
+      setAdoptOpen(false)
     }
   }, [profilePending])
 
@@ -188,6 +197,21 @@ export function LocalProjectsPage({ state, workspaces, sessions, bridge, onClose
     }
   }
 
+  // 收录根目录之外的工作区：只补写 localApp 元数据标记，不移动目录、不新建会话。
+  const adopt = async (workspaceId: string) => {
+    setBusyId(workspaceId)
+    setActionError(null)
+    try {
+      const snapshot = await bridge.request<ProjectMetadataSnapshot>('project.metadata.patch', { workspaceId, patch: { localApp: true } })
+      if (snapshot?.projects !== undefined) setMetadata(snapshot)
+      setAdoptOpen(false)
+    } catch (cause) {
+      setActionError(workspaceFailure(cause).message)
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   return (
     <section className="dshDesktopProjectsPage" aria-label="本地项目" aria-busy={state.state === 'loading' || profilePending || undefined}>
       <div className="dshDesktopProjectsPageInner">
@@ -234,6 +258,9 @@ export function LocalProjectsPage({ state, workspaces, sessions, bridge, onClose
 
         {state.state !== 'loading' && state.state !== 'error' && (
           <div className="dshDesktopProjectComposerDock">
+            <div className="dshDesktopAdoptRow">
+              <button type="button" className="dshDesktopAdoptButton" disabled={profilePending || busyId !== null} onClick={() => setAdoptOpen(true)}>收录已有项目</button>
+            </div>
             <ProjectComposer
               bridge={bridge}
               controller={controller}
@@ -255,6 +282,14 @@ export function LocalProjectsPage({ state, workspaces, sessions, bridge, onClose
             />
           )
         })()}
+        {adoptOpen && (
+          <AdoptProjectDialog
+            candidates={adoptable}
+            busy={busyId !== null}
+            onAdopt={adopt}
+            onClose={() => setAdoptOpen(false)}
+          />
+        )}
       </div>
     </section>
   )

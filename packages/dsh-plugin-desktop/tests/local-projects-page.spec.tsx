@@ -259,4 +259,30 @@ describe('local projects page', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: '打开会话继续开发' }))
     await waitFor(() => expect(workspaces.connectWorkspace).toHaveBeenCalledWith('w-1'))
   })
+
+  it('adopts an out-of-root workspace into local projects', async () => {
+    const workspaces = workspaceFixture([
+      { workspaceId: 'w-1', path: 'C:\\code\\demo', title: 'demo', sessionIds: [], createdAt: '2026-08-19T00:00:00Z', updatedAt: '2026-08-19T00:00:00Z' },
+      { workspaceId: 'w-9', path: 'D:\\code\\legacy', title: 'legacy', sessionIds: [], createdAt: '2026-08-19T00:00:00Z', updatedAt: '2026-08-19T00:00:00Z' },
+    ])
+    const bridge = bridgeFixture()
+    vi.mocked(bridge.request).mockImplementation(async (action, payload) => {
+      if (action === 'profile.list') return { selectedProfileId: 'p-default', pendingProfileId: null, lastKnownGoodProfileId: 'p-default', profiles: [] }
+      if (action === 'project.metadata.list') return { schemaVersion: 1, projects: {} }
+      if (action === 'app.status') return { projectsRoot: 'C:\\code', running: [], launchable: [] }
+      if (action === 'project.metadata.patch' && (payload as { workspaceId?: string })?.workspaceId === 'w-9') {
+        return { schemaVersion: 1, projects: { 'w-9': { cover: null, pinned: false, localApp: true, updatedAt: '2026-08-21T00:00:00Z' } } }
+      }
+      return undefined
+    })
+    renderFrame({ workspaces, bridge })
+    fireEvent.click(screen.getByRole('button', { name: '本地项目' }))
+    await screen.findByRole('button', { name: '项目 demo' })
+    expect(screen.queryByRole('button', { name: '项目 legacy' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '收录已有项目' }))
+    fireEvent.click(await screen.findByRole('button', { name: /legacy/ }))
+
+    expect(await screen.findByRole('button', { name: '项目 legacy' })).toBeInTheDocument()
+  })
 })
