@@ -29,6 +29,9 @@ export interface DesktopHarness {
   createProject(input: { idea: string; path: string; permission: 'workspace-write' | 'read-only' }): Promise<void>
   selectProject(title: string): Promise<void>
   openProject(title: string): Promise<void>
+  launchLocalApp(title: string): Promise<void>
+  returnToWorkbenchFromApp(): Promise<void>
+  stopLocalAppFromCard(title: string): Promise<void>
   renameProject(from: string, to: string): Promise<void>
   setProjectCover(title: string, cover: ProjectCoverToken): Promise<void>
   pinProject(title: string): Promise<void>
@@ -194,6 +197,44 @@ export class PackagedDesktopHarness implements DesktopHarness {
     })
   }
 
+  // 双击可运行的项目卡片启动本地应用，随后在主窗口（tauri 壳层）等待应用视图出现。
+  async launchLocalApp(title: string): Promise<void> {
+    await this.withWorkbenchTarget(async (page) => {
+      await this.openLocalProjects(page)
+      await page.projectAction(title, 'double-click')
+    })
+    await this.withMainWindowTarget(async (page) => {
+      await page.waitFor(`document.querySelector('section[aria-label="本地应用视图"]') !== null`, {
+        timeoutMs: 30_000,
+        message: `本地应用视图未出现：${title}`,
+      })
+    })
+  }
+
+  // 在主窗口的应用视图条上点击「返回工作台」，并等待应用视图卸载、工作台重新可见。
+  async returnToWorkbenchFromApp(): Promise<void> {
+    await this.withMainWindowTarget(async (page) => {
+      await page.clickText('返回工作台')
+      await page.waitFor(`document.querySelector('section[aria-label="本地应用视图"]') === null`, {
+        timeoutMs: 30_000,
+        message: '本地应用视图未随「返回工作台」关闭',
+      })
+    })
+  }
+
+  // 回到工作台后右键项目卡片，通过菜单「停止应用」结束运行中的本地应用并确认角标消失。
+  async stopLocalAppFromCard(title: string): Promise<void> {
+    await this.withWorkbenchTarget(async (page) => {
+      await this.openLocalProjects(page)
+      await page.projectAction(title, 'context-menu')
+      await page.clickText('停止应用')
+      await page.waitFor(
+        `(${projectSurfaceExpression(title)})?.querySelector('.dshDesktopProjectBadge[data-kind="running"]') === null`,
+        { timeoutMs: 30_000, message: `本地应用未停止：${title}` },
+      )
+    })
+  }
+
   async renameProject(from: string, to: string): Promise<void> {
     await this.withWorkbenchTarget(async (page) => {
       await this.openLocalProjects(page)
@@ -290,13 +331,44 @@ export class PackagedDesktopHarness implements DesktopHarness {
     await frame.waitForDisplayed({ timeout: 30_000 })
     const frameUrl = await frame.getAttribute('src')
     if (frameUrl === null) throw new Error('工作台 iframe 缺少受管地址')
-    const target = await findWorkbenchTarget(frameUrl)
+    const target = await this.findWorkbenchTarget(frameUrl)
     const page = await CdpPage.connect(target.webSocketDebuggerUrl)
     try {
       return await run(page)
     } finally {
       page.close()
     }
+  }
+
+  /** 主窗口（tauri 壳层，非工作台 iframe）上下文中执行；用于本地应用视图断言。 */
+  private async withMainWindowTarget(run: (page: CdpPage) => Promise<void>): Promise<void> {
+    const targets = await this.cdpTargets()
+    const main = targets.find((target) => target.type === 'page' && !target.url.includes('127.0.0.1:'))
+    if (main?.webSocketDebuggerUrl === undefined) throw new Error('找不到主窗口 CDP target')
+    const page = await CdpPage.connect(main.webSocketDebuggerUrl)
+    try {
+      await run(page)
+    } finally {
+      page.close()
+    }
+  }
+
+  /** 枚举 WebView2 暴露的 CDP targets；服务未就绪时返回空列表，由调用方决定是否重试。 */
+  private async cdpTargets(): Promise<CdpTarget[]> {
+    const response = await fetch('http://127.0.0.1:9229/json/list')
+    if (!response.ok) return []
+    return await response.json() as CdpTarget[]
+  }
+
+  private async findWorkbenchTarget(frameUrl: string): Promise<CdpTarget> {
+    const deadline = Date.now() + 30_000
+    while (Date.now() < deadline) {
+      const match = (await this.cdpTargets())
+        .find((target) => target.type === 'iframe' && target.url === frameUrl)
+      if (match?.webSocketDebuggerUrl !== undefined) return match
+      await new Promise((resolveWait) => setTimeout(resolveWait, 100))
+    }
+    throw new Error(`找不到工作台 CDP target：${frameUrl}`)
   }
 
   private async openLocalProjects(page: CdpPage): Promise<void> {
@@ -494,20 +566,6 @@ interface CdpEvent {
     type?: string
     args?: Array<{ value?: unknown; description?: string }>
   }
-}
-
-async function findWorkbenchTarget(frameUrl: string): Promise<CdpTarget> {
-  const deadline = Date.now() + 30_000
-  while (Date.now() < deadline) {
-    const response = await fetch('http://127.0.0.1:9229/json/list')
-    if (response.ok) {
-      const targets = await response.json() as CdpTarget[]
-      const match = targets.find((target) => target.type === 'iframe' && target.url === frameUrl)
-      if (match?.webSocketDebuggerUrl !== undefined) return match
-    }
-    await new Promise((resolveWait) => setTimeout(resolveWait, 100))
-  }
-  throw new Error(`找不到工作台 CDP target：${frameUrl}`)
 }
 
 function buttonTextExpression(text: string): string {
