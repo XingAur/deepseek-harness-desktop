@@ -56,9 +56,13 @@ export function createWorkbenchBridge(dependencies: WorkbenchBridgeDependencies)
 
 function bridgePayload(action: keyof typeof bridgeCommandByAction, value: unknown): Record<string, unknown> {
   const payload = isRecord(value) ? value : {}
+  if (action === 'project.directory.preview') {
+    if (typeof payload.idea !== 'string' || payload.idea.trim() === '') throw new Error('项目需求无效')
+    return { idea: payload.idea }
+  }
   if (action === 'project.directory.create') {
-    if (typeof payload.path !== 'string' || payload.path.trim() === '') throw new Error('项目路径无效')
-    return { path: payload.path }
+    if (typeof payload.projectName !== 'string' || payload.projectName.trim() === '') throw new Error('项目名称无效')
+    return { projectName: payload.projectName }
   }
   if (action === 'project.directory.recycle') {
     if (typeof payload.workspaceId !== 'string') throw new Error('Workspace ID 无效')

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { DesktopBridgeLike } from './desktop-bridge'
 import type { ProfileListResult } from './ProfileSelector'
 import type { ProjectController } from './project-controller'
-import type { ProjectCardModel, ProjectDraft, ProjectPermissionMode } from './project-model'
+import type { ProjectCardModel, ProjectDraft } from './project-model'
 
 export interface ProjectComposerProps {
   bridge: DesktopBridgeLike
@@ -16,9 +16,6 @@ export interface ProjectComposerProps {
 export function ProjectComposer({ bridge, controller, selected, disabled = false, onClearSelection, onComplete }: ProjectComposerProps) {
   const [profiles, setProfiles] = useState<ProfileListResult | null>(null)
   const [idea, setIdea] = useState('')
-  const [path, setPath] = useState('')
-  const [permissionMode, setPermissionMode] = useState<ProjectPermissionMode>('workspace-write')
-  const [createDirectory, setCreateDirectory] = useState(false)
   const [draft, setDraft] = useState<ProjectDraft | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -39,14 +36,16 @@ export function ProjectComposer({ bridge, controller, selected, disabled = false
   }, [selected?.id])
 
   const currentProfileId = profiles?.pendingProfileId ?? profiles?.selectedProfileId ?? ''
-  const currentProfile = profiles?.profiles.find((profile) => profile.id === currentProfileId)
 
-  const preview = () => {
+  const preview = async () => {
+    setBusy(true)
     setError(null)
     try {
-      setDraft(controller.prepare({ idea, path, profileId: currentProfileId, permissionMode, createDirectory }))
+      setDraft(await controller.prepare({ idea, profileId: currentProfileId }))
     } catch (cause) {
       setError(messageOf(cause))
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -116,10 +115,8 @@ export function ProjectComposer({ bridge, controller, selected, disabled = false
         <h3>确认构建范围</h3>
         <dl>
           <div><dt>需求</dt><dd>{draft.idea}</dd></div>
-          <div><dt>路径</dt><dd>{draft.normalizedPath}{draft.createDirectory ? '（将新建）' : ''}</dd></div>
-          <div><dt>Profile</dt><dd>{currentProfile?.name ?? draft.profileId}</dd></div>
-          <div><dt>权限</dt><dd>{draft.permissionMode === 'read-only' ? '只读' : '工作区可写'}</dd></div>
-          <div><dt>命令类别</dt><dd>{draft.commandCategories.join(' · ')}</dd></div>
+          <div><dt>项目名称</dt><dd>{draft.proposedName}</dd></div>
+          <div><dt>保存位置</dt><dd>{draft.normalizedPath}</dd></div>
         </dl>
         {error !== null && <p role="alert">{error}</p>}
         <div className="dshDesktopProjectComposerActions">
@@ -131,17 +128,10 @@ export function ProjectComposer({ bridge, controller, selected, disabled = false
   }
 
   return (
-    <div className="dshDesktopProjectComposer">
-      <label>项目需求<textarea aria-label="项目需求" value={idea} disabled={disabled} placeholder="例如：做一个支持离线同步的记账应用" onChange={(event) => setIdea(event.target.value)} /></label>
-      <div className="dshDesktopProjectComposerRow">
-        <label>项目路径<input aria-label="项目路径" value={path} disabled={disabled} placeholder="C:\\Users\\你\\Projects\\ledger" onChange={(event) => setPath(event.target.value)} /></label>
-        <label>当前 Profile<select aria-label="构建 Profile" value={currentProfileId} disabled><option value={currentProfileId}>{currentProfile?.name ?? '正在读取…'}</option></select></label>
-        <label>权限模式<select aria-label="构建权限模式" value={permissionMode} disabled={disabled} onChange={(event) => setPermissionMode(event.target.value as ProjectPermissionMode)}><option value="workspace-write">工作区可写</option><option value="read-only">只读</option></select></label>
-      </div>
-      <label className="dshDesktopProjectCreateDirectory"><input type="checkbox" checked={createDirectory} disabled={disabled} onChange={(event) => setCreateDirectory(event.target.checked)} />目录尚不存在，需要创建</label>
-      <small>如需更换 Profile，请先使用页面上方的 Profile 选择器。</small>
+    <div className="dshDesktopProjectComposer" aria-busy={busy || undefined}>
+      <label>项目需求<textarea aria-label="项目需求" value={idea} disabled={disabled || busy} placeholder="例如：做一个支持离线同步的记账应用" onChange={(event) => setIdea(event.target.value)} /></label>
       {error !== null && <p role="alert">{error}</p>}
-      <div className="dshDesktopProjectComposerActions"><button type="button" disabled={disabled || currentProfileId === ''} onClick={preview}>检查并预览</button></div>
+      <div className="dshDesktopProjectComposerActions"><button type="button" disabled={disabled || busy || currentProfileId === '' || idea.trim() === ''} onClick={() => void preview()}>{busy ? '正在准备…' : '检查并预览'}</button></div>
     </div>
   )
 }

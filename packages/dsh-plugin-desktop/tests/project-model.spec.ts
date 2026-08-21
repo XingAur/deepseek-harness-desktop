@@ -28,23 +28,31 @@ describe('project model', () => {
     expect(cards[1].cover).toMatch(/^(aurora-blue|sunset|forest|graphite|violet)$/)
   })
 
-  it('rejects a relative or reserved Windows project draft', () => {
-    expect(() => projectDraft({ idea: '博客', path: '.\\blog', profileId: 'p-1', permissionMode: 'workspace-write' })).toThrow('绝对路径')
-    expect(() => projectDraft({ idea: '博客', path: 'C:\\CON', profileId: 'p-1', permissionMode: 'workspace-write' })).toThrow('保留名称')
-    expect(() => projectDraft({ idea: '博客', path: 'C:\\', profileId: 'p-1', permissionMode: 'workspace-write' })).toThrow('根目录')
+  it('builds a fixed-permission draft from a backend-prepared location', () => {
+    expect(projectDraft({
+      idea: '  做一个记账应用  ',
+      profileId: 'p-1',
+      location: {
+        projectName: '记账应用',
+        suggestedPath: 'C:\\Users\\test\\Documents\\DeepSeek Harness\\Projects\\记账应用',
+      },
+    })).toMatchObject({
+      idea: '做一个记账应用',
+      proposedName: '记账应用',
+      normalizedPath: 'C:\\Users\\test\\Documents\\DeepSeek Harness\\Projects\\记账应用',
+      permissionMode: 'workspace-write',
+      createDirectory: true,
+    })
   })
 
-  it('normalizes a confirmed draft without touching the filesystem', () => {
-    expect(projectDraft({
-      idea: '  构建一个博客  ', path: ' C:/code/blog/ ', profileId: 'p-1', permissionMode: 'workspace-write',
-    })).toEqual({
-      idea: '构建一个博客',
-      normalizedPath: 'C:\\code\\blog',
-      profileId: 'p-1',
-      permissionMode: 'workspace-write',
-      proposedName: '构建一个博客',
-      commandCategories: ['package-manager', 'build', 'test'],
-      createDirectory: false,
-    })
+  it('rejects an empty idea, profile, or malformed prepared location', () => {
+    const location = {
+      projectName: 'demo',
+      suggestedPath: 'C:\\Users\\test\\Documents\\DeepSeek Harness\\Projects\\demo',
+    }
+    expect(() => projectDraft({ idea: '', profileId: 'p-1', location })).toThrow('描述')
+    expect(() => projectDraft({ idea: 'demo', profileId: '', location })).toThrow('Profile')
+    expect(() => projectDraft({ idea: 'demo', profileId: 'p-1', location: { ...location, projectName: '' } })).toThrow('项目名称')
+    expect(() => projectDraft({ idea: 'demo', profileId: 'p-1', location: { ...location, suggestedPath: '.\\demo' } })).toThrow('绝对路径')
   })
 })

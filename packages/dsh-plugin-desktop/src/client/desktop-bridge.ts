@@ -10,6 +10,7 @@ export type DesktopBridgeAction =
   | 'project.metadata.list'
   | 'project.metadata.patch'
   | 'project.metadata.remove'
+  | 'project.directory.preview'
   | 'project.directory.create'
   | 'project.directory.recycle'
   | 'external.open'

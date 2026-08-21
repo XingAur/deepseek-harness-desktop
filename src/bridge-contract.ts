@@ -11,6 +11,7 @@ export type BridgeAction =
   | 'project.metadata.list'
   | 'project.metadata.patch'
   | 'project.metadata.remove'
+  | 'project.directory.preview'
   | 'project.directory.create'
   | 'project.directory.recycle'
   | 'external.open'
@@ -46,7 +47,8 @@ export const bridgeCommandByAction = {
   'project.metadata.list': 'list_project_metadata',
   'project.metadata.patch': 'patch_project_metadata',
   'project.metadata.remove': 'remove_project_metadata',
-  'project.directory.create': 'create_project_directory_command',
+  'project.directory.preview': 'preview_default_project_directory',
+  'project.directory.create': 'create_default_project_directory',
   'project.directory.recycle': 'recycle_project_directory',
   'external.open': 'open_external_https',
   'diagnostics.export': 'export_diagnostics',

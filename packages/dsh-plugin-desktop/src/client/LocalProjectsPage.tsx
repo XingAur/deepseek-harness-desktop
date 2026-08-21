@@ -22,7 +22,10 @@ export function LocalProjectsPage({ state, workspaces, sessions, bridge, onClose
   const controller = useMemo(() => createProjectController(
     workspaces,
     sessions,
-    (target) => bridge.request<string>('project.directory.create', { path: target }),
+    {
+      preview: (idea) => bridge.request('project.directory.preview', { idea }),
+      create: (projectName) => bridge.request('project.directory.create', { projectName }),
+    },
   ), [bridge, workspaces, sessions])
   const [busyId, setBusyId] = useState<string | null>(null)
   const [unavailable, setUnavailable] = useState<ReadonlySet<string>>(() => new Set())

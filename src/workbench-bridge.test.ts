@@ -122,8 +122,13 @@ describe('workbench bridge', () => {
     })
   })
 
-  it('maps project directory creation through the active generation', async () => {
-    const invoke = vi.fn().mockResolvedValue('C:\\code\\demo')
+  it('previews and creates only backend-owned default project locations', async () => {
+    const invoke = vi.fn()
+      .mockResolvedValueOnce({
+        projectName: '记账应用',
+        suggestedPath: 'C:\\Users\\test\\Documents\\DeepSeek Harness\\Projects\\记账应用',
+      })
+      .mockResolvedValueOnce('C:\\Users\\test\\Documents\\DeepSeek Harness\\Projects\\记账应用')
     const contentWindow = { postMessage: vi.fn() } as unknown as Window
     const bridge = createWorkbenchBridge({
       frame: () => ({ contentWindow }) as HTMLIFrameElement,
@@ -131,20 +136,35 @@ describe('workbench bridge', () => {
       invoke,
     })
 
-    await bridge.onMessage({
+    const send = (requestId: string, action: string, payload: unknown) => bridge.onMessage({
       source: contentWindow,
       origin: 'http://127.0.0.1:39000',
       data: {
         channel: DESKTOP_BRIDGE_CHANNEL,
-        requestId: 'r-create-directory',
-        action: 'project.directory.create',
-        payload: { path: 'C:\\code\\demo', generationId: 'g-stale' },
+        requestId,
+        action,
+        payload,
       },
     } as MessageEvent)
 
-    expect(invoke).toHaveBeenCalledWith('create_project_directory_command', {
+    await send('r-preview', 'project.directory.preview', {
+      idea: '做一个记账应用',
+      path: 'C:\\Windows',
+      generationId: 'g-stale',
+    })
+    await send('r-create', 'project.directory.create', {
+      projectName: '记账应用',
+      path: 'C:\\Windows',
+      generationId: 'g-stale',
+    })
+
+    expect(invoke).toHaveBeenNthCalledWith(1, 'preview_default_project_directory', {
       generationId: 'g-active',
-      path: 'C:\\code\\demo',
+      idea: '做一个记账应用',
+    })
+    expect(invoke).toHaveBeenNthCalledWith(2, 'create_default_project_directory', {
+      generationId: 'g-active',
+      projectName: '记账应用',
     })
   })
 })

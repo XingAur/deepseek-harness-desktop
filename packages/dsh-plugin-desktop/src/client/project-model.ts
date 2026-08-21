@@ -29,12 +29,15 @@ export interface ProjectCardModel {
 
 export type ProjectPermissionMode = 'read-only' | 'workspace-write'
 
+export interface PreparedProjectLocation {
+  projectName: string
+  suggestedPath: string
+}
+
 export interface ProjectDraftInput {
   idea: string
-  path: string
   profileId: string
-  permissionMode: ProjectPermissionMode
-  createDirectory?: boolean
+  location: PreparedProjectLocation
 }
 
 export interface ProjectDraft {
@@ -79,25 +82,18 @@ export function projectDraft(input: ProjectDraftInput): ProjectDraft {
   const profileId = input.profileId.trim()
   if (idea.length === 0) throw new Error('请先描述你想构建的项目')
   if (profileId.length === 0) throw new Error('请选择 Profile')
-  if (input.permissionMode !== 'read-only' && input.permissionMode !== 'workspace-write') {
-    throw new Error('请选择有效的权限模式')
-  }
-
-  const normalizedPath = normalizeAbsolutePath(input.path)
-  const finalSegment = normalizedPath.split(/[\\/]/).at(-1) ?? ''
-  const reservedBase = finalSegment.replace(/[. ]+$/g, '').split('.')[0]?.toUpperCase() ?? ''
-  if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/.test(reservedBase)) {
-    throw new Error('项目目录不能使用 Windows 保留名称')
-  }
+  const proposedName = input.location.projectName.trim()
+  if (proposedName.length === 0) throw new Error('项目名称无效')
+  const normalizedPath = normalizeAbsolutePath(input.location.suggestedPath)
 
   return {
     idea,
     normalizedPath,
     profileId,
-    permissionMode: input.permissionMode,
-    proposedName: idea,
+    permissionMode: 'workspace-write',
+    proposedName,
     commandCategories: ['package-manager', 'build', 'test'],
-    createDirectory: input.createDirectory === true,
+    createDirectory: true,
   }
 }
 

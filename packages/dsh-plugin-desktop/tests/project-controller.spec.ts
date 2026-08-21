@@ -3,14 +3,24 @@ import { createProjectController } from '../src/client/project-controller'
 import { sessionFixture, workspaceFixture } from './fixtures'
 
 describe('project controller', () => {
-  it('does not touch workspace or session services before confirmation', () => {
+  const locationGateway = () => ({
+    preview: vi.fn(async () => ({
+      projectName: '记账应用',
+      suggestedPath: 'C:\\Users\\test\\Documents\\DeepSeek Harness\\Projects\\记账应用',
+    })),
+    create: vi.fn(async () => 'C:\\Users\\test\\Documents\\DeepSeek Harness\\Projects\\记账应用'),
+  })
+
+  it('previews through the backend without touching workspace or session services', async () => {
     const workspaces = workspaceFixture()
     const sessions = sessionFixture()
-    const controller = createProjectController(workspaces, sessions)
+    const locations = locationGateway()
+    const controller = createProjectController(workspaces, sessions, locations)
 
-    const draft = controller.prepare({ idea: '构建一个博客', path: 'C:\\code\\blog', profileId: 'p-a', permissionMode: 'workspace-write' })
+    const draft = await controller.prepare({ idea: '做一个记账应用', profileId: 'p-a' })
 
-    expect(draft.proposedName).toBe('构建一个博客')
+    expect(locations.preview).toHaveBeenCalledWith('做一个记账应用')
+    expect(draft.proposedName).toBe('记账应用')
     expect(workspaces.create).not.toHaveBeenCalled()
     expect(workspaces.createDirectory).not.toHaveBeenCalled()
     expect(sessions.create).not.toHaveBeenCalled()
@@ -19,31 +29,36 @@ describe('project controller', () => {
   it('creates the workspace, queues the idea, and opens the session after confirmation', async () => {
     const workspaces = workspaceFixture()
     const sessions = sessionFixture()
-    const controller = createProjectController(workspaces, sessions)
-    const draft = controller.prepare({ idea: '构建一个博客', path: 'C:\\code\\blog', profileId: 'p-a', permissionMode: 'workspace-write' })
+    const locations = locationGateway()
+    const controller = createProjectController(workspaces, sessions, locations)
+    const draft = await controller.prepare({ idea: '做一个记账应用', profileId: 'p-a' })
 
     await controller.confirm(draft)
 
-    expect(workspaces.create).toHaveBeenCalledWith({ path: 'C:\\code\\blog' })
-    expect(sessions.create).toHaveBeenCalledWith({ workspaceId: 'w-new' })
+    expect(locations.create).toHaveBeenCalledWith('记账应用')
+    expect(workspaces.create).toHaveBeenCalledWith({ path: 'C:\\Users\\test\\Documents\\DeepSeek Harness\\Projects\\记账应用' })
+    expect(sessions.create).toHaveBeenCalledWith({
+      workspaceId: 'w-new',
+      cwd: 'C:\\Users\\test\\Documents\\DeepSeek Harness\\Projects\\记账应用',
+    })
     expect(sessions.session.prompt).toHaveBeenCalledWith([
-      { type: 'text', text: expect.stringContaining('构建一个博客') },
+      { type: 'text', text: expect.stringContaining('做一个记账应用') },
     ], 'queue')
     expect(sessions.open).toHaveBeenCalledWith('s-1')
   })
 
-  it('creates an explicitly requested directory and rolls back registration when prompt fails', async () => {
+  it('keeps the created directory and rolls back only registration when prompt fails', async () => {
     const workspaces = workspaceFixture()
     const sessions = sessionFixture()
     sessions.session.prompt.mockResolvedValue({ ok: false, error: { code: 'rejected', message: '无法排队' } })
-    const controller = createProjectController(workspaces, sessions)
-    const draft = controller.prepare({
-      idea: '构建工具', path: 'C:\\code\\tool', profileId: 'p-a', permissionMode: 'read-only', createDirectory: true,
-    })
+    const locations = locationGateway()
+    const controller = createProjectController(workspaces, sessions, locations)
+    const draft = await controller.prepare({ idea: '构建工具', profileId: 'p-a' })
 
     await expect(controller.confirm(draft)).rejects.toThrow('无法排队')
 
-    expect(workspaces.createDirectory).toHaveBeenCalledWith('C:\\code', 'tool')
+    expect(locations.create).toHaveBeenCalledOnce()
+    expect(workspaces.createDirectory).not.toHaveBeenCalled()
     expect(workspaces.delete).toHaveBeenCalledWith('w-new')
     expect(sessions.open).not.toHaveBeenCalled()
   })
@@ -52,8 +67,8 @@ describe('project controller', () => {
     const workspaces = workspaceFixture()
     const sessions = sessionFixture()
     vi.mocked(sessions.binding).mockReturnValue(undefined)
-    const controller = createProjectController(workspaces, sessions)
-    const draft = controller.prepare({ idea: '构建工具', path: 'C:\\code\\tool', profileId: 'p-a', permissionMode: 'workspace-write' })
+    const controller = createProjectController(workspaces, sessions, locationGateway())
+    const draft = await controller.prepare({ idea: '构建工具', profileId: 'p-a' })
 
     await expect(controller.confirm(draft)).rejects.toThrow('会话尚未准备好')
     expect(workspaces.delete).toHaveBeenCalledWith('w-new')
@@ -65,8 +80,8 @@ describe('project controller', () => {
     vi.mocked(sessions.binding)
       .mockReturnValueOnce(undefined)
       .mockReturnValue({ sessionId: 's-1', session: sessions.session })
-    const controller = createProjectController(workspaces, sessions)
-    const draft = controller.prepare({ idea: '构建工具', path: 'C:\\code\\tool', profileId: 'p-a', permissionMode: 'workspace-write' })
+    const controller = createProjectController(workspaces, sessions, locationGateway())
+    const draft = await controller.prepare({ idea: '构建工具', profileId: 'p-a' })
 
     await controller.confirm(draft)
 
@@ -78,7 +93,7 @@ describe('project controller', () => {
   it('queues a modification in the selected workspace without creating another workspace', async () => {
     const workspaces = workspaceFixture()
     const sessions = sessionFixture()
-    const controller = createProjectController(workspaces, sessions)
+    const controller = createProjectController(workspaces, sessions, locationGateway())
 
     await controller.modify('w-1', '  把首页改成两栏  ')
 
@@ -92,7 +107,7 @@ describe('project controller', () => {
 
   it('rejects an empty modification before connecting the workspace', async () => {
     const workspaces = workspaceFixture()
-    const controller = createProjectController(workspaces, sessionFixture())
+    const controller = createProjectController(workspaces, sessionFixture(), locationGateway())
     await expect(controller.modify('w-1', '   ')).rejects.toThrow('修改需求')
     expect(workspaces.connectWorkspace).not.toHaveBeenCalled()
   })

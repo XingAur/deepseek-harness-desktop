@@ -1,8 +1,10 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { AdvancedFrame } from '../src/client/AdvancedFrame'
+import { LocalProjectsFooterAction } from '../src/client/LocalProjectsFooterAction'
 import { bridgeFixture, renderFrame, sessionFixture, workspaceFixture } from './fixtures'
 import { DesktopLayoutState } from '../src/client/layout-state'
+import { LocalProjectsState } from '../src/client/local-projects-state'
 
 class ResizeObserverStub {
   observe() {}
@@ -12,30 +14,36 @@ class ResizeObserverStub {
 vi.stubGlobal('ResizeObserver', ResizeObserverStub)
 
 describe('advanced frame', () => {
-  it('reuses the cube entry as local projects and opens the card grid', () => {
+  it('opens the card grid from the shared local-projects state without appending a sidebar button', () => {
     const workspaces = workspaceFixture([{
       workspaceId: 'w-1', path: 'C:\\code\\demo', title: 'demo', sessionIds: [],
       createdAt: '2026-08-19T00:00:00Z', updatedAt: '2026-08-19T00:00:00Z',
     }])
-    renderFrame({ workspaces })
+    const localProjects = new LocalProjectsState()
+    const { container } = renderFrame({ workspaces, localProjects })
 
-    const entry = screen.getByRole('button', { name: '本地项目' })
-    expect(entry.querySelector('svg')).toHaveAttribute('aria-hidden', 'true')
-    fireEvent.click(entry)
+    expect(container.querySelector('.dshDesktopProjectsEntry')).toBeNull()
+    act(() => localProjects.open())
     expect(screen.getByRole('heading', { name: '本地项目' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '项目 demo' })).toBeInTheDocument()
     expect(screen.queryByText('社区插件')).not.toBeInTheDocument()
   })
 
-  it('keeps the local projects cube available when the sidebar is collapsed', () => {
-    const layout = new DesktopLayoutState()
-    layout.setSidebar(0)
-    renderFrame({ layout })
-
-    const entry = screen.getByRole('button', { name: '本地项目' })
+  it('matches official footer geometry in wide and rail states', () => {
+    const state = new LocalProjectsState()
+    const { rerender } = render(<LocalProjectsFooterAction wide state={state} />)
+    let entry = screen.getByRole('button', { name: '本地项目' })
     expect(entry).toBeVisible()
     expect(entry.querySelector('svg')).toBeInTheDocument()
-    expect(entry.querySelector('span')).not.toBeInTheDocument()
+    expect(entry).toHaveClass('dshDesktopFooterAction')
+    expect(screen.getByText('本地项目')).toHaveClass('dshDesktopFooterActionLabel')
+
+    rerender(<LocalProjectsFooterAction wide={false} state={state} />)
+    entry = screen.getByRole('button', { name: '本地项目' })
+    expect(entry).toHaveClass('dshDesktopFooterAction', 'is-rail')
+    expect(screen.queryByText('本地项目')).not.toBeInTheDocument()
+    fireEvent.click(entry)
+    expect(state.getSnapshot()).toBe(true)
   })
 
   for (const platform of ['win32', 'darwin'] as const) {
@@ -50,6 +58,7 @@ describe('advanced frame', () => {
           workspaces={workspaceFixture()}
           sessions={sessionFixture()}
           bridge={bridgeFixture()}
+          localProjects={new LocalProjectsState()}
         />,
       )
 
@@ -71,6 +80,7 @@ describe('advanced frame', () => {
         workspaces={workspaceFixture()}
         sessions={sessionFixture()}
         bridge={bridgeFixture()}
+        localProjects={new LocalProjectsState()}
       />,
     )
 

@@ -37,12 +37,14 @@ describe('advanced styles', () => {
     expect(css).not.toMatch(
       /\[data-desktop-platform="darwin"\] \.dshDesktopSidebarSurface \{[^}]*background:/,
     )
-    expect(css).toMatch(/\.dshDesktopProjectsEntry \{[^}]*color: var\(--dsw-alias-label-primary/)
-    expect(css).toMatch(/\.dshDesktopProjectsEntry \{[^}]*background: transparent/)
-    expect(css).toMatch(/\.dshDesktopProjectsEntry:hover \{[^}]*background: var\(--dsw-alias-interactive-bg-hover/)
-    expect(css).toMatch(/\.dshDesktopProjectsEntry\[data-active="true"\] \{[^}]*background: var\(--dsw-specific-sidebar-nav-item-active/)
-    expect(css).not.toMatch(/\.dshDesktopProjectsEntry\[data-active="true"\][^}]*#6482dc/)
-    expect(css).not.toMatch(/\.dshDesktopProjectsEntry\[data-active="true"\][^}]*border-color:/)
+    expect(css).toMatch(/\.dshDesktopFooterAction \{[^}]*color: var\(--dsw-alias-label-primary/)
+    expect(css).toMatch(/\.dshDesktopFooterAction \{[^}]*background: transparent/)
+    expect(css).toMatch(/\.dshDesktopFooterAction:hover \{[^}]*background: var\(--dsw-alias-interactive-bg-hover/)
+    expect(css).toMatch(/\.dshDesktopFooterAction \{[^}]*height: 42px/)
+    expect(css).toMatch(/\.dshDesktopFooterAction\.is-rail \{[^}]*width: 36px;[^}]*height: 36px/)
+    expect(css).toMatch(/\.dshDesktopFooterAction\.is-active \{[^}]*background: var\(--dsw-specific-sidebar-nav-item-active/)
+    expect(css).not.toMatch(/\.dshDesktopFooterAction\.is-active[^}]*#6482dc/)
+    expect(css).not.toMatch(/\.dshDesktopFooterAction\.is-active[^}]*border-color:/)
 
     dispose()
   })

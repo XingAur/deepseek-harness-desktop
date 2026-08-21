@@ -7,6 +7,8 @@ import { DesktopThemePresenter } from './theme-presenter'
 import { createDesktopBridge } from './desktop-bridge'
 import type { DesktopBridgeLike } from './desktop-bridge'
 import { ProfileSettingsSection } from './ProfileSettingsSection'
+import { LocalProjectsFooterAction } from './LocalProjectsFooterAction'
+import { LocalProjectsState } from './local-projects-state'
 
 export function applyAdvancedShell(
   ctx: ClientContextLike,
@@ -14,6 +16,7 @@ export function applyAdvancedShell(
   bridge: DesktopBridgeLike = desktopBridgeForWindow(),
 ): void {
   const layout = new DesktopLayoutState()
+  const localProjects = new LocalProjectsState()
   ctx.effect(() => {
     document.body.dataset.dshDesktopMode = 'advanced'
     document.body.dataset.dshDesktopPlatform = platform
@@ -35,6 +38,12 @@ export function applyAdvancedShell(
     label: 'Profiles',
     inject: () => ({ bridge }),
   }, ProfileSettingsSection))
+  ctx.slots.inject?.('sidebar.footer.action', () => ctx.slots.register({
+    name: 'sidebar.footer.action',
+    id: 'dsh-desktop-local-projects',
+    order: 10,
+    inject: () => ({ state: localProjects }),
+  }, LocalProjectsFooterAction))
   ctx.effect(() => {
     const disposeService = provideDesktopLayout(ctx, layout)
     const disposeRegistration = ctx.slots.register({
@@ -45,7 +54,7 @@ export function applyAdvancedShell(
         details: { kind: 'single', scope: 'session' },
         'shell.overlay': { kind: 'list', scope: 'root' },
       },
-      inject: () => ({ layout, platform, workspaces: ctx.workspaces, sessions: ctx.sessions, bridge }),
+      inject: () => ({ layout, platform, workspaces: ctx.workspaces, sessions: ctx.sessions, bridge, localProjects }),
     }, AdvancedFrame)
     return () => { disposeRegistration(); disposeService(); bridge.dispose() }
   }, 'desktop: layout service + advanced root slot')

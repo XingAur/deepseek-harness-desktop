@@ -5,32 +5,51 @@ import { createProjectController } from '../src/client/project-controller'
 import { bridgeFixture, sessionFixture, workspaceFixture } from './fixtures'
 
 describe('project composer', () => {
-  it('previews path, profile, permission and command categories before writing', async () => {
+  const composerSetup = () => {
     const workspaces = workspaceFixture()
     const sessions = sessionFixture()
-    render(<ProjectComposer bridge={bridgeFixture()} controller={createProjectController(workspaces, sessions)} onComplete={vi.fn()} />)
+    const bridge = bridgeFixture({
+      'project.directory.preview': {
+        projectName: '记账应用',
+        suggestedPath: 'C:\\Users\\test\\Documents\\DeepSeek Harness\\Projects\\记账应用',
+      },
+      'project.directory.create': 'C:\\Users\\test\\Documents\\DeepSeek Harness\\Projects\\记账应用',
+    })
+    const locations = {
+      preview: (idea: string) => bridge.request<{ projectName: string; suggestedPath: string }>('project.directory.preview', { idea }),
+      create: (projectName: string) => bridge.request<string>('project.directory.create', { projectName }),
+    }
+    return { bridge, workspaces, sessions, controller: createProjectController(workspaces, sessions, locations) }
+  }
+
+  it('shows only the requirement input and read-only generated preview', async () => {
+    const { bridge, workspaces, controller } = composerSetup()
+    render(<ProjectComposer bridge={bridge} controller={controller} onComplete={vi.fn()} />)
+
+    expect(screen.queryByLabelText('项目路径')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('构建 Profile')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('构建权限模式')).not.toBeInTheDocument()
+    expect(screen.queryByText('目录尚不存在，需要创建')).not.toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText('项目需求'), { target: { value: '做一个记账应用' } })
-    fireEvent.change(screen.getByLabelText('项目路径'), { target: { value: 'C:\\code\\ledger' } })
     const preview = screen.getByRole('button', { name: '检查并预览' })
     await waitFor(() => expect(preview).toBeEnabled())
     fireEvent.click(preview)
 
     expect(await screen.findByRole('heading', { name: '确认构建范围' })).toBeInTheDocument()
-    expect(screen.getByText('C:\\code\\ledger')).toBeInTheDocument()
-    expect(screen.getByText('package-manager · build · test')).toBeInTheDocument()
+    expect(screen.getByText('记账应用')).toBeVisible()
+    expect(screen.getByText(/Documents.*DeepSeek Harness.*Projects.*记账应用/)).toBeVisible()
+    expect(screen.queryByText('package-manager · build · test')).not.toBeInTheDocument()
     expect(workspaces.create).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '返回修改' }))
     expect(workspaces.create).not.toHaveBeenCalled()
   })
 
   it('starts the real session only after explicit confirmation', async () => {
-    const workspaces = workspaceFixture()
-    const sessions = sessionFixture()
+    const { bridge, sessions, controller } = composerSetup()
     const onComplete = vi.fn()
-    render(<ProjectComposer bridge={bridgeFixture()} controller={createProjectController(workspaces, sessions)} onComplete={onComplete} />)
+    render(<ProjectComposer bridge={bridge} controller={controller} onComplete={onComplete} />)
     fireEvent.change(screen.getByLabelText('项目需求'), { target: { value: '做一个记账应用' } })
-    fireEvent.change(screen.getByLabelText('项目路径'), { target: { value: 'C:\\code\\ledger' } })
     const preview = screen.getByRole('button', { name: '检查并预览' })
     await waitFor(() => expect(preview).toBeEnabled())
     fireEvent.click(preview)
@@ -42,11 +61,11 @@ describe('project composer', () => {
   })
 
   it('binds modification mode to one selected project and preserves text on failure', async () => {
-    const controller = createProjectController(workspaceFixture(), sessionFixture())
+    const { bridge, controller } = composerSetup()
     controller.modify = vi.fn(async () => { throw new Error('发送失败') })
     render(
       <ProjectComposer
-        bridge={bridgeFixture()}
+        bridge={bridge}
         controller={controller}
         selected={{
           id: 'w-1', title: 'demo', path: 'C:\\code\\demo', sessionIds: [], pinned: false,

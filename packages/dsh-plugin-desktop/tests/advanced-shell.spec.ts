@@ -51,6 +51,36 @@ describe('advanced shell', () => {
     expect(registeredRoot?.inject()).toMatchObject({ workspaces, sessions })
   })
 
+  it('registers local projects in the official sidebar footer action slot', () => {
+    const registrations: Array<{ definition: any; component: unknown }> = []
+    const callbacks: Array<{ name: string; setup: () => void | (() => void) }> = []
+    const context = {
+      effect: (setup: () => void | (() => void)) => { setup() },
+      reflect: { provide: vi.fn(() => () => undefined) },
+      slots: {
+        register: vi.fn((definition, component) => {
+          registrations.push({ definition, component })
+          return () => undefined
+        }),
+        inject: vi.fn((name: string, setup: () => void | (() => void)) => {
+          callbacks.push({ name, setup })
+          return () => undefined
+        }),
+      },
+      workspaces: { list: {} },
+      sessions: { list: {} },
+    } as unknown as ClientContextLike
+
+    applyAdvancedShell(context, 'win32')
+    const footer = callbacks.find((callback) => callback.name === 'sidebar.footer.action')
+    expect(footer).toBeDefined()
+    footer?.setup()
+    const action = registrations.find(({ definition }) => definition.name === 'sidebar.footer.action')
+    const root = registrations.find(({ definition }) => definition.name === 'root')
+    expect(action?.definition).toMatchObject({ id: 'dsh-desktop-local-projects', order: 10 })
+    expect(action?.definition.inject().state).toBe(root?.definition.inject().localProjects)
+  })
+
   it('does not assign undeclared services onto the host context', () => {
     const register = vi.fn(() => () => undefined)
     const provide = vi.fn(() => () => undefined)

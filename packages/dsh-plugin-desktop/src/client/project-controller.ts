@@ -1,30 +1,36 @@
 import type { SessionsLike, WorkspacesLike } from './contracts'
-import { projectDraft, type ProjectDraft, type ProjectDraftInput } from './project-model'
+import { projectDraft, type PreparedProjectLocation, type ProjectDraft } from './project-model'
 
 export interface ProjectController {
-  prepare(input: ProjectDraftInput): ProjectDraft
+  prepare(input: { idea: string; profileId: string }): Promise<ProjectDraft>
   confirm(draft: ProjectDraft): Promise<{ workspaceId: string; sessionId: string }>
   modify(workspaceId: string, prompt: string): Promise<{ sessionId: string }>
 }
 
-export type ProjectDirectoryCreator = (target: string) => Promise<string>
+export interface ProjectLocationGateway {
+  preview(idea: string): Promise<PreparedProjectLocation>
+  create(projectName: string): Promise<string>
+}
 
 export function createProjectController(
   workspaces: WorkspacesLike,
   sessions: SessionsLike,
-  createDirectory: ProjectDirectoryCreator = (target) => createTargetDirectory(workspaces, target),
+  locations: ProjectLocationGateway,
 ): ProjectController {
   return {
-    prepare: projectDraft,
+    async prepare(input) {
+      const idea = input.idea.trim()
+      if (idea.length === 0) throw new Error('请先描述你想创建的项目')
+      const location = await locations.preview(idea)
+      return projectDraft({ idea, profileId: input.profileId, location })
+    },
     async confirm(draft) {
       let workspaceId: string | null = null
       try {
-        const path = draft.createDirectory
-          ? await createDirectory(draft.normalizedPath)
-          : draft.normalizedPath
+        const path = await locations.create(draft.proposedName)
         const workspace = await workspaces.create({ path })
         workspaceId = workspace.workspaceId
-        const sessionId = await sessions.create({ workspaceId })
+        const sessionId = await sessions.create({ workspaceId, cwd: path })
         const binding = await waitForSessionBinding(sessions, sessionId)
         const reply = await binding.session.prompt([{ type: 'text', text: buildPrompt(draft) }], 'queue')
         if (!reply.ok) throw new Error(reply.error?.message ?? '项目构建请求未被接受')
@@ -61,14 +67,6 @@ export function createProjectController(
 function buildPrompt(draft: ProjectDraft) {
   const permission = draft.permissionMode === 'read-only' ? '只读' : '工作区可写'
   return `请在当前工作区构建下面的本地项目。先检查现状并给出简短计划，再按当前权限执行；需要额外权限时先询问。\n\n当前 Profile：${draft.profileId}\n权限模式：${permission}\n允许的命令类别：${draft.commandCategories.join('、')}\n\n项目需求：\n${draft.idea}`
-}
-
-async function createTargetDirectory(workspaces: WorkspacesLike, target: string) {
-  const separator = Math.max(target.lastIndexOf('\\'), target.lastIndexOf('/'))
-  if (separator <= 0 || separator === target.length - 1) throw new Error('无法确定项目的父目录')
-  const parent = target.slice(0, separator)
-  const name = target.slice(separator + 1)
-  return workspaces.createDirectory(parent, name)
 }
 
 async function waitForSessionBinding(sessions: SessionsLike, sessionId: string) {

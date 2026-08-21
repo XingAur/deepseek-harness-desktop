@@ -8,6 +8,8 @@ import type {
 } from '../src/client/contracts'
 import type { DesktopBridgeAction, DesktopBridgeLike } from '../src/client/desktop-bridge'
 import { DesktopLayoutState } from '../src/client/layout-state'
+import { LocalProjectsState } from '../src/client/local-projects-state'
+import { LocalProjectsFooterAction } from '../src/client/LocalProjectsFooterAction'
 
 export function workspaceFixture(items: WorkspaceView[] = []) {
   let snapshot: WorkspaceListState = {
@@ -92,15 +94,22 @@ export function contextFixture(overrides: Partial<ClientContextLike> = {}) {
 export function renderFrame(overrides: Partial<AdvancedFrameProps> = {}) {
   const workspaces = overrides.workspaces ?? workspaceFixture()
   const sessions = overrides.sessions ?? sessionFixture()
+  const localProjects = overrides.localProjects ?? new LocalProjectsState()
   const props: AdvancedFrameProps = {
     layout: new DesktopLayoutState(),
     platform: 'win32',
-    renderSlot: (name) => createElement('div', { 'data-testid': `${name}-slot` }),
+    renderSlot: (name, slotProps) => name === 'sidebar'
+      ? createElement('div', {},
+          createElement('div', { 'data-testid': `${name}-slot` }),
+          createElement(LocalProjectsFooterAction, { wide: slotProps.collapsed !== true, state: localProjects }),
+        )
+      : createElement('div', { 'data-testid': `${name}-slot` }),
     useSessions: (selector) => selector({ byId: {} }),
     useWorkspaces: (selector) => useSyncExternalStore(workspaces.list.subscribe, () => selector(workspaces.list.getSnapshot())),
     workspaces,
     sessions,
     bridge: bridgeFixture(),
+    localProjects,
     ...overrides,
   }
   return { ...render(createElement(AdvancedFrame, props)), props, workspaces, sessions }

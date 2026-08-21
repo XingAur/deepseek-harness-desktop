@@ -1,5 +1,6 @@
 import type { ComponentType, ReactNode } from 'react'
 import type { DesktopBridgeLike } from './desktop-bridge'
+import type { LocalProjectsState } from './local-projects-state'
 
 export type DesktopPlatform = 'win32' | 'darwin'
 
@@ -17,7 +18,14 @@ export interface SettingsSectionDefinition {
   inject?: () => Record<string, unknown>
 }
 
-export type SlotDefinition = RootSlotDefinition | SettingsSectionDefinition
+export interface SidebarFooterActionDefinition {
+  name: 'sidebar.footer.action'
+  id: string
+  order: number
+  inject: () => Record<string, unknown>
+}
+
+export type SlotDefinition = RootSlotDefinition | SettingsSectionDefinition | SidebarFooterActionDefinition
 
 export interface ClientContextLike {
   effect(register: () => void | (() => void), label: string): void
@@ -91,4 +99,5 @@ export interface AdvancedFrameProps {
   workspaces: WorkspacesLike
   sessions: SessionsLike
   bridge: DesktopBridgeLike
+  localProjects: LocalProjectsState
 }

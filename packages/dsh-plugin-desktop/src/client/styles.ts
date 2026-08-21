@@ -12,12 +12,13 @@ export function installAdvancedStyles(): () => void {
     .dshDesktopSidebarSurface, .dshDesktopConversationSurface, .dshDesktopDetailsSurface { min-width: 0; min-height: 0; overflow: hidden; border-color: var(--dsh-desktop-divider); }
     .dshDesktopSidebarSurface { position: relative; display: flex; flex-direction: column; background: var(--dsw-specific-sidebar-fill, var(--dsw-alias-bg-layer-2, #2c2c2f)); border-right: 1px solid var(--dsh-desktop-divider); }
     .dshDesktopUpstreamSidebar { flex: 1; min-height: 0; }
-    .dshDesktopProjectsEntry { box-sizing: border-box; display: flex; align-items: center; gap: 8px; min-height: 42px; margin: 4px 12px 10px; padding: 0 10px 0 8px; border: 0; border-radius: 12px; color: var(--dsw-alias-label-primary, #e8edf2); background: transparent; font: 400 14px/22px var(--dsw-font-family, system-ui, sans-serif); text-align: left; cursor: pointer; transition: background-color .15s ease; }
-    .dshDesktopProjectsEntry svg { width: 18px; height: 18px; flex: 0 0 18px; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-    .dshDesktopProjectsEntry:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.1)); }
-    .dshDesktopProjectsEntry[data-active="true"] { background: var(--dsw-specific-sidebar-nav-item-active, var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.1))); }
-    .dshDesktopProjectsEntry[data-collapsed="true"] { width: 36px; min-height: 36px; justify-content: center; gap: 0; margin: 8px auto 10px; padding: 0; border-radius: 50%; }
-    .dshDesktopProjectsEntry:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, #7d9cf0); outline-offset: 2px; }
+    .dshDesktopFooterAction { box-sizing: border-box; display: flex; align-items: center; width: calc(100% + 4px); height: 42px; margin: 4px -2px; padding: 0 10px 0 8px; gap: 8px; border: 0; border-radius: 12px; color: var(--dsw-alias-label-primary, #e8edf2); background: transparent; font: 400 14px/22px var(--dsw-font-family, system-ui, sans-serif); text-align: left; cursor: pointer; overflow: hidden; transition: background-color .15s ease; }
+    .dshDesktopFooterAction svg { width: 18px; height: 18px; flex: 0 0 18px; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .dshDesktopFooterActionLabel { overflow: hidden; white-space: nowrap; }
+    .dshDesktopFooterAction:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.1)); }
+    .dshDesktopFooterAction.is-active { background: var(--dsw-specific-sidebar-nav-item-active, var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.1))); }
+    .dshDesktopFooterAction.is-rail { width: 36px; height: 36px; justify-content: center; gap: 0; margin: 8px 0 10px; padding: 0; border-radius: 50%; }
+    .dshDesktopFooterAction:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, #7d9cf0); outline-offset: 2px; }
     .dshDesktopConversationSurface { background: var(--dsw-alias-bg-base, #141416); }
     .dshDesktopDetailsSurface { background: var(--dsw-alias-bg-layer-1, #1c1c1f); border-left: 1px solid var(--dsh-desktop-divider); }
     .dshDesktopOverlay { position: absolute; inset: 0; pointer-events: none; z-index: 30; }
@@ -144,9 +145,6 @@ export function installAdvancedStyles(): () => void {
     .dshDesktopProjectComposer textarea, .dshDesktopProjectComposer input, .dshDesktopProjectComposer select { box-sizing: border-box; width: 100%; border: 1px solid var(--dsh-desktop-divider); border-radius: 8px; color: var(--dsw-alias-label-primary, #ececf0); background: var(--dsw-alias-bg-layer-2, #29292e); }
     .dshDesktopProjectComposer textarea { min-height: 82px; padding: 9px; resize: vertical; }
     .dshDesktopProjectComposer input, .dshDesktopProjectComposer select { min-height: 36px; padding: 0 9px; }
-    .dshDesktopProjectComposerRow { display: grid; grid-template-columns: minmax(220px, 1.5fr) minmax(130px, .7fr) minmax(130px, .7fr); gap: 10px; }
-    .dshDesktopProjectComposer .dshDesktopProjectCreateDirectory { display: flex; align-items: center; gap: 7px; }
-    .dshDesktopProjectCreateDirectory input { width: auto; min-height: 0; }
     .dshDesktopProjectComposer > small { color: var(--dsw-alias-label-tertiary, #85858d); }
     .dshDesktopProjectModifyComposer > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
     .dshDesktopProjectModifyComposer > header div { display: grid; gap: 3px; }
@@ -170,7 +168,7 @@ export function installAdvancedStyles(): () => void {
     @keyframes dshDesktopProfileSweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
     @media (max-width: 760px) {
       .dshDesktopProjectsPage { padding-inline: 20px; }
-      .dshDesktopProjectComposerRow, .dshDesktopProfileEditor, .dshDesktopProfileSettingsList article { grid-template-columns: 1fr; }
+      .dshDesktopProfileEditor, .dshDesktopProfileSettingsList article { grid-template-columns: 1fr; }
       .dshDesktopProfileSettingsActions, .dshDesktopProfileSettingsList small { grid-column: 1; grid-row: auto; }
     }
     @media (prefers-reduced-motion: reduce) {
