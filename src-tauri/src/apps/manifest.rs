@@ -175,6 +175,7 @@ mod tests {
         assert!(parse_manifest(web_json("\"start\":[\"npm\",\"start\"]").as_bytes()).is_err());
         assert!(parse_manifest(web_json("\"start\":[\"cmd\",\"/c\",\"echo\"]").as_bytes()).is_err());
         assert!(parse_manifest(web_json("\"start\":[]").as_bytes()).is_err());
+        assert!(parse_manifest(b"{\"schemaVersion\":1,\"type\":\"api\",\"start\":[\"node\",\"x\"]}").is_err());
     }
 
     #[test]
@@ -189,6 +190,10 @@ mod tests {
         .is_err());
         assert!(parse_manifest(
             b"{\"schemaVersion\":1,\"type\":\"static\",\"staticDir\":\"..\"}"
+        )
+        .is_err());
+        assert!(parse_manifest(
+            b"{\"schemaVersion\":1,\"type\":\"static\",\"staticDir\":\"C:/www\"}"
         )
         .is_err());
     }
