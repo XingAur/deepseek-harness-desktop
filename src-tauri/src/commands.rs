@@ -10,6 +10,7 @@ use crate::{
         AppUpdateController,
         model::{AppUpdateFailure, AppUpdateReceipt, AppUpdateSource, AppUpdateState},
     },
+    apps::{AppLauncher, AppStatusReply, LaunchReply},
     desktop::DesktopCoordinator,
     profile::model::{
         PermissionMode, ProfileDraft, ProfileListSnapshot, ProfilePatch, ProfileRecord,
@@ -215,7 +216,10 @@ pub async fn cancel_runtime(
 #[tauri::command]
 pub async fn repair_runtime(
     state: State<'_, Arc<DesktopCoordinator>>,
+    launcher: State<'_, Arc<AppLauncher>>,
 ) -> Result<BootstrapReply, RuntimeFailure> {
+    // 修复运行时会重建受管进程环境，先停掉所有本地应用避免悬挂引用。
+    launcher.inner().stop_all().await;
     state.inner().repair().await
 }
 
@@ -233,9 +237,12 @@ pub async fn export_diagnostics(
 #[tauri::command]
 pub async fn switch_profile(
     state: State<'_, Arc<DesktopCoordinator>>,
+    launcher: State<'_, Arc<AppLauncher>>,
     profile_id: uuid::Uuid,
     generation_id: Option<String>,
 ) -> Result<BootstrapReply, RuntimeFailure> {
+    // 切换 Profile 会更换 data_root，本地应用必须先行全部停止。
+    launcher.inner().stop_all().await;
     if let Some(generation_id) = generation_id {
         state.validate_generation(&generation_id).await?;
     }
@@ -309,6 +316,46 @@ pub async fn recycle_project_directory(
         .await
         .map_err(RuntimeFailure::internal)??;
     Ok(recycled)
+}
+
+#[tauri::command]
+pub async fn app_launch(
+    state: State<'_, Arc<DesktopCoordinator>>,
+    foundation: State<'_, Arc<DesktopFoundation>>,
+    launcher: State<'_, Arc<AppLauncher>>,
+    generation_id: String,
+    workspace_id: String,
+) -> Result<LaunchReply, RuntimeFailure> {
+    state.validate_generation(&generation_id).await?;
+    let profile = active_profile(&foundation)?;
+    let documents = foundation.platform.documents_dir()?;
+    Arc::clone(launcher.inner())
+        .launch(&profile, &documents, &workspace_id)
+        .await
+}
+
+#[tauri::command]
+pub async fn app_stop(
+    state: State<'_, Arc<DesktopCoordinator>>,
+    launcher: State<'_, Arc<AppLauncher>>,
+    generation_id: String,
+    workspace_id: String,
+) -> Result<(), RuntimeFailure> {
+    state.validate_generation(&generation_id).await?;
+    launcher.inner().stop(&workspace_id).await
+}
+
+#[tauri::command]
+pub async fn app_status(
+    state: State<'_, Arc<DesktopCoordinator>>,
+    foundation: State<'_, Arc<DesktopFoundation>>,
+    launcher: State<'_, Arc<AppLauncher>>,
+    generation_id: String,
+) -> Result<AppStatusReply, RuntimeFailure> {
+    state.validate_generation(&generation_id).await?;
+    let profile = active_profile(&foundation)?;
+    let documents = foundation.platform.documents_dir()?;
+    Ok(launcher.inner().status(&profile, &documents))
 }
 
 #[tauri::command]
@@ -422,7 +469,10 @@ pub fn open_user_data(
 #[tauri::command]
 pub async fn restart_runtime(
     state: State<'_, Arc<DesktopCoordinator>>,
+    launcher: State<'_, Arc<AppLauncher>>,
 ) -> Result<BootstrapReply, RuntimeFailure> {
+    // 重启运行时前先停掉所有本地应用，避免残留进程占用旧运行时。
+    launcher.inner().stop_all().await;
     state.inner().restart().await
 }
 
@@ -430,7 +480,10 @@ pub async fn restart_runtime(
 pub async fn orderly_quit(
     app: AppHandle,
     state: State<'_, Arc<DesktopCoordinator>>,
+    launcher: State<'_, Arc<AppLauncher>>,
 ) -> Result<(), RuntimeFailure> {
+    // 有序退出：先停本地应用，再关闭受管运行时。
+    launcher.inner().stop_all().await;
     state.inner().shutdown().await?;
     // Let the invoke response reach the caller before the WebView and its driver
     // disappear. This also gives packaged E2E teardown a chance to close cleanly.

@@ -26,7 +26,7 @@ use platform::PlatformAdapter;
 use profile::{model::ProfileDraft, repository::ProfileRepository};
 use runtime::paths::RuntimePaths;
 use storage::app_paths::AppPaths;
-use tauri::{Manager, webview::WebviewWindowBuilder};
+use tauri::{Emitter, Manager, webview::WebviewWindowBuilder};
 
 #[derive(Clone, Debug)]
 pub enum FoundationBootstrapState {
@@ -185,6 +185,16 @@ fn run_desktop() {
             let sink = TauriEventSink::new(app.handle().clone());
             let launcher = ProcessRuntimeLauncher::new(runtime_paths.clone(), sink.clone())
                 .map_err(|cause| Box::<dyn std::error::Error>::from(cause))?;
+            // 本地应用启动器：与运行时共享 RuntimePaths，生命周期事件广播给壳层。
+            // 注意 runtime_paths 随后会被 move 进 GenerationCoordinator，必须在此之前 clone。
+            let app_events = app.handle().clone();
+            let app_launcher = Arc::new(apps::AppLauncher::new(
+                runtime_paths.clone(),
+                Box::new(move |event| {
+                    let _ = app_events.emit(apps::launcher::LOCAL_APP_EVENT, event);
+                }),
+            ));
+            app.manage(Arc::clone(&app_launcher));
             let generations = GenerationCoordinator::new(runtime_paths, launcher, sink.clone())
                 .map_err(|cause| Box::<dyn std::error::Error>::from(cause))?;
             let coordinator =
@@ -225,6 +235,9 @@ fn run_desktop() {
             commands::preview_default_project_directory,
             commands::create_default_project_directory,
             commands::recycle_project_directory,
+            commands::app_launch,
+            commands::app_stop,
+            commands::app_status,
             commands::create_profile,
             commands::update_profile,
             commands::duplicate_profile,
@@ -259,7 +272,14 @@ fn run_desktop() {
             let app_updates = app_handle
                 .try_state::<Arc<app_update::AppUpdateController>>()
                 .map(|state| Arc::clone(state.inner()));
+            let app_launcher = app_handle
+                .try_state::<Arc<apps::AppLauncher>>()
+                .map(|state| Arc::clone(state.inner()));
             tauri::async_runtime::block_on(async move {
+                // 退出前先停掉所有本地应用，再关闭受管运行时。
+                if let Some(app_launcher) = app_launcher {
+                    app_launcher.stop_all().await;
+                }
                 if let Some(coordinator) = coordinator {
                     let _ = coordinator.shutdown().await;
                 }

@@ -223,25 +223,34 @@ impl AppLauncher {
             started_at: Utc::now(),
         };
         {
-            let mut running = self.running.lock().unwrap();
-            if let Some(existing) = running.get(workspace_id) {
-                // 并发二次点击：保留先到者，回收新实例。
-                let reply = LaunchReply {
-                    workspace_id: existing.info.workspace_id.clone(),
-                    origin: existing.info.origin.clone(),
-                    title: existing.info.title.clone(),
-                };
-                drop(running);
+            // 并发二次点击：保留先到者，回收新实例。判定与注册在同一锁内原子完成；
+            // 回收需要 await，必须放在锁作用域之外，避免非 Send 守卫跨越 await 点
+            //（Tauri 命令要求 future 为 Send）。
+            let mut staged = Some(supervision);
+            let loser = {
+                let mut running = self.running.lock().unwrap();
+                match running.get(workspace_id) {
+                    Some(existing) => Some(LaunchReply {
+                        workspace_id: existing.info.workspace_id.clone(),
+                        origin: existing.info.origin.clone(),
+                        title: existing.info.title.clone(),
+                    }),
+                    None => {
+                        running.insert(
+                            workspace_id.to_owned(),
+                            RunningApp {
+                                info: info.clone(),
+                                supervision: staged.take().expect("注册分支必然持有待注册实例"),
+                            },
+                        );
+                        None
+                    }
+                }
+            };
+            if let (Some(reply), Some(supervision)) = (loser, staged) {
                 shutdown_supervision(&supervision).await;
                 return Ok(reply);
             }
-            running.insert(
-                workspace_id.to_owned(),
-                RunningApp {
-                    info: info.clone(),
-                    supervision,
-                },
-            );
         }
 
         // 3. 进程退出看护：外部退出时从注册表移除并广播 exited。
