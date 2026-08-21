@@ -9,6 +9,7 @@ pub mod manifest;
 pub mod model;
 pub mod paths;
 pub mod process;
+pub mod process_cleanup;
 pub mod redaction;
 pub mod upgrade;
 pub mod updater;

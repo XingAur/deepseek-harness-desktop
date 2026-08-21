@@ -5,6 +5,13 @@ use std::{
 
 use crate::runtime::RuntimeFailure;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProcessIdentity {
+    pub pid: u32,
+    pub parent_pid: u32,
+    pub executable: PathBuf,
+}
+
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "windows")]
@@ -12,6 +19,18 @@ mod windows;
 
 pub trait PlatformAdapter: Send + Sync {
     fn legacy_data_roots(&self, stable_root: &Path) -> Vec<PathBuf>;
+
+    fn process_inventory(&self) -> Result<Vec<ProcessIdentity>, RuntimeFailure> {
+        Ok(Vec::new())
+    }
+
+    fn terminate_process_tree(&self, _pid: u32) -> Result<(), RuntimeFailure> {
+        Err(RuntimeFailure::internal("当前平台不支持终止受管 Runtime"))
+    }
+
+    fn process_is_running(&self, _pid: u32) -> Result<bool, RuntimeFailure> {
+        Ok(false)
+    }
 
     fn move_to_recycle_bin(&self, _path: &Path) -> Result<(), RuntimeFailure> {
         Err(RuntimeFailure::internal("当前平台不支持把目录移入回收站"))
