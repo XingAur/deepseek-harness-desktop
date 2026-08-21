@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
-import type { AppUpdateFailure, AppUpdateReceipt, AppUpdateState, GenerationPhase, MigrationStatus, RuntimeClient, RuntimeFailure, RuntimeFailureCode, RuntimePhase } from './runtime-contract'
+import type { AppUpdateFailure, AppUpdateReceipt, AppUpdateState, GenerationPhase, LocalAppEvent, MigrationStatus, RuntimeClient, RuntimeFailure, RuntimeFailureCode, RuntimePhase } from './runtime-contract'
 import { failureFromUnknown, initialRuntimeState, runtimeReducer } from './runtime-reducer'
 import { themeFromWorkbenchMessage } from './theme-message'
 import type { DesktopColorScheme } from './theme-message'
@@ -151,6 +151,7 @@ export function App({ runtime, windowControls }: AppProps) {
   const [installOnExit, setInstallOnExit] = useState(false)
   const [updateDiagnosticPath, setUpdateDiagnosticPath] = useState<string | null>(null)
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const [activeApp, setActiveApp] = useState<{ workspaceId: string; origin: string; title: string } | null>(null)
   const checkedUpdateGeneration = useRef<string | null>(null)
   const manualUpdateSeen = useRef(false)
 
@@ -191,6 +192,12 @@ export function App({ runtime, windowControls }: AppProps) {
       if (disposed) off()
       else unsubscribes.push(off)
     }).catch(() => { /* 自动更新监听失败不阻塞工作台。 */ })
+    void runtime.subscribeLocalAppEvents((event) => {
+      if (!disposed) setActiveApp((current) => applyLocalAppEvent(current, event))
+    }).then((off) => {
+      if (disposed) off()
+      else unsubscribes.push(off)
+    }).catch(() => { /* 本地应用事件监听失败不阻塞工作台。 */ })
     void runtime.migrationStatus().then((status) => {
       if (disposed) return
       setMigration(status)
@@ -258,6 +265,15 @@ export function App({ runtime, windowControls }: AppProps) {
     } catch (cause) {
       dispatch({ type: 'request-failed', error: failureFromUnknown(cause) })
     }
+  }
+
+  const stopActiveApp = async () => {
+    if (activeApp === null || state.generationId === null) return
+    const workspaceId = activeApp.workspaceId
+    setActiveApp(null)
+    try {
+      await invoke('app_stop', { workspaceId, generationId: state.generationId })
+    } catch { /* 停止失败由 Rust 侧记录；界面先返回工作台。 */ }
   }
 
   const runUpdate = async (action: () => Promise<AppUpdateState>) => {
@@ -329,14 +345,34 @@ export function App({ runtime, windowControls }: AppProps) {
           />
         )}
         {state.rendererUrl !== null ? (
-          // 受管工作台与桌面壳不同源；不委托 clipboard-write 时 WebView2 会拦截官方 UI 的复制操作。
-          <iframe
-            ref={iframeRef}
-            className="workbenchFrame"
-            title="DeepSeek Harness 工作台"
-            src={state.rendererUrl}
-            allow="clipboard-write"
-          />
+          <>
+            {/* 受管工作台与桌面壳不同源；不委托 clipboard-write 时 WebView2 会拦截官方 UI 的复制操作。 */}
+            <iframe
+              ref={iframeRef}
+              className="workbenchFrame"
+              title="DeepSeek Harness 工作台"
+              src={state.rendererUrl}
+              data-hidden={activeApp !== null || undefined}
+              allow="clipboard-write"
+            />
+            {activeApp !== null && (
+              <section className="localAppSurface" aria-label="本地应用视图">
+                <div className="localAppStrip">
+                  <span className="localAppStripTitle">正在运行：{activeApp.title}</span>
+                  <div className="localAppStripActions">
+                    <button type="button" onClick={() => setActiveApp(null)}>返回工作台</button>
+                    <button type="button" className="localAppStripStop" onClick={() => void stopActiveApp()}>停止应用</button>
+                  </div>
+                </div>
+                <iframe
+                  className="localAppFrame"
+                  title={`本地应用 ${activeApp.title}`}
+                  src={activeApp.origin}
+                  allow="clipboard-write"
+                />
+              </section>
+            )}
+          </>
         ) : (
           <div className="bootstrapShell">
             <section className="bootstrapCard" aria-live="polite" data-failed={failed || undefined}>
@@ -407,4 +443,16 @@ export function App({ runtime, windowControls }: AppProps) {
       </div>
     </main>
   )
+}
+
+function applyLocalAppEvent(
+  current: { workspaceId: string; origin: string; title: string } | null,
+  event: LocalAppEvent,
+) {
+  if (event.origin !== null && !/^http:\/\/127\.0\.0\.1:\d+$/.test(event.origin)) return current
+  if (event.kind === 'launched' && event.origin !== null) {
+    return { workspaceId: event.workspaceId, origin: event.origin, title: event.title ?? event.workspaceId }
+  }
+  if (current !== null && current.workspaceId === event.workspaceId) return null
+  return current
 }

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { App } from './App'
 import type { AppUpdateEvent, BootstrapReply, DesktopEvent, LocalAppEvent, RuntimeClient, RuntimeEvent, RuntimeFailureCode } from './runtime-contract'
@@ -236,6 +236,38 @@ describe('App', () => {
     expect(frame).toHaveAttribute('src', expect.stringContaining('127.0.0.1:39000'))
     // 官方 UI 的复制按钮依赖 clipboard-write 被委托进跨源 iframe。
     expect(frame).toHaveAttribute('allow', 'clipboard-write')
+  })
+
+  it('switches to the local app surface on launched and back on exited', async () => {
+    const { runtime, emitLocalApp } = fakeRuntime()
+    vi.mocked(runtime.bootstrapRuntime).mockResolvedValue({
+      operationId: 'op-ready',
+      phase: 'ready',
+      rendererUrl: 'http://127.0.0.1:39000/?dsh-desktop-mode=advanced',
+    })
+    render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
+    await screen.findByTitle('DeepSeek Harness 工作台')
+
+    act(() => emitLocalApp({ kind: 'launched', workspaceId: 'w-1', origin: 'http://127.0.0.1:39123', title: '记账应用' }))
+    const appFrame = screen.getByTitle('本地应用 记账应用')
+    expect(appFrame).toHaveAttribute('src', 'http://127.0.0.1:39123')
+    expect(screen.getByText('正在运行：记账应用')).toBeVisible()
+    expect(screen.getByTitle('DeepSeek Harness 工作台')).toHaveAttribute('data-hidden')
+
+    act(() => emitLocalApp({ kind: 'exited', workspaceId: 'w-1', origin: 'http://127.0.0.1:39123', title: '记账应用' }))
+    expect(screen.queryByTitle('本地应用 记账应用')).not.toBeInTheDocument()
+    expect(screen.getByTitle('DeepSeek Harness 工作台')).not.toHaveAttribute('data-hidden')
+  })
+
+  it('ignores local app events with a non-loopback origin', async () => {
+    const { runtime, emitLocalApp } = fakeRuntime()
+    vi.mocked(runtime.bootstrapRuntime).mockResolvedValue({
+      operationId: 'op-ready', phase: 'ready', rendererUrl: 'http://127.0.0.1:39000/',
+    })
+    render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
+    await screen.findByTitle('DeepSeek Harness 工作台')
+    act(() => emitLocalApp({ kind: 'launched', workspaceId: 'w-1', origin: 'http://evil.example.com', title: 'x' }))
+    expect(screen.queryByText('正在运行：x')).not.toBeInTheDocument()
   })
 
   it('syncs only trusted workbench theme messages to the desktop chrome', async () => {
