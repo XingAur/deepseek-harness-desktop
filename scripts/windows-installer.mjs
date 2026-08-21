@@ -13,6 +13,9 @@ import { fileURLToPath } from 'node:url'
 
 import { canonicalJson } from './canonical-json.mjs'
 
+export const MANAGED_RUNTIME_VERSION = '0.1.4-preview'
+const MANAGED_RUNTIME_RELEASE_PATH = `/releases/download/runtime-v${MANAGED_RUNTIME_VERSION}/`
+
 const portable = (value) => value.replaceAll('\\', '/')
 
 export function createWindowsTauriConfig(rootDirectory) {
@@ -44,11 +47,14 @@ export function verifyBundledRuntime({ manifestPath, archivePath, publicKey }) {
   if (manifest.archive !== 'zip') {
     throw new Error('Windows Runtime archive 必须是 zip')
   }
-  if (manifest.version !== '0.1.2-preview') {
-    throw new Error('Runtime version 必须是 0.1.2-preview')
+  if (manifest.version !== MANAGED_RUNTIME_VERSION) {
+    throw new Error(`Runtime version 必须是 ${MANAGED_RUNTIME_VERSION}`)
   }
   if (typeof manifest.url !== 'string' || !manifest.url.startsWith('https://')) {
     throw new Error('Runtime URL 必须使用 HTTPS')
+  }
+  if (!manifest.url.includes(MANAGED_RUNTIME_RELEASE_PATH)) {
+    throw new Error(`Runtime URL 必须指向 runtime-v${MANAGED_RUNTIME_VERSION} Release`)
   }
   const key = createPublicKey({
     key: { kty: 'OKP', crv: 'Ed25519', x: publicKey },
@@ -73,18 +79,59 @@ export function windowsInstallerName(version) {
   return `DeepSeek-Harness-v${version}-Windows-x64.exe`
 }
 
-export function tauriBuildInvocation(rootDirectory, generatedConfig) {
+export function tauriBuildInvocation(rootDirectory, generatedConfig, additionalConfigs = []) {
+  const configArguments = [generatedConfig, ...additionalConfigs]
+    .flatMap((config) => ['--config', portable(resolve(config))])
   return {
     command: process.execPath,
     args: [
       portable(resolve(rootDirectory, 'node_modules/@tauri-apps/cli/tauri.js')),
       'build',
-      '--config',
-      portable(resolve(generatedConfig)),
+      ...configArguments,
       '--bundles',
       'nsis',
     ],
   }
+}
+
+export function prepareWindowsInstallerConfig({
+  rootDirectory = process.cwd(),
+  environment = process.env,
+} = {}) {
+  const root = resolve(rootDirectory)
+  const manifestPath = resolve(
+    root,
+    'runtime-build/windows-x86_64/runtime-windows-x86_64.json',
+  )
+  const archivePath = resolve(
+    root,
+    'runtime-build/windows-x86_64/dsh-runtime-windows-x86_64.zip',
+  )
+  verifyBundledRuntime({
+    manifestPath,
+    archivePath,
+    publicKey: environment.DSH_DESKTOP_RELEASE_PUBLIC_KEY,
+  })
+  const manifestEndpoint = environment.DSH_DESKTOP_RUNTIME_MANIFEST_URL
+  if (
+    !manifestEndpoint?.startsWith('https://')
+    || !manifestEndpoint.includes('{target}')
+    || !manifestEndpoint.includes(MANAGED_RUNTIME_RELEASE_PATH)
+  ) {
+    throw new Error(
+      `DSH_DESKTOP_RUNTIME_MANIFEST_URL 必须指向 runtime-v${MANAGED_RUNTIME_VERSION} 并包含 {target}`,
+    )
+  }
+
+  const generatedDirectory = resolve(root, 'src-tauri/target/windows-installer')
+  const generatedConfig = resolve(generatedDirectory, 'tauri.windows-installer.conf.json')
+  mkdirSync(generatedDirectory, { recursive: true })
+  writeFileSync(
+    generatedConfig,
+    `${JSON.stringify(createWindowsTauriConfig(root), null, 2)}\n`,
+    'utf8',
+  )
+  return generatedConfig
 }
 
 export async function replaceReleaseInstaller({ generatedPath, releasePath }, build) {
@@ -121,23 +168,7 @@ export async function buildWindowsInstaller({
   run = spawnSync,
 } = {}) {
   const root = resolve(rootDirectory)
-  const manifestPath = resolve(
-    root,
-    'runtime-build/windows-x86_64/runtime-windows-x86_64.json',
-  )
-  const archivePath = resolve(
-    root,
-    'runtime-build/windows-x86_64/dsh-runtime-windows-x86_64.zip',
-  )
-  verifyBundledRuntime({
-    manifestPath,
-    archivePath,
-    publicKey: environment.DSH_DESKTOP_RELEASE_PUBLIC_KEY,
-  })
-  const manifestEndpoint = environment.DSH_DESKTOP_RUNTIME_MANIFEST_URL
-  if (!manifestEndpoint?.startsWith('https://') || !manifestEndpoint.includes('{target}')) {
-    throw new Error('DSH_DESKTOP_RUNTIME_MANIFEST_URL 必须是包含 {target} 的 HTTPS 地址')
-  }
+  const generatedConfig = prepareWindowsInstallerConfig({ rootDirectory: root, environment })
 
   const appConfig = JSON.parse(readFileSync(resolve(root, 'src-tauri/tauri.conf.json'), 'utf8'))
   const outputDirectory = resolve(root, 'src-tauri/target/release/bundle/nsis')
@@ -149,15 +180,6 @@ export async function buildWindowsInstaller({
   if (dirname(generatedPath) !== outputDirectory || dirname(releasePath) !== outputDirectory) {
     throw new Error('安装包输出路径越过固定 NSIS 目录')
   }
-  const generatedDirectory = resolve(root, 'src-tauri/target/windows-installer')
-  const generatedConfig = resolve(generatedDirectory, 'tauri.windows-installer.conf.json')
-  mkdirSync(generatedDirectory, { recursive: true })
-  writeFileSync(
-    generatedConfig,
-    `${JSON.stringify(createWindowsTauriConfig(root), null, 2)}\n`,
-    'utf8',
-  )
-
   const output = await replaceReleaseInstaller({ generatedPath, releasePath }, async () => {
     const { command, args } = tauriBuildInvocation(root, generatedConfig)
     const result = run(
@@ -181,6 +203,11 @@ export async function buildWindowsInstaller({
 
 const invokedPath = process.argv[1] ? resolve(process.argv[1]) : ''
 if (invokedPath === resolve(fileURLToPath(import.meta.url))) {
-  const output = await buildWindowsInstaller()
-  console.log(`Windows installer created: ${output}`)
+  if (process.argv[2] === '--prepare-config') {
+    const output = prepareWindowsInstallerConfig()
+    console.log(`Windows installer config prepared: ${output}`)
+  } else {
+    const output = await buildWindowsInstaller()
+    console.log(`Windows installer created: ${output}`)
+  }
 }

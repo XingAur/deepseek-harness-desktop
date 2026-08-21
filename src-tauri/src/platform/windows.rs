@@ -1,5 +1,5 @@
 use std::{
-    ffi::OsString,
+    ffi::{OsString, c_void},
     mem::size_of,
     os::windows::{ffi::OsStringExt, process::CommandExt},
     path::{Path, PathBuf},
@@ -9,6 +9,7 @@ use std::{
 use windows_sys::Win32::{
     Foundation::{CloseHandle, INVALID_HANDLE_VALUE, WAIT_OBJECT_0, WAIT_TIMEOUT},
     System::{
+        Com::CoTaskMemFree,
         Diagnostics::ToolHelp::{
             CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
             TH32CS_SNAPPROCESS,
@@ -18,7 +19,9 @@ use windows_sys::Win32::{
             QueryFullProcessImageNameW, WaitForSingleObject,
         },
     },
+    UI::Shell::{FOLDERID_Documents, SHGetKnownFolderPath},
 };
+use windows_sys::core::GUID;
 
 use super::{PlatformAdapter, ProcessIdentity, normalize_legacy_roots};
 use crate::runtime::{RuntimeFailure, model::RuntimeFailureCode};
@@ -33,6 +36,10 @@ impl PlatformAdapter for WindowsPlatformAdapter {
             .into_iter()
             .collect();
         normalize_legacy_roots(stable_root, candidates)
+    }
+
+    fn documents_dir(&self) -> Result<PathBuf, RuntimeFailure> {
+        known_folder_path(&FOLDERID_Documents)
     }
 
     fn move_to_recycle_bin(&self, path: &Path) -> Result<(), crate::runtime::RuntimeFailure> {
@@ -138,7 +145,9 @@ fn process_executable(pid: u32) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::process_inventory;
+    use std::path::PathBuf;
+
+    use super::{PlatformAdapter, WindowsPlatformAdapter, process_inventory};
 
     #[test]
     fn inventory_resolves_the_current_process_executable() {
@@ -151,4 +160,48 @@ mod tests {
         assert!(identity.executable.is_absolute());
         assert!(identity.executable.is_file());
     }
+
+    #[test]
+    fn documents_directory_is_absolute_and_does_not_follow_userprofile_override() {
+        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = ENV_LOCK.lock().unwrap();
+        let adapter = WindowsPlatformAdapter;
+        let expected = adapter.documents_dir().unwrap();
+        let original = std::env::var_os("USERPROFILE");
+        unsafe { std::env::set_var("USERPROFILE", r"Z:\attacker-controlled") };
+        let actual = adapter.documents_dir().unwrap();
+        match original {
+            Some(value) => unsafe { std::env::set_var("USERPROFILE", value) },
+            None => unsafe { std::env::remove_var("USERPROFILE") },
+        }
+        assert!(actual.is_absolute());
+        assert_eq!(actual, expected);
+        assert_ne!(actual, PathBuf::from(r"Z:\attacker-controlled"));
+    }
+}
+
+fn known_folder_path(folder_id: &GUID) -> Result<PathBuf, RuntimeFailure> {
+    let mut raw = std::ptr::null_mut();
+    let result = unsafe { SHGetKnownFolderPath(folder_id, 0, std::ptr::null_mut(), &mut raw) };
+    if result < 0 || raw.is_null() {
+        if !raw.is_null() {
+            unsafe { CoTaskMemFree(raw.cast::<c_void>()) };
+        }
+        return Err(RuntimeFailure::internal(
+            "无法找到当前用户的文档目录，请检查系统目录设置",
+        ));
+    }
+    let mut len = 0usize;
+    unsafe {
+        while *raw.add(len) != 0 {
+            len += 1;
+        }
+    }
+    let value = OsString::from_wide(unsafe { std::slice::from_raw_parts(raw, len) });
+    unsafe { CoTaskMemFree(raw.cast::<c_void>()) };
+    let path = PathBuf::from(value);
+    if !path.is_absolute() {
+        return Err(RuntimeFailure::internal("系统返回的文档目录无效"));
+    }
+    Ok(path)
 }

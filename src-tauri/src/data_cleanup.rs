@@ -6,14 +6,16 @@ use std::{
 
 use uuid::Uuid;
 
-use crate::runtime::model::RuntimeFailure;
+use crate::{
+    runtime::model::RuntimeFailure, safe_remove::remove_tree_without_following_reparse_points,
+};
 
 pub const APP_IDENTIFIER: &str = "ai.deepseek.harness.desktop";
 const PENDING_PREFIX: &str = "ai.deepseek.harness.desktop.pending-delete-";
 
 pub fn prepare_and_spawn() -> Result<(), RuntimeFailure> {
     let local = local_app_data()?;
-    let live = live_root(&local)?;
+    let live = live_app_data_root()?;
     if !live.exists() {
         return Ok(());
     }
@@ -56,11 +58,79 @@ pub fn cleanup_pending(nonce: Uuid) -> Result<(), RuntimeFailure> {
     schedule_result
 }
 
+fn known_folder_result(
+    resolver: impl FnOnce() -> Result<PathBuf, RuntimeFailure>,
+) -> Result<PathBuf, RuntimeFailure> {
+    let path = resolver()?;
+    if !path.is_absolute() || path.as_os_str().is_empty() {
+        return Err(RuntimeFailure::internal("系统返回的用户目录无效"));
+    }
+    Ok(path)
+}
+
+#[cfg(windows)]
 fn local_app_data() -> Result<PathBuf, RuntimeFailure> {
-    std::env::var_os("LOCALAPPDATA")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .ok_or_else(|| RuntimeFailure::internal("无法确定 LOCALAPPDATA"))
+    known_folder_result(|| {
+        windows_known_folder(&windows_sys::Win32::UI::Shell::FOLDERID_LocalAppData)
+    })
+}
+
+#[cfg(not(windows))]
+fn local_app_data() -> Result<PathBuf, RuntimeFailure> {
+    known_folder_result(|| {
+        std::env::var_os("XDG_DATA_HOME")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .ok_or_else(|| RuntimeFailure::internal("无法确定应用数据目录"))
+    })
+}
+
+#[cfg(windows)]
+pub(crate) fn current_user_profile_root() -> Result<PathBuf, RuntimeFailure> {
+    known_folder_result(|| windows_known_folder(&windows_sys::Win32::UI::Shell::FOLDERID_Profile))
+}
+
+#[cfg(not(windows))]
+pub(crate) fn current_user_profile_root() -> Result<PathBuf, RuntimeFailure> {
+    known_folder_result(|| {
+        std::env::var_os("HOME")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .ok_or_else(|| RuntimeFailure::internal("无法确定当前用户目录，已拒绝删除"))
+    })
+}
+
+#[cfg(windows)]
+fn windows_known_folder(folder_id: &windows_sys::core::GUID) -> Result<PathBuf, RuntimeFailure> {
+    use std::{ffi::c_void, os::windows::ffi::OsStringExt};
+
+    use windows_sys::Win32::{System::Com::CoTaskMemFree, UI::Shell::SHGetKnownFolderPath};
+
+    let mut raw = std::ptr::null_mut();
+    let result = unsafe { SHGetKnownFolderPath(folder_id, 0, std::ptr::null_mut(), &mut raw) };
+    if result < 0 || raw.is_null() {
+        if !raw.is_null() {
+            unsafe { CoTaskMemFree(raw.cast::<c_void>()) };
+        }
+        return Err(RuntimeFailure::internal(format!(
+            "无法从 Windows Known Folder 获取用户目录（HRESULT {result:#x}）"
+        )));
+    }
+
+    let mut len = 0usize;
+    unsafe {
+        while *raw.add(len) != 0 {
+            len += 1;
+        }
+    }
+    let value = std::ffi::OsString::from_wide(unsafe { std::slice::from_raw_parts(raw, len) });
+    unsafe { CoTaskMemFree(raw.cast::<c_void>()) };
+    Ok(PathBuf::from(value))
+}
+
+pub(crate) fn live_app_data_root() -> Result<PathBuf, RuntimeFailure> {
+    let local = local_app_data()?;
+    live_root(&local)
 }
 
 fn live_root(local: &Path) -> Result<PathBuf, RuntimeFailure> {
@@ -143,55 +213,6 @@ fn spawn_detached(helper: &Path, nonce: Uuid) -> Result<(), RuntimeFailure> {
         .map_err(|cause| RuntimeFailure::internal(format!("无法启动后台清理程序：{cause}")))
 }
 
-fn remove_tree_without_following_reparse_points(path: &Path) -> Result<(), RuntimeFailure> {
-    let metadata = fs::symlink_metadata(path).map_err(RuntimeFailure::internal)?;
-    if is_link_or_reparse_point(&metadata) {
-        return remove_link(path, metadata.is_dir());
-    }
-    if !metadata.is_dir() {
-        clear_readonly(path, &metadata)?;
-        return fs::remove_file(path).map_err(RuntimeFailure::internal);
-    }
-
-    for entry in fs::read_dir(path).map_err(RuntimeFailure::internal)? {
-        let entry = entry.map_err(RuntimeFailure::internal)?;
-        remove_tree_without_following_reparse_points(&entry.path())?;
-    }
-    fs::remove_dir(path).map_err(RuntimeFailure::internal)
-}
-
-#[cfg(windows)]
-fn is_link_or_reparse_point(metadata: &fs::Metadata) -> bool {
-    use std::os::windows::fs::MetadataExt;
-
-    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
-    metadata.file_type().is_symlink()
-        || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
-}
-
-#[cfg(not(windows))]
-fn is_link_or_reparse_point(metadata: &fs::Metadata) -> bool {
-    metadata.file_type().is_symlink()
-}
-
-fn remove_link(path: &Path, is_dir: bool) -> Result<(), RuntimeFailure> {
-    let result = if is_dir {
-        fs::remove_dir(path)
-    } else {
-        fs::remove_file(path)
-    };
-    result.map_err(RuntimeFailure::internal)
-}
-
-fn clear_readonly(path: &Path, metadata: &fs::Metadata) -> Result<(), RuntimeFailure> {
-    let mut permissions = metadata.permissions();
-    if permissions.readonly() {
-        permissions.set_readonly(false);
-        fs::set_permissions(path, permissions).map_err(RuntimeFailure::internal)?;
-    }
-    Ok(())
-}
-
 #[cfg(windows)]
 fn schedule_current_exe_delete_on_reboot() -> Result<(), RuntimeFailure> {
     use std::os::windows::ffi::OsStrExt;
@@ -244,6 +265,38 @@ mod tests {
     use super::*;
 
     #[test]
+    fn injected_known_folder_must_be_absolute_and_non_empty() {
+        assert!(known_folder_result(|| Ok(PathBuf::new())).is_err());
+        assert!(known_folder_result(|| Ok(PathBuf::from("relative"))).is_err());
+        let expected = if cfg!(windows) {
+            PathBuf::from(r"C:\Users\test\AppData\Local")
+        } else {
+            PathBuf::from("/var/tmp/app-data")
+        };
+        assert_eq!(
+            known_folder_result(|| Ok(expected.clone())).unwrap(),
+            expected
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn local_app_data_does_not_trust_the_environment_variable() {
+        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = ENV_LOCK.lock().unwrap();
+        let original = std::env::var_os("LOCALAPPDATA");
+        let expected = local_app_data().unwrap();
+        unsafe { std::env::set_var("LOCALAPPDATA", r"Z:\attacker-controlled") };
+        let actual = local_app_data().unwrap();
+        match original {
+            Some(value) => unsafe { std::env::set_var("LOCALAPPDATA", value) },
+            None => unsafe { std::env::remove_var("LOCALAPPDATA") },
+        }
+        assert_eq!(actual, expected);
+        assert_ne!(actual, PathBuf::from(r"Z:\attacker-controlled"));
+    }
+
+    #[test]
     fn pending_target_is_derived_from_a_fixed_parent_and_nonce() {
         let local = PathBuf::from(r"C:\Users\test\AppData\Local");
         let nonce = Uuid::parse_str("4b8bbca3-fd7f-4c6d-9111-2d955457047a").unwrap();
@@ -255,35 +308,5 @@ mod tests {
         );
         assert!(validate_pending_root(&local, &local.join(APP_IDENTIFIER)).is_err());
         assert!(validate_pending_root(&local, &PathBuf::from(r"C:\Users\test")).is_err());
-    }
-
-    #[test]
-    fn removes_a_tree_without_following_directory_links() {
-        let root = tempfile::tempdir().unwrap();
-        let pending = root
-            .path()
-            .join(format!("{PENDING_PREFIX}{}", Uuid::new_v4()));
-        let outside = root.path().join("outside");
-        fs::create_dir_all(pending.join("nested")).unwrap();
-        fs::create_dir_all(&outside).unwrap();
-        fs::write(pending.join("nested/file.txt"), "delete").unwrap();
-        fs::write(outside.join("keep.txt"), "keep").unwrap();
-
-        #[cfg(windows)]
-        let link_created =
-            std::os::windows::fs::symlink_dir(&outside, pending.join("outside-link")).is_ok();
-        #[cfg(unix)]
-        let link_created =
-            std::os::unix::fs::symlink(&outside, pending.join("outside-link")).is_ok();
-
-        remove_tree_without_following_reparse_points(&pending).unwrap();
-        assert!(!pending.exists());
-        assert_eq!(
-            fs::read_to_string(outside.join("keep.txt")).unwrap(),
-            "keep"
-        );
-        if link_created {
-            assert!(outside.exists());
-        }
     }
 }

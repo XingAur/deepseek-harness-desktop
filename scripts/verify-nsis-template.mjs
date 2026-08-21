@@ -33,11 +33,63 @@ export function verifyNsisTemplate(path = resolve('src-tauri/windows/installer.n
     'WriteRegStr SHCTX "${UNINSTKEY}" "DisplayName"',
     'Call CreateOrUpdateStartMenuShortcut',
   ])
-  const cleanupIndex = source.indexOf('--cleanup-app-data')
-  const cleanupResetIndex = source.indexOf('StrCpy $DeleteAppDataCheckboxState 0', cleanupIndex)
+  for (const marker of [
+    '/DELETEPROJECTS',
+    '--list-uninstall-projects',
+    'FileReadUTF16LE',
+    '无法读取项目清单',
+    '没有可删除的本地项目',
+    '${EM_SETSEL}',
+    '${EM_REPLACESEL}',
+    '$TEMP\\deepseek-harness-uninstall-projects-$UninstallToken.txt',
+    '$TEMP\\deepseek-harness-uninstall-report-$UninstallToken.txt',
+  ]) {
+    if (!source.includes(marker)) throw new Error(`Missing uninstall project cleanup marker: ${marker}`)
+  }
+  if (/^\s*FileRead\s/m.test(source)) {
+    throw new Error('UTF-16 uninstall preview/report files must not use ordinary FileRead')
+  }
+  if (source.includes('StrCpy $ProjectPreviewText "$ProjectPreviewText')) {
+    throw new Error('Project paths must be streamed into the preview control instead of one NSIS variable')
+  }
+  const uninstallInitIndex = source.indexOf('Function un.onInit')
+  const uninstallInitEndIndex = source.indexOf('FunctionEnd', uninstallInitIndex)
+  const updateGuardIndex = source.indexOf('${If} $UpdateMode = 1', uninstallInitIndex)
+  const appDataResetIndex = source.indexOf('StrCpy $DeleteAppDataCheckboxState 0', updateGuardIndex)
+  const projectResetIndex = source.indexOf('StrCpy $DeleteProjectsCheckboxState 0', updateGuardIndex)
+  if (
+    uninstallInitIndex < 0
+    || uninstallInitEndIndex <= uninstallInitIndex
+    || updateGuardIndex <= uninstallInitIndex
+    || updateGuardIndex >= uninstallInitEndIndex
+    || appDataResetIndex <= updateGuardIndex
+    || appDataResetIndex >= uninstallInitEndIndex
+    || projectResetIndex <= updateGuardIndex
+    || projectResetIndex >= uninstallInitEndIndex
+  ) {
+    throw new Error('Update mode must disable both destructive uninstall choices')
+  }
+  const projectCleanupIndex = source.indexOf('--cleanup-projects')
+  const reportReadIndex = source.indexOf('FileReadUTF16LE', projectCleanupIndex)
+  const failureDetailIndex = source.indexOf('DetailPrint "删除失败：$R1"', projectCleanupIndex)
+  const failureDialogIndex = source.indexOf('完整失败列表已显示在卸载详情中', projectCleanupIndex)
+  const reportDeleteIndex = source.indexOf('Delete "$ProjectReportPath"', projectCleanupIndex)
+  const appDataCleanupIndex = source.indexOf('--cleanup-app-data', projectCleanupIndex)
   const binaryDeleteIndex = source.indexOf('Delete "$INSTDIR\\${MAINBINARYNAME}.exe"')
-  if (cleanupIndex < 0 || cleanupResetIndex <= cleanupIndex || binaryDeleteIndex <= cleanupResetIndex) {
-    throw new Error('Explicit app-data cleanup is missing or ordered after the app binary deletion')
+  if (
+    projectCleanupIndex < 0
+    || appDataCleanupIndex <= projectCleanupIndex
+    || binaryDeleteIndex <= appDataCleanupIndex
+  ) {
+    throw new Error('Project and app-data cleanup must run before app binary deletion')
+  }
+  if (
+    reportReadIndex <= projectCleanupIndex
+    || failureDetailIndex <= reportReadIndex
+    || failureDialogIndex <= failureDetailIndex
+    || reportDeleteIndex <= failureDialogIndex
+  ) {
+    throw new Error('Project cleanup failures must be shown before the report is removed')
   }
   return metadata
 }

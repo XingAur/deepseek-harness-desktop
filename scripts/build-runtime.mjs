@@ -48,6 +48,7 @@ mkdirSync(appDir, { recursive: true })
 cpSync(pluginTarball, join(appDir, 'desktop-plugin.tgz'))
 cpSync(join('scripts', 'desktop-profile.mjs'), join(appDir, 'desktop-profile.mjs'))
 cpSync(join('scripts', 'plugin-install-state.mjs'), join(appDir, 'plugin-install-state.mjs'))
+cpSync(join('scripts', 'runtime-websocket-proxy.mjs'), join(appDir, 'runtime-websocket-proxy.mjs'))
 writeFileSync(join(appDir, 'package.json'), JSON.stringify({
   name: 'dsh-desktop-runtime', private: true, type: 'module',
   dependencies: {
@@ -114,6 +115,7 @@ import { createServer, request as requestHttp } from 'node:http'
 import { createServer as createNetServer } from 'node:net'
 import { ensureDesktopProfile } from './desktop-profile.mjs'
 import { markerMatches, writeInstallMarker } from './plugin-install-state.mjs'
+import { attachRuntimeWebSocketProxy } from './runtime-websocket-proxy.mjs'
 const app = dirname(fileURLToPath(import.meta.url))
 const runtime = dirname(app)
 const dsh = join(app, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
@@ -173,6 +175,7 @@ const proxy = createServer((request, response) => {
   })
   request.pipe(upstream)
 })
+attachRuntimeWebSocketProxy(proxy, { port: backendPort })
 await new Promise((resolve, reject) => {
   proxy.once('error', reject)
   proxy.listen(publicPort, '127.0.0.1', resolve)

@@ -16,7 +16,7 @@ use crate::{
     },
     projects::{
         active_profile,
-        create::create_project_directory,
+        location::{ProjectLocationPreview, create_project_location, preview_project_location},
         metadata::{ProjectMetadataPatch, ProjectMetadataSnapshot},
         metadata_repository,
         recycle::{ProtectedRoots, resolve_registered_workspace, validate_recycle_target},
@@ -312,27 +312,33 @@ pub async fn recycle_project_directory(
 }
 
 #[tauri::command]
-pub async fn create_project_directory_command(
+pub async fn preview_default_project_directory(
     coordinator: State<'_, Arc<DesktopCoordinator>>,
     foundation: State<'_, Arc<DesktopFoundation>>,
     generation_id: String,
-    path: String,
+    idea: String,
+) -> Result<ProjectLocationPreview, RuntimeFailure> {
+    coordinator.validate_generation(&generation_id).await?;
+    active_profile(&foundation)?;
+    let documents = foundation.platform.documents_dir()?;
+    tokio::task::spawn_blocking(move || preview_project_location(&idea, &documents))
+        .await
+        .map_err(RuntimeFailure::internal)?
+}
+
+#[tauri::command]
+pub async fn create_default_project_directory(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    foundation: State<'_, Arc<DesktopFoundation>>,
+    generation_id: String,
+    project_name: String,
 ) -> Result<std::path::PathBuf, RuntimeFailure> {
     coordinator.validate_generation(&generation_id).await?;
-    let profile = active_profile(&foundation)?;
-    let requested = std::path::PathBuf::from(path);
-    let desktop_data_root = foundation.paths.active_root.clone();
-    let runtime_root = foundation.paths.runtime.clone();
-    tokio::task::spawn_blocking(move || {
-        create_project_directory(
-            &requested,
-            desktop_data_root,
-            profile.data_root,
-            runtime_root,
-        )
-    })
-    .await
-    .map_err(RuntimeFailure::internal)?
+    active_profile(&foundation)?;
+    let documents = foundation.platform.documents_dir()?;
+    tokio::task::spawn_blocking(move || create_project_location(&project_name, &documents))
+        .await
+        .map_err(RuntimeFailure::internal)?
 }
 
 #[tauri::command]

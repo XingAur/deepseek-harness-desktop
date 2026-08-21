@@ -13,7 +13,9 @@ import { describe, expect, it } from 'vitest'
 
 import { canonicalJson } from './canonical-json.mjs'
 import {
+  MANAGED_RUNTIME_VERSION,
   createWindowsTauriConfig,
+  prepareWindowsInstallerConfig,
   replaceReleaseInstaller,
   tauriBuildInvocation,
   verifyBundledRuntime,
@@ -48,10 +50,10 @@ describe('Windows installer contract', () => {
       const publicJwk = publicKey.export({ format: 'jwk' })
       const manifest = {
         schemaVersion: 1,
-        version: '0.1.2-preview',
+        version: '0.1.4-preview',
         dshVersion: '0.1.0-rc.8',
         target: 'windows-x86_64',
-        url: 'https://github.com/example/runtime.zip',
+        url: 'https://github.com/example/repo/releases/download/runtime-v0.1.4-preview/dsh-runtime-windows-x86_64.zip',
         size: archive.length,
         sha256: createHash('sha256').update(archive).digest('hex'),
         archive: 'zip',
@@ -74,8 +76,19 @@ describe('Windows installer contract', () => {
       })).toMatchObject({
         target: 'windows-x86_64',
         archive: 'zip',
-        version: '0.1.2-preview',
+        version: '0.1.4-preview',
       })
+      const wrongRelease = {
+        ...manifest,
+        url: 'https://github.com/example/repo/releases/download/runtime-v0.1.2-preview/dsh-runtime-windows-x86_64.zip',
+      }
+      writeFileSync(manifestPath, `${JSON.stringify(wrongRelease, null, 2)}\n`)
+      expect(() => verifyBundledRuntime({
+        manifestPath,
+        archivePath,
+        publicKey: publicJwk.x!,
+      })).toThrow(/runtime-v0\.1\.4-preview/)
+      writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
       expect(() => verifyBundledRuntime({
         manifestPath,
         archivePath: corruptArchivePath,
@@ -86,6 +99,62 @@ describe('Windows installer contract', () => {
     }
   })
 
+  it('pins the managed Runtime release version', () => {
+    expect(MANAGED_RUNTIME_VERSION).toBe('0.1.4-preview')
+  })
+
+  it('verifies the Runtime and writes the reusable Windows Tauri config', () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-windows-config-'))
+    try {
+      const runtimeDirectory = join(root, 'runtime-build', 'windows-x86_64')
+      mkdirSync(runtimeDirectory, { recursive: true })
+      const archivePath = join(runtimeDirectory, 'dsh-runtime-windows-x86_64.zip')
+      const manifestPath = join(runtimeDirectory, 'runtime-windows-x86_64.json')
+      const archive = Buffer.from('prepared runtime bytes')
+      writeFileSync(archivePath, archive)
+      const { privateKey, publicKey } = generateKeyPairSync('ed25519')
+      const publicJwk = publicKey.export({ format: 'jwk' })
+      const manifest = {
+        schemaVersion: 1,
+        version: MANAGED_RUNTIME_VERSION,
+        dshVersion: '0.1.0-rc.8',
+        target: 'windows-x86_64',
+        url: 'https://github.com/example/repo/releases/download/runtime-v0.1.4-preview/dsh-runtime-windows-x86_64.zip',
+        size: archive.length,
+        sha256: createHash('sha256').update(archive).digest('hex'),
+        archive: 'zip',
+        entrypoint: 'node.exe',
+        args: [],
+        healthPath: '/__desktop/health',
+        signature: '',
+      }
+      manifest.signature = sign(
+        null,
+        Buffer.from(canonicalJson(manifest, 'signature')),
+        privateKey,
+      ).toString('base64url')
+      writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+
+      const generatedConfig = prepareWindowsInstallerConfig({
+        rootDirectory: root,
+        environment: {
+          DSH_DESKTOP_RELEASE_PUBLIC_KEY: publicJwk.x!,
+          DSH_DESKTOP_RUNTIME_MANIFEST_URL:
+            'https://github.com/example/repo/releases/download/runtime-v0.1.4-preview/runtime-{target}.json',
+        },
+      })
+
+      expect(generatedConfig.replaceAll('\\', '/')).toBe(
+        `${root.replaceAll('\\', '/')}/src-tauri/target/windows-installer/tauri.windows-installer.conf.json`,
+      )
+      expect(JSON.parse(readFileSync(generatedConfig, 'utf8'))).toEqual(
+        createWindowsTauriConfig(root),
+      )
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('uses the deterministic Release installer name', () => {
     expect(windowsInstallerName('0.1.0')).toBe(
       'DeepSeek-Harness-v0.1.0-Windows-x64.exe',
@@ -93,13 +162,19 @@ describe('Windows installer contract', () => {
   })
 
   it('launches the pinned Tauri CLI through Node instead of a Windows cmd shim', () => {
-    const invocation = tauriBuildInvocation('E:/repo', 'E:/repo/generated.json')
+    const invocation = tauriBuildInvocation(
+      'E:/repo',
+      'E:/repo/generated.json',
+      ['E:/repo/src-tauri/tauri.release.conf.json'],
+    )
     expect(invocation.command).toBe(process.execPath)
     expect(invocation.args).toEqual([
       'E:/repo/node_modules/@tauri-apps/cli/tauri.js',
       'build',
       '--config',
       'E:/repo/generated.json',
+      '--config',
+      'E:/repo/src-tauri/tauri.release.conf.json',
       '--bundles',
       'nsis',
     ])

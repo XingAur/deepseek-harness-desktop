@@ -7,6 +7,21 @@ pub enum ApplicationMode {
     Desktop,
     PrepareDataCleanup,
     CleanupPending(Uuid),
+    ListUninstallProjects(u32),
+    CleanupProjects(u32),
+}
+
+fn parse_process_token(value: Option<String>) -> Result<u32, RuntimeFailure> {
+    let raw = value.ok_or_else(|| RuntimeFailure::internal("缺少卸载进程标识"))?;
+    let token = raw
+        .parse::<u32>()
+        .map_err(|_| RuntimeFailure::internal("卸载进程标识无效"))?;
+    if token == 0 || token.to_string() != raw {
+        return Err(RuntimeFailure::internal(
+            "卸载进程标识必须是规范的非零十进制 u32",
+        ));
+    }
+    Ok(token)
 }
 
 impl ApplicationMode {
@@ -32,6 +47,10 @@ impl ApplicationMode {
                         .map_err(|_| RuntimeFailure::internal("清理任务标识无效"))?,
                 )
             }
+            "--list-uninstall-projects" => {
+                Self::ListUninstallProjects(parse_process_token(values.next())?)
+            }
+            "--cleanup-projects" => Self::CleanupProjects(parse_process_token(values.next())?),
             _ => return Err(RuntimeFailure::internal("不支持的应用启动参数")),
         };
 
@@ -80,5 +99,22 @@ mod tests {
             .is_err()
         );
         assert!(ApplicationMode::parse(["app.exe", "--provision-runtime"]).is_err());
+        assert_eq!(
+            ApplicationMode::parse(["app.exe", "--list-uninstall-projects", "4321"]).unwrap(),
+            ApplicationMode::ListUninstallProjects(4321)
+        );
+        assert_eq!(
+            ApplicationMode::parse(["app.exe", "--cleanup-projects", "4321"]).unwrap(),
+            ApplicationMode::CleanupProjects(4321)
+        );
+        for invalid in ["0", "01", "+1", "-1", "C:\\Users", "4294967296"] {
+            assert!(ApplicationMode::parse(["app.exe", "--cleanup-projects", invalid]).is_err());
+            assert!(
+                ApplicationMode::parse(["app.exe", "--list-uninstall-projects", invalid]).is_err()
+            );
+        }
+        assert!(
+            ApplicationMode::parse(["app.exe", "--cleanup-projects", "4321", "extra"]).is_err()
+        );
     }
 }

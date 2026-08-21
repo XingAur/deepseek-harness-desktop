@@ -20,6 +20,10 @@ mod windows;
 pub trait PlatformAdapter: Send + Sync {
     fn legacy_data_roots(&self, stable_root: &Path) -> Vec<PathBuf>;
 
+    fn documents_dir(&self) -> Result<PathBuf, RuntimeFailure> {
+        Err(RuntimeFailure::internal("当前平台无法确定用户文档目录"))
+    }
+
     fn process_inventory(&self) -> Result<Vec<ProcessIdentity>, RuntimeFailure> {
         Ok(Vec::new())
     }

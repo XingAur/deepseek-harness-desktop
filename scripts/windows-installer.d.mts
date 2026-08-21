@@ -4,6 +4,8 @@ export interface WindowsTauriConfig {
   }
 }
 
+export const MANAGED_RUNTIME_VERSION: '0.1.4-preview'
+
 export function createWindowsTauriConfig(rootDirectory: string): WindowsTauriConfig
 
 export interface VerifyBundledRuntimeInput {
@@ -24,6 +26,7 @@ export function windowsInstallerName(version: string): string
 export function tauriBuildInvocation(
   rootDirectory: string,
   generatedConfig: string,
+  additionalConfigs?: string[],
 ): { command: string; args: string[] }
 export function replaceReleaseInstaller(
   paths: { generatedPath: string; releasePath: string },
@@ -35,6 +38,12 @@ export interface BuildWindowsInstallerInput {
   environment?: NodeJS.ProcessEnv
   run?: typeof import('node:child_process').spawnSync
 }
+
+export type PrepareWindowsInstallerConfigInput = Omit<BuildWindowsInstallerInput, 'run'>
+
+export function prepareWindowsInstallerConfig(
+  input?: PrepareWindowsInstallerConfigInput,
+): string
 
 export function buildWindowsInstaller(
   input?: BuildWindowsInstallerInput,

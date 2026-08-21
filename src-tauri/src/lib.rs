@@ -11,6 +11,7 @@ mod profile;
 mod projects;
 mod provisioning;
 mod runtime;
+mod safe_remove;
 mod storage;
 mod tray;
 mod window;
@@ -139,6 +140,12 @@ pub fn run(mode: app_mode::ApplicationMode) {
         app_mode::ApplicationMode::CleanupPending(nonce) => {
             exit_after_cleanup(data_cleanup::cleanup_pending(nonce))
         }
+        app_mode::ApplicationMode::ListUninstallProjects(token) => {
+            exit_after_cleanup(projects::uninstall::write_preview(token))
+        }
+        app_mode::ApplicationMode::CleanupProjects(token) => {
+            exit_after_cleanup(projects::uninstall::cleanup_projects(token))
+        }
     }
 }
 
@@ -214,7 +221,8 @@ fn run_desktop() {
             commands::list_project_metadata,
             commands::patch_project_metadata,
             commands::remove_project_metadata,
-            commands::create_project_directory_command,
+            commands::preview_default_project_directory,
+            commands::create_default_project_directory,
             commands::recycle_project_directory,
             commands::create_profile,
             commands::update_profile,

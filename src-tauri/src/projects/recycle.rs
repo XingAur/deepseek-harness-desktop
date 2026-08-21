@@ -1,11 +1,12 @@
 use std::{
     collections::{BTreeMap, HashSet},
+    fs,
     path::{Path, PathBuf},
 };
 
 use serde::Deserialize;
 
-use crate::runtime::RuntimeFailure;
+use crate::{data_cleanup::current_user_profile_root, runtime::RuntimeFailure};
 
 #[derive(Debug, Deserialize)]
 struct WorkspaceStorage {
@@ -45,17 +46,31 @@ impl ProtectedRoots {
         profile_root: PathBuf,
         runtime_root: PathBuf,
     ) -> Result<Self, RuntimeFailure> {
-        let user_root = std::env::var_os("USERPROFILE")
-            .map(PathBuf::from)
-            .ok_or_else(|| RuntimeFailure::internal("无法确定当前用户目录，已拒绝删除"))?;
-        let drive_root = root_path(candidate)
-            .ok_or_else(|| RuntimeFailure::internal("无法确定项目所在磁盘根目录"))?;
-        Ok(Self {
-            drive_root,
-            user_root,
+        Self::detect_with_user_root(
+            candidate,
+            current_user_profile_root()?,
             desktop_data_root,
             profile_root,
             runtime_root,
+        )
+    }
+
+    fn detect_with_user_root(
+        candidate: &Path,
+        user_root: PathBuf,
+        desktop_data_root: PathBuf,
+        profile_root: PathBuf,
+        runtime_root: PathBuf,
+    ) -> Result<Self, RuntimeFailure> {
+        let candidate = canonicalize_protected_root(candidate, "项目目录")?;
+        let drive_root = root_path(&candidate)
+            .ok_or_else(|| RuntimeFailure::internal("无法确定项目所在磁盘根目录"))?;
+        Ok(Self {
+            drive_root: canonicalize_protected_root(&drive_root, "磁盘根目录")?,
+            user_root: canonicalize_protected_root(&user_root, "当前用户目录")?,
+            desktop_data_root: canonicalize_protected_root(&desktop_data_root, "桌面应用数据目录")?,
+            profile_root: canonicalize_protected_root(&profile_root, "Profile 数据目录")?,
+            runtime_root: canonicalize_protected_root(&runtime_root, "Runtime 目录")?,
         })
     }
 
@@ -81,6 +96,48 @@ impl ProtectedRoots {
     }
 }
 
+fn canonicalize_protected_root(path: &Path, label: &str) -> Result<PathBuf, RuntimeFailure> {
+    if !path.is_absolute() {
+        return Err(RuntimeFailure::internal(format!(
+            "{label}不是绝对路径，已拒绝删除"
+        )));
+    }
+    match fs::symlink_metadata(path) {
+        Ok(_) => path.canonicalize().map_err(|error| {
+            RuntimeFailure::internal(format!("无法解析{label} {}：{error}", path.display()))
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => normalize_absolute_path(path)
+            .ok_or_else(|| RuntimeFailure::internal(format!("无法规范化{label}，已拒绝删除"))),
+        Err(error) => Err(RuntimeFailure::internal(format!(
+            "无法检查{label} {}：{error}",
+            path.display()
+        ))),
+    }
+}
+
+fn normalize_absolute_path(path: &Path) -> Option<PathBuf> {
+    use std::path::Component;
+
+    if !path.is_absolute() {
+        return None;
+    }
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
+                normalized.push(component.as_os_str());
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.pop() {
+                    return None;
+                }
+            }
+        }
+    }
+    Some(normalized)
+}
+
 pub fn resolve_registered_workspace(
     profile_root: &Path,
     workspace_id: &str,
@@ -88,16 +145,18 @@ pub fn resolve_registered_workspace(
     if workspace_id.is_empty() || workspace_id.len() > 256 {
         return Err(RuntimeFailure::internal("Workspace ID 无效"));
     }
-    let storage_path = profile_root.join("storages").join("workspace.json");
-    let bytes = std::fs::read(&storage_path).map_err(|error| {
-        RuntimeFailure::internal(format!("无法读取 Workspace 注册表 {}：{error}", storage_path.display()))
-    })?;
-    let storage: WorkspaceStorage = serde_json::from_slice(&bytes).map_err(|error| {
-        RuntimeFailure::internal(format!("Workspace 注册表格式无效：{error}"))
-    })?;
-    let registered: HashSet<&str> = storage.global.workspace_ids.iter().map(String::as_str).collect();
+    let storage = read_workspace_storage(profile_root)?
+        .ok_or_else(|| RuntimeFailure::internal("Workspace 注册表不存在"))?;
+    let registered: HashSet<&str> = storage
+        .global
+        .workspace_ids
+        .iter()
+        .map(String::as_str)
+        .collect();
     if !registered.contains(workspace_id) {
-        return Err(RuntimeFailure::internal("项目不在当前 Profile 的 Workspace 列表中"));
+        return Err(RuntimeFailure::internal(
+            "项目不在当前 Profile 的 Workspace 列表中",
+        ));
     }
     let record = storage
         .tables
@@ -105,12 +164,57 @@ pub fn resolve_registered_workspace(
         .get(workspace_id)
         .ok_or_else(|| RuntimeFailure::internal("Workspace 注册记录缺失"))?;
     let canonical = record.path.canonicalize().map_err(|error| {
-        RuntimeFailure::internal(format!("项目目录不可访问 {}：{error}", record.path.display()))
+        RuntimeFailure::internal(format!(
+            "项目目录不可访问 {}：{error}",
+            record.path.display()
+        ))
     })?;
     if !canonical.is_dir() {
         return Err(RuntimeFailure::internal("注册的项目路径不是目录"));
     }
     Ok(canonical)
+}
+
+fn read_workspace_storage(profile_root: &Path) -> Result<Option<WorkspaceStorage>, RuntimeFailure> {
+    let storage_path = profile_root.join("storages").join("workspace.json");
+    match std::fs::read(&storage_path) {
+        Ok(bytes) => serde_json::from_slice(&bytes).map(Some).map_err(|error| {
+            RuntimeFailure::internal(format!("Workspace 注册表格式无效：{error}"))
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(RuntimeFailure::internal(format!(
+            "无法读取 Workspace 注册表 {}：{error}",
+            storage_path.display()
+        ))),
+    }
+}
+
+pub(crate) fn list_registered_workspaces(
+    profile_root: &Path,
+) -> Result<Vec<PathBuf>, RuntimeFailure> {
+    let Some(storage) = read_workspace_storage(profile_root)? else {
+        return Ok(Vec::new());
+    };
+    storage
+        .global
+        .workspace_ids
+        .iter()
+        .map(|workspace_id| {
+            let record = storage.tables.workspaces.get(workspace_id).ok_or_else(|| {
+                RuntimeFailure::internal(format!("Workspace 注册记录缺失：{workspace_id}"))
+            })?;
+            let canonical = record.path.canonicalize().map_err(|error| {
+                RuntimeFailure::internal(format!(
+                    "项目目录不可访问 {}：{error}",
+                    record.path.display()
+                ))
+            })?;
+            if !canonical.is_dir() {
+                return Err(RuntimeFailure::internal("注册的项目路径不是目录"));
+            }
+            Ok(canonical)
+        })
+        .collect()
 }
 
 pub fn validate_recycle_target(
@@ -120,10 +224,14 @@ pub fn validate_recycle_target(
     if !candidate.is_absolute() {
         return Err(RuntimeFailure::internal("仅允许回收绝对项目路径"));
     }
-    if protected.all().iter().any(|root| {
-        same_path(candidate, root) || is_descendant(root, candidate)
-    }) {
-        return Err(RuntimeFailure::internal("项目路径是受保护目录或其上级目录，已拒绝删除"));
+    if protected
+        .all()
+        .iter()
+        .any(|root| same_path(candidate, root) || is_descendant(root, candidate))
+    {
+        return Err(RuntimeFailure::internal(
+            "项目路径是受保护目录或其上级目录，已拒绝删除",
+        ));
     }
     if [
         &protected.desktop_data_root,
@@ -133,19 +241,24 @@ pub fn validate_recycle_target(
     .iter()
     .any(|root| is_descendant(candidate, root))
     {
-        return Err(RuntimeFailure::internal("项目路径位于桌面应用管理目录内，已拒绝删除"));
+        return Err(RuntimeFailure::internal(
+            "项目路径位于桌面应用管理目录内，已拒绝删除",
+        ));
     }
     Ok(())
 }
 
 fn root_path(path: &Path) -> Option<PathBuf> {
     let mut components = path.components();
-    let prefix = components.next()?;
-    let root = components.next()?;
-    if matches!(root, std::path::Component::RootDir) {
-        Some(PathBuf::from(prefix.as_os_str()).join(Path::new("/")))
-    } else {
-        None
+    let first = components.next()?;
+    match first {
+        std::path::Component::Prefix(_) => {
+            let root = components.next()?;
+            matches!(root, std::path::Component::RootDir)
+                .then(|| PathBuf::from(first.as_os_str()).join(Path::new("/")))
+        }
+        std::path::Component::RootDir => Some(PathBuf::from(first.as_os_str())),
+        _ => None,
     }
 }
 
@@ -159,8 +272,44 @@ fn is_descendant(candidate: &Path, ancestor: &Path) -> bool {
     candidate != ancestor && candidate.starts_with(&(ancestor + "/"))
 }
 
-fn path_key(path: &Path) -> String {
-    let normalized = path.to_string_lossy().replace('\\', "/");
+pub(crate) fn path_key(path: &Path) -> String {
+    let raw = path.to_string_lossy().replace('\\', "/");
+    let raw = if cfg!(target_os = "windows") {
+        if let Some(network_path) = raw.strip_prefix("//?/UNC/") {
+            format!("//{network_path}")
+        } else {
+            raw.strip_prefix("//?/").unwrap_or(&raw).to_string()
+        }
+    } else {
+        raw
+    };
+    let is_unc = raw.starts_with("//");
+    let is_rooted = raw.starts_with('/') || raw.as_bytes().get(1) == Some(&b':');
+    let minimum_segments = if is_unc { 2 } else { 0 };
+    let mut segments = Vec::<&str>::new();
+    for segment in raw.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." if segments.len() > minimum_segments => {
+                segments.pop();
+            }
+            ".." => {}
+            value => segments.push(value),
+        }
+    }
+    let normalized = if is_unc {
+        format!("//{}", segments.join("/"))
+    } else if is_rooted && raw.starts_with('/') {
+        format!("/{}", segments.join("/"))
+    } else if raw.as_bytes().get(1) == Some(&b':') {
+        let mut value = segments.join("/");
+        if value.len() == 2 {
+            value.push('/');
+        }
+        value
+    } else {
+        segments.join("/")
+    };
     let trimmed = normalized.trim_end_matches('/');
     if cfg!(target_os = "windows") {
         trimmed.to_lowercase()
@@ -173,7 +322,137 @@ fn path_key(path: &Path) -> String {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use super::{ProtectedRoots, resolve_registered_workspace, validate_recycle_target};
+    #[cfg(unix)]
+    use super::canonicalize_protected_root;
+    use super::{
+        ProtectedRoots, list_registered_workspaces, resolve_registered_workspace,
+        validate_recycle_target,
+    };
+
+    #[test]
+    fn lists_only_ids_present_in_the_official_workspace_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let profile = dir.path().join("profile");
+        let first = dir.path().join("first");
+        let ignored = dir.path().join("ignored");
+        std::fs::create_dir_all(&first).unwrap();
+        std::fs::create_dir_all(&ignored).unwrap();
+        let storage = profile.join("storages/workspace.json");
+        std::fs::create_dir_all(storage.parent().unwrap()).unwrap();
+        std::fs::write(
+            storage,
+            serde_json::to_vec(&serde_json::json!({
+                "global": { "workspaceIds": ["w-1"] },
+                "tables": { "workspaces": {
+                    "w-1": { "path": first },
+                    "ignored": { "path": ignored }
+                }}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            list_registered_workspaces(&profile).unwrap(),
+            vec![first.canonicalize().unwrap()]
+        );
+    }
+
+    #[test]
+    fn missing_workspace_storage_is_an_empty_list_but_a_missing_record_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let profile = dir.path().join("profile");
+        assert!(list_registered_workspaces(&profile).unwrap().is_empty());
+        let storage = profile.join("storages/workspace.json");
+        std::fs::create_dir_all(storage.parent().unwrap()).unwrap();
+        std::fs::write(
+            storage,
+            br#"{"global":{"workspaceIds":["missing"]},"tables":{"workspaces":{}}}"#,
+        )
+        .unwrap();
+        assert!(list_registered_workspaces(&profile).is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalizes_windows_extended_length_prefixes_for_safety_comparisons() {
+        assert_eq!(
+            super::path_key(Path::new(r"\\?\C:\Users\Test\Project")),
+            super::path_key(Path::new(r"C:\Users\Test\Project"))
+        );
+        assert_eq!(
+            super::path_key(Path::new(r"\\?\UNC\server\share\Project")),
+            super::path_key(Path::new(r"\\server\share\Project"))
+        );
+        assert_eq!(
+            super::path_key(Path::new(r"C:\Users\Test\App\..\Project")),
+            super::path_key(Path::new(r"C:\Users\Test\Project"))
+        );
+    }
+
+    #[test]
+    fn canonicalizes_existing_protected_roots_and_collapses_dot_segments() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = dir.path().join("app");
+        let profile = app.join("profiles/default");
+        let runtime = app.join("runtime");
+        let project = dir.path().join("project");
+        std::fs::create_dir_all(&profile).unwrap();
+        std::fs::create_dir_all(&runtime).unwrap();
+        std::fs::create_dir_all(&project).unwrap();
+
+        let protected = ProtectedRoots::detect_with_user_root(
+            &project,
+            dir.path().to_path_buf(),
+            app.join("."),
+            profile.join("."),
+            runtime.join("."),
+        )
+        .unwrap();
+
+        assert_eq!(protected.user_root, dir.path().canonicalize().unwrap());
+        assert_eq!(protected.desktop_data_root, app.canonicalize().unwrap());
+        assert_eq!(protected.profile_root, profile.canonicalize().unwrap());
+        assert_eq!(protected.runtime_root, runtime.canonicalize().unwrap());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn canonicalized_junction_alias_cannot_bypass_a_protected_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let user = dir.path().join("real-user");
+        let alias = dir.path().join("user-alias");
+        let app = dir.path().join("app");
+        let profile = app.join("profiles/default");
+        let runtime = app.join("runtime");
+        let project = user.join("Projects/demo");
+        for path in [&user, &profile, &runtime, &project] {
+            std::fs::create_dir_all(path).unwrap();
+        }
+        let output = std::process::Command::new("cmd")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(&alias)
+            .arg(&user)
+            .output()
+            .unwrap();
+        if !output.status.success() {
+            return;
+        }
+
+        let protected =
+            ProtectedRoots::detect_with_user_root(&project, alias, app, profile, runtime).unwrap();
+        assert!(validate_recycle_target(&user, &protected).is_err());
+        assert!(validate_recycle_target(dir.path(), &protected).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_existing_broken_protected_link_fails_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let link = dir.path().join("broken");
+        std::os::unix::fs::symlink(dir.path().join("missing"), &link).unwrap();
+        assert!(canonicalize_protected_root(&link, "test root").is_err());
+    }
 
     #[test]
     fn resolves_only_registered_workspace_paths() {
@@ -198,16 +477,16 @@ mod tests {
         for candidate in protected.all() {
             assert!(validate_recycle_target(candidate, &protected).is_err());
         }
-        assert!(validate_recycle_target(
-            Path::new("C:/Users/test/Projects/demo"),
-            &protected,
-        )
-        .is_ok());
-        assert!(validate_recycle_target(
-            Path::new("C:/Users/test/AppData/Local/dsh/state"),
-            &protected,
-        )
-        .is_err());
+        assert!(
+            validate_recycle_target(Path::new("C:/Users/test/Projects/demo"), &protected,).is_ok()
+        );
+        assert!(
+            validate_recycle_target(
+                Path::new("C:/Users/test/AppData/Local/dsh/state"),
+                &protected,
+            )
+            .is_err()
+        );
     }
 
     fn write_workspace_storage(profile: &Path, id: &str, path: &Path) {

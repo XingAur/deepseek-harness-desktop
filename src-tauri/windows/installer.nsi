@@ -432,9 +432,65 @@ FunctionEnd
 ; 1. Confirm uninstall page
 Var DeleteAppDataCheckbox
 Var DeleteAppDataCheckboxState
+; DSH_CUSTOM_BEGIN uninstall-project-state
+Var DeleteProjectsCheckbox
+Var DeleteProjectsCheckboxState
+Var ProjectPreviewControl
+Var ProjectPreviewCount
+Var ProjectConfirmSummary
+Var ProjectPreviewStatus
+Var ProjectFailureCount
+Var ProjectFailureSummary
+Var UninstallToken
+Var ProjectPreviewPath
+Var ProjectReportPath
+Var UninstallConfirmDialog
+!include TextFunc.nsh
+!define DSH_ES_MULTILINE 0x0004
+!define DSH_ES_AUTOVSCROLL 0x0040
+!define DSH_ES_READONLY 0x0800
+!define DSH_WS_VSCROLL 0x00200000
+; DSH_CUSTOM_END uninstall-project-state
 !define /ifndef WS_EX_LAYOUTRTL         0x00400000
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW un.ConfirmShow
 Function un.ConfirmShow ; Add add a `Delete app data` check box
+  ; DSH_CUSTOM_BEGIN uninstall-project-preview
+  ; The native helper writes a BOM-prefixed UTF-16LE file so Unicode NSIS can
+  ; read paths without losing non-ASCII characters. The preview is display-only;
+  ; project cleanup re-enumerates the trusted Workspace registries.
+  Delete "$ProjectPreviewPath"
+  Delete "$ProjectReportPath"
+  StrCpy $ProjectPreviewStatus 1
+  StrCpy $ProjectPreviewCount 0
+  StrCpy $ProjectConfirmSummary ""
+  ${If} $UpdateMode <> 1
+    ExecWait '"$INSTDIR\${MAINBINARYNAME}.exe" --list-uninstall-projects "$UninstallToken"' $ProjectPreviewStatus
+    ${If} $ProjectPreviewStatus = 0
+      ClearErrors
+      FileOpen $R0 "$ProjectPreviewPath" r
+      ${IfNot} ${Errors}
+        FileReadUTF16LE $R0 $R1
+        ${TrimNewLines} $R1 $R1
+        StrCpy $ProjectPreviewCount $R1 "" 6
+        StrCpy $R2 0
+        ${Do}
+          ${IfThen} $R2 >= 3 ${|} ${ExitDo} ${|}
+          ClearErrors
+          FileReadUTF16LE $R0 $R1
+          ${IfThen} ${Errors} ${|} ${ExitDo} ${|}
+          ${TrimNewLines} $R1 $R1
+          ${If} $R1 != ""
+            StrCpy $ProjectConfirmSummary "$ProjectConfirmSummary$R1$\r$\n"
+            IntOp $R2 $R2 + 1
+          ${EndIf}
+        ${Loop}
+        FileClose $R0
+      ${Else}
+        StrCpy $ProjectPreviewStatus 1
+      ${EndIf}
+    ${EndIf}
+  ${EndIf}
+  ; DSH_CUSTOM_END uninstall-project-preview
   ; $1 inner dialog HWND
   ; $2 window DPI
   ; $3 style
@@ -443,6 +499,9 @@ Function un.ConfirmShow ; Add add a `Delete app data` check box
   ; $6 width
   ; $7 height
   FindWindow $1 "#32770" "" $HWNDPARENT ; Find inner dialog
+  ; DSH_CUSTOM_BEGIN uninstall-confirm-dialog
+  StrCpy $UninstallConfirmDialog $1
+  ; DSH_CUSTOM_END uninstall-confirm-dialog
   System::Call "user32::GetDpiForWindow(p r1) i .r2"
   ${If} $(^RTL) = 1
     StrCpy $3 "${__NSD_CheckBox_EXSTYLE} | ${WS_EX_LAYOUTRTL}"
@@ -465,10 +524,100 @@ Function un.ConfirmShow ; Add add a `Delete app data` check box
   ; DSH_CUSTOM_END data-cleanup-checkbox
   SendMessage $HWNDPARENT ${WM_GETFONT} 0 0 $1
   SendMessage $DeleteAppDataCheckbox ${WM_SETFONT} $1 1
+  ; DSH_CUSTOM_BEGIN uninstall-project-controls
+  IntOp $5 130 * $2
+  IntOp $5 $5 / 96
+  System::Call 'user32::CreateWindowEx(i r3, w "${__NSD_CheckBox_CLASS}", w "同时删除已登记的本地项目文件夹（包含项目源码）", i ${__NSD_CheckBox_STYLE}, i r4, i r5, i r6, i r7, p $UninstallConfirmDialog, i0, i0, i0) i .s'
+  Pop $DeleteProjectsCheckbox
+  SendMessage $DeleteProjectsCheckbox ${BM_SETCHECK} $DeleteProjectsCheckboxState 0
+  SendMessage $DeleteProjectsCheckbox ${WM_SETFONT} $1 1
+  nsDialogs::OnClick $DeleteProjectsCheckbox un.DeleteProjectsChanged
+  nsDialogs::OnClick $DeleteAppDataCheckbox un.DeleteAppDataChanged
+
+  IntOp $5 160 * $2
+  IntOp $7 72 * $2
+  IntOp $5 $5 / 96
+  IntOp $7 $7 / 96
+  IntOp $3 ${__NSD_Text_STYLE} | ${DSH_ES_MULTILINE}
+  IntOp $3 $3 | ${DSH_ES_AUTOVSCROLL}
+  IntOp $3 $3 | ${DSH_ES_READONLY}
+  IntOp $3 $3 | ${DSH_WS_VSCROLL}
+  System::Call 'user32::CreateWindowEx(i ${__NSD_Text_EXSTYLE}, w "${__NSD_Text_CLASS}", w "", i r3, i r4, i r5, i r6, i r7, p $UninstallConfirmDialog, i0, i0, i0) i .s'
+  Pop $ProjectPreviewControl
+  SendMessage $ProjectPreviewControl ${WM_SETFONT} $1 1
+
+  ${If} $UpdateMode = 1
+    StrCpy $DeleteAppDataCheckboxState 0
+    StrCpy $DeleteProjectsCheckboxState 0
+    SendMessage $DeleteAppDataCheckbox ${BM_SETCHECK} 0 0
+    SendMessage $DeleteProjectsCheckbox ${BM_SETCHECK} 0 0
+    EnableWindow $DeleteAppDataCheckbox 0
+    EnableWindow $DeleteProjectsCheckbox 0
+  ${ElseIf} $ProjectPreviewStatus <> 0
+    SendMessage $ProjectPreviewControl ${EM_SETSEL} -1 -1
+    SendMessage $ProjectPreviewControl ${EM_REPLACESEL} 0 "STR:无法读取项目清单"
+    StrCpy $DeleteProjectsCheckboxState 0
+    SendMessage $DeleteProjectsCheckbox ${BM_SETCHECK} 0 0
+    EnableWindow $DeleteProjectsCheckbox 0
+  ${ElseIf} $ProjectPreviewCount = 0
+    SendMessage $ProjectPreviewControl ${EM_SETSEL} -1 -1
+    SendMessage $ProjectPreviewControl ${EM_REPLACESEL} 0 "STR:没有可删除的本地项目"
+    StrCpy $DeleteProjectsCheckboxState 0
+    SendMessage $DeleteProjectsCheckbox ${BM_SETCHECK} 0 0
+    EnableWindow $DeleteProjectsCheckbox 0
+  ${Else}
+    ; Stream one path at a time into the EDIT control. Never concatenate the
+    ; complete project list into a single 1024-character NSIS variable.
+    ClearErrors
+    FileOpen $R0 "$ProjectPreviewPath" r
+    ${IfNot} ${Errors}
+      FileReadUTF16LE $R0 $R1
+      ${Do}
+        ClearErrors
+        FileReadUTF16LE $R0 $R1
+        ${IfThen} ${Errors} ${|} ${ExitDo} ${|}
+        ${TrimNewLines} $R1 $R1
+        ${If} $R1 != ""
+          SendMessage $ProjectPreviewControl ${EM_SETSEL} -1 -1
+          SendMessage $ProjectPreviewControl ${EM_REPLACESEL} 0 "STR:$R1$\r$\n"
+        ${EndIf}
+      ${Loop}
+      FileClose $R0
+    ${EndIf}
+  ${EndIf}
+  ; DSH_CUSTOM_END uninstall-project-controls
 FunctionEnd
+; DSH_CUSTOM_BEGIN uninstall-project-callbacks
+Function un.DeleteProjectsChanged
+  SendMessage $DeleteProjectsCheckbox ${BM_GETCHECK} 0 0 $DeleteProjectsCheckboxState
+  ${If} $DeleteProjectsCheckboxState = 1
+    StrCpy $DeleteAppDataCheckboxState 1
+    SendMessage $DeleteAppDataCheckbox ${BM_SETCHECK} 1 0
+  ${EndIf}
+FunctionEnd
+
+Function un.DeleteAppDataChanged
+  SendMessage $DeleteAppDataCheckbox ${BM_GETCHECK} 0 0 $DeleteAppDataCheckboxState
+  ${If} $DeleteAppDataCheckboxState = 0
+    StrCpy $DeleteProjectsCheckboxState 0
+    SendMessage $DeleteProjectsCheckbox ${BM_SETCHECK} 0 0
+  ${EndIf}
+FunctionEnd
+; DSH_CUSTOM_END uninstall-project-callbacks
 !define MUI_PAGE_CUSTOMFUNCTION_LEAVE un.ConfirmLeave
 Function un.ConfirmLeave
   SendMessage $DeleteAppDataCheckbox ${BM_GETCHECK} 0 0 $DeleteAppDataCheckboxState
+  ; DSH_CUSTOM_BEGIN uninstall-project-confirmation
+  SendMessage $DeleteProjectsCheckbox ${BM_GETCHECK} 0 0 $DeleteProjectsCheckboxState
+  ${If} $DeleteProjectsCheckboxState = 1
+    StrCpy $DeleteAppDataCheckboxState 1
+    ${If} $PassiveMode <> 1
+    ${AndIfNot} ${Silent}
+      MessageBox MB_ICONSTOP|MB_YESNO "将永久删除 $ProjectPreviewCount 个本地项目，无法恢复：$\r$\n$ProjectConfirmSummary$\r$\n是否继续？" IDYES +2
+      Abort
+    ${EndIf}
+  ${EndIf}
+  ; DSH_CUSTOM_END uninstall-project-confirmation
 FunctionEnd
 !define MUI_PAGE_CUSTOMFUNCTION_PRE un.SkipIfPassive
 !insertmacro MUI_UNPAGE_CONFIRM
@@ -770,8 +919,18 @@ Function un.onInit
   ; DSH_CUSTOM_BEGIN data-cleanup-init
   ; Keep uninstall fast and preserve data unless the user explicitly opts in.
   StrCpy $DeleteAppDataCheckboxState 0
+  StrCpy $DeleteProjectsCheckboxState 0
+  System::Call "kernel32::GetCurrentProcessId() i .r0"
+  StrCpy $UninstallToken $0
+  StrCpy $ProjectPreviewPath "$TEMP\deepseek-harness-uninstall-projects-$UninstallToken.txt"
+  StrCpy $ProjectReportPath "$TEMP\deepseek-harness-uninstall-report-$UninstallToken.txt"
   ${GetOptions} $CMDLINE "/DELETEAPPDATA" $R0
   ${IfNot} ${Errors}
+    StrCpy $DeleteAppDataCheckboxState 1
+  ${EndIf}
+  ${GetOptions} $CMDLINE "/DELETEPROJECTS" $R0
+  ${IfNot} ${Errors}
+    StrCpy $DeleteProjectsCheckboxState 1
     StrCpy $DeleteAppDataCheckboxState 1
   ${EndIf}
   ; DSH_CUSTOM_END data-cleanup-init
@@ -790,6 +949,12 @@ Function un.onInit
   ${IfNot} ${Errors}
     StrCpy $UpdateMode 1
   ${EndIf}
+  ; DSH_CUSTOM_BEGIN uninstall-update-protection
+  ${If} $UpdateMode = 1
+    StrCpy $DeleteAppDataCheckboxState 0
+    StrCpy $DeleteProjectsCheckboxState 0
+  ${EndIf}
+  ; DSH_CUSTOM_END uninstall-update-protection
 FunctionEnd
 
 Section Uninstall
@@ -801,6 +966,47 @@ Section Uninstall
   !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 
   ; DSH_CUSTOM_BEGIN data-cleanup-delegate
+  ; Project deletion is synchronous and must succeed before application data
+  ; can be removed. The helper re-enumerates trusted Workspace registries and
+  ; never accepts preview paths as deletion input.
+  ${If} $DeleteProjectsCheckboxState = 1
+  ${AndIf} $UpdateMode <> 1
+    DetailPrint "正在安全删除已确认的本地项目..."
+    ExecWait '"$INSTDIR\${MAINBINARYNAME}.exe" --cleanup-projects "$UninstallToken"' $0
+    ${If} $0 <> 0
+      StrCpy $DeleteAppDataCheckboxState 0
+      DetailPrint "部分项目未能删除（清理程序退出码：$0）"
+      StrCpy $ProjectFailureCount 0
+      StrCpy $ProjectFailureSummary ""
+      ClearErrors
+      FileOpen $R0 "$ProjectReportPath" r
+      ${IfNot} ${Errors}
+        ${Do}
+          ClearErrors
+          FileReadUTF16LE $R0 $R1
+          ${IfThen} ${Errors} ${|} ${ExitDo} ${|}
+          ${TrimNewLines} $R1 $R1
+          ${If} $R1 != ""
+            DetailPrint "删除失败：$R1"
+            ${If} $ProjectFailureCount < 3
+              StrCpy $ProjectFailureSummary "$ProjectFailureSummary$R1$\r$\n"
+            ${EndIf}
+            IntOp $ProjectFailureCount $ProjectFailureCount + 1
+          ${EndIf}
+        ${Loop}
+        FileClose $R0
+      ${EndIf}
+      ${If} $ProjectFailureSummary == ""
+        StrCpy $ProjectFailureSummary "未能读取失败报告。$\r$\n"
+      ${EndIf}
+      ${If} $PassiveMode <> 1
+      ${AndIfNot} ${Silent}
+        MessageBox MB_ICONEXCLAMATION|MB_YESNO "部分项目未能删除，应用数据将保留：$\r$\n$ProjectFailureSummary$\r$\n完整失败列表已显示在卸载详情中。是否继续仅卸载程序？" IDYES +2
+        Abort
+      ${EndIf}
+    ${EndIf}
+  ${EndIf}
+
   ; Atomically move the fixed app-data root, then let a detached native helper
   ; release disk space in the background. Clear the checkbox state afterwards
   ; so the upstream synchronous RmDir fallback below cannot traverse Runtime.
@@ -821,8 +1027,10 @@ Section Uninstall
       DeleteRegKey /ifempty HKCU "${MANUPRODUCTKEY}"
       DeleteRegKey /ifempty HKCU "${MANUKEY}"
     ${EndIf}
-    StrCpy $DeleteAppDataCheckboxState 0
   ${EndIf}
+  ; Always neutralize both states before the upstream synchronous RmDir fallback.
+  StrCpy $DeleteProjectsCheckboxState 0
+  StrCpy $DeleteAppDataCheckboxState 0
   ; DSH_CUSTOM_END data-cleanup-delegate
   ; Delete the app directory and its content from disk
   ; Copy main executable
@@ -929,6 +1137,10 @@ Section Uninstall
   !ifmacrodef NSIS_HOOK_POSTUNINSTALL
     !insertmacro NSIS_HOOK_POSTUNINSTALL
   !endif
+  ; DSH_CUSTOM_BEGIN uninstall-project-temp-cleanup
+  Delete "$ProjectPreviewPath"
+  Delete "$ProjectReportPath"
+  ; DSH_CUSTOM_END uninstall-project-temp-cleanup
 
   ; Auto close if passive mode or updating
   ${If} $PassiveMode = 1
@@ -936,6 +1148,12 @@ Section Uninstall
     SetAutoClose true
   ${EndIf}
 SectionEnd
+; DSH_CUSTOM_BEGIN uninstall-project-gui-cleanup
+Function un.onGUIEnd
+  Delete "$ProjectPreviewPath"
+  Delete "$ProjectReportPath"
+FunctionEnd
+; DSH_CUSTOM_END uninstall-project-gui-cleanup
 
 Function RestorePreviousInstallLocation
   ReadRegStr $4 SHCTX "${MANUPRODUCTKEY}" ""

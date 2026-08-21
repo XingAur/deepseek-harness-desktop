@@ -1,6 +1,7 @@
-pub mod create;
+pub mod location;
 pub mod metadata;
 pub mod recycle;
+pub(crate) mod uninstall;
 
 use crate::{DesktopFoundation, profile::model::ProfileRecord, runtime::RuntimeFailure};
 

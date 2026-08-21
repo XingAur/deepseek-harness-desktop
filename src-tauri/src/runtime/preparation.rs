@@ -10,6 +10,7 @@ use super::{
     model::{RuntimeFailure, RuntimeManifest, RuntimePhase, RuntimeSourceKind, RuntimeTarget},
     paths::RuntimePaths,
     updater::{PreparedRuntime, RuntimeUpdater, bundled_resources_present},
+    upgrade::{RuntimeDecision, decide_runtime},
 };
 
 #[derive(Clone, Debug)]
@@ -116,10 +117,15 @@ impl RuntimePreparationService {
                 return Ok(local_choice(local_manifest, Arc::clone(&self.online)));
             };
             let requirement = RuntimeRequirement::from_bundled_manifest(&required);
-            if matches!(
-                decide_local(&requirement, Some(&local_manifest), true),
-                LocalRuntimeDecision::FastStart(_)
-            ) {
+            let compatibility = decide_local(&requirement, Some(&local_manifest), true);
+            let identity = decide_runtime(
+                (&local_manifest.version, &local_manifest.sha256),
+                &required.version,
+                &required.sha256,
+            );
+            if matches!(compatibility, LocalRuntimeDecision::FastStart(_))
+                && !matches!(identity, RuntimeDecision::Upgrade)
+            {
                 return Ok(local_choice(local_manifest, Arc::clone(&self.online)));
             }
             bundled_manifest = Some(required);
@@ -268,10 +274,7 @@ impl RuntimePreparationService {
     }
 }
 
-fn local_choice(
-    manifest: RuntimeManifest,
-    updater: Arc<RuntimeUpdater>,
-) -> PreparedRuntimeChoice {
+fn local_choice(manifest: RuntimeManifest, updater: Arc<RuntimeUpdater>) -> PreparedRuntimeChoice {
     PreparedRuntimeChoice {
         source: RuntimeSourceKind::Local,
         manifest,
@@ -344,30 +347,39 @@ mod tests {
         fn newer_bundled_than_local() -> Self {
             let fixture = build_preparation_fixture_with_version(true, false, "1.1.0");
             let local = fixture_manifest_for_version(fixture._temporary.path(), "1.0.0");
-            let local_dir = fixture.paths.version_dir(&local.version);
-            std::fs::create_dir_all(&local_dir).unwrap();
-            std::fs::write(
-                local_dir.join("manifest.json"),
-                serde_json::to_vec_pretty(&local).unwrap(),
-            )
-            .unwrap();
-            std::fs::write(
-                &fixture.paths.current,
-                serde_json::to_vec_pretty(&crate::runtime::model::CurrentRuntime {
-                    version: local.version.clone(),
-                    previous_version: None,
-                })
+            install_local_runtime(&fixture, local);
+            fixture
+        }
+
+        fn same_payload_as_bundled() -> Self {
+            let fixture = build_preparation_fixture(true, false);
+            let manifest: RuntimeManifest = serde_json::from_slice(
+                &std::fs::read(
+                    fixture
+                        .paths
+                        .bundled_runtime
+                        .join("manifests/runtime-windows-x86_64.json"),
+                )
                 .unwrap(),
             )
             .unwrap();
-            assert!(matches!(
-                fixture.service.online.local_decision(
-                    &crate::runtime::compatibility::RuntimeRequirement::from_bundled_manifest(
-                        &local,
-                    ),
-                ),
-                Ok(LocalRuntimeDecision::FastStart(_))
-            ));
+            install_local_runtime(&fixture, manifest);
+            fixture
+        }
+
+        fn same_version_with_different_payload() -> Self {
+            let fixture = build_preparation_fixture(true, false);
+            let mut local = fixture_manifest_for_version(fixture._temporary.path(), "1.0.0");
+            local.sha256 = "b".repeat(64);
+            let local = sign_manifest(local);
+            install_local_runtime(&fixture, local);
+            fixture
+        }
+
+        fn newer_local_than_bundled() -> Self {
+            let fixture = build_preparation_fixture_with_version(true, false, "1.0.0");
+            let local = fixture_manifest_for_version(fixture._temporary.path(), "1.1.0");
+            install_local_runtime(&fixture, local);
             fixture
         }
 
@@ -474,6 +486,33 @@ mod tests {
         })
     }
 
+    fn install_local_runtime(fixture: &PreparationFixture, manifest: RuntimeManifest) {
+        let local_dir = fixture.paths.version_dir(&manifest.version);
+        std::fs::create_dir_all(&local_dir).unwrap();
+        std::fs::write(
+            local_dir.join("manifest.json"),
+            serde_json::to_vec_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            &fixture.paths.current,
+            serde_json::to_vec_pretty(&crate::runtime::model::CurrentRuntime {
+                version: manifest.version.clone(),
+                previous_version: None,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(matches!(
+            fixture.service.online.local_decision(
+                &crate::runtime::compatibility::RuntimeRequirement::from_bundled_manifest(
+                    &manifest,
+                ),
+            ),
+            Ok(LocalRuntimeDecision::FastStart(_))
+        ));
+    }
+
     fn sign_manifest(mut manifest: RuntimeManifest) -> RuntimeManifest {
         const DEV_PRIVATE_KEY: &str = "wbAbExHsjryIT22fTuRA3W61tJdaXFC7YxoAeN9uKnQ";
         let bytes: [u8; 32] = URL_SAFE_NO_PAD
@@ -537,6 +576,63 @@ mod tests {
             .unwrap();
 
         assert_eq!(choice.source, RuntimeSourceKind::Bundled);
+        assert_eq!(choice.manifest.version, Version::new(1, 1, 0));
+        assert_eq!(fixture.online_fetches(), 0);
+    }
+
+    #[tokio::test]
+    async fn identical_verified_local_payload_fast_starts() {
+        let fixture = PreparationFixture::same_payload_as_bundled();
+        let choice = fixture
+            .service
+            .prepare(
+                "g-identical",
+                false,
+                &CancellationToken::new(),
+                Arc::new(|_| {}),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(choice.source, RuntimeSourceKind::Local);
+        assert!(choice.prepared.is_none());
+        assert_eq!(fixture.online_fetches(), 0);
+    }
+
+    #[tokio::test]
+    async fn same_version_with_different_payload_reactivates_bundled_runtime() {
+        let fixture = PreparationFixture::same_version_with_different_payload();
+        let choice = fixture
+            .service
+            .prepare(
+                "g-replaced-payload",
+                false,
+                &CancellationToken::new(),
+                Arc::new(|_| {}),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(choice.source, RuntimeSourceKind::Bundled);
+        assert!(choice.prepared.is_some());
+        assert_eq!(fixture.online_fetches(), 0);
+    }
+
+    #[tokio::test]
+    async fn newer_compatible_local_runtime_is_not_downgraded_by_the_bundle() {
+        let fixture = PreparationFixture::newer_local_than_bundled();
+        let choice = fixture
+            .service
+            .prepare(
+                "g-keep-newer",
+                false,
+                &CancellationToken::new(),
+                Arc::new(|_| {}),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(choice.source, RuntimeSourceKind::Local);
         assert_eq!(choice.manifest.version, Version::new(1, 1, 0));
         assert_eq!(fixture.online_fetches(), 0);
     }

@@ -25,17 +25,65 @@ describe('custom NSIS template', () => {
     expect(registry).toBeLessThan(shortcut)
   })
 
-  it('preserves data by default and delegates explicit cleanup before deleting the app binary', () => {
+  it('offers explicit dependent app-data and project cleanup choices', () => {
     const source = readFileSync('src-tauri/windows/installer.nsi', 'utf8')
-    const cleanup = source.indexOf('--cleanup-app-data')
+    const projectCleanup = source.indexOf('--cleanup-projects')
+    const appDataCleanup = source.indexOf('--cleanup-app-data')
     const binaryDelete = source.indexOf('Delete "$INSTDIR\\${MAINBINARYNAME}.exe"')
-    const legacyRecursiveDelete = source.indexOf('RmDir /r "$LOCALAPPDATA\\${BUNDLEID}"')
-    expect(source).toContain('StrCpy $DeleteAppDataCheckboxState 0')
+
+    expect(source).toContain('Var DeleteProjectsCheckbox')
+    expect(source).toContain('StrCpy $DeleteProjectsCheckboxState 0')
+    expect(source).toContain('/DELETEPROJECTS')
+    expect(source).toContain('--list-uninstall-projects')
+    expect(source).toContain('FileReadUTF16LE')
+    expect(source).not.toMatch(/^\s*FileRead\s/m)
+    expect(source).toContain('无法读取项目清单')
+    expect(source).toContain('没有可删除的本地项目')
+    expect(source).toContain('${EM_SETSEL}')
+    expect(source).toContain('${EM_REPLACESEL}')
+    expect(source).not.toContain('StrCpy $ProjectPreviewText "$ProjectPreviewText')
+    expect(source).toContain('MB_ICONSTOP|MB_YESNO')
+    expect(source).toContain('Function un.DeleteProjectsChanged')
+    expect(source).toContain('Function un.DeleteAppDataChanged')
+    expect(source).toContain('StrCpy $DeleteAppDataCheckboxState 1')
+    expect(source).toContain('$TEMP\\deepseek-harness-uninstall-projects-$UninstallToken.txt')
+    expect(source).toContain('$TEMP\\deepseek-harness-uninstall-report-$UninstallToken.txt')
+    expect(source).toContain('Function un.onGUIEnd')
+    expect(projectCleanup).toBeGreaterThan(0)
+    expect(projectCleanup).toBeLessThan(appDataCleanup)
+    expect(appDataCleanup).toBeLessThan(binaryDelete)
+  })
+
+  it('shows UTF-16 project cleanup failures before removing their report', () => {
+    const source = readFileSync('src-tauri/windows/installer.nsi', 'utf8')
+    const cleanup = source.indexOf('--cleanup-projects')
+    const reportRead = source.indexOf('FileReadUTF16LE', cleanup)
+    const detail = source.indexOf('DetailPrint "删除失败：$R1"', cleanup)
+    const failureDialog = source.indexOf('完整失败列表已显示在卸载详情中', cleanup)
+    const reportDelete = source.indexOf('Delete "$ProjectReportPath"', cleanup)
+
     expect(cleanup).toBeGreaterThan(0)
-    expect(cleanup).toBeLessThan(binaryDelete)
-    expect(source.indexOf('StrCpy $DeleteAppDataCheckboxState 0', cleanup)).toBeLessThan(
-      legacyRecursiveDelete,
-    )
+    expect(reportRead).toBeGreaterThan(cleanup)
+    expect(detail).toBeGreaterThan(reportRead)
+    expect(failureDialog).toBeGreaterThan(detail)
+    expect(reportDelete).toBeGreaterThan(failureDialog)
+  })
+
+  it('disables destructive choices while running as an updater', () => {
+    const source = readFileSync('src-tauri/windows/installer.nsi', 'utf8')
+    const onInit = source.indexOf('Function un.onInit')
+    const onInitEnd = source.indexOf('FunctionEnd', onInit)
+    const updateGuard = source.indexOf('${If} $UpdateMode = 1', onInit)
+
+    expect(onInit).toBeGreaterThan(0)
+    expect(updateGuard).toBeGreaterThan(onInit)
+    expect(updateGuard).toBeLessThan(onInitEnd)
+    const appDataReset = source.indexOf('StrCpy $DeleteAppDataCheckboxState 0', updateGuard)
+    const projectReset = source.indexOf('StrCpy $DeleteProjectsCheckboxState 0', updateGuard)
+    expect(appDataReset).toBeGreaterThan(updateGuard)
+    expect(appDataReset).toBeLessThan(onInitEnd)
+    expect(projectReset).toBeGreaterThan(updateGuard)
+    expect(projectReset).toBeLessThan(onInitEnd)
   })
 
   it('pins the upstream Tauri template baseline', () => {
