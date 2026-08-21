@@ -218,25 +218,6 @@ scripts/                       构建、签名、验证和端到端测试工具
 e2e/                           真实安装包与工作台测试
 ```
 
-### 发布要求
-
-公开发布前必须满足：
-
-1. 创建不可变的 `runtime-v<version>` 预发布版本；
-2. 上传签名后的 `runtime-windows-x86_64.json` 和对应 Runtime ZIP；
-3. 配置 Runtime 与 Tauri updater 的生产签名密钥；
-4. 构建并只发布正式命名的 Windows x64 完整安装包；
-5. 在干净 Windows 环境验证首次安装、首次启动、后续启动、兼容重装和卸载；
-6. 所有门禁通过后再公开桌面 Release。
-
-## 参考与致谢
-
-- 核心 Agent、会话、工具、模型接口和 Web UI 来自 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)。
-- 产品定位、插件化桌面组合和文档分层参考了 [anywhere-labs/deepseek-harness-desktop](https://github.com/anywhere-labs/deepseek-harness-desktop)。
-- 用户优先的安装说明、运行架构、验证状态和安全表达参考了 [dataelement/dsh-desktop](https://github.com/dataelement/dsh-desktop)。
-
-项目只借鉴公开设计与工程经验，功能说明均按本仓库当前实现重新编写。第三方代码和许可证说明见各包内的 notices 文件。
-
 ## 独立项目与商标说明
 
 DeepSeek Harness Desktop 是独立社区项目，与 DeepSeek 不存在隶属、合作、授权或背书关系。“DeepSeek”及相关标识归其权利人所有，本项目仅为说明兼容对象而使用相关名称。
