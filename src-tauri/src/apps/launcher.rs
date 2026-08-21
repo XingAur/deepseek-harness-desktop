@@ -307,16 +307,21 @@ impl AppLauncher {
                 task.abort();
             }
         }
+        if let Some(message) = failure {
+            // 终止失败：记录放回注册表，保持“运行中”可重试；watcher 会在进程真正退出后自行收尾。
+            self.running
+                .lock()
+                .unwrap()
+                .insert(workspace_id.to_owned(), entry);
+            return Err(RuntimeFailure::internal(message));
+        }
         self.emit(LocalAppEvent {
             kind: LocalAppEventKind::Stopped,
             workspace_id: workspace_id.to_owned(),
             origin: Some(entry.info.origin.clone()),
             title: Some(entry.info.title.clone()),
         });
-        match failure {
-            Some(message) => Err(RuntimeFailure::internal(message)),
-            None => Ok(()),
-        }
+        Ok(())
     }
 
     pub async fn stop_all(&self) {
