@@ -90,6 +90,16 @@ describe('product copy', () => {
     expect(readFileSync('README.md', 'utf8')).toContain('首次打开应用')
   })
 
+  it('does not expose installer-time Runtime provisioning', () => {
+    const appMode = readFileSync('src-tauri/src/app_mode.rs', 'utf8')
+    const productionAppMode = appMode.split('#[cfg(test)]')[0]
+    const lib = readFileSync('src-tauri/src/lib.rs', 'utf8')
+    expect(productionAppMode).not.toContain('InstallBundledRuntime')
+    expect(productionAppMode).not.toContain('--install-bundled-runtime')
+    expect(lib).not.toContain('installer_runtime')
+    expect(lib).not.toContain('exit_after_bundled_runtime_install')
+  })
+
   it('builds a profile-aware readiness proxy into the managed runtime', () => {
     const source = readFileSync('scripts/build-runtime.mjs', 'utf8')
     expect(source).toContain("healthPath: '/__desktop/health'")

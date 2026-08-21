@@ -25,11 +25,6 @@ export function createFullTauriConfig(rootDirectory) {
         [portable(resolve(root, 'runtime-build/windows-x86_64/runtime-windows-x86_64.json'))]:
           'runtime/manifests/runtime-windows-x86_64.json',
       },
-      windows: {
-        nsis: {
-          installerHooks: portable(resolve(root, 'src-tauri/windows/full-installer-hooks.nsh')),
-        },
-      },
     },
   }
 }

@@ -5,7 +5,6 @@ use crate::runtime::model::RuntimeFailure;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ApplicationMode {
     Desktop,
-    InstallBundledRuntime,
     PrepareDataCleanup,
     CleanupPending(Uuid),
 }
@@ -23,7 +22,6 @@ impl ApplicationMode {
         };
 
         let mode = match flag.as_str() {
-            "--install-bundled-runtime" => Self::InstallBundledRuntime,
             "--cleanup-app-data" => Self::PrepareDataCleanup,
             "--cleanup-pending" => {
                 let nonce = values
@@ -68,17 +66,19 @@ mod tests {
         ));
         assert!(matches!(
             ApplicationMode::parse(["app.exe", "--install-bundled-runtime"]),
-            Ok(ApplicationMode::InstallBundledRuntime)
+            Err(_)
         ));
         assert!(ApplicationMode::parse(["app.exe", "--cleanup-pending", "C:\\Users"]).is_err());
         assert!(ApplicationMode::parse(["app.exe", "--cleanup-pending"]).is_err());
         assert!(ApplicationMode::parse(["app.exe", "--cleanup-app-data", "extra"]).is_err());
-        assert!(ApplicationMode::parse([
-            "app.exe",
-            "--install-bundled-runtime",
-            "C:\\Users\\someone\\runtime.zip",
-        ])
-        .is_err());
+        assert!(
+            ApplicationMode::parse([
+                "app.exe",
+                "--install-bundled-runtime",
+                "C:\\Users\\someone\\runtime.zip",
+            ])
+            .is_err()
+        );
         assert!(ApplicationMode::parse(["app.exe", "--provision-runtime"]).is_err());
     }
 }

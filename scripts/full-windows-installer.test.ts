@@ -27,7 +27,7 @@ describe('full Windows installer contract', () => {
     expect(online.bundle.windows.nsis.installerHooks).toBeUndefined()
   })
 
-  it('maps only the signed Windows Runtime files into the fixed resource paths', () => {
+  it('keeps the full installer copy-only while embedding Runtime resources', () => {
     const config = createFullTauriConfig('E:/repo')
     expect(config.bundle.resources).toEqual({
       'E:/repo/runtime-build/windows-x86_64/dsh-runtime-windows-x86_64.zip':
@@ -35,20 +35,8 @@ describe('full Windows installer contract', () => {
       'E:/repo/runtime-build/windows-x86_64/runtime-windows-x86_64.json':
         'runtime/manifests/runtime-windows-x86_64.json',
     })
-    expect(config.bundle.windows.nsis.installerHooks)
-      .toBe('E:/repo/src-tauri/windows/full-installer-hooks.nsh')
-  })
-
-  it('invokes only the fixed internal mode after install', () => {
-    const hook = readFileSync('src-tauri/windows/full-installer-hooks.nsh', 'utf8')
-    expect(hook).toContain('!macro NSIS_HOOK_POSTINSTALL')
-    expect(hook).toContain('--install-bundled-runtime')
-    expect(hook).toContain('ExecWait')
-    expect(hook).toContain('请关闭正在运行的 DeepSeek Harness 后重试')
-    expect(hook).toContain('请重启 Windows 再安装')
-    expect(hook).not.toContain('taskkill /IM node.exe')
-    expect(hook).not.toContain('https://')
-    expect(hook).not.toContain('runtime-build')
+    expect(config.bundle.windows?.nsis?.installerHooks).toBeUndefined()
+    expect(existsSync('src-tauri/windows/full-installer-hooks.nsh')).toBe(false)
   })
 
   it('verifies the signed Windows Runtime and rejects a changed archive', () => {

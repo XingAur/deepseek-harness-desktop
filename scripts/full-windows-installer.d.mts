@@ -1,11 +1,6 @@
 export interface FullTauriConfig {
   bundle: {
     resources: Record<string, string>
-    windows: {
-      nsis: {
-        installerHooks: string
-      }
-    }
   }
 }
 
