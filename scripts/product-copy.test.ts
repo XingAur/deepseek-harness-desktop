@@ -271,7 +271,9 @@ describe('product copy', () => {
     expect(packageLock).toContain(`"version": "${expectedVersion}"`)
     expect(tauriConfig.version).toBe(expectedVersion)
     expect(cargoManifest).toContain(`version = "${expectedVersion}"`)
-    expect(cargoLock).toContain(`name = "deepseek-harness-desktop"\nversion = "${expectedVersion}"`)
+    expect(cargoLock).toMatch(
+      new RegExp(`name = "deepseek-harness-desktop"\\r?\\nversion = "${expectedVersion}"`),
+    )
   })
 
   it('skips Runtime assets that already exist in the managed release', () => {
