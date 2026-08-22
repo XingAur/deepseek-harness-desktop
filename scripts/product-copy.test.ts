@@ -268,6 +268,14 @@ describe('product copy', () => {
     expect(release).toContain('Skip existing Runtime asset')
   })
 
+  it('finds Runtime assets below the downloaded artifact directory', () => {
+    const workflow = readFileSync('.github/workflows/desktop.yml', 'utf8')
+    const release = workflow.slice(workflow.indexOf('  release:'))
+
+    expect(release).toContain('find release-assets -type f')
+    expect(release).not.toContain('find release-assets -maxdepth 1')
+  })
+
   it('always ships a parseable fallback updater configuration', () => {
     const config = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8')) as {
       plugins?: { updater?: { pubkey?: string, endpoints?: string[] } }

@@ -226,7 +226,7 @@ jobs:
         run: |
           RUNTIME_TAG="runtime-v${MANAGED_RUNTIME_VERSION}"
           mapfile -d '' runtime_assets < <(
-            find release-assets -maxdepth 1 -type f \
+            find release-assets -type f \
               \( -name 'runtime-*.json' -o -name 'dsh-runtime-*' \) -print0
           )
           test "${#runtime_assets[@]}" -gt 0
