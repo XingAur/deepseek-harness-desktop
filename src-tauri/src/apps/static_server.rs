@@ -161,11 +161,18 @@ mod tests {
         tokio::spawn(serve_static(dir.path().to_path_buf(), port));
 
         let client = reqwest::Client::new();
-        let index = client
-            .get(format!("http://127.0.0.1:{port}/"))
-            .send()
-            .await
-            .unwrap();
+        // tokio::spawn 到监听建立之间存在竞态，限时轮询直到服务可达。
+        let mut attempts = 0_u8;
+        let index = loop {
+            attempts += 1;
+            match client.get(format!("http://127.0.0.1:{port}/")).send().await {
+                Ok(response) => break response,
+                Err(_) if attempts < 30 => {
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await
+                }
+                Err(cause) => panic!("Static service unreachable: {cause}"),
+            }
+        };
         assert_eq!(index.status(), 200);
         assert!(index.text().await.unwrap().contains("hi"));
 

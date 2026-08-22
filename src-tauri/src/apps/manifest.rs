@@ -180,12 +180,18 @@ mod tests {
 
     #[test]
     fn rejects_escaping_and_absolute_dirs() {
+        // 绝对路径的形式按平台选择：盘符路径仅在 Windows 上是绝对路径。
+        let absolute_data_dir = if cfg!(windows) { "C:/tmp" } else { "/tmp" };
+        let absolute_static_dir = if cfg!(windows) { "C:/www" } else { "/var/www" };
         assert!(parse_manifest(
             web_json("\"start\":[\"node\",\"a\"],\"dataDir\":\"../out\"").as_bytes()
         )
         .is_err());
         assert!(parse_manifest(
-            web_json("\"start\":[\"node\",\"a\"],\"dataDir\":\"C:/tmp\"").as_bytes()
+            web_json(&format!(
+                "\"start\":[\"node\",\"a\"],\"dataDir\":\"{absolute_data_dir}\""
+            ))
+            .as_bytes(),
         )
         .is_err());
         assert!(parse_manifest(
@@ -193,7 +199,7 @@ mod tests {
         )
         .is_err());
         assert!(parse_manifest(
-            b"{\"schemaVersion\":1,\"type\":\"static\",\"staticDir\":\"C:/www\"}"
+            format!("{{\"schemaVersion\":1,\"type\":\"static\",\"staticDir\":\"{absolute_static_dir}\"}}").as_bytes(),
         )
         .is_err());
     }
