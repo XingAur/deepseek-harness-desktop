@@ -8,7 +8,16 @@ use super::paths::validate_relative_path;
 pub const DEV_RELEASE_PUBLIC_KEY_BASE64URL: &str = "cmFlmJvjXIrMN8AbIXxF2c6Gnpt9rDFd_Zhbl0U7AlI";
 
 pub fn release_public_key() -> &'static str {
-    option_env!("DSH_DESKTOP_RELEASE_PUBLIC_KEY").unwrap_or(DEV_RELEASE_PUBLIC_KEY_BASE64URL)
+    // 测试夹具统一用仓库内 dev 密钥对签名；tag 构建编译进的正式公钥仅在非测试构建生效，
+    // 否则正式公钥会让测试签名校验失败。
+    #[cfg(test)]
+    {
+        DEV_RELEASE_PUBLIC_KEY_BASE64URL
+    }
+    #[cfg(not(test))]
+    {
+        option_env!("DSH_DESKTOP_RELEASE_PUBLIC_KEY").unwrap_or(DEV_RELEASE_PUBLIC_KEY_BASE64URL)
+    }
 }
 
 pub fn parse_and_verify_manifest(
