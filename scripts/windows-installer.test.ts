@@ -24,11 +24,13 @@ import {
 
 describe('Windows installer contract', () => {
   it('embeds the signed Runtime without installer-time hooks', () => {
-    const config = createWindowsTauriConfig('E:/repo')
+    // posix 上没有盘符路径：用平台各自的绝对根，避免 resolve 把 'E:/repo' 当相对路径。
+    const root = process.platform === 'win32' ? 'E:/repo' : '/opt/dsh-repo'
+    const config = createWindowsTauriConfig(root)
     expect(config.bundle.resources).toEqual({
-      'E:/repo/runtime-build/windows-x86_64/dsh-runtime-windows-x86_64.zip':
+      [`${root}/runtime-build/windows-x86_64/dsh-runtime-windows-x86_64.zip`]:
         'runtime/dsh-runtime-windows-x86_64.zip',
-      'E:/repo/runtime-build/windows-x86_64/runtime-windows-x86_64.json':
+      [`${root}/runtime-build/windows-x86_64/runtime-windows-x86_64.json`]:
         'runtime/manifests/runtime-windows-x86_64.json',
     })
     expect(config.bundle).not.toHaveProperty('windows')
@@ -162,19 +164,20 @@ describe('Windows installer contract', () => {
   })
 
   it('launches the pinned Tauri CLI through Node instead of a Windows cmd shim', () => {
+    const root = process.platform === 'win32' ? 'E:/repo' : '/opt/dsh-repo'
     const invocation = tauriBuildInvocation(
-      'E:/repo',
-      'E:/repo/generated.json',
-      ['E:/repo/src-tauri/tauri.release.conf.json'],
+      root,
+      `${root}/generated.json`,
+      [`${root}/src-tauri/tauri.release.conf.json`],
     )
     expect(invocation.command).toBe(process.execPath)
     expect(invocation.args).toEqual([
-      'E:/repo/node_modules/@tauri-apps/cli/tauri.js',
+      `${root}/node_modules/@tauri-apps/cli/tauri.js`,
       'build',
       '--config',
-      'E:/repo/generated.json',
+      `${root}/generated.json`,
       '--config',
-      'E:/repo/src-tauri/tauri.release.conf.json',
+      `${root}/src-tauri/tauri.release.conf.json`,
       '--bundles',
       'nsis',
     ])

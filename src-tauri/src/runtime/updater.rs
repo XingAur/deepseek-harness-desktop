@@ -153,7 +153,11 @@ impl RuntimeUpdater {
                 "Runtime 清单 target 与当前平台不匹配",
             ));
         }
+        // 测试夹具用本地 file:// 归档模拟在线清单；仅测试构建豁免 HTTPS 重定向校验，
+        // 发布构建仍要求签名清单指向受管 HTTPS 主机。
+        let test_file_fixture = cfg!(test) && manifest.url.scheme() == "file";
         if self.archive_source == CandidateArchiveSource::Download
+            && !test_file_fixture
             && let Some(endpoint) = manifest_endpoint()?
         {
             runtime_source_policy(endpoint)?.validate_redirect(&manifest.url)?;
@@ -416,7 +420,9 @@ impl RuntimeUpdater {
                 "Runtime 清单 target 与安装会话不匹配",
             ));
         }
-        if let Some(endpoint) = manifest_endpoint()? {
+        // 同上：file:// 仅在测试构建中允许绕过重定向校验。
+        let test_file_fixture = cfg!(test) && manifest.url.scheme() == "file";
+        if !test_file_fixture && let Some(endpoint) = manifest_endpoint()? {
             runtime_source_policy(endpoint)?.validate_redirect(&manifest.url)?;
         }
 
