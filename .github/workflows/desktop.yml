@@ -239,6 +239,21 @@ jobs:
               --notes "Immutable managed Runtime assets for DeepSeek Harness Desktop." \
               --prerelease
           fi
-          gh release upload "${RUNTIME_TAG}" \
+          existing_assets="$(gh release view "${RUNTIME_TAG}" \
             --repo "${{ github.repository }}" \
-            "${runtime_assets[@]}"
+            --json assets \
+            --jq '.assets[].name' || true)"
+          uploaded_count=0
+          for asset in "${runtime_assets[@]}"; do
+            asset_name="$(basename "${asset}")"
+            if grep -Fqx "${asset_name}" <<<"${existing_assets}"; then
+              echo "Skip existing Runtime asset: ${asset_name}"
+              continue
+            fi
+            gh release upload "${RUNTIME_TAG}" \
+              --repo "${{ github.repository }}" \
+              "${asset}"
+            existing_assets+=$'\n'"${asset_name}"
+            uploaded_count=$((uploaded_count + 1))
+          done
+          echo "Uploaded ${uploaded_count} new Runtime asset(s)."

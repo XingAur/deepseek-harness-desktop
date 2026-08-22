@@ -259,6 +259,15 @@ describe('product copy', () => {
     )
   })
 
+  it('skips Runtime assets that already exist in the managed release', () => {
+    const workflow = readFileSync('.github/workflows/desktop.yml', 'utf8')
+    const release = workflow.slice(workflow.indexOf('  release:'))
+
+    expect(release).toContain('existing_assets=')
+    expect(release).toContain('basename "${asset}"')
+    expect(release).toContain('Skip existing Runtime asset')
+  })
+
   it('always ships a parseable fallback updater configuration', () => {
     const config = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8')) as {
       plugins?: { updater?: { pubkey?: string, endpoints?: string[] } }
