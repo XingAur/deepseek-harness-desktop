@@ -210,8 +210,8 @@ describe('product copy', () => {
     const source = readFileSync('scripts/windows-installer.mjs', 'utf8')
     const workflow = readFileSync('.github/workflows/desktop.yml', 'utf8')
 
-    expect(source).toContain("export const MANAGED_RUNTIME_VERSION = '0.1.5-preview'")
-    expect(workflow).toContain('MANAGED_RUNTIME_VERSION: 0.1.5-preview')
+    expect(source).toContain("export const MANAGED_RUNTIME_VERSION = '0.1.6-preview'")
+    expect(workflow).toContain('MANAGED_RUNTIME_VERSION: 0.1.6-preview')
     expect(workflow).toContain(
       'releases/download/runtime-v${MANAGED_RUNTIME_VERSION}/dsh-runtime-',
     )
@@ -260,7 +260,7 @@ describe('product copy', () => {
   })
 
   it('keeps the desktop release version aligned across package manifests', () => {
-    const expectedVersion = '0.1.2'
+    const expectedVersion = '0.1.3'
     const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }
     const packageLock = readFileSync('package-lock.json', 'utf8')
     const tauriConfig = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8')) as { version: string }
@@ -276,13 +276,15 @@ describe('product copy', () => {
     )
   })
 
-  it('skips Runtime assets that already exist in the managed release', () => {
+  it('verifies Runtime assets that already exist in the managed release', () => {
     const workflow = readFileSync('.github/workflows/desktop.yml', 'utf8')
     const release = workflow.slice(workflow.indexOf('  release:'))
 
     expect(release).toContain('existing_assets=')
     expect(release).toContain('basename "${asset}"')
-    expect(release).toContain('Skip existing Runtime asset')
+    expect(release).toContain('Verified existing Runtime asset')
+    expect(release).toContain('gh release download "${RUNTIME_TAG}"')
+    expect(release).toContain('cmp -s "${asset}"')
   })
 
   it('finds Runtime assets below the downloaded artifact directory', () => {

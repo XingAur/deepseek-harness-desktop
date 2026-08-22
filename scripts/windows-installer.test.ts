@@ -52,10 +52,10 @@ describe('Windows installer contract', () => {
       const publicJwk = publicKey.export({ format: 'jwk' })
       const manifest = {
         schemaVersion: 1,
-        version: '0.1.5-preview',
+        version: '0.1.6-preview',
         dshVersion: '0.1.0-rc.8',
         target: 'windows-x86_64',
-        url: 'https://github.com/example/repo/releases/download/runtime-v0.1.5-preview/dsh-runtime-windows-x86_64.zip',
+        url: 'https://github.com/example/repo/releases/download/runtime-v0.1.6-preview/dsh-runtime-windows-x86_64.zip',
         size: archive.length,
         sha256: createHash('sha256').update(archive).digest('hex'),
         archive: 'zip',
@@ -78,18 +78,18 @@ describe('Windows installer contract', () => {
       })).toMatchObject({
         target: 'windows-x86_64',
         archive: 'zip',
-        version: '0.1.5-preview',
+        version: '0.1.6-preview',
       })
       const wrongRelease = {
         ...manifest,
-        url: 'https://github.com/example/repo/releases/download/runtime-v0.1.2-preview/dsh-runtime-windows-x86_64.zip',
+        url: 'https://github.com/example/repo/releases/download/runtime-v0.1.5-preview/dsh-runtime-windows-x86_64.zip',
       }
       writeFileSync(manifestPath, `${JSON.stringify(wrongRelease, null, 2)}\n`)
       expect(() => verifyBundledRuntime({
         manifestPath,
         archivePath,
         publicKey: publicJwk.x!,
-      })).toThrow(/runtime-v0.1.5-preview/)
+      })).toThrow(/runtime-v0.1.6-preview/)
       writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
       expect(() => verifyBundledRuntime({
         manifestPath,
@@ -102,7 +102,7 @@ describe('Windows installer contract', () => {
   })
 
   it('pins the managed Runtime release version', () => {
-    expect(MANAGED_RUNTIME_VERSION).toBe('0.1.5-preview')
+    expect(MANAGED_RUNTIME_VERSION).toBe('0.1.6-preview')
   })
 
   it('verifies the Runtime and writes the reusable Windows Tauri config', () => {
@@ -121,7 +121,7 @@ describe('Windows installer contract', () => {
         version: MANAGED_RUNTIME_VERSION,
         dshVersion: '0.1.0-rc.8',
         target: 'windows-x86_64',
-        url: 'https://github.com/example/repo/releases/download/runtime-v0.1.5-preview/dsh-runtime-windows-x86_64.zip',
+        url: 'https://github.com/example/repo/releases/download/runtime-v0.1.6-preview/dsh-runtime-windows-x86_64.zip',
         size: archive.length,
         sha256: createHash('sha256').update(archive).digest('hex'),
         archive: 'zip',
@@ -142,7 +142,7 @@ describe('Windows installer contract', () => {
         environment: {
           DSH_DESKTOP_RELEASE_PUBLIC_KEY: publicJwk.x!,
           DSH_DESKTOP_RUNTIME_MANIFEST_URL:
-            'https://github.com/example/repo/releases/download/runtime-v0.1.5-preview/runtime-{target}.json',
+            'https://github.com/example/repo/releases/download/runtime-v0.1.6-preview/runtime-{target}.json',
         },
       })
 

@@ -18,8 +18,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  MANAGED_RUNTIME_VERSION: 0.1.5-preview
-  DSH_DESKTOP_RUNTIME_MANIFEST_URL: https://github.com/${{ github.repository }}/releases/download/runtime-v0.1.5-preview/runtime-{target}.json
+  MANAGED_RUNTIME_VERSION: 0.1.6-preview
+  DSH_DESKTOP_RUNTIME_MANIFEST_URL: https://github.com/${{ github.repository }}/releases/download/runtime-v0.1.6-preview/runtime-{target}.json
 
 jobs:
   desktop:
@@ -244,10 +244,22 @@ jobs:
             --json assets \
             --jq '.assets[].name' || true)"
           uploaded_count=0
+          existing_asset_dir="${RUNNER_TEMP}/dsh-existing-runtime-assets"
+          mkdir -p "${existing_asset_dir}"
           for asset in "${runtime_assets[@]}"; do
             asset_name="$(basename "${asset}")"
             if grep -Fqx "${asset_name}" <<<"${existing_assets}"; then
-              echo "Skip existing Runtime asset: ${asset_name}"
+              existing_asset="${existing_asset_dir}/${asset_name}"
+              rm -f "${existing_asset}"
+              gh release download "${RUNTIME_TAG}" \
+                --repo "${{ github.repository }}" \
+                --pattern "${asset_name}" \
+                --dir "${existing_asset_dir}"
+              if ! cmp -s "${asset}" "${existing_asset}"; then
+                echo "::error::Existing Runtime asset differs from the newly signed asset: ${asset_name}. Use a new immutable Runtime version."
+                exit 1
+              fi
+              echo "Verified existing Runtime asset: ${asset_name}"
               continue
             fi
             gh release upload "${RUNTIME_TAG}" \
