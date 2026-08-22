@@ -463,8 +463,12 @@ mod tests {
 
         let protected =
             ProtectedRoots::detect_with_user_root(&project, alias, app, profile, runtime).unwrap();
-        assert!(validate_recycle_target(&user, &protected).is_err());
-        assert!(validate_recycle_target(dir.path(), &protected).is_err());
+        // 生产流程的候选目录来自 resolve_registered_workspace 的 canonicalize 结果；
+        // runner 的 TEMP 可能是 8.3 短名，先规范化再校验，保持与生产一致的比较基准。
+        let canonical_user = user.canonicalize().unwrap();
+        assert!(validate_recycle_target(&canonical_user, &protected).is_err());
+        let canonical_root = dir.path().canonicalize().unwrap();
+        assert!(validate_recycle_target(&canonical_root, &protected).is_err());
     }
 
     #[cfg(unix)]
