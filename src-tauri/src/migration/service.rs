@@ -314,7 +314,8 @@ fn available_space(path: &Path) -> Result<u64, RuntimeFailure> {
         return Err(RuntimeFailure::internal(std::io::Error::last_os_error()));
     }
     let stats = unsafe { stats.assume_init() };
-    Ok(stats.f_bavail.saturating_mul(stats.f_frsize))
+    // Darwin 的 statvfs 字段是 u32，先升宽再相乘，保持返回 u64。
+    Ok(u64::from(stats.f_bavail).saturating_mul(u64::from(stats.f_frsize)))
 }
 
 #[cfg(test)]
