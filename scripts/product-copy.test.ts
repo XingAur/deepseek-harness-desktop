@@ -259,6 +259,21 @@ describe('product copy', () => {
     )
   })
 
+  it('keeps the desktop release version aligned across package manifests', () => {
+    const expectedVersion = '0.1.2'
+    const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }
+    const packageLock = readFileSync('package-lock.json', 'utf8')
+    const tauriConfig = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8')) as { version: string }
+    const cargoManifest = readFileSync('src-tauri/Cargo.toml', 'utf8')
+    const cargoLock = readFileSync('src-tauri/Cargo.lock', 'utf8')
+
+    expect(packageJson.version).toBe(expectedVersion)
+    expect(packageLock).toContain(`"version": "${expectedVersion}"`)
+    expect(tauriConfig.version).toBe(expectedVersion)
+    expect(cargoManifest).toContain(`version = "${expectedVersion}"`)
+    expect(cargoLock).toContain(`name = "deepseek-harness-desktop"\nversion = "${expectedVersion}"`)
+  })
+
   it('skips Runtime assets that already exist in the managed release', () => {
     const workflow = readFileSync('.github/workflows/desktop.yml', 'utf8')
     const release = workflow.slice(workflow.indexOf('  release:'))
