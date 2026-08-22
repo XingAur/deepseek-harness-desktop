@@ -353,12 +353,13 @@ mod tests {
 
         fn same_payload_as_bundled() -> Self {
             let fixture = build_preparation_fixture(true, false);
+            let target = RuntimeTarget::current().unwrap();
             let manifest: RuntimeManifest = serde_json::from_slice(
                 &std::fs::read(
                     fixture
                         .paths
                         .bundled_runtime
-                        .join("manifests/runtime-windows-x86_64.json"),
+                        .join(format!("manifests/runtime-{}.json", target.as_str())),
                 )
                 .unwrap(),
             )
@@ -421,18 +422,19 @@ mod tests {
             }),
         ));
         let bundled_updater = bundled.then(|| {
+            let target = RuntimeTarget::current().unwrap();
             let manifests = paths.bundled_runtime.join("manifests");
             std::fs::create_dir_all(&manifests).unwrap();
             let source = manifest.url.to_file_path().unwrap();
             let destination = paths
                 .bundled_runtime
-                .join("dsh-runtime-windows-x86_64.tar.gz");
+                .join(format!("dsh-runtime-{}.tar.gz", target.as_str()));
             std::fs::copy(source, &destination).unwrap();
             if corrupt {
                 std::fs::write(&destination, vec![0_u8; manifest.size as usize]).unwrap();
             }
             std::fs::write(
-                manifests.join("runtime-windows-x86_64.json"),
+                manifests.join(format!("runtime-{}.json", target.as_str())),
                 serde_json::to_vec_pretty(&manifest).unwrap(),
             )
             .unwrap();
@@ -474,7 +476,7 @@ mod tests {
             schema_version: 1,
             version: Version::parse(runtime_version).unwrap(),
             dsh_version: Version::parse("0.1.0-rc.7").unwrap(),
-            target: RuntimeTarget::WindowsX86_64,
+            target: RuntimeTarget::current().unwrap(),
             url: url::Url::from_file_path(&archive_path).unwrap(),
             size: bytes.len() as u64,
             sha256: hex::encode(Sha256::digest(&bytes)),

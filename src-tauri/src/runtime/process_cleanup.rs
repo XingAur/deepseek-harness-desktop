@@ -220,46 +220,61 @@ mod tests {
         }
     }
 
-    fn identity(pid: u32, executable: &str) -> ProcessIdentity {
+    fn identity(pid: u32, executable: impl Into<PathBuf>) -> ProcessIdentity {
         ProcessIdentity {
             pid,
             parent_pid: 0,
-            executable: PathBuf::from(executable),
+            executable: executable.into(),
+        }
+    }
+
+    fn runtime_root() -> PathBuf {
+        if cfg!(windows) {
+            PathBuf::from(r"C:\Users\test\AppData\Local\ai.deepseek.harness.desktop\runtime")
+        } else {
+            PathBuf::from(
+                "/Users/test/Library/Application Support/ai.deepseek.harness.desktop/runtime",
+            )
+        }
+    }
+
+    fn external_node_path() -> PathBuf {
+        if cfg!(windows) {
+            PathBuf::from(r"C:\Program Files\nodejs\node.exe")
+        } else {
+            PathBuf::from("/usr/local/bin/node")
         }
     }
 
     #[test]
     fn selects_only_processes_beneath_the_managed_runtime_root() {
-        let root =
-            PathBuf::from(r"C:\Users\test\AppData\Local\ai.deepseek.harness.desktop\runtime");
+        let root = runtime_root();
         let processes = vec![
-            identity(
-                41,
-                r"C:\Users\test\AppData\Local\ai.deepseek.harness.desktop\runtime\versions\0.1.0-preview\node.exe",
-            ),
-            identity(42, r"C:\Program Files\nodejs\node.exe"),
-            identity(43, r"E:\code\project\node_modules\node.exe"),
+            identity(41, root.join("versions/0.1.0-preview/node")),
+            identity(42, external_node_path()),
+            identity(43, PathBuf::from("/tmp/project/node_modules/node")),
         ];
         assert_eq!(select_managed(&root, 99, processes), vec![41]);
     }
 
     #[test]
     fn selector_excludes_the_current_process_and_prefix_lookalikes() {
-        let root = PathBuf::from(r"C:\app\runtime");
+        let root = runtime_root();
+        let lookalike = root.with_file_name("runtime-evil");
         let processes = vec![
-            identity(7, r"C:\app\runtime\versions\v\node.exe"),
-            identity(8, r"C:\app\runtime-evil\node.exe"),
+            identity(7, root.join("versions/v/node")),
+            identity(8, lookalike.join("node")),
         ];
         assert!(select_managed(&root, 7, processes).is_empty());
     }
 
     #[test]
     fn shutdown_terminates_only_selected_pids_and_reports_timeouts() {
-        let root = PathBuf::from(r"C:\app\runtime");
+        let root = runtime_root();
         let fake = FakePlatformAdapter::new(
             vec![
-                identity(11, r"C:\app\runtime\versions\v\node.exe"),
-                identity(12, r"C:\Program Files\nodejs\node.exe"),
+                identity(11, root.join("versions/v/node")),
+                identity(12, external_node_path()),
             ],
             &[(11, 10)],
         );
@@ -274,11 +289,9 @@ mod tests {
 
     #[test]
     fn shutdown_succeeds_after_the_managed_process_exits() {
-        let root = PathBuf::from(r"C:\app\runtime");
-        let fake = FakePlatformAdapter::new(
-            vec![identity(21, r"C:\app\runtime\versions\v\node.exe")],
-            &[(21, 1)],
-        );
+        let root = runtime_root();
+        let fake =
+            FakePlatformAdapter::new(vec![identity(21, root.join("versions/v/node"))], &[(21, 1)]);
 
         let report = shutdown_with_policy(&fake, &root, 99, ShutdownPolicy::test(2)).unwrap();
 

@@ -342,7 +342,7 @@ pub(crate) fn path_key(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
     #[cfg(unix)]
     use super::canonicalize_protected_root;
@@ -496,23 +496,15 @@ mod tests {
 
     #[test]
     fn rejects_protected_roots_and_their_ancestors() {
-        let protected = ProtectedRoots::fixture(
-            PathBuf::from("C:/Users/test"),
-            PathBuf::from("C:/Users/test/AppData/Local/dsh"),
-        );
+        let temporary = tempfile::tempdir().unwrap();
+        let user_root = temporary.path().join("Users/test");
+        let desktop_data_root = user_root.join("AppData/Local/dsh");
+        let protected = ProtectedRoots::fixture(user_root.clone(), desktop_data_root.clone());
         for candidate in protected.all() {
             assert!(validate_recycle_target(candidate, &protected).is_err());
         }
-        assert!(
-            validate_recycle_target(Path::new("C:/Users/test/Projects/demo"), &protected,).is_ok()
-        );
-        assert!(
-            validate_recycle_target(
-                Path::new("C:/Users/test/AppData/Local/dsh/state"),
-                &protected,
-            )
-            .is_err()
-        );
+        assert!(validate_recycle_target(&user_root.join("Projects/demo"), &protected,).is_ok());
+        assert!(validate_recycle_target(&desktop_data_root.join("state"), &protected,).is_err());
     }
 
     fn write_workspace_storage(profile: &Path, id: &str, path: &Path) {

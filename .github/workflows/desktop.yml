@@ -34,15 +34,12 @@ jobs:
             runtime_extension: zip
             rust_target: x86_64-pc-windows-msvc
             tauri_args: '--config src-tauri/target/windows-installer/tauri.windows-installer.conf.json'
-          # TODO(macos): 暂时摘除 macOS 腿——既有 Rust 测试夹具按 Windows/Linux 写死
-          # （Runtime target、盘符路径、/proc 进程枚举），在 darwin 上从未绿过。
-          # 平台参数化完成后恢复此矩阵项：
-          # - name: macOS Apple Silicon
-          #   runner: macos-15
-          #   runtime_target: darwin-aarch64
-          #   runtime_extension: tar.gz
-          #   rust_target: aarch64-apple-darwin
-          #   tauri_args: '--target aarch64-apple-darwin'
+          - name: macOS Apple Silicon
+            runner: macos-15
+            runtime_target: darwin-aarch64
+            runtime_extension: tar.gz
+            rust_target: aarch64-apple-darwin
+            tauri_args: '--target aarch64-apple-darwin'
     runs-on: ${{ matrix.runner }}
     env:
       DSH_DESKTOP_SIGNING_PUBLIC_KEY: ${{ startsWith(github.ref, 'refs/tags/') && secrets.DSH_DESKTOP_SIGNING_PUBLIC_KEY || 'cmFlmJvjXIrMN8AbIXxF2c6Gnpt9rDFd_Zhbl0U7AlI' }}
@@ -214,7 +211,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     needs: desktop
     runs-on: ubuntu-latest
     steps:

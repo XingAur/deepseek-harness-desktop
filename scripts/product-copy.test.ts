@@ -250,6 +250,15 @@ describe('product copy', () => {
     expect(release).not.toContain('gh release upload "${{ github.ref_name }}"')
   })
 
+  it('can publish managed Runtime assets from a manually dispatched build', () => {
+    const workflow = readFileSync('.github/workflows/desktop.yml', 'utf8')
+    const release = workflow.slice(workflow.indexOf('  release:'))
+
+    expect(release).toContain(
+      "if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'",
+    )
+  })
+
   it('always ships a parseable fallback updater configuration', () => {
     const config = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8')) as {
       plugins?: { updater?: { pubkey?: string, endpoints?: string[] } }

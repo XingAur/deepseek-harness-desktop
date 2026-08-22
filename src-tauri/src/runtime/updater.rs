@@ -825,6 +825,18 @@ struct BundledManifestSource {
     paths: RuntimePaths,
 }
 
+fn manifest_url_for_target(
+    endpoint: url::Url,
+    target: RuntimeTarget,
+) -> Result<url::Url, RuntimeFailure> {
+    let url = endpoint
+        .as_str()
+        .replace("%7Btarget%7D", target.as_str())
+        .replace("%7btarget%7d", target.as_str())
+        .replace("{target}", target.as_str());
+    url::Url::parse(&url).map_err(RuntimeFailure::internal)
+}
+
 impl RuntimeManifestSource for BundledManifestSource {
     fn fetch<'a>(
         &'a self,
@@ -854,8 +866,7 @@ impl RuntimeManifestSource for ReleaseManifestSource {
     ) -> Pin<Box<dyn Future<Output = Result<RuntimeManifest, RuntimeFailure>> + Send + 'a>> {
         Box::pin(async move {
             let bytes = if let Some(endpoint) = manifest_endpoint()? {
-                let url = endpoint.as_str().replace("{target}", target.as_str());
-                let parsed = url::Url::parse(&url).map_err(RuntimeFailure::internal)?;
+                let parsed = manifest_url_for_target(endpoint, target)?;
                 runtime_source_policy(parsed.clone())?;
                 self.client
                     .get(parsed)
@@ -1010,8 +1021,11 @@ mod tests {
     use semver::Version;
     use sha2::{Digest, Sha256};
     use tokio_util::sync::CancellationToken;
+    use url::Url;
 
-    use super::{RuntimeManifestSource, RuntimeUpdater};
+    use super::{
+        RuntimeManifestSource, RuntimeUpdater, bundled_archive_name, manifest_url_for_target,
+    };
     use crate::{
         provisioning::{model::ProvisioningSession, receipt::ProvisioningReceiptStore},
         runtime::{
@@ -1025,6 +1039,21 @@ mod tests {
             paths::RuntimePaths,
         },
     };
+
+    #[test]
+    fn manifest_url_replaces_encoded_target_placeholder() {
+        let endpoint = Url::parse(
+            "https://github.com/XingAur/deepseek-harness-desktop/releases/download/runtime-v0.1.5-preview/runtime-{target}.json",
+        )
+        .unwrap();
+
+        let resolved = manifest_url_for_target(endpoint, RuntimeTarget::DarwinAarch64).unwrap();
+
+        assert_eq!(
+            resolved.as_str(),
+            "https://github.com/XingAur/deepseek-harness-desktop/releases/download/runtime-v0.1.5-preview/runtime-darwin-aarch64.json"
+        );
+    }
 
     #[derive(Default)]
     struct FakeManifestSource {
@@ -1119,6 +1148,10 @@ mod tests {
         }
     }
 
+    fn current_target() -> RuntimeTarget {
+        RuntimeTarget::current().unwrap()
+    }
+
     fn manifest_for_archive(root: &std::path::Path, version: &str, body: &[u8]) -> RuntimeManifest {
         let archive_path = root.join(format!("runtime-{version}.tar.gz"));
         let encoder = GzEncoder::new(Vec::new(), Compression::default());
@@ -1140,7 +1173,7 @@ mod tests {
             schema_version: 1,
             version: Version::parse(version).unwrap(),
             dsh_version: Version::parse("0.1.0-rc.7").unwrap(),
-            target: RuntimeTarget::WindowsX86_64,
+            target: current_target(),
             url: url::Url::from_file_path(&archive_path).unwrap(),
             size: bytes.len() as u64,
             sha256: hex::encode(Sha256::digest(&bytes)),
@@ -1174,6 +1207,7 @@ mod tests {
     }
 
     fn write_bundled_runtime(fixture: &UpdaterFixture, manifest: &RuntimeManifest) {
+        let target = current_target();
         let manifests = fixture.paths.bundled_runtime.join("manifests");
         std::fs::create_dir_all(&manifests).unwrap();
         std::fs::copy(
@@ -1181,11 +1215,11 @@ mod tests {
             fixture
                 .paths
                 .bundled_runtime
-                .join("dsh-runtime-windows-x86_64.tar.gz"),
+                .join(bundled_archive_name(target, manifest.archive)),
         )
         .unwrap();
         std::fs::write(
-            manifests.join("runtime-windows-x86_64.json"),
+            manifests.join(format!("runtime-{}.json", target.as_str())),
             serde_json::to_vec_pretty(manifest).unwrap(),
         )
         .unwrap();
@@ -1201,7 +1235,7 @@ mod tests {
         let session = ProvisioningSession {
             id: uuid::Uuid::new_v4(),
             desktop_version: Version::new(0, 1, 0),
-            target: RuntimeTarget::WindowsX86_64,
+            target: current_target(),
             started_at: chrono::Utc::now(),
         };
 
@@ -1215,7 +1249,7 @@ mod tests {
             fixture
                 .paths
                 .bundled_runtime
-                .join("dsh-runtime-windows-x86_64.tar.gz")
+                .join(bundled_archive_name(current_target(), manifest.archive))
                 .is_file()
         );
         assert_eq!(
@@ -1233,14 +1267,14 @@ mod tests {
         let bundled_archive = fixture
             .paths
             .bundled_runtime
-            .join("dsh-runtime-windows-x86_64.tar.gz");
+            .join(bundled_archive_name(current_target(), manifest.archive));
         std::fs::write(&bundled_archive, vec![0_u8; manifest.size as usize]).unwrap();
         let updater =
             RuntimeUpdater::new_bundled(fixture.paths.clone(), reqwest::Client::new()).unwrap();
         let session = ProvisioningSession {
             id: uuid::Uuid::new_v4(),
             desktop_version: Version::new(0, 1, 0),
-            target: RuntimeTarget::WindowsX86_64,
+            target: current_target(),
             started_at: chrono::Utc::now(),
         };
 
@@ -1325,7 +1359,7 @@ mod tests {
         let session = ProvisioningSession {
             id: uuid::Uuid::new_v4(),
             desktop_version: Version::new(0, 1, 0),
-            target: RuntimeTarget::WindowsX86_64,
+            target: current_target(),
             started_at: chrono::Utc::now(),
         };
         let prepared = fixture
@@ -1371,7 +1405,7 @@ mod tests {
         let session = ProvisioningSession {
             id: uuid::Uuid::new_v4(),
             desktop_version: receipt.desktop_version,
-            target: RuntimeTarget::WindowsX86_64,
+            target: current_target(),
             started_at: chrono::Utc::now(),
         };
         let prepared = fixture
