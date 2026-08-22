@@ -210,8 +210,8 @@ describe('product copy', () => {
     const source = readFileSync('scripts/windows-installer.mjs', 'utf8')
     const workflow = readFileSync('.github/workflows/desktop.yml', 'utf8')
 
-    expect(source).toContain("export const MANAGED_RUNTIME_VERSION = '0.1.4-preview'")
-    expect(workflow).toContain('MANAGED_RUNTIME_VERSION: 0.1.4-preview')
+    expect(source).toContain("export const MANAGED_RUNTIME_VERSION = '0.1.5-preview'")
+    expect(workflow).toContain('MANAGED_RUNTIME_VERSION: 0.1.5-preview')
     expect(workflow).toContain(
       'releases/download/runtime-v${MANAGED_RUNTIME_VERSION}/dsh-runtime-',
     )
