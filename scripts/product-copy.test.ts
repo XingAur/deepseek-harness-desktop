@@ -216,8 +216,8 @@ describe('product copy', () => {
     const source = readFileSync('scripts/windows-installer.mjs', 'utf8')
     const workflow = readFileSync('.github/workflows/desktop.yml', 'utf8')
 
-    expect(source).toContain("export const MANAGED_RUNTIME_VERSION = '0.1.7-preview'")
-    expect(workflow).toContain('MANAGED_RUNTIME_VERSION: 0.1.7-preview')
+    expect(source).toContain("export const MANAGED_RUNTIME_VERSION = '0.1.8-preview'")
+    expect(workflow).toContain('MANAGED_RUNTIME_VERSION: 0.1.8-preview')
     expect(workflow).toContain(
       'releases/download/runtime-v${MANAGED_RUNTIME_VERSION}/dsh-runtime-',
     )
@@ -279,7 +279,7 @@ describe('product copy', () => {
   })
 
   it('keeps the desktop release version aligned across package manifests', () => {
-    const expectedVersion = '0.1.6'
+    const expectedVersion = '0.1.7'
     const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }
     const packageLock = readFileSync('package-lock.json', 'utf8')
     const tauriConfig = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8')) as { version: string }

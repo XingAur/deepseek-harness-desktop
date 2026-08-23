@@ -1087,7 +1087,7 @@ mod tests {
     #[test]
     fn manifest_url_replaces_encoded_target_placeholder() {
         let endpoint = Url::parse(
-            "https://github.com/XingAur/deepseek-harness-desktop/releases/download/runtime-v0.1.7-preview/runtime-{target}.json",
+            "https://github.com/XingAur/deepseek-harness-desktop/releases/download/runtime-v0.1.8-preview/runtime-{target}.json",
         )
         .unwrap();
 
@@ -1095,7 +1095,7 @@ mod tests {
 
         assert_eq!(
             resolved.as_str(),
-            "https://github.com/XingAur/deepseek-harness-desktop/releases/download/runtime-v0.1.7-preview/runtime-darwin-aarch64.json"
+            "https://github.com/XingAur/deepseek-harness-desktop/releases/download/runtime-v0.1.8-preview/runtime-darwin-aarch64.json"
         );
     }
 

@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 
 import { canonicalJson } from './canonical-json.mjs'
 
-export const MANAGED_RUNTIME_VERSION = '0.1.7-preview'
+export const MANAGED_RUNTIME_VERSION = '0.1.8-preview'
 const MANAGED_RUNTIME_RELEASE_PATH = `/releases/download/runtime-v${MANAGED_RUNTIME_VERSION}/`
 
 const portable = (value) => value.replaceAll('\\', '/')

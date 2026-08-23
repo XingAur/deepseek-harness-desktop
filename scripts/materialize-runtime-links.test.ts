@@ -34,7 +34,9 @@ describe('Runtime archive link materialization', () => {
 
       expect(lstatSync(join(bin, 'node')).isSymbolicLink()).toBe(false)
       expect(readFileSync(join(bin, 'node'), 'utf8')).toBe('node binary')
-      expect(lstatSync(join(bin, 'node')).mode & 0o111).not.toBe(0)
+      if (process.platform !== 'win32') {
+        expect(lstatSync(join(bin, 'node')).mode & 0o111).not.toBe(0)
+      }
       expect(lstatSync(join(bin, 'target.js')).isSymbolicLink()).toBe(false)
       expect(readFileSync(join(bin, 'target.js'), 'utf8')).toBe('target')
     } finally {
