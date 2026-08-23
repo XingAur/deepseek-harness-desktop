@@ -12,7 +12,10 @@ export function updaterConfig(publicKey, endpoint = productionUpdaterEndpoint) {
     throw new Error('应用更新地址必须使用固定的 GitHub latest.json endpoint')
   }
   return {
-    bundle: { createUpdaterArtifacts: true },
+    bundle: {
+      createUpdaterArtifacts: true,
+      resources: ['runtime'],
+    },
     plugins: {
       updater: {
         pubkey: publicKey.trim(),

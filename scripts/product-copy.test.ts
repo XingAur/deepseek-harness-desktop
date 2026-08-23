@@ -224,6 +224,10 @@ describe('product copy', () => {
     expect(workflow).toContain(
       "tauri_args: '--config src-tauri/target/windows-installer/tauri.windows-installer.conf.json'",
     )
+    expect(workflow).toContain('cp "$RUNTIME_DIR/$ARCHIVE_NAME" "runtime/$ARCHIVE_NAME"')
+    expect(readFileSync('scripts/write-updater-config.mjs', 'utf8')).toContain(
+      "resources: ['runtime']",
+    )
     const prepareConfig = workflow.indexOf('- name: Prepare Windows installer config')
     const signManifest = workflow.indexOf('- name: Sign and stage Runtime manifest')
     const buildInstaller = workflow.indexOf('- name: Build Tauri installer')
@@ -232,7 +236,7 @@ describe('product copy', () => {
     expect(prepareConfig).toBeLessThan(buildInstaller)
     expect(workflow).toContain('node scripts/windows-installer.mjs --prepare-config')
     expect(workflow).toContain(
-      'args: ${{ matrix.tauri_args }} ${{ env.TAURI_RELEASE_CONFIG_ARGS }}',
+      'args: ${{ env.TAURI_RELEASE_CONFIG_ARGS }} ${{ matrix.tauri_args }}',
     )
   })
 
@@ -279,7 +283,7 @@ describe('product copy', () => {
   })
 
   it('keeps the desktop release version aligned across package manifests', () => {
-    const expectedVersion = '0.1.8'
+    const expectedVersion = '0.1.9'
     const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }
     const packageLock = readFileSync('package-lock.json', 'utf8')
     const tauriConfig = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8')) as { version: string }

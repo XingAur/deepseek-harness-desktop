@@ -25,6 +25,18 @@ impl NavigationPolicy {
                 && url.port() == Some(1420))
     }
 
+    pub fn managed_loopback(url: &Url) -> bool {
+        url.username().is_empty()
+            && url.password().is_none()
+            && url.scheme() == "http"
+            && url.host_str() == Some("127.0.0.1")
+            && url.port().is_some()
+    }
+
+    pub fn desktop_webview(url: &Url) -> bool {
+        Self::top_level(url) || Self::managed_loopback(url)
+    }
+
     pub fn external(url: &Url) -> ExternalDecision {
         if url.scheme() == "https"
             && url.host_str().is_some()
@@ -73,6 +85,12 @@ mod tests {
         assert!(!NavigationPolicy::top_level(
             &Url::parse("http://127.0.0.1:39000/").unwrap()
         ));
+        assert!(NavigationPolicy::managed_loopback(
+            &Url::parse("http://127.0.0.1:39000/?dsh-desktop-mode=advanced").unwrap()
+        ));
+        assert!(NavigationPolicy::desktop_webview(
+            &Url::parse("http://127.0.0.1:39000/?dsh-desktop-mode=advanced").unwrap()
+        ));
         assert!(!NavigationPolicy::top_level(
             &Url::parse("file:///C:/secret").unwrap()
         ));
@@ -97,6 +115,21 @@ mod tests {
         ] {
             assert!(
                 !NavigationPolicy::top_level(&Url::parse(url).unwrap()),
+                "{url}"
+            );
+        }
+    }
+
+    #[test]
+    fn only_allows_managed_loopback_pages_for_the_embedded_workbench() {
+        for url in [
+            "http://localhost:39000/",
+            "http://127.0.0.1/",
+            "https://127.0.0.1:39000/",
+            "http://user:pass@127.0.0.1:39000/",
+        ] {
+            assert!(
+                !NavigationPolicy::managed_loopback(&Url::parse(url).unwrap()),
                 "{url}"
             );
         }

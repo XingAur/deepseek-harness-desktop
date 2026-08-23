@@ -4,7 +4,10 @@ import { productionUpdaterEndpoint, updaterConfig } from './write-updater-config
 describe('application updater release config', () => {
   it('writes the production public key and GitHub latest endpoint', () => {
     const config = updaterConfig('PUBLIC-KEY', productionUpdaterEndpoint)
-    expect(config.bundle.createUpdaterArtifacts).toBe(true)
+    expect(config.bundle).toMatchObject({
+      createUpdaterArtifacts: true,
+      resources: ['runtime'],
+    })
     expect(config.plugins.updater.pubkey).toBe('PUBLIC-KEY')
     expect(config.plugins.updater.endpoints).toEqual([productionUpdaterEndpoint])
     expect(config.plugins.updater.windows.installMode).toBe('passive')

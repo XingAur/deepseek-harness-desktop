@@ -215,7 +215,7 @@ fn run_desktop() {
                 .find(|config| config.label == "main")
                 .ok_or("缺少 main window 配置")?;
             let window = WebviewWindowBuilder::from_config(app, config)?
-                .on_navigation(navigation::NavigationPolicy::top_level)
+                .on_navigation(navigation::NavigationPolicy::desktop_webview)
                 .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
                 .on_download(|_, _| false)
                 .build()?;
