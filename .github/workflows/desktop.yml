@@ -416,8 +416,16 @@ jobs:
         run: |
           set -euo pipefail
           DESKTOP_TAG="desktop-v${DESKTOP_VERSION}"
-          if gh release view "${DESKTOP_TAG}" --json isDraft,assets > "${RUNNER_TEMP}/desktop-release-before.json" 2>/dev/null; then
-            IS_DRAFT="$(node -p "JSON.parse(require('fs').readFileSync(process.argv[1])).isDraft" "${RUNNER_TEMP}/desktop-release-before.json")"
+          mapfile -t DESKTOP_RELEASE_IDS < <(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            --jq ".[] | select(.tag_name == \"${DESKTOP_TAG}\") | .id")
+          if [[ "${#DESKTOP_RELEASE_IDS[@]}" -gt 1 ]]; then
+            echo "::error::Multiple desktop Releases use ${DESKTOP_TAG}; automatic publication is blocked."
+            exit 1
+          fi
+          if [[ "${#DESKTOP_RELEASE_IDS[@]}" -eq 1 ]]; then
+            DESKTOP_RELEASE_ID="${DESKTOP_RELEASE_IDS[0]}"
+            gh api "repos/${GITHUB_REPOSITORY}/releases/${DESKTOP_RELEASE_ID}" > "${RUNNER_TEMP}/desktop-release-before.json"
+            IS_DRAFT="$(node -p "JSON.parse(require('fs').readFileSync(process.argv[1])).draft" "${RUNNER_TEMP}/desktop-release-before.json")"
             HAS_MARKER="$(node -p "JSON.parse(require('fs').readFileSync(process.argv[1])).assets.some(a => a.name === 'desktop-release.json')" "${RUNNER_TEMP}/desktop-release-before.json")"
             if [[ "${IS_DRAFT}" != 'true' && "${HAS_MARKER}" != 'true' ]]; then
               echo '::error::Public desktop Release is incomplete; automatic mutation is blocked.'
@@ -426,8 +434,13 @@ jobs:
           else
             gh release create "${DESKTOP_TAG}" --draft --target "${GITHUB_SHA}" --title "DeepSeek Harness Desktop ${DESKTOP_VERSION}" --notes 'Windows x64 supports signed in-app updates. The macOS Apple Silicon DMG is not Developer ID signed or notarized and is updated by manual replacement.'
             IS_DRAFT=true
+            mapfile -t DESKTOP_RELEASE_IDS < <(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --jq ".[] | select(.tag_name == \"${DESKTOP_TAG}\") | .id")
+            test "${#DESKTOP_RELEASE_IDS[@]}" -eq 1
+            DESKTOP_RELEASE_ID="${DESKTOP_RELEASE_IDS[0]}"
           fi
           echo "is_draft=${IS_DRAFT}" >> "${GITHUB_OUTPUT}"
+          echo "release_id=${DESKTOP_RELEASE_ID}" >> "${GITHUB_OUTPUT}"
 
       - name: Upload or verify immutable desktop assets
         shell: bash
@@ -436,7 +449,10 @@ jobs:
         run: |
           set -euo pipefail
           DESKTOP_TAG="desktop-v${DESKTOP_VERSION}"
-          existing_names="$(gh release view "${DESKTOP_TAG}" --json assets --jq '.assets[].name' || true)"
+          DESKTOP_RELEASE_ID="${{ steps.draft.outputs.release_id }}"
+          release_json="${RUNNER_TEMP}/desktop-release-assets.json"
+          gh api "repos/${GITHUB_REPOSITORY}/releases/${DESKTOP_RELEASE_ID}" > "${release_json}"
+          existing_names="$(node -e "const r=JSON.parse(require('fs').readFileSync(process.argv[1])); for (const asset of r.assets) console.log(asset.name)" "${release_json}")"
           existing_dir="${RUNNER_TEMP}/existing-desktop"
           mkdir -p "${existing_dir}"
           desktop_assets=(desktop-assets/* release-output/latest.json release-output/desktop-release.json)
@@ -444,7 +460,10 @@ jobs:
           for asset in "${desktop_assets[@]}"; do
             name="$(basename "${asset}")"
             if grep -Fqx "${name}" <<<"${existing_names}"; then
-              gh release download "${DESKTOP_TAG}" --pattern "${name}" --dir "${existing_dir}"
+              asset_id="$(node -p "JSON.parse(require('fs').readFileSync(process.argv[1])).assets.find(a => a.name === process.argv[2])?.id || ''" "${release_json}" "${name}")"
+              test -n "${asset_id}"
+              gh api "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}" \
+                -H 'Accept: application/octet-stream' > "${existing_dir}/${name}"
               cmp -s "${asset}" "${existing_dir}/${name}" || { echo "::error::Immutable desktop asset differs: ${name}"; exit 1; }
             else
               test "${{ steps.draft.outputs.is_draft }}" = 'true'
@@ -460,7 +479,7 @@ jobs:
           for asset in "${desktop_assets[@]}"; do basename "${asset}"; done | sort > "${expected_desktop_file}"
           desktop_assets_visible=false
           for attempt in {1..12}; do
-            if gh release view "${DESKTOP_TAG}" --json assets --jq '.assets[].name' | sort > "${final_desktop_file}" && \
+            if gh api "repos/${GITHUB_REPOSITORY}/releases/${DESKTOP_RELEASE_ID}" --jq '.assets[].name' | sort > "${final_desktop_file}" && \
               cmp -s "${expected_desktop_file}" "${final_desktop_file}"; then
               desktop_assets_visible=true
               break
@@ -482,5 +501,5 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          DESKTOP_TAG="desktop-v${DESKTOP_VERSION}"
-          gh release edit "${DESKTOP_TAG}" --draft=false --latest
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${{ steps.draft.outputs.release_id }}" \
+            -F draft=false -f make_latest=true > /dev/null
