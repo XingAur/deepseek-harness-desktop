@@ -525,6 +525,7 @@ mod tests {
             name: "测试".to_string(),
             data_root: root.to_path_buf(),
             permission_mode: PermissionMode::WorkspaceWrite,
+            agent_permission_default: Default::default(),
             revision: 1,
             created_at: now,
             updated_at: now,

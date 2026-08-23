@@ -1,0 +1,14 @@
+{
+  "selectedProfile": {
+    "profileId": "11111111-1111-4111-8111-111111111111",
+    "revision": 7
+  },
+  "pending": null,
+  "lastKnownGood": {
+    "profileId": "11111111-1111-4111-8111-111111111111",
+    "revision": 7,
+    "runtimeVersion": "1.8.2",
+    "verifiedAt": "2026-08-02T04:05:06Z"
+  },
+  "failedAttempts": []
+}

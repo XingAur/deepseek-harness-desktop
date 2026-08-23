@@ -331,6 +331,7 @@ mod tests {
             name: "测试".to_string(),
             data_root: PathBuf::from("C:/数据/profile"),
             permission_mode: PermissionMode::WorkspaceWrite,
+            agent_permission_default: Default::default(),
             revision: 7,
             created_at: now,
             updated_at: now,

@@ -1,0 +1,20 @@
+[
+  {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "name": "Legacy Read Only",
+    "dataRoot": "/tmp/legacy-read-only",
+    "permissionMode": "read-only",
+    "revision": 7,
+    "createdAt": "2026-08-01T01:02:03Z",
+    "updatedAt": "2026-08-02T04:05:06Z"
+  },
+  {
+    "id": "22222222-2222-4222-8222-222222222222",
+    "name": "Legacy Workspace Write",
+    "dataRoot": "/tmp/legacy-workspace-write",
+    "permissionMode": "workspace-write",
+    "revision": 9,
+    "createdAt": "2026-08-03T01:02:03Z",
+    "updatedAt": "2026-08-04T04:05:06Z"
+  }
+]

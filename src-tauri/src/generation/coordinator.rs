@@ -1186,6 +1186,7 @@ mod tests {
             name: name.to_string(),
             data_root,
             permission_mode: PermissionMode::WorkspaceWrite,
+            agent_permission_default: Default::default(),
             revision: 1,
             created_at: now,
             updated_at: now,

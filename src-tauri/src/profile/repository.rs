@@ -44,6 +44,7 @@ impl ProfileRepository {
             name: draft.name.trim().to_string(),
             data_root: draft.data_root,
             permission_mode: draft.permission_mode,
+            agent_permission_default: Default::default(),
             revision: 1,
             created_at: now,
             updated_at: now,
@@ -369,6 +370,33 @@ fn fatal(message: impl Into<String>) -> RuntimeFailure {
 mod tests {
     use super::ProfileRepository;
     use crate::profile::model::{ActivationReason, ProfileDraft};
+
+    const LEGACY_PROFILES: &str = include_str!("fixtures/legacy_profiles.json");
+    const LEGACY_STATE: &str = include_str!("fixtures/legacy_state.json");
+
+    #[test]
+    fn legacy_profile_update_is_atomic_and_preserves_unrelated_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let profiles_path = dir.path().join("profiles.json");
+        let state_path = dir.path().join("state.json");
+        std::fs::write(&profiles_path, LEGACY_PROFILES).unwrap();
+        std::fs::write(&state_path, LEGACY_STATE).unwrap();
+        let before: serde_json::Value = serde_json::from_str(LEGACY_PROFILES).unwrap();
+        let repo = ProfileRepository::open(dir.path().to_path_buf()).unwrap();
+        let profile = repo.list().unwrap().remove(0);
+
+        repo.update(&profile.id, profile.revision, Default::default())
+            .unwrap();
+
+        let after: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&profiles_path).unwrap()).unwrap();
+        assert_eq!(after[0]["id"], before[0]["id"]);
+        assert_eq!(after[0]["dataRoot"], before[0]["dataRoot"]);
+        assert_eq!(after[0]["permissionMode"], before[0]["permissionMode"]);
+        assert_eq!(after[1], before[1]);
+        assert!(!profiles_path.with_extension("json.tmp").exists());
+        assert!(!profiles_path.with_extension("json.bak").exists());
+    }
 
     #[test]
     fn failed_pending_activation_restores_last_known_good() {

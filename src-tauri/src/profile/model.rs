@@ -13,6 +13,21 @@ pub enum PermissionMode {
     WorkspaceWrite,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum AgentPermissionMode {
+    #[default]
+    RequestApproval,
+    SmartApproval,
+    FullAccess,
+}
+
+impl AgentPermissionMode {
+    fn is_default(value: &Self) -> bool {
+        *value == Self::RequestApproval
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ProfileRecord {
@@ -20,6 +35,8 @@ pub struct ProfileRecord {
     pub name: String,
     pub data_root: PathBuf,
     pub permission_mode: PermissionMode,
+    #[serde(default, skip_serializing_if = "AgentPermissionMode::is_default")]
+    pub agent_permission_default: AgentPermissionMode,
     pub revision: u64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -129,4 +146,35 @@ pub struct ProfileListSnapshot {
     pub pending_profile_id: Option<Uuid>,
     pub last_known_good_profile_id: Option<Uuid>,
     pub profiles: Vec<ProfileSummary>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AgentPermissionMode, PermissionMode, ProfileRecord, ProfileState};
+
+    const LEGACY_PROFILES: &str = include_str!("fixtures/legacy_profiles.json");
+    const LEGACY_STATE: &str = include_str!("fixtures/legacy_state.json");
+
+    #[test]
+    fn legacy_profiles_keep_outer_permissions_and_receive_agent_default() {
+        let profiles: Vec<ProfileRecord> = serde_json::from_str(LEGACY_PROFILES).unwrap();
+
+        assert_eq!(profiles[0].permission_mode, PermissionMode::ReadOnly);
+        assert_eq!(profiles[1].permission_mode, PermissionMode::WorkspaceWrite);
+        for profile in profiles {
+            assert_eq!(
+                profile.agent_permission_default,
+                AgentPermissionMode::RequestApproval
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_state_deserializes_without_rewriting_existing_fields() {
+        let before: serde_json::Value = serde_json::from_str(LEGACY_STATE).unwrap();
+        let state: ProfileState = serde_json::from_str(LEGACY_STATE).unwrap();
+        let after = serde_json::to_value(state).unwrap();
+
+        assert_eq!(after, before);
+    }
 }

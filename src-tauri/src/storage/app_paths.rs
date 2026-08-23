@@ -14,6 +14,8 @@ pub struct AppPaths {
     pub diagnostics: PathBuf,
     pub backups: PathBuf,
     pub state: PathBuf,
+    pub agent_database: PathBuf,
+    pub agent_backups: PathBuf,
     pub logs: PathBuf,
     pub bundled_runtime: PathBuf,
     pub provisioning_downloads: PathBuf,
@@ -75,6 +77,7 @@ impl AppPaths {
     ) -> Self {
         let state = active_root.join("state");
         let runtime = active_root.join("runtime");
+        let backups = stable_root.join("backups");
         Self {
             profiles: active_root.join("profiles"),
             provisioning_downloads: runtime.join("provisioning/downloads"),
@@ -84,9 +87,11 @@ impl AppPaths {
             runtime,
             updates: active_root.join("updates"),
             diagnostics: active_root.join("diagnostics"),
+            agent_database: state.join("agent-platform.sqlite3"),
+            agent_backups: backups.join("agent-platform"),
             state,
             logs: active_root.join("logs"),
-            backups: stable_root.join("backups"),
+            backups,
             bundled_runtime: resource_root.join("runtime"),
             stable_root,
             active_root,
@@ -129,5 +134,13 @@ mod tests {
         assert_eq!(paths.updates, root.join("updates"));
         assert_eq!(paths.state, root.join("state"));
         assert_eq!(paths.backups, root.join("backups"));
+        assert_eq!(
+            paths.agent_database,
+            root.join("state/agent-platform.sqlite3")
+        );
+        assert_eq!(
+            paths.agent_backups,
+            root.join("backups/agent-platform")
+        );
     }
 }

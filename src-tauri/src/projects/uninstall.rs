@@ -190,6 +190,7 @@ mod tests {
             name: name.into(),
             data_root,
             permission_mode: PermissionMode::WorkspaceWrite,
+            agent_permission_default: Default::default(),
             revision: 1,
             created_at: Utc::now(),
             updated_at: Utc::now(),

@@ -1,7 +1,9 @@
 pub mod app_mode;
+mod agent_store;
 mod app_update;
 mod apps;
 mod commands;
+mod credentials;
 mod data_cleanup;
 mod desktop;
 mod generation;
@@ -20,6 +22,8 @@ mod window;
 
 use std::sync::{Arc, atomic::AtomicBool};
 
+use agent_store::AgentStore;
+use credentials::vault::{CredentialVault, NativeCredentialVault};
 use desktop::DesktopCoordinator;
 use generation::coordinator::{GenerationCoordinator, ProcessRuntimeLauncher, TauriEventSink};
 use migration::{model::MigrationCandidate, service::MigrationService};
@@ -40,6 +44,8 @@ pub struct DesktopFoundation {
     pub paths: AppPaths,
     pub platform: Arc<dyn PlatformAdapter>,
     pub profiles: Arc<ProfileRepository>,
+    pub agent_store: Arc<AgentStore>,
+    pub(crate) credential_vault: Arc<dyn CredentialVault>,
     pub migration: Arc<MigrationService>,
     pub bootstrap_state: FoundationBootstrapState,
     pub migration_deferred: AtomicBool,
@@ -69,6 +75,15 @@ impl DesktopFoundation {
         bootstrap_state: FoundationBootstrapState,
     ) -> Result<Self, runtime::model::RuntimeFailure> {
         paths.create_owned_directories()?;
+        let agent_store = Arc::new(AgentStore::open(&paths).map_err(|cause| {
+            let mut failure = runtime::model::RuntimeFailure::internal(format!(
+                "{}: {cause}",
+                cause.code()
+            ));
+            failure.recoverable = false;
+            failure
+        })?);
+        let credential_vault: Arc<dyn CredentialVault> = Arc::new(NativeCredentialVault::new());
         if profiles.list()?.is_empty() {
             let default_root = paths.profiles.join("default");
             std::fs::create_dir_all(&default_root)
@@ -80,6 +95,8 @@ impl DesktopFoundation {
             paths,
             platform,
             profiles,
+            agent_store,
+            credential_vault,
             migration,
             bootstrap_state,
             migration_deferred: AtomicBool::new(false),
@@ -341,6 +358,14 @@ mod foundation_tests {
         )
         .unwrap();
         assert_eq!(foundation.profiles.list().unwrap().len(), 1);
+        assert!(foundation.paths.agent_database.exists());
+        assert_eq!(
+            rusqlite::Connection::open(&foundation.paths.agent_database)
+                .unwrap()
+                .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
         let runtime_paths = RuntimePaths::from_app_paths(&foundation.paths).unwrap();
         assert_eq!(
             runtime_paths.versions.parent().unwrap(),

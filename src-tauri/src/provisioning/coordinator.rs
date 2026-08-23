@@ -128,6 +128,7 @@ impl CandidateProbe for RuntimeCandidateProbe {
                 name: "Runtime provisioning probe".into(),
                 data_root: profile_root.clone(),
                 permission_mode: PermissionMode::ReadOnly,
+                agent_permission_default: Default::default(),
                 revision: 1,
                 created_at: now,
                 updated_at: now,
