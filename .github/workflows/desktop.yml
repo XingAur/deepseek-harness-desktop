@@ -430,8 +430,13 @@ jobs:
         run: |
           set -euo pipefail
           DESKTOP_TAG="desktop-v${DESKTOP_VERSION}"
-          mapfile -t DESKTOP_RELEASE_IDS < <(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
-            --jq ".[] | select(.tag_name == \"${DESKTOP_TAG}\") | .id")
+          release_ids_file="${RUNNER_TEMP}/desktop-release-ids.txt"
+          load_desktop_release_ids() {
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --jq ".[] | select(.tag_name == \"${DESKTOP_TAG}\") | .id" > "${release_ids_file}"
+            mapfile -t DESKTOP_RELEASE_IDS < "${release_ids_file}"
+          }
+          load_desktop_release_ids
           if [[ "${#DESKTOP_RELEASE_IDS[@]}" -gt 1 ]]; then
             echo "::error::Multiple desktop Releases use ${DESKTOP_TAG}; automatic publication is blocked."
             exit 1
@@ -448,10 +453,23 @@ jobs:
           else
             gh release create "${DESKTOP_TAG}" --draft --target "${GITHUB_SHA}" --title "DeepSeek Harness Desktop ${DESKTOP_VERSION}" --notes 'Windows x64 supports signed in-app updates. The macOS Apple Silicon DMG is not Developer ID signed or notarized and is updated by manual replacement.'
             IS_DRAFT=true
-            mapfile -t DESKTOP_RELEASE_IDS < <(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
-              --jq ".[] | select(.tag_name == \"${DESKTOP_TAG}\") | .id")
-            test "${#DESKTOP_RELEASE_IDS[@]}" -eq 1
-            DESKTOP_RELEASE_ID="${DESKTOP_RELEASE_IDS[0]}"
+            DESKTOP_RELEASE_ID=''
+            for attempt in {1..12}; do
+              load_desktop_release_ids
+              if [[ "${#DESKTOP_RELEASE_IDS[@]}" -gt 1 ]]; then
+                echo "::error::Multiple desktop Releases use ${DESKTOP_TAG}; automatic publication is blocked."
+                exit 1
+              fi
+              if [[ "${#DESKTOP_RELEASE_IDS[@]}" -eq 1 ]]; then
+                DESKTOP_RELEASE_ID="${DESKTOP_RELEASE_IDS[0]}"
+                break
+              fi
+              sleep 2
+            done
+            if [[ -z "${DESKTOP_RELEASE_ID}" ]]; then
+              echo '::error::Desktop Release ID was not visible after 12 attempts.'
+              exit 1
+            fi
           fi
           echo "is_draft=${IS_DRAFT}" >> "${GITHUB_OUTPUT}"
           echo "release_id=${DESKTOP_RELEASE_ID}" >> "${GITHUB_OUTPUT}"
