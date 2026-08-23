@@ -78,8 +78,9 @@ describe('automated upstream release workflows', () => {
       workflow.indexOf('      - name: Verify Windows updater signature against the bundled public key'),
     )
     expect(artifactStaging).toContain('windows_installers')
-    expect(artifactStaging).toContain('windows_updater_archives')
     expect(artifactStaging).toContain('windows_updater_signatures')
+    expect(artifactStaging).toContain('*_x64-setup.exe.sig')
+    expect(artifactStaging).not.toContain('nsis.zip')
     expect(artifactStaging).not.toContain('desktop_count')
     expect(workflow).toContain('node scripts/desktop-release.mjs')
     expect(workflow).toContain('node scripts/runtime-release-manifest.mjs')

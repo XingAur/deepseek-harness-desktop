@@ -19,12 +19,11 @@ export function verifyDesktopReleaseAssets({ assetDirectory, versions }) {
   const escapedVersion = escapeRegExp(releaseVersions.desktopVersion)
   const patterns = {
     windowsInstaller: new RegExp(`_${escapedVersion}_x64-setup\\.exe$`),
-    windowsUpdater: new RegExp(`_${escapedVersion}_x64-setup\\.nsis\\.zip$`),
-    windowsSignature: new RegExp(`_${escapedVersion}_x64-setup\\.nsis\\.zip\\.sig$`),
+    windowsSignature: new RegExp(`_${escapedVersion}_x64-setup\\.exe\\.sig$`),
     macDmg: new RegExp(`_${escapedVersion}_aarch64\\.dmg$`),
   }
   const releaseLike = readdirSync(directory, { withFileTypes: true })
-    .filter((entry) => /(?:\.exe|\.dmg|\.nsis\.zip|\.nsis\.zip\.sig)$/.test(entry.name))
+    .filter((entry) => /(?:\.exe|\.exe\.sig|\.dmg|\.nsis\.zip|\.nsis\.zip\.sig)$/.test(entry.name))
 
   for (const entry of releaseLike) {
     if (!entry.isFile() || !safeAssetName.test(entry.name)) {
@@ -40,8 +39,8 @@ export function verifyDesktopReleaseAssets({ assetDirectory, versions }) {
   const selectedNames = new Set(Object.values(selected))
   const unexpected = releaseLike.filter((entry) => !selectedNames.has(entry.name)).map((entry) => entry.name)
   if (unexpected.length > 0) throw new Error(`发现错误版本、重复或不支持平台的发布资产: ${unexpected.join(', ')}`)
-  if (selected.windowsSignature !== `${selected.windowsUpdater}.sig`) {
-    throw new Error('Windows 更新签名文件名必须与 NSIS ZIP 完全匹配')
+  if (selected.windowsSignature !== `${selected.windowsInstaller}.sig`) {
+    throw new Error('Windows 更新签名文件名必须与 NSIS 安装器完全匹配')
   }
 
   const paths = Object.fromEntries(Object.entries(selected).map(([kind, name]) => {
@@ -83,7 +82,7 @@ export function generateDesktopRelease({
   const releaseBaseUrl = `https://github.com/${productionRepository}/releases/download/${tag}`
   const releasePageUrl = `https://github.com/${productionRepository}/releases/tag/${tag}`
   const assetUrl = (name) => `${releaseBaseUrl}/${encodeURIComponent(name)}`
-  const windowsUpdater = fileFacts(assets.windowsUpdaterPath)
+  const windowsUpdater = fileFacts(assets.windowsInstallerPath)
   const macDmg = fileFacts(assets.macDmgPath)
 
   const latest = {
@@ -93,7 +92,7 @@ export function generateDesktopRelease({
     platforms: {
       'windows-x86_64': {
         signature: assets.signature,
-        url: assetUrl(assets.windowsUpdaterName),
+        url: assetUrl(assets.windowsInstallerName),
       },
     },
   }
@@ -107,7 +106,7 @@ export function generateDesktopRelease({
     platforms: {
       'windows-x86_64': {
         mode: 'in-app',
-        url: assetUrl(assets.windowsUpdaterName),
+        url: assetUrl(assets.windowsInstallerName),
         signatureUrl: assetUrl(assets.windowsSignatureName),
         sha256: windowsUpdater.sha256,
         size: windowsUpdater.size,
@@ -132,7 +131,6 @@ export function generateDesktopRelease({
     manifestPath,
     uploadableAssets: [
       assets.windowsInstallerPath,
-      assets.windowsUpdaterPath,
       assets.windowsSignaturePath,
       assets.macDmgPath,
       latestPath,

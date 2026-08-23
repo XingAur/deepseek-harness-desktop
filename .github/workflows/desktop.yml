@@ -243,14 +243,13 @@ jobs:
           shopt -s nullglob
           if [[ "${{ matrix.runtime_target }}" == 'windows-x86_64' ]]; then
             windows_installers=(src-tauri/target/release/bundle/nsis/*_x64-setup.exe)
-            windows_updater_archives=(src-tauri/target/release/bundle/nsis/*_x64-setup.nsis.zip)
-            windows_updater_signatures=(src-tauri/target/release/bundle/nsis/*_x64-setup.nsis.zip.sig)
-            if [[ "${#windows_installers[@]}" -ne 1 || "${#windows_updater_archives[@]}" -ne 1 || "${#windows_updater_signatures[@]}" -ne 1 ]]; then
-              echo '::error::Expected exactly one Windows installer, updater archive, and updater signature.'
+            windows_updater_signatures=(src-tauri/target/release/bundle/nsis/*_x64-setup.exe.sig)
+            if [[ "${#windows_installers[@]}" -ne 1 || "${#windows_updater_signatures[@]}" -ne 1 ]]; then
+              echo '::error::Expected exactly one Windows NSIS installer and its updater signature.'
               find src-tauri/target/release/bundle/nsis -maxdepth 1 -type f -print
               exit 1
             fi
-            cp "${windows_installers[0]}" "${windows_updater_archives[0]}" "${windows_updater_signatures[0]}" release-stage/desktop/
+            cp "${windows_installers[0]}" "${windows_updater_signatures[0]}" release-stage/desktop/
           else
             macos_disk_images=(src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*_aarch64.dmg)
             test "${#macos_disk_images[@]}" -eq 1
@@ -266,12 +265,12 @@ jobs:
           TAURI_UPDATER_PUBLIC_KEY: ${{ steps.updater_config.outputs.ci_public_key || secrets.TAURI_UPDATER_PUBLIC_KEY }}
         run: |
           set -euo pipefail
-          mapfile -d '' updater_archives < <(find release-stage/desktop -maxdepth 1 -type f -name '*_x64-setup.nsis.zip' -print0)
-          mapfile -d '' updater_signatures < <(find release-stage/desktop -maxdepth 1 -type f -name '*_x64-setup.nsis.zip.sig' -print0)
-          test "${#updater_archives[@]}" -eq 1
+          mapfile -d '' updater_installers < <(find release-stage/desktop -maxdepth 1 -type f -name '*_x64-setup.exe' -print0)
+          mapfile -d '' updater_signatures < <(find release-stage/desktop -maxdepth 1 -type f -name '*_x64-setup.exe.sig' -print0)
+          test "${#updater_installers[@]}" -eq 1
           test "${#updater_signatures[@]}" -eq 1
           cargo run --locked --manifest-path src-tauri/Cargo.toml --bin verify_updater_signature -- \
-            "${updater_archives[0]}" "${updater_signatures[0]}"
+            "${updater_installers[0]}" "${updater_signatures[0]}"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -380,8 +379,8 @@ jobs:
           set -euo pipefail
           mkdir -p desktop-assets release-output
           mapfile -d '' desktop_candidates < <(find release-assets -type f \
-            \( -name '*_x64-setup.exe' -o -name '*_x64-setup.nsis.zip' -o -name '*_x64-setup.nsis.zip.sig' -o -name '*_aarch64.dmg' \) -print0)
-          test "${#desktop_candidates[@]}" -eq 4
+            \( -name '*_x64-setup.exe' -o -name '*_x64-setup.exe.sig' -o -name '*_aarch64.dmg' \) -print0)
+          test "${#desktop_candidates[@]}" -eq 3
           for asset in "${desktop_candidates[@]}"; do
             destination="desktop-assets/$(basename "${asset}")"
             test ! -e "${destination}"
@@ -429,7 +428,7 @@ jobs:
           existing_dir="${RUNNER_TEMP}/existing-desktop"
           mkdir -p "${existing_dir}"
           desktop_assets=(desktop-assets/* release-output/latest.json release-output/desktop-release.json)
-          test "${#desktop_assets[@]}" -eq 6
+          test "${#desktop_assets[@]}" -eq 5
           for asset in "${desktop_assets[@]}"; do
             name="$(basename "${asset}")"
             if grep -Fqx "${name}" <<<"${existing_names}"; then

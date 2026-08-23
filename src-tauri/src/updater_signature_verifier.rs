@@ -4,7 +4,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use minisign_verify::{PublicKey, Signature};
 
 pub fn verify_updater_signature(
-    archive_path: &Path,
+    artifact_path: &Path,
     signature_path: &Path,
     encoded_public_key: &str,
 ) -> Result<(), String> {
@@ -16,10 +16,10 @@ pub fn verify_updater_signature(
     let signature_text = decode_envelope(&encoded_signature, "updater signature")?;
     let signature = Signature::decode(&signature_text)
         .map_err(|cause| format!("updater signature is invalid: {cause}"))?;
-    let archive = std::fs::read(archive_path)
-        .map_err(|cause| format!("unable to read updater archive: {cause}"))?;
+    let artifact = std::fs::read(artifact_path)
+        .map_err(|cause| format!("unable to read updater artifact: {cause}"))?;
     public_key
-        .verify(&archive, &signature, true)
+        .verify(&artifact, &signature, true)
         .map_err(|cause| {
             format!("updater signature does not match the configured public key: {cause}")
         })
@@ -49,27 +49,27 @@ mod tests {
     #[test]
     fn accepts_the_same_base64_envelopes_used_by_the_tauri_updater() {
         let root = tempdir().unwrap();
-        let archive = root.path().join("update.zip");
-        let signature = root.path().join("update.zip.sig");
-        std::fs::write(&archive, b"test").unwrap();
+        let artifact = root.path().join("setup.exe");
+        let signature = root.path().join("setup.exe.sig");
+        std::fs::write(&artifact, b"test").unwrap();
         std::fs::write(&signature, STANDARD.encode(SIGNATURE)).unwrap();
 
-        verify_updater_signature(&archive, &signature, &STANDARD.encode(PUBLIC_KEY)).unwrap();
+        verify_updater_signature(&artifact, &signature, &STANDARD.encode(PUBLIC_KEY)).unwrap();
     }
 
     #[test]
-    fn rejects_tampered_archives_and_malformed_envelopes() {
+    fn rejects_tampered_artifacts_and_malformed_envelopes() {
         let root = tempdir().unwrap();
-        let archive = root.path().join("update.zip");
-        let signature = root.path().join("update.zip.sig");
-        std::fs::write(&archive, b"tampered").unwrap();
+        let artifact = root.path().join("setup.exe");
+        let signature = root.path().join("setup.exe.sig");
+        std::fs::write(&artifact, b"tampered").unwrap();
         std::fs::write(&signature, STANDARD.encode(SIGNATURE)).unwrap();
 
         assert!(
-            verify_updater_signature(&archive, &signature, &STANDARD.encode(PUBLIC_KEY))
+            verify_updater_signature(&artifact, &signature, &STANDARD.encode(PUBLIC_KEY))
                 .unwrap_err()
                 .contains("does not match")
         );
-        assert!(verify_updater_signature(&archive, &signature, "not base64").is_err());
+        assert!(verify_updater_signature(&artifact, &signature, "not base64").is_err());
     }
 }

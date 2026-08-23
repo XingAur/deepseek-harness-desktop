@@ -12,7 +12,7 @@ fn main() {
 fn run() -> Result<(), String> {
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
     if arguments.len() != 2 {
-        return Err("usage: verify_updater_signature <archive> <signature>".into());
+        return Err("usage: verify_updater_signature <artifact> <signature>".into());
     }
     let public_key = std::env::var("TAURI_UPDATER_PUBLIC_KEY")
         .map_err(|_| "TAURI_UPDATER_PUBLIC_KEY is required".to_string())?;

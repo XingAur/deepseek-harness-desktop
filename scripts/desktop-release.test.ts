@@ -43,7 +43,7 @@ describe('desktop release metadata', () => {
       platforms: {
         'windows-x86_64': {
           signature: 'SIGNATURE',
-          url: `${baseUrl}DeepSeek.Harness.Desktop_0.1.13_x64-setup.nsis.zip`,
+          url: `${baseUrl}DeepSeek.Harness.Desktop_0.1.13_x64-setup.exe`,
         },
       },
     })
@@ -57,8 +57,8 @@ describe('desktop release metadata', () => {
       platforms: {
         'windows-x86_64': {
           mode: 'in-app',
-          url: `${baseUrl}DeepSeek.Harness.Desktop_0.1.13_x64-setup.nsis.zip`,
-          signatureUrl: `${baseUrl}DeepSeek.Harness.Desktop_0.1.13_x64-setup.nsis.zip.sig`,
+          url: `${baseUrl}DeepSeek.Harness.Desktop_0.1.13_x64-setup.exe`,
+          signatureUrl: `${baseUrl}DeepSeek.Harness.Desktop_0.1.13_x64-setup.exe.sig`,
           sha256: sha256('updater'),
           size: 7,
         },
@@ -75,8 +75,7 @@ describe('desktop release metadata', () => {
     expect(result.uploadableAssets.map((path) => basename(path)).sort()).toEqual([
       'DeepSeek.Harness.Desktop_0.1.13_aarch64.dmg',
       'DeepSeek.Harness.Desktop_0.1.13_x64-setup.exe',
-      'DeepSeek.Harness.Desktop_0.1.13_x64-setup.nsis.zip',
-      'DeepSeek.Harness.Desktop_0.1.13_x64-setup.nsis.zip.sig',
+      'DeepSeek.Harness.Desktop_0.1.13_x64-setup.exe.sig',
       'desktop-release.json',
       'latest.json',
     ])
@@ -87,7 +86,7 @@ describe('desktop release metadata', () => {
   it('URL-encodes safe artifact names without allowing repository substitution', async () => {
     const fixture = await assetFixture('DeepSeek Harness Desktop')
     const verified = verifyDesktopReleaseAssets({ assetDirectory: fixture.assets, versions })
-    expect(verified.windowsUpdaterName).toContain(' ')
+    expect(verified.windowsInstallerName).toContain(' ')
     expect(() => generateDesktopRelease({
       assetDirectory: fixture.assets,
       outputDirectory: fixture.output,
@@ -99,11 +98,12 @@ describe('desktop release metadata', () => {
   })
 
   it.each([
-    ['missing signature', async (assets: string) => writeFile(join(assets, 'DeepSeek.Harness.Desktop_0.1.13_x64-setup.nsis.zip.sig'), '')],
+    ['missing signature', async (assets: string) => writeFile(join(assets, 'DeepSeek.Harness.Desktop_0.1.13_x64-setup.exe.sig'), '')],
     ['duplicate DMG', async (assets: string) => writeFile(join(assets, 'Another_0.1.13_aarch64.dmg'), 'dmg')],
     ['wrong version', async (assets: string) => writeFile(join(assets, 'DeepSeek.Harness.Desktop_0.1.12_x64-setup.exe'), 'old')],
     ['unexpected platform', async (assets: string) => writeFile(join(assets, 'DeepSeek.Harness.Desktop_0.1.13_x64.dmg'), 'intel')],
     ['traversal-like name', async (assets: string) => writeFile(join(assets, 'DeepSeek..Harness_0.1.13_x64-setup.exe'), 'bad')],
+    ['legacy updater format', async (assets: string) => writeFile(join(assets, 'DeepSeek.Harness.Desktop_0.1.13_x64-setup.nsis.zip'), 'old')],
   ])('rejects %s assets', async (_label, mutate) => {
     const fixture = await assetFixture()
     await mutate(fixture.assets)
@@ -117,9 +117,8 @@ async function assetFixture(prefix = 'DeepSeek.Harness.Desktop') {
   const output = join(root, 'output')
   await mkdir(assets)
   await mkdir(output)
-  await writeFile(join(assets, `${prefix}_0.1.13_x64-setup.exe`), 'installer')
-  await writeFile(join(assets, `${prefix}_0.1.13_x64-setup.nsis.zip`), 'updater')
-  await writeFile(join(assets, `${prefix}_0.1.13_x64-setup.nsis.zip.sig`), 'SIGNATURE\n')
+  await writeFile(join(assets, `${prefix}_0.1.13_x64-setup.exe`), 'updater')
+  await writeFile(join(assets, `${prefix}_0.1.13_x64-setup.exe.sig`), 'SIGNATURE\n')
   await writeFile(join(assets, `${prefix}_0.1.13_aarch64.dmg`), 'dmg')
   return { assets, output }
 }

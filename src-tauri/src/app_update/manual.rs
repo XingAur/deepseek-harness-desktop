@@ -382,8 +382,8 @@ mod tests {
           "platforms": {{
             "windows-x86_64": {{
               "mode": "in-app",
-              "url": "https://github.com/XingAur/deepseek-harness-desktop/releases/download/desktop-v{version}/DeepSeek.Harness.Desktop_{version}_x64-setup.nsis.zip",
-              "signatureUrl": "https://github.com/XingAur/deepseek-harness-desktop/releases/download/desktop-v{version}/DeepSeek.Harness.Desktop_{version}_x64-setup.nsis.zip.sig",
+              "url": "https://github.com/XingAur/deepseek-harness-desktop/releases/download/desktop-v{version}/DeepSeek.Harness.Desktop_{version}_x64-setup.exe",
+              "signatureUrl": "https://github.com/XingAur/deepseek-harness-desktop/releases/download/desktop-v{version}/DeepSeek.Harness.Desktop_{version}_x64-setup.exe.sig",
               "sha256": "{sha}",
               "size": 7
             }},
