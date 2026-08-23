@@ -7,8 +7,8 @@ export const DESKTOP_BUNDLES = Object.freeze([
   '@dsh/desktop-plugin',
 ])
 
-export function ensureDesktopProfile(manifestPath, capabilityReport) {
-  assertRuntimeCapabilities(capabilityReport)
+export function ensureDesktopProfile(manifestPath, capabilityReport, expectedVersions) {
+  assertRuntimeCapabilities(capabilityReport, expectedVersions)
   if (!sameBundles(capabilityReport?.profileBundles, DESKTOP_BUNDLES)) {
     throw new Error('Runtime capability report does not provide the exact compatible desktop profile bundles')
   }

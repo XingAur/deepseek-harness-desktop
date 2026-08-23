@@ -1,4 +1,5 @@
 export interface RuntimeLauncherOptions {
+  dshVersion: string
   desktopPluginVersion: string
   desktopPluginSha256: string
   runtimeVersion: string

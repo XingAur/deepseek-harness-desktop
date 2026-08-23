@@ -44,4 +44,15 @@ describe('redactDiagnostic', () => {
     expect(redacted).toContain('[REDACTED]')
     expect(Buffer.byteLength(redacted, 'utf8')).toBeLessThanOrEqual(MAX_DIAGNOSTIC_TEXT_BYTES)
   })
+
+  it('redacts client secrets, folded headers, embedded JSON headers, and URL query credentials', () => {
+    const secrets = ['client-secret', 'camel-secret', 'cookie-secret', 'auth-secret', 'query-secret', 'password-secret']
+    const redacted = redactDiagnostic([
+      'client_secret=client-secret', 'clientSecret: camel-secret', '{"set-cookie":"cookie-secret","Authorization":"Bearer auth-secret"}',
+      'Authorization: Bearer folded\r\n query-secret', 'https://host/?api_key=query-secret&password=password-secret',
+      '中'.repeat(MAX_DIAGNOSTIC_TEXT_BYTES),
+    ].join('\n'))
+    for (const secret of secrets) expect(redacted).not.toContain(secret)
+    expect(Buffer.byteLength(redacted, 'utf8')).toBeLessThanOrEqual(MAX_DIAGNOSTIC_TEXT_BYTES)
+  })
 })

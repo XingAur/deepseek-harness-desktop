@@ -14,7 +14,7 @@ describe('writeRuntimeLauncher', () => {
     const homeDirectory = mkdtempSync(join(tmpdir(), 'dsh-runtime-launcher-home-'))
     const mutationLog = join(appDirectory, 'mutations.log')
     try {
-      writeRuntimeLauncher(appDirectory, { desktopPluginVersion: '0.3.2', desktopPluginSha256: 'sha256', runtimeVersion: '0.1.0' })
+      writeRuntimeLauncher(appDirectory, { dshVersion: '0.1.1-rc.2', desktopPluginVersion: '0.3.2', desktopPluginSha256: 'sha256', runtimeVersion: '0.1.0' })
       copyFileSync(join(repositoryRoot, 'scripts', 'runtime-capabilities.mjs'), join(appDirectory, 'runtime-capabilities.mjs'))
       writeFileSync(join(appDirectory, 'runtime-capabilities.json'), JSON.stringify({ schemaVersion: 1 }))
       writeFileSync(join(appDirectory, 'desktop-profile.mjs'), "import { appendFileSync } from 'node:fs'; export function ensureDesktopProfile() { appendFileSync(process.env.MUTATION_LOG, 'profile\\n') }\n")

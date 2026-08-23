@@ -1,7 +1,7 @@
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-export function writeRuntimeLauncher(appDir, { desktopPluginVersion, desktopPluginSha256, runtimeVersion }) {
+export function writeRuntimeLauncher(appDir, { dshVersion, desktopPluginVersion, desktopPluginSha256, runtimeVersion }) {
   writeFileSync(join(appDir, 'launcher.mjs'), `
 import { readFileSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
@@ -19,7 +19,8 @@ const dsh = join(app, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
 const plugin = join(app, 'desktop-plugin.tgz')
 const home = process.env.DSH_HOME
 if (!home) throw new Error('DSH_HOME is required')
-const runtimeCapabilities = assertRuntimeCapabilities(JSON.parse(readFileSync(join(app, 'runtime-capabilities.json'), 'utf8')))
+const expectedVersions = { dshVersion: '${dshVersion}', desktopPluginVersion: '${desktopPluginVersion}' }
+const runtimeCapabilities = assertRuntimeCapabilities(JSON.parse(readFileSync(join(app, 'runtime-capabilities.json'), 'utf8')), expectedVersions)
 const installMarker = join(home, 'profiles', 'desktop', '.desktop-plugin-install.json')
 const bin = join(runtime, 'desktop-bin')
 const env = { ...process.env, PATH: bin + delimiter + (process.env.PATH ?? '') }
@@ -30,7 +31,7 @@ if (!(await markerMatches(installMarker, '${desktopPluginVersion}', '${desktopPl
   if (result.status !== 0) process.exit(result.status ?? 1)
   await writeInstallMarker(installMarker, '${desktopPluginVersion}', '${desktopPluginSha256}')
 }
-ensureDesktopProfile(join(home, 'profiles', 'desktop', 'package.json'), runtimeCapabilities)
+ensureDesktopProfile(join(home, 'profiles', 'desktop', 'package.json'), runtimeCapabilities, expectedVersions)
 const cliArgs = process.argv.slice(2)
 const portIndex = cliArgs.indexOf('--port')
 const publicPort = Number(portIndex >= 0 ? cliArgs[portIndex + 1] : NaN)

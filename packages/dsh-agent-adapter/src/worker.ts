@@ -101,8 +101,10 @@ export async function runMockWorker(io: MockWorkerIo, { maximumUniqueSessions = 
 }
 
 async function* readBoundedJsonlLines(input: Readable): AsyncGenerator<{ value: string; oversized: false } | { oversized: true }> {
-  let buffered = Buffer.alloc(0)
-  let discardingOversizedLine = false
+  // The optional extra byte is a CR immediately before a following LF.  Never
+  // concatenate untrusted chunks: a single huge segment must not be allocated.
+  const buffered = Buffer.alloc(CONTROL_FRAME_MAX_BYTES + 1)
+  let bufferedLength = 0
   for await (const chunk of input) {
     const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
     let start = 0
@@ -111,14 +113,18 @@ async function* readBoundedJsonlLines(input: Readable): AsyncGenerator<{ value: 
       const end = newline === -1 ? bytes.length : newline
       const segment = bytes.subarray(start, end)
       start = newline === -1 ? bytes.length : newline + 1
-      if (discardingOversizedLine) {
-        if (newline !== -1) discardingOversizedLine = false
-        continue
+      const permitsTrailingCr = segment.at(-1) === 0x0d
+      const maximum = CONTROL_FRAME_MAX_BYTES + (permitsTrailingCr ? 1 : 0)
+      if (segment.length > maximum - bufferedLength) {
+        yield { oversized: true }
+        return
       }
-      buffered = Buffer.concat([buffered, segment])
+      segment.copy(buffered, bufferedLength)
+      bufferedLength += segment.length
       if (newline !== -1) {
-        const lineBytes = buffered.at(-1) === 0x0d ? buffered.subarray(0, -1) : buffered
-        buffered = Buffer.alloc(0)
+        const lineLength = bufferedLength > 0 && buffered[bufferedLength - 1] === 0x0d ? bufferedLength - 1 : bufferedLength
+        const lineBytes = buffered.subarray(0, lineLength)
+        bufferedLength = 0
         if (lineBytes.length > CONTROL_FRAME_MAX_BYTES) {
           yield { oversized: true }
           return
@@ -126,17 +132,11 @@ async function* readBoundedJsonlLines(input: Readable): AsyncGenerator<{ value: 
         yield { value: lineBytes.toString('utf8'), oversized: false }
         continue
       }
-      if (buffered.length > CONTROL_FRAME_MAX_BYTES) {
-        if (buffered.length === CONTROL_FRAME_MAX_BYTES + 1 && buffered.at(-1) === 0x0d) continue
-        buffered = Buffer.alloc(0)
-        yield { oversized: true }
-        return
-      }
     }
   }
-  if (!discardingOversizedLine && buffered.length > 0) {
-    if (buffered.length > CONTROL_FRAME_MAX_BYTES) yield { oversized: true }
-    else yield { value: buffered.toString('utf8'), oversized: false }
+  if (bufferedLength > 0) {
+    if (bufferedLength > CONTROL_FRAME_MAX_BYTES) yield { oversized: true }
+    else yield { value: buffered.subarray(0, bufferedLength).toString('utf8'), oversized: false }
   }
 }
 

@@ -153,11 +153,13 @@ describe('product copy', () => {
 
   it('keeps the Runtime manifest health path aligned with the readiness proxy', () => {
     const source = readFileSync('scripts/build-runtime.mjs', 'utf8')
+    const launcher = readFileSync('scripts/runtime-launcher.mjs', 'utf8')
     const manifestSource = readFileSync('scripts/runtime-release-manifest.mjs', 'utf8')
     expect(manifestSource).toContain("healthPath: '/__desktop/health'")
-    expect(source).toContain("request.url === '/__desktop/health'")
-    expect(source).toContain('DSH_DESKTOP_PROFILE_REVISION')
-    expect(source).toContain("request.url === '/__desktop/control/health'")
+    expect(source).toContain("import { writeRuntimeLauncher } from './runtime-launcher.mjs'")
+    expect(launcher).toContain("request.url === '/__desktop/health'")
+    expect(launcher).toContain('DSH_DESKTOP_PROFILE_REVISION')
+    expect(launcher).toContain("request.url === '/__desktop/control/health'")
   })
 
   it('materializes Runtime links before creating the archive', () => {
@@ -168,13 +170,14 @@ describe('product copy', () => {
 
   it('ships and attaches the managed Runtime WebSocket event proxy', () => {
     const source = readFileSync('scripts/build-runtime.mjs', 'utf8')
+    const launcher = readFileSync('scripts/runtime-launcher.mjs', 'utf8')
     expect(source).toContain("cpSync(join('scripts', 'runtime-websocket-proxy.mjs'")
-    expect(source).toContain("import { attachRuntimeWebSocketProxy } from './runtime-websocket-proxy.mjs'")
-    expect(source).toContain('attachRuntimeWebSocketProxy(proxy, { port: backendPort })')
+    expect(launcher).toContain("import { attachRuntimeWebSocketProxy } from './runtime-websocket-proxy.mjs'")
+    expect(launcher).toContain('attachRuntimeWebSocketProxy(proxy, { port: backendPort })')
   })
 
   it('hides Windows Runtime startup and shutdown helper windows', () => {
-    const launcher = readFileSync('scripts/build-runtime.mjs', 'utf8')
+    const launcher = readFileSync('scripts/runtime-launcher.mjs', 'utf8')
     const runtimeProcess = readFileSync('src-tauri/src/runtime/process.rs', 'utf8')
     const windowsShutdownStart = runtimeProcess.indexOf('async fn terminate_tree(pid: u32)')
     const windowsShutdown = runtimeProcess.slice(

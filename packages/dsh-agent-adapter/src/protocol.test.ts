@@ -87,6 +87,9 @@ describe('agent adapter protocol', () => {
     const input = new PassThrough()
     const stdout = new PassThrough()
     const stderr = new PassThrough()
+    const output: string[] = []
+    stdout.setEncoding('utf8')
+    stdout.on('data', (chunk: string) => output.push(chunk))
     const lines: string[] = []
     stdout.setEncoding('utf8')
     stdout.on('data', (chunk: string) => lines.push(...chunk.split('\n').filter(Boolean)))
@@ -169,6 +172,34 @@ describe('agent adapter protocol', () => {
     expect(output.join('')).toBe('')
     expect(diagnostics.join('')).not.toContain(secret)
     expect(Buffer.byteLength(diagnostics.join(''), 'utf8')).toBeLessThanOrEqual(CONTROL_FRAME_MAX_BYTES)
+  })
+
+  it('bounds a very large single chunk before copying it and terminates the transport', async () => {
+    const input = new PassThrough()
+    const stdout = new PassThrough()
+    const stderr = new PassThrough()
+    const output: string[] = []
+    stdout.setEncoding('utf8')
+    stdout.on('data', (chunk: string) => output.push(chunk))
+    const worker = runMockWorker({ input, stdout, stderr })
+    input.end(`${'x'.repeat(CONTROL_FRAME_MAX_BYTES * 64)}\n${JSON.stringify(request)}\n`)
+    await worker
+    expect(output.join('')).toBe('')
+  })
+
+  it('bounds one-byte-fragment JSONL input without changing exact CRLF handling', async () => {
+    const input = new PassThrough()
+    const stdout = new PassThrough()
+    const stderr = new PassThrough()
+    const output: string[] = []
+    stdout.setEncoding('utf8')
+    stdout.on('data', (chunk: string) => output.push(chunk))
+    const worker = runMockWorker({ input, stdout, stderr })
+    const oversized = `${'x'.repeat(CONTROL_FRAME_MAX_BYTES)}\r\n`
+    for (const byte of Buffer.from(oversized)) input.write(Buffer.from([byte]))
+    input.end(JSON.stringify(request) + '\n')
+    await worker
+    expect(output.join('')).toContain('response.ok')
   })
 
   it.each(['\n', '\r\n'])('accepts exactly 32 KiB before a %j terminator without classifying the line as oversized', async (terminator) => {

@@ -8,13 +8,24 @@ export const PROFILE_BUNDLES = Object.freeze([
   '@deepseek-ai/dsh-web-app',
   '@dsh/desktop-plugin',
 ])
+export const CAPABILITY_REASON_CODES = Object.freeze([
+  'MISSING_PACKAGE_JSON',
+  'PACKAGE_PATH_INVALID',
+  'MANIFEST_INVALID',
+  'MANIFEST_NAME_INVALID',
+  'VERSION_MISMATCH',
+  'TYPE_INVALID',
+  'LICENSE_INVALID',
+  'EXPORTS_INVALID',
+  'ENTRYPOINT_INVALID',
+  'BUNDLE_PATCH_INVALID',
+])
 
 const optionalCapabilities = Object.freeze([
   ['apiProvider', '@deepseek-ai/dsh-llm-pi-ai'],
   ['skill', '@deepseek-ai/dsh-skill'],
   ['mcp', '@deepseek-ai/dsh-mcp-client'],
 ])
-
 const cliEntrypoints = Object.freeze({ bin: 'lib/bin.js' })
 const baseBundleEntrypoints = Object.freeze({
   '.': { default: './lib/index.js', types: './lib/types/index.d.ts' },
@@ -36,187 +47,128 @@ const packageContracts = Object.freeze({
   '@deepseek-ai/dsh-skill': { entrypoints: optionalBundleEntrypoints, license: 'MIT', dshVersion: true },
   '@deepseek-ai/dsh-mcp-client': { entrypoints: optionalBundleEntrypoints, license: 'MIT', dshVersion: true },
 })
+const defaultPath = { resolve, relative, isAbsolute, sep }
+const defaultFs = { existsSync, lstatSync, readFileSync, realpathSync, statSync }
 
-export function inspectRuntimeCapabilities(runtimeRoot, { dshVersion, desktopPluginVersion }) {
+export function inspectRuntimeCapabilities(runtimeRoot, expectedVersions, adapters = {}) {
+  assertExpectedVersions(expectedVersions)
+  const fs = { ...defaultFs, ...adapters }
+  const pathImplementation = adapters.pathImplementation ?? defaultPath
   const packages = Object.entries(packageContracts).map(([name, contract]) => inspectPackage(
-    runtimeRoot,
-    name,
-    contract.dshVersion ? dshVersion : desktopPluginVersion,
-    contract.entrypoints,
-    { noExports: contract.noExports, bundle: contract.bundle, license: contract.license },
+    runtimeRoot, name, expectedVersion(contract, expectedVersions), contract.entrypoints,
+    { noExports: contract.noExports, bundle: contract.bundle, license: contract.license }, fs, pathImplementation,
   ))
   const byName = new Map(packages.map((record) => [record.name, record]))
   const profileBundles = PROFILE_BUNDLES.every((name) => byName.get(name)?.status === 'compatible') ? [...PROFILE_BUNDLES] : undefined
-  return {
-    schemaVersion: CAPABILITY_REPORT_SCHEMA_VERSION,
-    packages,
+  return { schemaVersion: CAPABILITY_REPORT_SCHEMA_VERSION, packages,
     capabilities: Object.fromEntries(optionalCapabilities.map(([capability, name]) => [capability, { package: name, available: byName.get(name)?.status === 'compatible' }])),
-    ...(profileBundles ? { profileBundles } : {}),
-  }
+    ...(profileBundles ? { profileBundles } : {}), }
 }
 
-export function assertRuntimeCapabilities(report) {
-  if (report?.schemaVersion !== CAPABILITY_REPORT_SCHEMA_VERSION) throw new Error('Runtime capability compatibility failed: capability report schema version is invalid')
-  if (!hasExactKeys(report, ['capabilities', 'packages', 'profileBundles', 'schemaVersion'])) throw new Error('Runtime capability compatibility failed: capability report has unknown or missing fields')
-  const packages = Array.isArray(report.packages) ? report.packages : []
+export function assertRuntimeCapabilities(report, expectedVersions) {
+  assertExpectedVersions(expectedVersions)
+  failIf(report?.schemaVersion !== CAPABILITY_REPORT_SCHEMA_VERSION || !hasExactKeys(report, ['capabilities', 'packages', 'profileBundles', 'schemaVersion']), 'capability report is invalid')
+  failIf(!Array.isArray(report.packages) || report.packages.length !== Object.keys(packageContracts).length, 'capability package records are incomplete')
   const records = new Map()
-  if (packages.length !== Object.keys(packageContracts).length) throw new Error('Runtime capability compatibility failed: capability package records are incomplete')
-  for (const record of packages) {
-    if (!isRecord(record) || typeof record.name !== 'string' || !packageContracts[record.name] || records.has(record.name)) {
-      throw new Error('Runtime capability compatibility failed: capability package records are malformed or duplicated')
-    }
+  for (const record of report.packages) {
+    failIf(!isRecord(record) || typeof record.name !== 'string' || !packageContracts[record.name] || records.has(record.name), 'capability package records are malformed or duplicated')
     records.set(record.name, record)
   }
-  const dshVersion = records.get('@deepseek-ai/dsh')?.observedVersion
-  if (!isVersion(dshVersion)) throw new Error('Runtime capability compatibility failed: DSH observed version is invalid')
-  for (const [name, contract] of Object.entries(packageContracts)) {
-    const record = records.get(name)
-    if (!record || !['compatible', 'missing', 'incompatible'].includes(record.status)) throw new Error(`Runtime capability compatibility failed: ${name}; capability record is invalid`)
-    const recordKeys = record.status === 'compatible'
-      ? ['entrypoints', 'name', 'observedVersion', 'status', ...(contract.bundle ? ['bundlePatch'] : [])]
-      : ['entrypoints', 'name', 'observedVersion', 'reason', 'status']
-    if (!hasExactKeys(record, recordKeys)) throw new Error(`Runtime capability compatibility failed: ${name}; capability record has unknown or missing fields`)
-    if (contract.required && record.status !== 'compatible') throw new Error(`Runtime capability compatibility failed: ${name}; ${record.reason ?? 'missing compatible capability record'}`)
-    if (record.status === 'compatible') {
-      if (!isVersion(record.observedVersion)) throw new Error(`Runtime capability compatibility failed: ${name}; observed version is invalid`)
-      if (contract.dshVersion && record.observedVersion !== dshVersion) throw new Error(`Runtime capability compatibility failed: ${name}; observed version does not match DSH`)
-      if (!sameValue(record.entrypoints, contract.entrypoints)) throw new Error(`Runtime capability compatibility failed: ${name}; validated entrypoints are invalid`)
-      if (contract.bundle && record.bundlePatch !== './cordis.patch.yml') throw new Error(`Runtime capability compatibility failed: ${name}; validated bundle patch is invalid`)
-    } else if (!sameValue(record.entrypoints, {}) || typeof record.reason !== 'string' || !record.reason) {
-      throw new Error(`Runtime capability compatibility failed: ${name}; incompatible capability record is malformed`)
-    }
-  }
+  for (const [name, contract] of Object.entries(packageContracts)) validateRecord(records.get(name), contract, expectedVersion(contract, expectedVersions))
   assertCapabilityRecords(report.capabilities, records)
-  if (!sameBundles(report.profileBundles, PROFILE_BUNDLES)) throw new Error('Runtime capability compatibility failed: exact desktop profile bundles are unavailable')
+  failIf(!sameBundles(report.profileBundles, PROFILE_BUNDLES), 'exact desktop profile bundles are unavailable')
   return report
 }
 
-function inspectPackage(runtimeRoot, name, expectedVersion, entrypoints, options = {}) {
-  const directory = resolve(runtimeRoot, 'node_modules', ...name.split('/'))
-  const packagePath = resolve(directory, 'package.json')
-  if (!existsSync(packagePath)) return record(name, undefined, 'missing', {}, undefined, 'package.json is missing')
-  let manifest
-  try {
-    manifest = JSON.parse(readFileSync(packagePath, 'utf8'))
-  } catch {
-    return record(name, undefined, 'incompatible', {}, undefined, 'package.json is not valid JSON')
+function validateRecord(record, contract, version) {
+  failIf(!record || !['compatible', 'missing', 'incompatible'].includes(record.status), 'capability record is invalid')
+  if (record.status === 'compatible') {
+    failIf(!hasExactKeys(record, ['entrypoints', 'name', 'observedVersion', 'status', ...(contract.bundle ? ['bundlePatch'] : [])]), 'compatible capability record is malformed')
+    failIf(record.observedVersion !== version || !sameValue(record.entrypoints, contract.entrypoints) || (contract.bundle && record.bundlePatch !== './cordis.patch.yml'), 'compatible capability record is incompatible')
+    return
   }
-  const observedVersion = typeof manifest.version === 'string' ? manifest.version : undefined
-  if (manifest.name !== name) return record(name, observedVersion, 'incompatible', {}, undefined, `name expected ${name}; observed ${String(manifest.name)}`)
-  if (observedVersion !== expectedVersion) return record(name, observedVersion, 'incompatible', {}, undefined, `version expected ${expectedVersion}; observed ${observedVersion ?? 'missing'}`)
-  if (manifest.type !== 'module') return record(name, observedVersion, 'incompatible', {}, undefined, `type expected module; observed ${String(manifest.type)}`)
-  if (manifest.license !== options.license) return record(name, observedVersion, 'incompatible', {}, undefined, `license expected ${options.license}; observed ${String(manifest.license)}`)
-  if (options.noExports && manifest.exports !== undefined) return record(name, observedVersion, 'incompatible', {}, undefined, 'exports expected absent; observed present')
+  failIf(!hasExactKeys(record, ['entrypoints', 'name', 'observedVersion', 'reasonCode', 'status']) || !sameValue(record.entrypoints, {}) || !CAPABILITY_REASON_CODES.includes(record.reasonCode), 'incompatible capability record is malformed')
+  failIf(record.status === 'missing' && record.observedVersion !== null, 'missing capability record is malformed')
+  failIf(record.status === 'incompatible' && record.observedVersion !== null && !isVersion(record.observedVersion), 'incompatible capability record is malformed')
+  failIf(contract.required, 'required capability record is not compatible')
+}
+
+function inspectPackage(runtimeRoot, name, expectedVersion, entrypoints, options, fs, pathImplementation) {
+  const location = locatePackage(runtimeRoot, name, fs, pathImplementation)
+  if (location.kind === 'missing') return failure(name, 'missing', null, 'MISSING_PACKAGE_JSON')
+  if (location.kind === 'invalid') return failure(name, 'incompatible', null, 'PACKAGE_PATH_INVALID')
+  let manifest
+  try { manifest = JSON.parse(fs.readFileSync(location.packagePath, 'utf8')) } catch { return failure(name, 'incompatible', null, 'MANIFEST_INVALID') }
+  const observedVersion = isVersion(manifest?.version) ? manifest.version : null
+  if (manifest.name !== name) return failure(name, 'incompatible', observedVersion, 'MANIFEST_NAME_INVALID')
+  if (observedVersion !== expectedVersion) return failure(name, 'incompatible', observedVersion, 'VERSION_MISMATCH')
+  if (manifest.type !== 'module') return failure(name, 'incompatible', observedVersion, 'TYPE_INVALID')
+  if (manifest.license !== options.license) return failure(name, 'incompatible', observedVersion, 'LICENSE_INVALID')
+  if (options.noExports && manifest.exports !== undefined) return failure(name, 'incompatible', observedVersion, 'EXPORTS_INVALID')
   const actualEntrypoints = options.noExports ? { bin: manifest.bin?.dsh } : manifest.exports
   for (const [key, expected] of Object.entries(entrypoints)) {
-    const observed = actualEntrypoints?.[key]
-    if (!sameValue(observed, expected)) {
-      return record(name, observedVersion, 'incompatible', {}, undefined, `export ${key} expected ${stableJson(expected)}; observed ${stableJson(observed)}`)
-    }
-    for (const path of entrypointPaths(expected)) {
-      if (!isFileWithin(directory, path)) return record(name, observedVersion, 'incompatible', {}, undefined, `entrypoint ${key} expected file ${path}; observed missing`)
-    }
+    if (!sameValue(actualEntrypoints?.[key], expected) || entrypointPaths(expected).some((entrypoint) => !isFileWithin(location.directory, entrypoint, { pathImplementation, ...fs }))) return failure(name, 'incompatible', observedVersion, 'ENTRYPOINT_INVALID')
   }
-  let bundlePatch
-  if (options.bundle) {
-    bundlePatch = manifest.dsh?.bundle?.patch
-    if (bundlePatch !== './cordis.patch.yml' || !isFileWithin(directory, bundlePatch)) {
-      return record(name, observedVersion, 'incompatible', {}, undefined, `bundle patch expected ./cordis.patch.yml; observed ${JSON.stringify(bundlePatch)}`)
-    }
-  }
-  return record(name, observedVersion, 'compatible', entrypoints, bundlePatch)
+  const bundlePatch = options.bundle ? manifest.dsh?.bundle?.patch : undefined
+  if (options.bundle && (bundlePatch !== './cordis.patch.yml' || !isFileWithin(location.directory, bundlePatch, { pathImplementation, ...fs }))) return failure(name, 'incompatible', observedVersion, 'BUNDLE_PATCH_INVALID')
+  return { name, observedVersion, status: 'compatible', entrypoints, ...(options.bundle ? { bundlePatch } : {}) }
 }
 
-function entrypointPaths(value) {
-  return typeof value === 'string' ? [value] : Object.values(value)
+function locatePackage(runtimeRoot, name, fs, pathImplementation) {
+  const nodeModules = pathImplementation.resolve(runtimeRoot, 'node_modules')
+  try {
+    if (!fs.existsSync(nodeModules)) return { kind: 'missing' }
+    if (fs.lstatSync(nodeModules).isSymbolicLink()) return { kind: 'invalid' }
+    const canonicalNodeModules = fs.realpathSync(nodeModules)
+    let lexical = nodeModules
+    let canonical = canonicalNodeModules
+    for (const component of name.split('/')) {
+      lexical = pathImplementation.resolve(lexical, component)
+      if (!isWithin(nodeModules, lexical, pathImplementation)) return { kind: 'invalid' }
+      if (!fs.existsSync(lexical)) return { kind: 'missing' }
+      if (fs.lstatSync(lexical).isSymbolicLink()) return { kind: 'invalid' }
+      const actual = fs.realpathSync(lexical)
+      const assigned = pathImplementation.resolve(canonical, component)
+      if (actual !== assigned || !isWithin(canonicalNodeModules, actual, pathImplementation)) return { kind: 'invalid' }
+      canonical = actual
+    }
+    const packagePath = pathImplementation.resolve(lexical, 'package.json')
+    if (!fs.existsSync(packagePath)) return { kind: 'missing' }
+    if (fs.lstatSync(packagePath).isSymbolicLink()) return { kind: 'invalid' }
+    const canonicalPackagePath = fs.realpathSync(packagePath)
+    if (canonicalPackagePath !== pathImplementation.resolve(canonical, 'package.json') || !isWithin(canonical, canonicalPackagePath, pathImplementation)) return { kind: 'invalid' }
+    return { kind: 'found', directory: canonical, packagePath: canonicalPackagePath }
+  } catch { return { kind: 'invalid' }
+  }
 }
 
+function expectedVersion(contract, versions) { return contract.dshVersion ? versions.dshVersion : versions.desktopPluginVersion }
+function assertExpectedVersions(value) { failIf(!hasExactKeys(value, ['desktopPluginVersion', 'dshVersion']) || !isVersion(value.dshVersion) || !isVersion(value.desktopPluginVersion), 'expected versions are invalid') }
+function failure(name, status, observedVersion, reasonCode) { return { name, observedVersion, status, entrypoints: {}, reasonCode } }
+function entrypointPaths(value) { return typeof value === 'string' ? [value] : Object.values(value) }
 function assertCapabilityRecords(capabilities, records) {
-  if (!hasExactKeys(capabilities, optionalCapabilities.map(([capability]) => capability))) throw new Error('Runtime capability compatibility failed: capability records are invalid')
+  failIf(!hasExactKeys(capabilities, optionalCapabilities.map(([capability]) => capability)), 'capability records are invalid')
   for (const [capability, name] of optionalCapabilities) {
     const value = capabilities[capability]
-    if (!hasExactKeys(value, ['available', 'package']) || value.package !== name || value.available !== (records.get(name).status === 'compatible')) {
-      throw new Error(`Runtime capability compatibility failed: ${capability} capability record is invalid`)
-    }
+    failIf(!hasExactKeys(value, ['available', 'package']) || value.package !== name || value.available !== (records.get(name).status === 'compatible'), 'capability record is invalid')
   }
 }
+function failIf(condition, detail) { if (condition) throw new Error(`Runtime capability compatibility failed: ${detail}`) }
+function isVersion(value) { return typeof value === 'string' && value.length > 0 && value.length <= 128 }
+function isRecord(value) { return typeof value === 'object' && value !== null && !Array.isArray(value) }
+function hasExactKeys(value, expectedKeys) { if (!isRecord(value)) return false; const keys = Object.keys(value).sort(); const expected = [...expectedKeys].sort(); return keys.length === expected.length && keys.every((key, index) => key === expected[index]) }
+function isWithin(directory, target, pathImplementation) { const candidate = pathImplementation.relative(directory, target); return candidate !== '..' && !candidate.startsWith(`..${pathImplementation.sep}`) && !pathImplementation.isAbsolute(candidate) }
 
-function isVersion(value) {
-  return typeof value === 'string' && value.length > 0
-}
-
-function isRecord(value) {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function hasExactKeys(value, expectedKeys) {
-  if (!isRecord(value)) return false
-  const keys = Object.keys(value).sort()
-  const expected = [...expectedKeys].sort()
-  return keys.length === expected.length && keys.every((key, index) => key === expected[index])
-}
-
-export function isFileWithin(directory, relativePath, {
-  pathImplementation = { resolve, relative, isAbsolute, sep },
-  statSync: inspectStatSync = statSync,
-  lstatSync: inspectLstatSync = lstatSync,
-  realpathSync: inspectRealpathSync = realpathSync,
-} = {}) {
+export function isFileWithin(directory, relativePath, { pathImplementation = defaultPath, statSync: inspectStatSync = statSync, lstatSync: inspectLstatSync = lstatSync, realpathSync: inspectRealpathSync = realpathSync } = {}) {
   if (typeof relativePath !== 'string') return false
   const target = pathImplementation.resolve(directory, relativePath)
-  const targetRelative = pathImplementation.relative(directory, target)
-  if (targetRelative === '..' || targetRelative.startsWith(`..${pathImplementation.sep}`) || pathImplementation.isAbsolute(targetRelative)) return false
-  try {
-    if (inspectLstatSync(target).isSymbolicLink()) return false
-    const canonicalDirectory = inspectRealpathSync(directory)
-    const canonicalTarget = inspectRealpathSync(target)
-    const canonicalRelative = pathImplementation.relative(canonicalDirectory, canonicalTarget)
-    if (canonicalRelative === '..' || canonicalRelative.startsWith(`..${pathImplementation.sep}`) || pathImplementation.isAbsolute(canonicalRelative)) return false
-    return inspectStatSync(canonicalTarget).isFile()
-  } catch {
-    return false
-  }
+  if (!isWithin(directory, target, pathImplementation)) return false
+  try { if (inspectLstatSync(target).isSymbolicLink()) return false; const canonicalDirectory = inspectRealpathSync(directory); const canonicalTarget = inspectRealpathSync(target); return isWithin(canonicalDirectory, canonicalTarget, pathImplementation) && inspectStatSync(canonicalTarget).isFile() } catch { return false }
 }
-
-function record(name, observedVersion, status, entrypoints, bundlePatch, reason) {
-  return {
-    name,
-    observedVersion: observedVersion ?? null,
-    status,
-    entrypoints,
-    ...(bundlePatch ? { bundlePatch } : {}),
-    ...(reason ? { reason } : {}),
-  }
-}
-
-function sameBundles(value, expected) {
-  return Array.isArray(value) && value.length === expected.length && value.every((bundle, index) => bundle === expected[index])
-}
-
-function sameValue(actual, expected) {
-  if (actual === expected) return true
-  if (typeof actual !== 'object' || actual === null || typeof expected !== 'object' || expected === null) return false
-  const actualKeys = Object.keys(actual).sort()
-  const expectedKeys = Object.keys(expected).sort()
-  return actualKeys.length === expectedKeys.length && actualKeys.every((key, index) => key === expectedKeys[index] && sameValue(actual[key], expected[key]))
-}
-
-function stableJson(value) {
-  if (typeof value !== 'object' || value === null) return JSON.stringify(value)
-  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`
-}
+function sameBundles(value, expected) { return Array.isArray(value) && value.length === expected.length && value.every((bundle, index) => bundle === expected[index]) }
+function sameValue(actual, expected) { if (actual === expected) return true; if (!isRecord(actual) || !isRecord(expected)) return false; const actualKeys = Object.keys(actual).sort(); const expectedKeys = Object.keys(expected).sort(); return actualKeys.length === expectedKeys.length && actualKeys.every((key, index) => key === expectedKeys[index] && sameValue(actual[key], expected[key])) }
 
 const invokedPath = process.argv[1] ? resolve(process.argv[1]) : ''
 if (invokedPath === resolve(fileURLToPath(import.meta.url))) {
-  try {
-    const root = process.argv.find((argument) => argument.startsWith('--runtime-root='))?.slice('--runtime-root='.length)
-    if (!root) throw new Error('--runtime-root is required')
-    const { loadReleaseVersions } = await import('./release-versions.mjs')
-    const versions = loadReleaseVersions()
-    const desktopPluginVersion = JSON.parse(readFileSync(resolve('packages/dsh-plugin-desktop/package.json'), 'utf8')).version
-    process.stdout.write(`${JSON.stringify(inspectRuntimeCapabilities(resolve(root), { dshVersion: versions.dshVersion, desktopPluginVersion }), null, 2)}\n`)
-  } catch (cause) {
-    process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`)
-    process.exitCode = 1
-  }
+  try { const root = process.argv.find((argument) => argument.startsWith('--runtime-root='))?.slice('--runtime-root='.length); if (!root) throw new Error('--runtime-root is required'); const { loadReleaseVersions } = await import('./release-versions.mjs'); const versions = loadReleaseVersions(); const desktopPluginVersion = JSON.parse(readFileSync(resolve('packages/dsh-plugin-desktop/package.json'), 'utf8')).version; process.stdout.write(`${JSON.stringify(inspectRuntimeCapabilities(resolve(root), { dshVersion: versions.dshVersion, desktopPluginVersion }), null, 2)}\n`) } catch (cause) { process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`); process.exitCode = 1 }
 }

@@ -1,7 +1,7 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { DESKTOP_BUNDLES, ensureDesktopProfile } from './desktop-profile.mjs'
 import type { RuntimeCapabilityReport } from './runtime-capabilities.mjs'
 
@@ -22,9 +22,13 @@ const compatibleReport: RuntimeCapabilityReport = {
     mcp: { package: '@deepseek-ai/dsh-mcp-client', available: true },
   },
 }
+const expectedVersions = { dshVersion: '0.1.1-rc.2', desktopPluginVersion: '0.3.2' }
+const temporaryRoots: string[] = []
+afterEach(() => { for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true }) })
 
 function fixture(bundles: string[]) {
   const root = mkdtempSync(join(tmpdir(), 'deepseek-harness-profile-'))
+  temporaryRoots.push(root)
   const path = join(root, 'package.json')
   writeFileSync(path, JSON.stringify({
     name: 'dsh-profile-desktop',
@@ -36,6 +40,11 @@ function fixture(bundles: string[]) {
 }
 
 describe('ensureDesktopProfile', () => {
+  it('does not mutate for a stale internally-consistent report when caller-owned versions differ', () => {
+    const path = fixture([])
+    expect(() => ensureDesktopProfile(path, compatibleReport, { ...expectedVersions, dshVersion: '0.1.1-rc.999' })).toThrow(/compatible capability record/i)
+    expect(JSON.parse(readFileSync(path, 'utf8')).dsh.profile.bundles).toEqual([])
+  })
   it('hard-disables browser handoff for the Desktop web runtime', () => {
     const patch = readFileSync(desktopPatchPath, 'utf8')
 
@@ -45,7 +54,7 @@ describe('ensureDesktopProfile', () => {
   it('inserts the official web app between base and Desktop plugin', () => {
     const path = fixture(['@deepseek-ai/dsh-base', '@dsh/desktop-plugin'])
 
-    expect(ensureDesktopProfile(path, compatibleReport)).toBe(true)
+    expect(ensureDesktopProfile(path, compatibleReport, expectedVersions)).toBe(true)
     expect(JSON.parse(readFileSync(path, 'utf8')).dsh.profile.bundles).toEqual(DESKTOP_BUNDLES)
   })
 
@@ -53,7 +62,7 @@ describe('ensureDesktopProfile', () => {
     const path = fixture(['@dsh/desktop-plugin', '@deepseek-ai/dsh-base'])
     const before = JSON.parse(readFileSync(path, 'utf8'))
 
-    ensureDesktopProfile(path, compatibleReport)
+    ensureDesktopProfile(path, compatibleReport, expectedVersions)
 
     const after = JSON.parse(readFileSync(path, 'utf8'))
     expect(after.name).toBe(before.name)
@@ -64,35 +73,35 @@ describe('ensureDesktopProfile', () => {
   it('does not rewrite an already-correct profile', () => {
     const path = fixture([...DESKTOP_BUNDLES])
 
-    expect(ensureDesktopProfile(path, compatibleReport)).toBe(false)
+    expect(ensureDesktopProfile(path, compatibleReport, expectedVersions)).toBe(false)
   })
 
   it('refuses to mount a profile without the exact compatible capability report', () => {
     const path = fixture([])
     const invalidReport = (value: object) => value as Parameters<typeof ensureDesktopProfile>[1]
 
-    expect(() => ensureDesktopProfile(path, invalidReport({ schemaVersion: 1 }))).toThrow(/capabilit/i)
-    expect(() => ensureDesktopProfile(path, invalidReport({ schemaVersion: 1, profileBundles: ['@deepseek-ai/dsh-base'] }))).toThrow(/capabilit/i)
+    expect(() => ensureDesktopProfile(path, invalidReport({ schemaVersion: 1 }), expectedVersions)).toThrow(/capabilit/i)
+    expect(() => ensureDesktopProfile(path, invalidReport({ schemaVersion: 1, profileBundles: ['@deepseek-ai/dsh-base'] }), expectedVersions)).toThrow(/capabilit/i)
   })
 
   it('refuses an exact bundle list without successful package capability records', () => {
     const path = fixture([])
     const invalidReport = (value: object) => value as Parameters<typeof ensureDesktopProfile>[1]
 
-    expect(() => ensureDesktopProfile(path, invalidReport({ profileBundles: [...DESKTOP_BUNDLES] }))).toThrow(/capabilit/i)
+    expect(() => ensureDesktopProfile(path, invalidReport({ profileBundles: [...DESKTOP_BUNDLES] }), expectedVersions)).toThrow(/capabilit/i)
   })
 
   it.each([
     ['a missing schema version', (report: typeof compatibleReport) => { delete (report as { schemaVersion?: number }).schemaVersion }],
     ['a malformed required observed version', (report: typeof compatibleReport) => { report.packages[0].observedVersion = null as never }],
-    ['a tampered required entrypoint', (report: typeof compatibleReport) => { (report.packages[1].entrypoints['.'] as { default: string }).default = './lib/tampered.js' }],
+    ['a tampered required entrypoint', (report: typeof compatibleReport) => { ((report.packages[1].entrypoints as Record<string, { default: string }>)['.']).default = './lib/tampered.js' }],
     ['a duplicate package record', (report: typeof compatibleReport) => { report.packages.push({ ...report.packages[0] }) }],
   ])('rejects %s before mutating the desktop profile', (_label, mutate) => {
     const path = fixture([])
     const report = JSON.parse(JSON.stringify(compatibleReport)) as typeof compatibleReport
     mutate(report)
 
-    expect(() => ensureDesktopProfile(path, report)).toThrow(/capabilit/i)
+    expect(() => ensureDesktopProfile(path, report, expectedVersions)).toThrow(/capabilit/i)
     expect(JSON.parse(readFileSync(path, 'utf8')).dsh.profile.bundles).toEqual([])
   })
 
@@ -107,7 +116,7 @@ describe('ensureDesktopProfile', () => {
     const report = JSON.parse(JSON.stringify(compatibleReport)) as Record<string, unknown>
     mutate(report)
 
-    expect(() => ensureDesktopProfile(path, report as unknown as RuntimeCapabilityReport)).toThrow(/capabilit/i)
+    expect(() => ensureDesktopProfile(path, report as unknown as RuntimeCapabilityReport, expectedVersions)).toThrow(/capabilit/i)
     expect(JSON.parse(readFileSync(path, 'utf8')).dsh.profile.bundles).toEqual([])
   })
 })

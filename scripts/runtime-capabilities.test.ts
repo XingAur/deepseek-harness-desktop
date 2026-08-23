@@ -1,15 +1,20 @@
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
+import { afterEach, describe, expect, it } from 'vitest'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
-import { describe, expect, it } from 'vitest'
 import { DESKTOP_BUNDLES } from './desktop-profile.mjs'
-import { inspectRuntimeCapabilities, isFileWithin } from './runtime-capabilities.mjs'
+import { assertRuntimeCapabilities, inspectRuntimeCapabilities, isFileWithin } from './runtime-capabilities.mjs'
+
+const temporaryRoots: string[] = []
+afterEach(() => { for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true }) })
 
 const dshVersion = '0.1.1-rc.2'
 const desktopPluginVersion = '0.3.2'
 
 function runtimeFixture() {
-  return mkdtempSync(join(tmpdir(), 'dsh-runtime-capabilities-'))
+  const root = mkdtempSync(join(tmpdir(), 'dsh-runtime-capabilities-'))
+  temporaryRoots.push(root)
+  return root
 }
 
 function writePackage(root: string, name: string, manifest: Record<string, unknown>) {
@@ -76,6 +81,27 @@ function inspect(root: string) {
 }
 
 describe('inspectRuntimeCapabilities', () => {
+  it('rejects an internally consistent report substituted from caller-owned expected versions', () => {
+    const root = runtimeFixture()
+    compatibleRuntime(root)
+    const report = inspect(root)
+
+    expect(() => assertRuntimeCapabilities(report, { dshVersion: '0.1.1-rc.999', desktopPluginVersion })).toThrow(/compatible capability record/i)
+  })
+
+  it('uses bounded reason codes without exposing manifest-controlled values', () => {
+    const root = runtimeFixture()
+    compatibleRuntime(root)
+    const secret = 'apiKey=must-not-leak-/absolute/path-' + 'x'.repeat(8_000)
+    writePackage(root, '@deepseek-ai/dsh-skill', { ...optionalManifest(), name: secret })
+
+    const report = inspect(root)
+    const serialized = JSON.stringify(report)
+
+    expect(serialized).not.toContain('must-not-leak')
+    expect(serialized).not.toContain('/absolute/path')
+    expect(report.packages.find((record) => record.name === '@deepseek-ai/dsh-skill')).toMatchObject({ status: 'incompatible', reasonCode: expect.any(String) })
+  })
   it('reports the pinned upstream DSH public exports and deterministic profile bundles', () => {
     const root = runtimeFixture()
     compatibleRuntime(root)
@@ -117,7 +143,7 @@ describe('inspectRuntimeCapabilities', () => {
     const root = runtimeFixture()
     setup(root)
     const report = inspect(root)
-    expect(report.packages).toEqual(expect.arrayContaining([expect.objectContaining({ name, status: expectedStatus, reason: expect.any(String) })]))
+    expect(report.packages).toEqual(expect.arrayContaining([expect.objectContaining({ name, status: expectedStatus, reasonCode: expect.any(String) })]))
     expect(report.profileBundles).toEqual(DESKTOP_BUNDLES)
   })
 
@@ -133,7 +159,7 @@ describe('inspectRuntimeCapabilities', () => {
     const report = inspect(root)
 
     expect(report.packages).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name, status: 'incompatible', reason: expect.stringMatching(/name expected/i) }),
+      expect.objectContaining({ name, status: 'incompatible', reasonCode: 'MANIFEST_NAME_INVALID' }),
     ]))
   })
 
@@ -169,6 +195,7 @@ describe('inspectRuntimeCapabilities', () => {
     const outside = mkdtempSync(join(tmpdir(), 'dsh-runtime-outside-'))
     writeFileSync(join(outside, 'secret.js'), '')
     symlinkSync(outside, join(root, 'lib'))
+    temporaryRoots.push(outside)
 
     expect(isFileWithin(root, './lib/secret.js')).toBe(false)
   })
@@ -180,6 +207,35 @@ describe('inspectRuntimeCapabilities', () => {
     symlinkSync(join(root, 'lib', 'target.js'), join(root, 'lib', 'index.js'))
 
     expect(isFileWithin(root, './lib/index.js')).toBe(false)
+  })
+
+  it.each(['node_modules root', 'scope directory', 'package root', 'package manifest'])('reports %s symlink escapes with a bounded reason code', (kind) => {
+    const root = runtimeFixture()
+    compatibleRuntime(root)
+    const outside = mkdtempSync(join(tmpdir(), 'dsh-runtime-symlink-'))
+    temporaryRoots.push(outside)
+    const packageRoot = join(root, 'node_modules', '@deepseek-ai', 'dsh-skill')
+    if (kind === 'node_modules root') {
+      writeFileSync(join(outside, 'placeholder'), '')
+      // A root symlink is rejected before any package manifest is read.
+      rmSync(join(root, 'node_modules'), { recursive: true })
+      symlinkSync(outside, join(root, 'node_modules'))
+    } else if (kind === 'scope directory') {
+      const scope = join(root, 'node_modules', '@deepseek-ai')
+      rmSync(scope, { recursive: true })
+      symlinkSync(outside, scope)
+    } else if (kind === 'package root') {
+      rmSync(packageRoot, { recursive: true })
+      symlinkSync(outside, packageRoot)
+    } else {
+      const manifest = join(packageRoot, 'package.json')
+      const outsideManifest = join(outside, 'package.json')
+      writeFileSync(outsideManifest, readFileSync(manifest))
+      rmSync(manifest)
+      symlinkSync(outsideManifest, manifest)
+    }
+    const record = inspect(root).packages.find((value) => value.name === '@deepseek-ai/dsh-skill')
+    expect(record).toMatchObject({ status: 'incompatible', observedVersion: null, entrypoints: {}, reasonCode: 'PACKAGE_PATH_INVALID' })
   })
 
   it('keeps canonical containment testable with Windows path semantics', () => {
