@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path'
 export const REQUIRED_DSH_PEER_PACKAGES = Object.freeze([
   '@deepseek-ai/dsh-anonymous-user-id',
   '@deepseek-ai/dsh-atomic-write',
+  '@deepseek-ai/dsh-authorization',
   '@deepseek-ai/dsh-bash-local',
   '@deepseek-ai/dsh-code-runtime',
   '@deepseek-ai/dsh-compaction',
@@ -21,7 +22,7 @@ export const REQUIRED_DSH_PEER_PACKAGES = Object.freeze([
 ])
 
 export function runtimePeerDependencies(dshVersion) {
-  if (!/^0\.1\.0-rc\.\d+$/.test(dshVersion)) {
+  if (!/^0\.1\.\d+-rc\.\d+$/.test(dshVersion)) {
     throw new Error(`Unsupported DeepSeek Harness Runtime version: ${dshVersion}`)
   }
 

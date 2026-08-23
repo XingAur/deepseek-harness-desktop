@@ -19,18 +19,24 @@ afterEach(() => {
 
 describe('Runtime peer dependencies', () => {
   it('pins the complete Runtime peer closure', () => {
-    const dependencies = runtimePeerDependencies('0.1.0-rc.8')
+    const dependencies = runtimePeerDependencies('0.1.1-rc.2')
 
-    expect(REQUIRED_DSH_PEER_PACKAGES).toHaveLength(16)
+    expect(REQUIRED_DSH_PEER_PACKAGES).toHaveLength(17)
     expect(dependencies).toMatchObject({
       '@deepseek-ai/cordis-plugin-group': '1.0.1',
-      '@deepseek-ai/dsh-invariants': '0.1.0-rc.8',
-      '@deepseek-ai/dsh-scope': '0.1.0-rc.8',
-      '@deepseek-ai/dsh-workflow': '0.1.0-rc.8',
+      '@deepseek-ai/dsh-authorization': '0.1.1-rc.2',
+      '@deepseek-ai/dsh-invariants': '0.1.1-rc.2',
+      '@deepseek-ai/dsh-scope': '0.1.1-rc.2',
+      '@deepseek-ai/dsh-workflow': '0.1.1-rc.2',
       react: '18.3.1',
       'react-dom': '18.3.1',
     })
-    expect(Object.keys(dependencies)).toHaveLength(20)
+    expect(Object.keys(dependencies)).toHaveLength(21)
+  })
+
+  it('rejects versions outside the reviewed 0.1 release-candidate line', () => {
+    expect(() => runtimePeerDependencies('0.1.1')).toThrow('Unsupported DeepSeek Harness Runtime version')
+    expect(() => runtimePeerDependencies('0.2.0-rc.1')).toThrow('Unsupported DeepSeek Harness Runtime version')
   })
 
   it('reports required missing peers and ignores optional peers', () => {
