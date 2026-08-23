@@ -358,17 +358,29 @@ jobs:
           for asset in "${runtime_assets[@]}"; do
             grep -Fqx "$(basename "${asset}")" <<<"${existing_names}"
           done
-          mapfile -t final_runtime_names < <(gh release view "${RUNTIME_TAG}" --json assets --jq '.assets[].name' | sort)
           expected_runtime_names=(
             dsh-runtime-darwin-aarch64.tar.gz
             dsh-runtime-windows-x86_64.zip
             runtime-darwin-aarch64.json
             runtime-windows-x86_64.json
           )
-          test "${#final_runtime_names[@]}" -eq "${#expected_runtime_names[@]}"
-          for index in "${!expected_runtime_names[@]}"; do
-            test "${final_runtime_names[$index]}" = "${expected_runtime_names[$index]}"
+          expected_runtime_file="${RUNNER_TEMP}/expected-runtime-assets.txt"
+          final_runtime_file="${RUNNER_TEMP}/final-runtime-assets.txt"
+          printf '%s\n' "${expected_runtime_names[@]}" > "${expected_runtime_file}"
+          runtime_assets_visible=false
+          for attempt in {1..12}; do
+            if gh release view "${RUNTIME_TAG}" --json assets --jq '.assets[].name' | sort > "${final_runtime_file}" && \
+              cmp -s "${expected_runtime_file}" "${final_runtime_file}"; then
+              runtime_assets_visible=true
+              break
+            fi
+            sleep 2
           done
+          if [[ "${runtime_assets_visible}" != 'true' ]]; then
+            echo '::error::Runtime Release asset list was not consistent after 12 attempts.'
+            diff -u "${expected_runtime_file}" "${final_runtime_file}" || true
+            exit 1
+          fi
           if [[ "${IS_DRAFT}" == 'true' ]]; then
             gh release edit "${RUNTIME_TAG}" --draft=false --prerelease
           fi
@@ -443,12 +455,23 @@ jobs:
           for asset in "${desktop_assets[@]}"; do
             grep -Fqx "$(basename "${asset}")" <<<"${existing_names}"
           done
-          mapfile -t expected_desktop_names < <(for asset in "${desktop_assets[@]}"; do basename "${asset}"; done | sort)
-          mapfile -t final_desktop_names < <(gh release view "${DESKTOP_TAG}" --json assets --jq '.assets[].name' | sort)
-          test "${#final_desktop_names[@]}" -eq "${#expected_desktop_names[@]}"
-          for index in "${!expected_desktop_names[@]}"; do
-            test "${final_desktop_names[$index]}" = "${expected_desktop_names[$index]}"
+          expected_desktop_file="${RUNNER_TEMP}/expected-desktop-assets.txt"
+          final_desktop_file="${RUNNER_TEMP}/final-desktop-assets.txt"
+          for asset in "${desktop_assets[@]}"; do basename "${asset}"; done | sort > "${expected_desktop_file}"
+          desktop_assets_visible=false
+          for attempt in {1..12}; do
+            if gh release view "${DESKTOP_TAG}" --json assets --jq '.assets[].name' | sort > "${final_desktop_file}" && \
+              cmp -s "${expected_desktop_file}" "${final_desktop_file}"; then
+              desktop_assets_visible=true
+              break
+            fi
+            sleep 2
           done
+          if [[ "${desktop_assets_visible}" != 'true' ]]; then
+            echo '::error::Desktop Release asset list was not consistent after 12 attempts.'
+            diff -u "${expected_desktop_file}" "${final_desktop_file}" || true
+            exit 1
+          fi
           test -s release-output/latest.json
           test -s release-output/desktop-release.json
 
