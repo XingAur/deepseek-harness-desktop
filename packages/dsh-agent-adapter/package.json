@@ -1,0 +1,22 @@
+{
+  "name": "@dsh/agent-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/protocol.js",
+  "exports": {
+    ".": "./lib/protocol.js",
+    "./worker": "./lib/worker.js"
+  },
+  "files": ["lib/**"],
+  "scripts": {
+    "build": "tsdown && tsc -p tsconfig.json --emitDeclarationOnly",
+    "test": "vitest run --root ../.. packages/dsh-agent-adapter/src"
+  },
+  "devDependencies": {
+    "@types/node": "26.2.0",
+    "tsdown": "0.22.14",
+    "typescript": "6.0.3",
+    "vitest": "4.1.10"
+  }
+}

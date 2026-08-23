@@ -6,6 +6,7 @@ import { materializeRuntimeLinks } from './materialize-runtime-links.mjs'
 import { assertRuntimePeerDependencies, runtimePeerDependencies } from './runtime-peer-dependencies.mjs'
 import { loadReleaseVersions } from './release-versions.mjs'
 import { writeUnsignedRuntimeManifest } from './runtime-release-manifest.mjs'
+import { assertRuntimeCapabilities, inspectRuntimeCapabilities } from './runtime-capabilities.mjs'
 
 const versions = loadReleaseVersions()
 const NODE_VERSION = versions.nodeVersion
@@ -51,6 +52,7 @@ const appDir = join(stage, 'app')
 mkdirSync(appDir, { recursive: true })
 cpSync(pluginTarball, join(appDir, 'desktop-plugin.tgz'))
 cpSync(join('scripts', 'desktop-profile.mjs'), join(appDir, 'desktop-profile.mjs'))
+cpSync(join('scripts', 'runtime-capabilities.mjs'), join(appDir, 'runtime-capabilities.mjs'))
 cpSync(join('scripts', 'plugin-install-state.mjs'), join(appDir, 'plugin-install-state.mjs'))
 cpSync(join('scripts', 'runtime-websocket-proxy.mjs'), join(appDir, 'runtime-websocket-proxy.mjs'))
 writeFileSync(join(appDir, 'package.json'), JSON.stringify({
@@ -71,6 +73,11 @@ if (!reusedDependencies) {
   replaceCachedDesktopPlugin(appDir, pluginTarball, output)
 }
 assertRuntimePeerDependencies(appDir)
+const runtimeCapabilities = assertRuntimeCapabilities(inspectRuntimeCapabilities(join(appDir, 'node_modules'), {
+  dshVersion: DSH_VERSION,
+  desktopPluginVersion,
+}))
+writeFileSync(join(appDir, 'runtime-capabilities.json'), `${JSON.stringify(runtimeCapabilities, null, 2)}\n`, 'utf8')
 writeLauncher(appDir, desktopPluginVersion, desktopPluginSha256, args.version || '0.1.0')
 writePnpmShim(stage, target)
 materializeRuntimeLinks(stage, output)
@@ -105,6 +112,7 @@ async function verifyNodeChecksum(filename, archive) {
 
 function writeLauncher(appDir, desktopPluginVersion, desktopPluginSha256, runtimeVersion) {
   writeFileSync(join(appDir, 'launcher.mjs'), `
+import { readFileSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
@@ -119,6 +127,7 @@ const dsh = join(app, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
 const plugin = join(app, 'desktop-plugin.tgz')
 const home = process.env.DSH_HOME
 if (!home) throw new Error('DSH_HOME is required')
+const runtimeCapabilities = JSON.parse(readFileSync(join(app, 'runtime-capabilities.json'), 'utf8'))
 const installMarker = join(home, 'profiles', 'desktop', '.desktop-plugin-install.json')
 const bin = join(runtime, 'desktop-bin')
 const env = { ...process.env, PATH: bin + delimiter + (process.env.PATH ?? '') }
@@ -129,7 +138,7 @@ if (!(await markerMatches(installMarker, '${desktopPluginVersion}', '${desktopPl
   if (result.status !== 0) process.exit(result.status ?? 1)
   await writeInstallMarker(installMarker, '${desktopPluginVersion}', '${desktopPluginSha256}')
 }
-ensureDesktopProfile(join(home, 'profiles', 'desktop', 'package.json'))
+ensureDesktopProfile(join(home, 'profiles', 'desktop', 'package.json'), runtimeCapabilities)
 const cliArgs = process.argv.slice(2)
 const portIndex = cliArgs.indexOf('--port')
 const publicPort = Number(portIndex >= 0 ? cliArgs[portIndex + 1] : NaN)
