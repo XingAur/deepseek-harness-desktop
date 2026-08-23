@@ -51,6 +51,17 @@ impl AgentStoreError {
         }
     }
 
+    pub(super) fn writer_active(source_path: PathBuf, backup: Option<BackupMetadata>) -> Self {
+        Self {
+            code: "agent_store_writer_active",
+            message: "Agent 数据库仍有活动写入者，已阻止迁移",
+            recovery: RecoveryState {
+                source_path,
+                backup,
+            },
+        }
+    }
+
     pub fn code(&self) -> &'static str {
         self.code
     }

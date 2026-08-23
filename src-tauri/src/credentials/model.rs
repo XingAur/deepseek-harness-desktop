@@ -2,6 +2,7 @@ use std::fmt;
 
 use serde::Serialize;
 use uuid::Uuid;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[serde(transparent)]
@@ -41,6 +42,20 @@ pub struct SecretValue {
     bytes: Vec<u8>,
 }
 
+impl Zeroize for SecretValue {
+    fn zeroize(&mut self) {
+        self.bytes.zeroize();
+    }
+}
+
+impl Drop for SecretValue {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
+impl ZeroizeOnDrop for SecretValue {}
+
 impl SecretValue {
     pub fn new(value: impl Into<String>) -> Self {
         Self {
@@ -54,12 +69,6 @@ impl SecretValue {
 
     pub(crate) fn expose_for_backend(&self) -> &str {
         std::str::from_utf8(&self.bytes).expect("SecretValue is constructed from UTF-8 text")
-    }
-}
-
-impl Drop for SecretValue {
-    fn drop(&mut self) {
-        self.bytes.fill(0);
     }
 }
 

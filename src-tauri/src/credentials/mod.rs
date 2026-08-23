@@ -3,16 +3,30 @@ pub(crate) mod vault;
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "macos")]
+    use super::vault::map_keyring_error;
     use super::{
         model::{CredentialStatus, SecretValue},
         vault::{
-            BackendCredentialVault, BackendErrorKind, CredentialVault, MemoryBackend,
-            NativeCredentialVault, SERVICE_NAME,
+            BackendCredentialVault, BackendError, BackendErrorKind, CredentialVault, MemoryBackend,
+            NativeCredentialVault, PlatformAccessCode, SERVICE_NAME, classify_platform_access,
         },
     };
 
     const FIRST_SECRET: &str = "sk-unit-test-first-secret";
     const SECOND_SECRET: &str = "sk-unit-test-second-secret";
+
+    fn assert_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+
+    #[test]
+    fn every_owned_secret_buffer_has_a_pinned_zeroize_drop_boundary() {
+        assert_zeroize_on_drop::<SecretValue>();
+        assert_zeroize_on_drop::<BackendError>();
+        let manifest = include_str!("../../Cargo.toml");
+        assert!(manifest.contains("zeroize = \"=1.9.0\""));
+        let backend_source = include_str!("vault.rs");
+        assert!(backend_source.contains("HashMap<String, Zeroizing<Vec<u8>>>"));
+    }
 
     #[test]
     fn generated_ids_are_opaque_uuid_accounts_under_the_fixed_service() {
@@ -135,15 +149,60 @@ mod tests {
     }
 
     #[test]
-    fn renderer_commands_do_not_expose_secret_resolution() {
-        let commands = include_str!("../commands.rs");
-        for forbidden in [
-            "resolve_credential",
-            "get_credential_secret",
-            "get-secret",
-            "resolve-secret",
-        ] {
-            assert!(!commands.contains(forbidden));
+    fn platform_classifier_locks_only_verified_interaction_denial() {
+        assert!(matches!(
+            classify_platform_access(PlatformAccessCode::MacOs(-25308)),
+            BackendErrorKind::Locked
+        ));
+        for code in [-61, -25244, -25291, -25292, -25294, -25295] {
+            assert!(matches!(
+                classify_platform_access(PlatformAccessCode::MacOs(code)),
+                BackendErrorKind::Unavailable
+            ));
         }
+        assert!(matches!(
+            classify_platform_access(PlatformAccessCode::Windows(1312)),
+            BackendErrorKind::Unavailable
+        ));
+        assert!(matches!(
+            classify_platform_access(PlatformAccessCode::Windows(5)),
+            BackendErrorKind::Unavailable
+        ));
+        assert!(matches!(
+            classify_platform_access(PlatformAccessCode::Unclassified),
+            BackendErrorKind::Unavailable
+        ));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn typed_macos_keyring_errors_preserve_the_locked_boundary() {
+        let locked = map_keyring_error(keyring::Error::PlatformFailure(Box::new(
+            security_framework::base::Error::from_code(-25308),
+        )))
+        .into_vault_error();
+        assert_eq!(locked.code(), "secure_store_locked");
+
+        let read_only = map_keyring_error(keyring::Error::NoStorageAccess(Box::new(
+            security_framework::base::Error::from_code(-25292),
+        )))
+        .into_vault_error();
+        assert_eq!(read_only.code(), "secure_store_unavailable");
+    }
+
+    #[test]
+    fn renderer_commands_do_not_expose_secret_resolution() {
+        assert!(!crate::RENDERER_COMMAND_NAMES.is_empty());
+        for command in crate::RENDERER_COMMAND_NAMES {
+            let leaf = command.rsplit("::").next().unwrap();
+            assert!(!leaf.contains("secret"));
+            assert!(!leaf.contains("credential"));
+            for forbidden_prefix in ["resolve", "get", "fetch", "read"] {
+                assert!(!leaf.starts_with(forbidden_prefix));
+            }
+        }
+        let commands = include_str!("../commands.rs");
+        assert!(!commands.contains("SecretValue"));
+        assert!(!commands.contains("CredentialVault"));
     }
 }

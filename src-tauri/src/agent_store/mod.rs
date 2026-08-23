@@ -2,6 +2,7 @@ pub mod migrations;
 pub mod model;
 
 use std::{
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
@@ -16,7 +17,12 @@ use uuid::Uuid;
 
 use crate::{storage::app_paths::AppPaths, storage::atomic_json::write_atomic};
 
-static MIGRATION_CONTROLLER: OnceLock<Mutex<()>> = OnceLock::new();
+#[derive(Default)]
+struct StoreCoordinator {
+    active_writers: HashSet<PathBuf>,
+}
+
+static STORE_COORDINATOR: OnceLock<Mutex<StoreCoordinator>> = OnceLock::new();
 
 #[derive(Clone, Debug)]
 pub struct AgentStore {
@@ -27,25 +33,52 @@ pub struct AgentStore {
 
 impl AgentStore {
     pub fn open(paths: &AppPaths) -> Result<Self, AgentStoreError> {
-        let controller = MIGRATION_CONTROLLER.get_or_init(|| Mutex::new(()));
-        let _guard = controller
+        let controller = STORE_COORDINATOR.get_or_init(|| Mutex::new(StoreCoordinator::default()));
+        let coordinator = controller
             .lock()
             .map_err(|_| AgentStoreError::recovery_required(paths.agent_database.clone(), None))?;
-        fs::create_dir_all(&paths.state)
-            .map_err(|_| AgentStoreError::recovery_required(paths.agent_database.clone(), None))?;
+        if coordinator.active_writers.contains(&paths.agent_database) {
+            return Err(AgentStoreError::writer_active(
+                paths.agent_database.clone(),
+                None,
+            ));
+        }
 
         let existed = paths.agent_database.exists();
-        let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
-            | OpenFlags::SQLITE_OPEN_FULL_MUTEX
-            | if existed {
-                OpenFlags::empty()
-            } else {
-                OpenFlags::SQLITE_OPEN_CREATE
-            };
-        let mut connection = configured_connection(&paths.agent_database, flags)
+        if !existed {
+            fs::create_dir_all(&paths.state).map_err(|_| {
+                AgentStoreError::recovery_required(paths.agent_database.clone(), None)
+            })?;
+            let mut connection = configured_connection(
+                &paths.agent_database,
+                OpenFlags::SQLITE_OPEN_READ_WRITE
+                    | OpenFlags::SQLITE_OPEN_CREATE
+                    | OpenFlags::SQLITE_OPEN_FULL_MUTEX,
+            )
             .map_err(|_| AgentStoreError::recovery_required(paths.agent_database.clone(), None))?;
-        let version = migrations::user_version(&connection)
-            .map_err(|_| AgentStoreError::recovery_required(paths.agent_database.clone(), None))?;
+            if migrations::migrate_to_v1(&mut connection).is_err() {
+                return Err(AgentStoreError::migration_failed(
+                    paths.agent_database.clone(),
+                    None,
+                ));
+            }
+            return Ok(Self::ready(paths, None));
+        }
+
+        if has_unresolved_rollback_journal(&paths.agent_database) {
+            return Err(AgentStoreError::recovery_required(
+                paths.agent_database.clone(),
+                None,
+            ));
+        }
+
+        let probe = configured_connection(
+            &paths.agent_database,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_FULL_MUTEX,
+        )
+        .map_err(|error| map_probe_error(&paths.agent_database, error))?;
+        let version = migrations::user_version(&probe)
+            .map_err(|error| map_probe_error(&paths.agent_database, error))?;
         if version == migrations::CURRENT_SCHEMA_VERSION {
             return Ok(Self::ready(paths, None));
         }
@@ -56,21 +89,27 @@ impl AgentStore {
             ));
         }
 
-        let backup = if existed {
-            Some(create_verified_backup(
-                &connection,
-                &paths.agent_database,
-                &paths.agent_backups,
-                version,
-            )?)
-        } else {
-            None
-        };
-        if migrations::migrate_to_v1(&mut connection).is_err() {
-            return Err(AgentStoreError::migration_failed(
-                paths.agent_database.clone(),
-                backup,
-            ));
+        let backup = Some(create_verified_backup(
+            &probe,
+            &paths.agent_database,
+            &paths.agent_backups,
+            version,
+        )?);
+        drop(probe);
+
+        let mut connection = configured_connection(
+            &paths.agent_database,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_FULL_MUTEX,
+        )
+        .map_err(|_| {
+            AgentStoreError::migration_failed(paths.agent_database.clone(), backup.clone())
+        })?;
+        if let Err(error) = migrations::migrate_to_v1(&mut connection) {
+            return Err(if is_lock_error(&error) {
+                AgentStoreError::writer_active(paths.agent_database.clone(), backup)
+            } else {
+                AgentStoreError::migration_failed(paths.agent_database.clone(), backup)
+            });
         }
         Ok(Self::ready(paths, backup))
     }
@@ -102,6 +141,78 @@ impl AgentStore {
         )
         .map_err(|_| AgentStoreError::recovery_required(self.database_path.clone(), None))
     }
+
+    pub fn writer(&self) -> Result<AgentStoreWriter, AgentStoreError> {
+        let controller = STORE_COORDINATOR.get_or_init(|| Mutex::new(StoreCoordinator::default()));
+        let mut coordinator = controller
+            .lock()
+            .map_err(|_| AgentStoreError::recovery_required(self.database_path.clone(), None))?;
+        if coordinator.active_writers.contains(&self.database_path) {
+            return Err(AgentStoreError::writer_active(
+                self.database_path.clone(),
+                None,
+            ));
+        }
+        let connection = configured_connection(
+            &self.database_path,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_FULL_MUTEX,
+        )
+        .map_err(|_| AgentStoreError::recovery_required(self.database_path.clone(), None))?;
+        coordinator
+            .active_writers
+            .insert(self.database_path.clone());
+        Ok(AgentStoreWriter {
+            database_path: self.database_path.clone(),
+            connection,
+        })
+    }
+}
+
+pub struct AgentStoreWriter {
+    database_path: PathBuf,
+    connection: Connection,
+}
+
+impl AgentStoreWriter {
+    pub fn connection(&self) -> &Connection {
+        &self.connection
+    }
+}
+
+impl Drop for AgentStoreWriter {
+    fn drop(&mut self) {
+        if let Ok(mut coordinator) = STORE_COORDINATOR
+            .get_or_init(|| Mutex::new(StoreCoordinator::default()))
+            .lock()
+        {
+            coordinator.active_writers.remove(&self.database_path);
+        }
+    }
+}
+
+fn has_unresolved_rollback_journal(database_path: &Path) -> bool {
+    let mut journal = database_path.as_os_str().to_os_string();
+    journal.push("-journal");
+    fs::metadata(PathBuf::from(journal)).is_ok_and(|metadata| metadata.len() > 0)
+}
+
+fn map_probe_error(database_path: &Path, error: rusqlite::Error) -> AgentStoreError {
+    if is_lock_error(&error) {
+        AgentStoreError::writer_active(database_path.to_path_buf(), None)
+    } else {
+        AgentStoreError::recovery_required(database_path.to_path_buf(), None)
+    }
+}
+
+fn is_lock_error(error: &rusqlite::Error) -> bool {
+    matches!(
+        error,
+        rusqlite::Error::SqliteFailure(code, _)
+            if matches!(
+                code.code,
+                rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+            )
+    )
 }
 
 fn configured_connection(path: &Path, flags: OpenFlags) -> rusqlite::Result<Connection> {
@@ -172,7 +283,12 @@ fn create_verified_backup(
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, sync::Arc, thread};
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+        sync::Arc,
+        thread,
+    };
 
     use rusqlite::Connection;
     use sha2::{Digest, Sha256};
@@ -223,10 +339,63 @@ mod tests {
             .unwrap()
     }
 
+    fn quote_identifier(value: &str) -> String {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    }
+
+    fn all_text_values(connection: &Connection) -> Vec<String> {
+        let mut values = Vec::new();
+        for table in table_names(connection) {
+            let table_identifier = quote_identifier(&table);
+            let mut columns = connection
+                .prepare(&format!("PRAGMA table_info({table_identifier})"))
+                .unwrap();
+            let text_columns = columns
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+                })
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
+                .into_iter()
+                .filter_map(|(name, declared_type)| {
+                    let declared_type = declared_type.to_ascii_uppercase();
+                    (declared_type.contains("CHAR")
+                        || declared_type.contains("CLOB")
+                        || declared_type.contains("TEXT"))
+                    .then_some(name)
+                })
+                .collect::<Vec<_>>();
+            drop(columns);
+            for column in text_columns {
+                let query = format!(
+                    "SELECT {} FROM {table_identifier} WHERE {} IS NOT NULL",
+                    quote_identifier(&column),
+                    quote_identifier(&column)
+                );
+                let mut statement = connection.prepare(&query).unwrap();
+                values.extend(
+                    statement
+                        .query_map([], |row| row.get::<_, String>(0))
+                        .unwrap()
+                        .collect::<Result<Vec<_>, _>>()
+                        .unwrap(),
+                );
+            }
+        }
+        values
+    }
+
     fn sha256(path: &std::path::Path) -> String {
         let mut digest = Sha256::new();
         digest.update(fs::read(path).unwrap());
         hex::encode(digest.finalize())
+    }
+
+    fn sqlite_sidecar(path: &Path, suffix: &str) -> PathBuf {
+        let mut value = path.as_os_str().to_os_string();
+        value.push(suffix);
+        PathBuf::from(value)
     }
 
     #[test]
@@ -332,11 +501,15 @@ mod tests {
             )
             .unwrap();
         drop(connection);
+        let source_before = fs::read(&paths.agent_database).unwrap();
+        let source_hash_before = sha256(&paths.agent_database);
 
         let error = AgentStore::open(&paths).unwrap_err();
         let recovery = error.recovery().expect("blocking recovery state");
 
         assert_eq!(error.code(), "agent_store_migration_failed");
+        assert_eq!(fs::read(&paths.agent_database).unwrap(), source_before);
+        assert_eq!(sha256(&paths.agent_database), source_hash_before);
         assert_eq!(recovery.source_path, paths.agent_database);
         let backup = recovery.backup.as_ref().expect("verified backup");
         assert_eq!(backup.sha256, sha256(&backup.backup_path));
@@ -360,6 +533,216 @@ mod tests {
             "ok"
         );
         assert_eq!(user_version(&untouched_backup), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn existing_v1_database_is_probed_read_only_without_requiring_write_access() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths(&dir);
+        AgentStore::open(&paths).unwrap();
+        let before = fs::read(&paths.agent_database).unwrap();
+        fs::set_permissions(&paths.agent_database, fs::Permissions::from_mode(0o444)).unwrap();
+
+        let reopened = AgentStore::open(&paths).unwrap();
+        assert_eq!(user_version(&reopened.reader().unwrap()), 1);
+        assert_eq!(fs::read(&paths.agent_database).unwrap(), before);
+        assert!(reopened.migration_backup().is_none());
+
+        fs::set_permissions(&paths.agent_database, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_only_v0_source_is_backed_up_before_read_write_migration_is_attempted() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths(&dir);
+        let connection = Connection::open(&paths.agent_database).unwrap();
+        connection.execute_batch(V0_FIXTURE).unwrap();
+        drop(connection);
+        let source_before = fs::read(&paths.agent_database).unwrap();
+        fs::set_permissions(&paths.agent_database, fs::Permissions::from_mode(0o444)).unwrap();
+
+        let error = AgentStore::open(&paths).unwrap_err();
+        let backup = error
+            .recovery()
+            .and_then(|state| state.backup.as_ref())
+            .expect("verified backup must precede read-write migration open");
+
+        assert_eq!(fs::read(&paths.agent_database).unwrap(), source_before);
+        assert_eq!(backup.sha256, sha256(&backup.backup_path));
+        assert!(backup.metadata_path.exists());
+        let restored = Connection::open(&backup.backup_path).unwrap();
+        assert_eq!(user_version(&restored), 0);
+        assert_eq!(
+            restored
+                .query_row(
+                    "SELECT setting_value FROM legacy_settings WHERE setting_key = ?1",
+                    ["legacy-provider-mode"],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+            "preserve-me"
+        );
+
+        fs::set_permissions(&paths.agent_database, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    #[test]
+    fn application_writer_lease_blocks_migration_until_the_writer_is_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths(&dir);
+        let connection = Connection::open(&paths.agent_database).unwrap();
+        connection.execute_batch(V0_FIXTURE).unwrap();
+        drop(connection);
+        let store = AgentStore::ready(&paths, None);
+        let writer = store.writer().unwrap();
+        assert_eq!(user_version(writer.connection()), 0);
+        let source_before = fs::read(&paths.agent_database).unwrap();
+
+        let error = AgentStore::open(&paths).unwrap_err();
+
+        assert_eq!(error.code(), "agent_store_writer_active");
+        assert_eq!(fs::read(&paths.agent_database).unwrap(), source_before);
+        assert!(!paths.agent_backups.exists());
+
+        drop(writer);
+        let migrated = AgentStore::open(&paths).unwrap();
+        assert_eq!(user_version(&migrated.reader().unwrap()), 1);
+        assert!(migrated.migration_backup().is_some());
+    }
+
+    #[test]
+    fn external_active_writer_fails_closed_before_backup_or_source_mutation() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths(&dir);
+        let writer = Connection::open(&paths.agent_database).unwrap();
+        writer.execute_batch(V0_FIXTURE).unwrap();
+        writer.execute_batch("BEGIN EXCLUSIVE").unwrap();
+        let source_before = fs::read(&paths.agent_database).unwrap();
+        let source_hash_before = sha256(&paths.agent_database);
+
+        let error = AgentStore::open(&paths).unwrap_err();
+
+        assert_eq!(error.code(), "agent_store_writer_active");
+        assert_eq!(fs::read(&paths.agent_database).unwrap(), source_before);
+        assert_eq!(sha256(&paths.agent_database), source_hash_before);
+        assert!(!paths.agent_backups.exists());
+        writer.execute_batch("ROLLBACK").unwrap();
+    }
+
+    #[test]
+    fn external_wal_writer_is_reported_active_without_source_or_wal_mutation() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths(&dir);
+        let writer = Connection::open(&paths.agent_database).unwrap();
+        assert_eq!(
+            writer
+                .query_row("PRAGMA journal_mode = WAL", [], |row| {
+                    row.get::<_, String>(0)
+                })
+                .unwrap(),
+            "wal"
+        );
+        writer.pragma_update(None, "wal_autocheckpoint", 0).unwrap();
+        writer.execute_batch(V0_FIXTURE).unwrap();
+        writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+        writer
+            .execute(
+                "INSERT INTO legacy_settings (setting_key, setting_value) VALUES (?1, ?2)",
+                ["uncommitted", "preserve-uncommitted"],
+            )
+            .unwrap();
+        let wal_path = sqlite_sidecar(&paths.agent_database, "-wal");
+        let source_before = fs::read(&paths.agent_database).unwrap();
+        let source_hash_before = sha256(&paths.agent_database);
+        let wal_before = fs::read(&wal_path).unwrap();
+
+        let error = AgentStore::open(&paths).unwrap_err();
+
+        assert_eq!(error.code(), "agent_store_writer_active");
+        assert_eq!(fs::read(&paths.agent_database).unwrap(), source_before);
+        assert_eq!(sha256(&paths.agent_database), source_hash_before);
+        assert_eq!(fs::read(&wal_path).unwrap(), wal_before);
+        writer.execute_batch("ROLLBACK").unwrap();
+    }
+
+    #[test]
+    fn hot_journal_blocks_open_without_recovery_or_source_mutation() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths(&dir);
+        let connection = Connection::open(&paths.agent_database).unwrap();
+        connection.execute_batch(V0_FIXTURE).unwrap();
+        drop(connection);
+        let journal = sqlite_sidecar(&paths.agent_database, "-journal");
+        fs::write(&journal, b"unresolved-hot-journal").unwrap();
+        let source_before = fs::read(&paths.agent_database).unwrap();
+        let journal_before = fs::read(&journal).unwrap();
+
+        let error = AgentStore::open(&paths).unwrap_err();
+
+        assert_eq!(error.code(), "agent_store_recovery_required");
+        assert_eq!(fs::read(&paths.agent_database).unwrap(), source_before);
+        assert_eq!(fs::read(&journal).unwrap(), journal_before);
+        assert!(!paths.agent_backups.exists());
+    }
+
+    #[test]
+    fn committed_wal_database_is_backed_up_and_migrated_without_losing_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths(&dir);
+        let writer = Connection::open(&paths.agent_database).unwrap();
+        assert_eq!(
+            writer
+                .query_row("PRAGMA journal_mode = WAL", [], |row| {
+                    row.get::<_, String>(0)
+                })
+                .unwrap(),
+            "wal"
+        );
+        writer.pragma_update(None, "wal_autocheckpoint", 0).unwrap();
+        writer.execute_batch(V0_FIXTURE).unwrap();
+        let reader = Connection::open(&paths.agent_database).unwrap();
+        reader.execute_batch("BEGIN").unwrap();
+        assert_eq!(
+            reader
+                .query_row("SELECT COUNT(*) FROM legacy_settings", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+            1
+        );
+        drop(writer);
+        assert!(sqlite_sidecar(&paths.agent_database, "-wal").exists());
+
+        let store = AgentStore::open(&paths).unwrap();
+
+        let migrated = store.reader().unwrap();
+        assert_eq!(user_version(&migrated), 1);
+        assert_eq!(
+            migrated
+                .query_row(
+                    "SELECT setting_value FROM legacy_settings WHERE setting_key = ?1",
+                    ["legacy-provider-mode"],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+            "preserve-me"
+        );
+        let backup = store.migration_backup().expect("verified WAL backup");
+        let backup_connection = Connection::open(&backup.backup_path).unwrap();
+        assert_eq!(user_version(&backup_connection), 0);
+        assert_eq!(
+            backup_connection
+                .query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
+                .unwrap(),
+            "ok"
+        );
+        drop(reader);
     }
 
     #[test]
@@ -406,7 +789,11 @@ mod tests {
     #[test]
     fn schema_and_seeded_values_have_no_secret_bearing_columns_or_values() {
         let dir = tempfile::tempdir().unwrap();
-        let store = AgentStore::open(&paths(&dir)).unwrap();
+        let paths = paths(&dir);
+        let fixture = Connection::open(&paths.agent_database).unwrap();
+        fixture.execute_batch(V0_FIXTURE).unwrap();
+        drop(fixture);
+        let store = AgentStore::open(&paths).unwrap();
         let connection = store.reader().unwrap();
         let schema = connection
             .query_row(
@@ -444,13 +831,14 @@ mod tests {
                 );
             }
         }
-        let seeded_text = connection
-            .query_row(
-                "SELECT group_concat(name, '|') FROM sqlite_master",
-                [],
-                |row| row.get::<_, String>(0),
-            )
-            .unwrap();
-        assert!(!seeded_text.contains("sk-unit-test-secret"));
+        let seeded_values = all_text_values(&connection);
+        assert!(seeded_values.iter().any(|value| value == "preserve-me"));
+        for value in seeded_values {
+            let value = value.to_ascii_lowercase();
+            assert!(!value.contains("sk-unit-test-secret"));
+            assert!(!value.contains("api_key"));
+            assert!(!value.contains("access_token"));
+            assert!(!value.contains("password"));
+        }
     }
 }

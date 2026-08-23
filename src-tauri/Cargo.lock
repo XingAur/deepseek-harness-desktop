@@ -865,6 +865,7 @@ dependencies = [
  "regex",
  "reqwest 0.12.28",
  "rusqlite",
+ "security-framework",
  "semver",
  "serde",
  "serde_json",
@@ -886,6 +887,7 @@ dependencies = [
  "uuid",
  "windows-sys 0.61.2",
  "zip 6.0.0",
+ "zeroize",
 ]
 
 [[package]]

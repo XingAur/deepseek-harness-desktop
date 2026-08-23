@@ -2,69 +2,116 @@
 
 ## 状态
 
-Task 2 已完成。实现范围仅包含版本化 Agent SQLite 存储、旧 Profile/State 兼容字段和 OS 原生凭证库抽象；未进入 Task 3 的权限 broker、审批流程或 renderer API。
+Task 2 第一轮审查修复已完成。范围仅包含 Foundation/Profile 启动边界、Agent SQLite 打开/备份/迁移/恢复证据、CredentialVault 安全边界和 renderer 命令注册隔离；未进入 Task 3 的 permission broker、审批流程或 secret renderer API。
+
+## Review round 1 继承改动审计
+
+本轮开始时相对 `3df8d9cb459a848e4b5250fc759c7246c815d320` 已有 4 个 Rust 文件的 **inherited partial changes**：
+
+- `src-tauri/src/lib.rs`：仅 Ready 初始化 AgentStore/default profile，非 Ready 使用只读 ProfileRepository，并保留结构化 Foundation bootstrap error。
+- `src-tauri/src/agent_store/mod.rs`：既有库只读探测、verified backup、应用 writer coordinator、WAL/rollback journal/活动 writer 测试主体。
+- `src-tauri/src/agent_store/model.rs`：`agent_store_writer_active` 阻塞错误。
+- `src-tauri/src/profile/repository.rs`：只读仓库写入口阻断。
+
+这些改动逐行审计后保留了正确部分；它们及其已有测试不记作本代理观察到的 RED。补充的 legacy 字节级读取测试、独立 stable/legacy tree 零改动测试和实际 fixture 值扫描首次运行即通过，记录为 inherited behavior regression GREEN，不冒充 RED。
 
 ## TDD 证据
 
-### RED
+### Review round 1 新增 RED
 
-1. Profile 兼容测试先失败：旧 `profiles.json` 反序列化后 `agentPermissionDefault` 为 `null`，不满足运行时默认 `request-approval`。
-2. SQLite 测试先无法编译：`AgentStore`、`AppPaths.agent_database/agent_backups` 和 `rusqlite` 尚不存在；测试已先覆盖 clean v1、幂等启动、v0 fixture 迁移、备份/hash/integrity、强制失败 rollback/recovery、损坏库保留、并发读和无秘密 schema/value。
-3. Foundation 集成测试先失败：初始化后固定 SQLite 路径不存在。
-4. CredentialVault 合约测试先无法编译：`credentials::model` 与 `credentials::vault` 尚不存在；测试已先覆盖 UUID account、覆盖/删除/缺失语义、脱敏错误、无秘密 Debug/序列化、无 renderer resolve command 和原生 backend 只构造边界。
-5. RED 期间确认 `rusqlite 0.40.1` 的备份 API 使用 `MAIN_DB`，与旧版 `DatabaseName` API 不兼容；实现保持固定版本并按 0.40.1 API 调整，没有降级依赖。
+1. 外部 WAL writer 测试先失败：迁移锁竞争被映射为 `agent_store_migration_failed`，而不是明确的 `agent_store_writer_active`；最小修复仅重新分类 SQLite busy/locked，源 DB 与 WAL bytes/hash 保持不变。
+2. zeroize 类型边界测试先编译失败：crate 没有直接固定 `zeroize` 依赖，`SecretValue`/backend 私有错误也没有 `ZeroizeOnDrop` 类型保证。
+3. 平台 access classifier 测试先编译失败：不存在 typed platform-code 分类器，原实现仍把所有 `NoStorageAccess` 归为 Locked。
+4. renderer 注册边界测试先编译失败：不存在 `RENDERER_COMMAND_NAMES` 编译期 allowlist，注册清单无法与审计清单共享单一来源。
 
-### GREEN
+### Review round 1 GREEN
 
-- Profile 专项：16 passed，0 failed（沙箱外重跑；沙箱内唯一失败为既有 loopback bind `EPERM`）。
-- Agent store 专项：7 passed，0 failed。
-- Credentials 专项：8 passed，0 failed（过滤词额外匹配 1 个既有 navigation 测试）。
-- 全量 Rust：154 passed，0 failed；main 0 tests；doc-tests 0 tests。
+- Foundation 4 条边界：4/4 passed（MigrationRequired、MigrationConflict、deferred unresolved、结构化恢复与独立路径 restore）。
+- Agent store 专项：14 passed，0 failed。
+- Profile repository 专项：6 passed，0 failed。
+- Credentials 专项：10 passed，0 failed。
+- 全量 Rust（沙箱外）：169 passed，0 failed；main 0 tests；doc-tests 0 tests。
+- 沙箱内同一全量命令：164 passed、5 failed，失败均为既有 loopback bind `EPERM`；沙箱外原命令全部通过。
 
-## 实现与数据安全边界
+## 5 个 Important 修复与安全保证
 
-- 新增独立 `AgentPermissionMode`，序列化值固定为 `request-approval | smart-approval | full-access`，默认 `request-approval`；既有 `PermissionMode` 的 `read-only | workspace-write` 未改名或重解释。
-- 旧 profile 的默认字段在反序列化时补齐，但默认值序列化时省略，避免无关旧记录被改写；旧 `state.json` round-trip 值保持一致，Profile repository 继续使用原子 JSON 保存。
-- SQLite 固定为 `<app-data>/state/agent-platform.sqlite3`，迁移备份固定为 `<app-data>/backups/agent-platform/`，`PRAGMA user_version = 1`、foreign keys 开启、busy timeout 为 5 秒。
-- v1 schema 只保存 provider/agent/task/session/checkpoint/content reference/approval/grant/extension/compatibility/credential metadata/audit summary 等有界元数据；credential 表仅含 opaque ID、状态和时间，不含 secret-bearing 列或值。
-- 现有 v0 库迁移前使用 SQLite backup API 生成一致备份，要求 `integrity_check` 结果严格等于单行 `ok`，计算 SHA-256 和 byte length，并原子写 sidecar；迁移在进程级排他锁和 SQLite exclusive transaction 内执行。
-- 迁移失败会 rollback，并返回包含源库和已验证备份的阻塞恢复状态；损坏或不支持版本的库不会被删除、覆盖、截断或替换为新库。
-- `CredentialVault` 提供内部 `put/resolve/delete/status`；原生 backend 使用固定 `keyring = 4.1.6` v1 API，服务名固定为 `ai.deepseek.harness.desktop.agent-credentials.v1`，account 只使用生成的 UUID credential ID。
-- `SecretValue` 不实现 `Debug`、`Display`、`Serialize`、`Deserialize` 或 `Clone`，drop 时清零缓冲；backend 原始错误在跨 vault 边界前转换为固定脱敏 code，测试 backend 的秘密和被覆盖值也会清零。
-- 没有 plaintext fallback，没有新增 renderer-facing secret resolve/get command。单元测试只使用 test-only 内存 backend；原生 backend 仅编译和构造，不读写用户真实 Keychain。
+1. **Non-ready Foundation 零持久化初始化**
+   - `MigrationRequired`、`MigrationConflict` 和 defer 后未解决状态均不创建 Agent DB、backup 目录、profiles 目录或默认 profile。
+   - 仅 `Ready` 调用 `create_owned_directories`、打开 AgentStore、恢复 Profile transaction 并按需创建默认 profile。
+   - stable root 与独立 legacy root 均以 byte-level tree snapshot 验证无变化；非 Ready ProfileRepository 的所有写入口 fail closed。
+
+2. **结构化 RecoveryState 不丢失**
+   - Foundation bootstrap error 保留 source path 和 verified backup 的 path、SHA-256、byte length、schema version、sidecar path。
+   - 集成测试把 backup 复制到独立临时恢复路径，验证 `integrity_check = ok`、`user_version` 和原始数据；测试明确验证源库 bytes 不变，从不覆盖源路径。
+
+3. **SQLite 只读探测、备份后迁移和 writer 协调**
+   - 已存在 DB 先以 `READ_ONLY` 且无 `CREATE` flag 探测 `user_version`；仅需迁移时通过只读连接生成 SQLite 一致备份，完成 integrity/hash/length/sidecar 后才打开 `READ_WRITE`。
+   - 应用内 writer 使用明确 coordinator lease；迁移期间持有 coordinator 锁，已有或新 writer 均被阻断。
+   - 外部/未知 writer 不声称可关闭：SQLite exclusive transaction busy/locked 时返回 `agent_store_writer_active` 并 fail closed。
+   - 覆盖 committed WAL、活动 WAL writer、exclusive writer、应用 writer lease、非空 rollback journal、只读 v0、强制 schema 失败；失败路径验证源 bytes/hash（WAL 路径还验证 WAL bytes）不变。
+
+4. **Keyring Locked/Unavailable 保守分类**
+   - 已核对本地锁定版本的 `keyring 4.1.6`、`keyring-core 1.0.0`、Apple 和 Windows backend 源码。
+   - 只把可通过 typed `security_framework::base::Error` 验证的 macOS `errSecInteractionNotAllowed (-25308)` 映射为 Locked。
+   - macOS write-permission/read-only/no-keychain/invalid access codes均映射 Unavailable；Windows `ERROR_NO_SUCH_LOGON_SESSION (1312)` 因 keyring v1 未公开稳定可下转类型而保守映射 Unavailable；ambiguous/unclassified/no-session/read-only/unavailable 均不误报 Locked。
+   - 分类不读取或匹配错误字符串。测试使用纯 classifier 和构造的 typed error，不访问真实 Keychain/Credential Manager。
+
+5. **compiler-safe secret zeroing**
+   - 直接依赖精确固定 `zeroize = 1.9.0`。
+   - `SecretValue` 和 backend 私有错误实现 `Zeroize`、drop 清零及 `ZeroizeOnDrop` 类型边界。
+   - test-only in-memory backend 的当前值和覆盖旧值使用 `Zeroizing<Vec<u8>>`；覆盖、删除和 state drop 均由 zeroize drop 保证。
+   - `SecretValue` 仍不实现 `Debug`、`Display`、`Serialize`、`Deserialize` 或 `Clone`；跨 vault 的错误只暴露固定脱敏 code。
+
+## 2 个 Minor 修复与安全保证
+
+1. **Legacy Profile 真正 byte-level no-op**
+   - 旧 `profiles.json`/`state.json` 通过只读 load 后逐字节一致，且无 atomic temp file。
+   - 明确断言旧 `read-only`/`workspace-write` 权限值、缺省 `agentPermissionDefault = request-approval` 和省略字段兼容。
+   - 没有无证据改变既有 empty patch revision/time 语义。
+
+2. **实际 fixture/value 扫描与 renderer 隔离**
+   - AgentStore 测试迁移真实 v0 fixture，逐表逐 TEXT 列扫描实际值，确认 `preserve-me` 确实被读取并拒绝 secret-bearing schema/value，而非只检查 `sqlite_master`。
+   - renderer 命令以单一编译期宏同时生成 Tauri handler 和审计 allowlist；逐项拒绝 credential/secret 以及 `resolve/get/fetch/read` 前缀，并检查 command source 不引用 `SecretValue`/`CredentialVault`。
+   - 未新增任何 secret command 或 secret 返回类型。
 
 ## 依赖
 
 - `rusqlite = =0.40.1`，features `backup + bundled`。
-- `keyring = =4.1.6`，feature `v1`；当前 macOS 构建解析到 Keychain backend，lockfile 同时包含 Windows Credential Manager backend；未启用 `cli`。
+- `keyring = =4.1.6`，feature `v1`。
+- `zeroize = =1.9.0`。
+- macOS typed code extraction：`security-framework = =3.7.0`。
 
 ## 最终验证
 
 ```text
-cargo test --manifest-path src-tauri/Cargo.toml agent_store --locked
-  7 passed; 0 failed; 147 filtered out
+cargo test -q --manifest-path src-tauri/Cargo.toml agent_store::tests --locked
+  14 passed; 0 failed; 155 filtered out
 
-cargo test --manifest-path src-tauri/Cargo.toml credentials --locked
-  8 passed; 0 failed; 146 filtered out
+cargo test -q --manifest-path src-tauri/Cargo.toml profile::repository::tests --locked
+  6 passed; 0 failed; 163 filtered out
 
-cargo test --manifest-path src-tauri/Cargo.toml profile --locked
-  16 passed; 0 failed; 138 filtered out
+cargo test -q --manifest-path src-tauri/Cargo.toml credentials::tests --locked
+  10 passed; 0 failed; 159 filtered out
+
+Foundation exact boundary tests
+  4 passed; 0 failed (four individually filtered runs)
 
 cargo test --manifest-path src-tauri/Cargo.toml --locked
-  lib: 154 passed; 0 failed
+  lib: 169 passed; 0 failed
   main: 0 tests
   doc-tests: 0 tests
 
-rustfmt --edition 2024 --check --config skip_children=true <Task 2 新增 Rust 模块>
+rustfmt --edition 2024 --check --config skip_children=true <all changed Rust files>
   passed; no output
 
 git diff --check
   passed; no output
 ```
 
-## 残余风险与未验证项
+## 残余风险与边界
 
-- 按安全约束，没有对真实 macOS Keychain 执行写入、读取或删除行为测试；只验证了原生 backend 的当前 macOS 编译与无副作用构造。
-- 当前主机未安装/执行 Windows target 构建，Windows Credential Manager 的实际编译与行为留给后续 Windows CI；没有用其他 backend 或明文方案替代。
-- Vault API 是 Task 2 为后续任务建立的内部契约，当前除 foundation 构造外尚无生产调用方，因此编译仍报告相关 dead-code warnings；未为消除 warning 提前实现 Task 3。
-- 未执行自动恢复覆盖用户数据库；当前只提供阻塞恢复状态和经验证备份，这是“失败时绝不替换用户库”的有意边界。
+- 按安全约束未对真实 macOS Keychain 或 Windows Credential Manager 执行读写删除；macOS 使用构造的 typed platform error，Windows 使用纯 classifier mock。
+- keyring v1 没有公开 Windows backend 私有错误的稳定下转类型，因此 Windows no-session 等当前保守返回 Unavailable；后续若上游提供稳定 typed code，可在不使用错误字符串的前提下收窄分类。
+- 应用内 writer 可精确协调；外部 writer 不能被本应用安全关闭，只能依赖 SQLite 锁检测并 fail closed。本实现不声称关闭未知 writer。
+- 未执行自动恢复或覆盖用户数据库；只返回结构化恢复证据并验证备份可复制到独立路径恢复，这是有意的数据安全边界。
+- CredentialVault 仍是 Task 2 内部契约，除 Foundation 构造外尚无生产调用方；未为消除 dead-code warning 提前实现 Task 3。

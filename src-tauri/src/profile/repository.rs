@@ -20,6 +20,7 @@ use crate::{
 pub struct ProfileRepository {
     profiles_path: PathBuf,
     state_path: PathBuf,
+    writable: bool,
     transaction: Mutex<()>,
 }
 
@@ -29,11 +30,22 @@ impl ProfileRepository {
         Ok(Self {
             profiles_path: root.join("profiles.json"),
             state_path: root.join("state.json"),
+            writable: true,
+            transaction: Mutex::new(()),
+        })
+    }
+
+    pub fn open_read_only(root: PathBuf) -> Result<Self, RuntimeFailure> {
+        Ok(Self {
+            profiles_path: root.join("profiles.json"),
+            state_path: root.join("state.json"),
+            writable: false,
             transaction: Mutex::new(()),
         })
     }
 
     pub fn create(&self, draft: ProfileDraft) -> Result<ProfileRecord, RuntimeFailure> {
+        self.require_writable()?;
         let _guard = self.lock()?;
         validate_draft(&draft)?;
         let mut profiles = self.load_profiles()?;
@@ -118,6 +130,7 @@ impl ProfileRepository {
         expected_revision: u64,
         patch: ProfilePatch,
     ) -> Result<ProfileRecord, RuntimeFailure> {
+        self.require_writable()?;
         let _guard = self.lock()?;
         let mut profiles = self.load_profiles()?;
         let index = profiles
@@ -154,11 +167,13 @@ impl ProfileRepository {
         id: &Uuid,
         draft: ProfileDraft,
     ) -> Result<ProfileRecord, RuntimeFailure> {
+        self.require_writable()?;
         self.get(id)?;
         self.create(draft)
     }
 
     pub fn delete(&self, id: &Uuid) -> Result<(), RuntimeFailure> {
+        self.require_writable()?;
         let _guard = self.lock()?;
         let state = self.load_state()?;
         let protected = state
@@ -197,6 +212,7 @@ impl ProfileRepository {
         generation_id: impl Into<String>,
         reason: ActivationReason,
     ) -> Result<(), RuntimeFailure> {
+        self.require_writable()?;
         let _guard = self.lock()?;
         let profile = find_profile(&self.load_profiles()?, id)?;
         if profile.revision != revision {
@@ -224,6 +240,7 @@ impl ProfileRepository {
         generation_id: &str,
         runtime_version: Version,
     ) -> Result<(), RuntimeFailure> {
+        self.require_writable()?;
         let _guard = self.lock()?;
         let mut state = self.load_state()?;
         let pending = take_matching_pending(&mut state, generation_id)?;
@@ -243,6 +260,7 @@ impl ProfileRepository {
         phase: impl Into<String>,
         cause: impl Into<String>,
     ) -> Result<(), RuntimeFailure> {
+        self.require_writable()?;
         let _guard = self.lock()?;
         let mut state = self.load_state()?;
         fail_pending_state(&mut state, generation_id, phase.into(), cause.into())?;
@@ -250,6 +268,7 @@ impl ProfileRepository {
     }
 
     pub fn recover_interrupted(&self) -> Result<bool, RuntimeFailure> {
+        self.require_writable()?;
         let _guard = self.lock()?;
         let mut state = self.load_state()?;
         let Some(generation_id) = state
@@ -273,6 +292,14 @@ impl ProfileRepository {
         self.transaction
             .lock()
             .map_err(|_| fatal("Profile 仓库锁已损坏"))
+    }
+
+    fn require_writable(&self) -> Result<(), RuntimeFailure> {
+        if self.writable {
+            Ok(())
+        } else {
+            Err(fatal("数据迁移尚未解决，Profile 仓库保持只读"))
+        }
     }
 
     fn load_profiles(&self) -> Result<Vec<ProfileRecord>, RuntimeFailure> {
@@ -369,10 +396,38 @@ fn fatal(message: impl Into<String>) -> RuntimeFailure {
 #[cfg(test)]
 mod tests {
     use super::ProfileRepository;
-    use crate::profile::model::{ActivationReason, ProfileDraft};
+    use crate::profile::model::{
+        ActivationReason, AgentPermissionMode, PermissionMode, ProfileDraft,
+    };
 
     const LEGACY_PROFILES: &str = include_str!("fixtures/legacy_profiles.json");
     const LEGACY_STATE: &str = include_str!("fixtures/legacy_state.json");
+
+    #[test]
+    fn legacy_profile_and_state_reads_are_byte_for_byte_no_ops() {
+        let dir = tempfile::tempdir().unwrap();
+        let profiles_path = dir.path().join("profiles.json");
+        let state_path = dir.path().join("state.json");
+        std::fs::write(&profiles_path, LEGACY_PROFILES.as_bytes()).unwrap();
+        std::fs::write(&state_path, LEGACY_STATE.as_bytes()).unwrap();
+        let profiles_before = std::fs::read(&profiles_path).unwrap();
+        let state_before = std::fs::read(&state_path).unwrap();
+        let repo = ProfileRepository::open_read_only(dir.path().to_path_buf()).unwrap();
+
+        let profiles = repo.list().unwrap();
+        let state = repo.state().unwrap();
+
+        assert_eq!(profiles[0].permission_mode, PermissionMode::ReadOnly);
+        assert_eq!(profiles[1].permission_mode, PermissionMode::WorkspaceWrite);
+        assert!(profiles.iter().all(|profile| {
+            profile.agent_permission_default == AgentPermissionMode::RequestApproval
+        }));
+        assert!(state.pending.is_none());
+        assert_eq!(std::fs::read(&profiles_path).unwrap(), profiles_before);
+        assert_eq!(std::fs::read(&state_path).unwrap(), state_before);
+        assert!(!profiles_path.with_extension("json.tmp").exists());
+        assert!(!state_path.with_extension("json.tmp").exists());
+    }
 
     #[test]
     fn legacy_profile_update_is_atomic_and_preserves_unrelated_fields() {

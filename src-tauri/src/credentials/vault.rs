@@ -1,6 +1,10 @@
 use super::model::{
     CredentialId, CredentialMetadata, CredentialStatus, SecretValue, VaultError, VaultErrorCode,
 };
+use zeroize::{Zeroize, ZeroizeOnDrop};
+
+#[cfg(test)]
+use zeroize::Zeroizing;
 
 pub const SERVICE_NAME: &str = "ai.deepseek.harness.desktop.agent-credentials.v1";
 
@@ -25,6 +29,22 @@ pub(crate) enum BackendErrorKind {
     Unavailable,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum PlatformAccessCode {
+    MacOs(i32),
+    Windows(u32),
+    Unclassified,
+}
+
+pub(crate) fn classify_platform_access(code: PlatformAccessCode) -> BackendErrorKind {
+    match code {
+        PlatformAccessCode::MacOs(-25308) => BackendErrorKind::Locked,
+        PlatformAccessCode::MacOs(_)
+        | PlatformAccessCode::Windows(_)
+        | PlatformAccessCode::Unclassified => BackendErrorKind::Unavailable,
+    }
+}
+
 pub(crate) struct BackendError {
     kind: BackendErrorKind,
     private_detail: Vec<u8>,
@@ -38,7 +58,7 @@ impl BackendError {
         }
     }
 
-    fn into_vault_error(self) -> VaultError {
+    pub(crate) fn into_vault_error(self) -> VaultError {
         let code = match self.kind {
             BackendErrorKind::Missing => VaultErrorCode::NotConfigured,
             BackendErrorKind::Locked => VaultErrorCode::SecureStoreLocked,
@@ -48,11 +68,19 @@ impl BackendError {
     }
 }
 
-impl Drop for BackendError {
-    fn drop(&mut self) {
-        self.private_detail.fill(0);
+impl Zeroize for BackendError {
+    fn zeroize(&mut self) {
+        self.private_detail.zeroize();
     }
 }
+
+impl Drop for BackendError {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
+impl ZeroizeOnDrop for BackendError {}
 
 pub(crate) trait SecureStoreBackend: Send + Sync {
     fn set(&self, account: &str, secret: &SecretValue) -> Result<(), BackendError>;
@@ -148,13 +176,25 @@ impl SecureStoreBackend for KeyringBackend {
     }
 }
 
-fn map_keyring_error(error: keyring::Error) -> BackendError {
-    let kind = match error {
+pub(crate) fn map_keyring_error(error: keyring::Error) -> BackendError {
+    let kind = match &error {
         keyring::Error::NoEntry => BackendErrorKind::Missing,
-        keyring::Error::NoStorageAccess(_) => BackendErrorKind::Locked,
-        _ => BackendErrorKind::Unavailable,
+        _ => classify_platform_access(platform_access_code(&error)),
     };
     BackendError::new(kind, "native secure-store operation failed")
+}
+
+fn platform_access_code(error: &keyring::Error) -> PlatformAccessCode {
+    #[cfg(target_os = "macos")]
+    if let keyring::Error::NoStorageAccess(platform_error)
+    | keyring::Error::PlatformFailure(platform_error) = error
+    {
+        if let Some(error) = platform_error.downcast_ref::<security_framework::base::Error>() {
+            return PlatformAccessCode::MacOs(error.code());
+        }
+    }
+
+    PlatformAccessCode::Unclassified
 }
 
 pub(crate) struct NativeCredentialVault {
@@ -206,17 +246,8 @@ pub(crate) struct MemoryBackend {
 #[cfg(test)]
 #[derive(Default)]
 struct MemoryState {
-    entries: HashMap<String, Vec<u8>>,
+    entries: HashMap<String, Zeroizing<Vec<u8>>>,
     fail_next: Option<BackendError>,
-}
-
-#[cfg(test)]
-impl Drop for MemoryState {
-    fn drop(&mut self) {
-        for secret in self.entries.values_mut() {
-            secret.fill(0);
-        }
-    }
 }
 
 #[cfg(test)]
@@ -251,12 +282,10 @@ impl SecureStoreBackend for MemoryBackend {
     fn set(&self, account: &str, secret: &SecretValue) -> Result<(), BackendError> {
         let mut state = self.state.lock().unwrap();
         Self::pending_failure(&mut state)?;
-        if let Some(mut previous) = state.entries.insert(
+        state.entries.insert(
             account.to_owned(),
-            secret.expose_for_backend().as_bytes().to_vec(),
-        ) {
-            previous.fill(0);
-        }
+            Zeroizing::new(secret.expose_for_backend().as_bytes().to_vec()),
+        );
         Ok(())
     }
 
@@ -266,7 +295,7 @@ impl SecureStoreBackend for MemoryBackend {
         state
             .entries
             .get(account)
-            .cloned()
+            .map(|secret| secret.to_vec())
             .map(SecretValue::from_bytes)
             .ok_or_else(|| BackendError::new(BackendErrorKind::Missing, "credential not found"))
     }
@@ -275,8 +304,8 @@ impl SecureStoreBackend for MemoryBackend {
         let mut state = self.state.lock().unwrap();
         Self::pending_failure(&mut state)?;
         match state.entries.remove(account) {
-            Some(mut secret) => {
-                secret.fill(0);
+            Some(secret) => {
+                drop(secret);
                 Ok(())
             }
             None => Err(BackendError::new(

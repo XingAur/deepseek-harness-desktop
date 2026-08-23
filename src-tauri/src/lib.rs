@@ -1,5 +1,5 @@
-pub mod app_mode;
 mod agent_store;
+pub mod app_mode;
 mod app_update;
 mod apps;
 mod commands;
@@ -22,7 +22,7 @@ mod window;
 
 use std::sync::{Arc, atomic::AtomicBool};
 
-use agent_store::AgentStore;
+use agent_store::{AgentStore, model::RecoveryState};
 use credentials::vault::{CredentialVault, NativeCredentialVault};
 use desktop::DesktopCoordinator;
 use generation::coordinator::{GenerationCoordinator, ProcessRuntimeLauncher, TauriEventSink};
@@ -33,6 +33,64 @@ use runtime::paths::RuntimePaths;
 use storage::app_paths::AppPaths;
 use tauri::{Emitter, Manager, webview::WebviewWindowBuilder};
 
+macro_rules! renderer_commands {
+    ($callback:ident) => {
+        $callback! {
+            commands::bootstrap_runtime,
+            commands::cancel_runtime,
+            commands::repair_runtime,
+            commands::restart_runtime,
+            commands::switch_profile,
+            commands::list_profiles,
+            commands::list_project_metadata,
+            commands::patch_project_metadata,
+            commands::remove_project_metadata,
+            commands::preview_default_project_directory,
+            commands::create_default_project_directory,
+            commands::recycle_project_directory,
+            commands::app_launch,
+            commands::app_stop,
+            commands::app_status,
+            commands::create_profile,
+            commands::update_profile,
+            commands::duplicate_profile,
+            commands::delete_profile,
+            commands::open_external_https,
+            commands::open_user_data,
+            commands::export_diagnostics,
+            commands::migration_status,
+            commands::confirm_migration,
+            commands::defer_migration,
+            commands::check_app_update,
+            commands::download_app_update,
+            commands::install_app_update_now,
+            commands::install_app_update_on_exit,
+            commands::defer_app_update,
+            commands::open_app_update_download,
+            commands::take_app_update_receipt,
+            commands::orderly_quit,
+            commands::hide_window,
+            commands::minimize_window,
+            commands::toggle_maximize_window,
+            commands::start_drag,
+        }
+    };
+}
+
+macro_rules! renderer_command_names {
+    ($($command:path),* $(,)?) => {
+        &[$(stringify!($command)),*]
+    };
+}
+
+macro_rules! renderer_handler {
+    ($($command:path),* $(,)?) => {
+        tauri::generate_handler![$($command),*]
+    };
+}
+
+pub(crate) const RENDERER_COMMAND_NAMES: &[&str] = renderer_commands!(renderer_command_names);
+
 #[derive(Clone, Debug)]
 pub enum FoundationBootstrapState {
     Ready,
@@ -40,11 +98,49 @@ pub enum FoundationBootstrapState {
     MigrationConflict(MigrationCandidate),
 }
 
+#[derive(Debug)]
+pub enum FoundationBootstrapError {
+    Runtime(runtime::model::RuntimeFailure),
+    AgentStore(agent_store::model::AgentStoreError),
+}
+
+impl FoundationBootstrapError {
+    pub fn recovery(&self) -> Option<&RecoveryState> {
+        match self {
+            Self::Runtime(_) => None,
+            Self::AgentStore(error) => error.recovery(),
+        }
+    }
+}
+
+impl From<runtime::model::RuntimeFailure> for FoundationBootstrapError {
+    fn from(error: runtime::model::RuntimeFailure) -> Self {
+        Self::Runtime(error)
+    }
+}
+
+impl From<agent_store::model::AgentStoreError> for FoundationBootstrapError {
+    fn from(error: agent_store::model::AgentStoreError) -> Self {
+        Self::AgentStore(error)
+    }
+}
+
+impl std::fmt::Display for FoundationBootstrapError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Runtime(error) => std::fmt::Display::fmt(error, formatter),
+            Self::AgentStore(error) => std::fmt::Display::fmt(error, formatter),
+        }
+    }
+}
+
+impl std::error::Error for FoundationBootstrapError {}
+
 pub struct DesktopFoundation {
     pub paths: AppPaths,
     pub platform: Arc<dyn PlatformAdapter>,
     pub profiles: Arc<ProfileRepository>,
-    pub agent_store: Arc<AgentStore>,
+    pub agent_store: Option<Arc<AgentStore>>,
     pub(crate) credential_vault: Arc<dyn CredentialVault>,
     pub migration: Arc<MigrationService>,
     pub bootstrap_state: FoundationBootstrapState,
@@ -57,7 +153,7 @@ impl DesktopFoundation {
         platform: Arc<dyn PlatformAdapter>,
         profiles: Arc<ProfileRepository>,
         migration: Arc<MigrationService>,
-    ) -> Result<Self, runtime::model::RuntimeFailure> {
+    ) -> Result<Self, FoundationBootstrapError> {
         Self::from_parts_with_state(
             paths,
             platform,
@@ -73,24 +169,22 @@ impl DesktopFoundation {
         profiles: Arc<ProfileRepository>,
         migration: Arc<MigrationService>,
         bootstrap_state: FoundationBootstrapState,
-    ) -> Result<Self, runtime::model::RuntimeFailure> {
-        paths.create_owned_directories()?;
-        let agent_store = Arc::new(AgentStore::open(&paths).map_err(|cause| {
-            let mut failure = runtime::model::RuntimeFailure::internal(format!(
-                "{}: {cause}",
-                cause.code()
-            ));
-            failure.recoverable = false;
-            failure
-        })?);
+    ) -> Result<Self, FoundationBootstrapError> {
         let credential_vault: Arc<dyn CredentialVault> = Arc::new(NativeCredentialVault::new());
-        if profiles.list()?.is_empty() {
-            let default_root = paths.profiles.join("default");
-            std::fs::create_dir_all(&default_root)
-                .map_err(runtime::model::RuntimeFailure::internal)?;
-            profiles.create(ProfileDraft::named("默认", default_root))?;
-        }
-        profiles.recover_interrupted()?;
+        let agent_store = if matches!(bootstrap_state, FoundationBootstrapState::Ready) {
+            paths.create_owned_directories()?;
+            let agent_store = Arc::new(AgentStore::open(&paths)?);
+            if profiles.list()?.is_empty() {
+                let default_root = paths.profiles.join("default");
+                std::fs::create_dir_all(&default_root)
+                    .map_err(runtime::model::RuntimeFailure::internal)?;
+                profiles.create(ProfileDraft::named("默认", default_root))?;
+            }
+            profiles.recover_interrupted()?;
+            Some(agent_store)
+        } else {
+            None
+        };
         Ok(Self {
             paths,
             platform,
@@ -103,7 +197,7 @@ impl DesktopFoundation {
         })
     }
 
-    fn resolve(app: &tauri::AppHandle) -> Result<Self, runtime::model::RuntimeFailure> {
+    fn resolve(app: &tauri::AppHandle) -> Result<Self, FoundationBootstrapError> {
         let stable_paths = AppPaths::resolve(app)?;
         let platform = platform::current();
         let migration = Arc::new(MigrationService::new(
@@ -138,15 +232,20 @@ impl DesktopFoundation {
                         FoundationBootstrapState::MigrationConflict(candidate.clone()),
                     )
                 }
-                Err(error) => return Err(error),
+                Err(error) => return Err(error.into()),
             },
             [candidate, ..] => (
                 stable_paths,
                 FoundationBootstrapState::MigrationConflict(candidate.clone()),
             ),
         };
-        paths.create_owned_directories()?;
-        let profiles = Arc::new(ProfileRepository::open(paths.profiles.clone())?);
+        let profiles = Arc::new(
+            if matches!(bootstrap_state, FoundationBootstrapState::Ready) {
+                ProfileRepository::open(paths.profiles.clone())?
+            } else {
+                ProfileRepository::open_read_only(paths.profiles.clone())?
+            },
+        );
         Self::from_parts_with_state(paths, platform, profiles, migration, bootstrap_state)
     }
 }
@@ -241,45 +340,7 @@ fn run_desktop() {
             window.show()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
-            commands::bootstrap_runtime,
-            commands::cancel_runtime,
-            commands::repair_runtime,
-            commands::restart_runtime,
-            commands::switch_profile,
-            commands::list_profiles,
-            commands::list_project_metadata,
-            commands::patch_project_metadata,
-            commands::remove_project_metadata,
-            commands::preview_default_project_directory,
-            commands::create_default_project_directory,
-            commands::recycle_project_directory,
-            commands::app_launch,
-            commands::app_stop,
-            commands::app_status,
-            commands::create_profile,
-            commands::update_profile,
-            commands::duplicate_profile,
-            commands::delete_profile,
-            commands::open_external_https,
-            commands::open_user_data,
-            commands::export_diagnostics,
-            commands::migration_status,
-            commands::confirm_migration,
-            commands::defer_migration,
-            commands::check_app_update,
-            commands::download_app_update,
-            commands::install_app_update_now,
-            commands::install_app_update_on_exit,
-            commands::defer_app_update,
-            commands::open_app_update_download,
-            commands::take_app_update_receipt,
-            commands::orderly_quit,
-            commands::hide_window,
-            commands::minimize_window,
-            commands::toggle_maximize_window,
-            commands::start_drag,
-        ]);
+        .invoke_handler(renderer_commands!(renderer_handler));
 
     let app = builder
         .build(tauri::generate_context!())
@@ -316,13 +377,17 @@ fn run_desktop() {
 #[cfg(test)]
 mod foundation_tests {
     use std::{
+        fs,
         path::{Path, PathBuf},
-        sync::Arc,
+        sync::{Arc, atomic::Ordering},
     };
 
+    use sha2::{Digest, Sha256};
+
     use super::{
-        DesktopFoundation,
-        migration::service::MigrationService,
+        DesktopFoundation, FoundationBootstrapState,
+        agent_store::model::BackupMetadata,
+        migration::{model::MigrationCandidate, service::MigrationService},
         platform::PlatformAdapter,
         profile::{
             model::{ActivationReason, ProfileDraft},
@@ -338,6 +403,44 @@ mod foundation_tests {
         fn legacy_data_roots(&self, _stable_root: &Path) -> Vec<PathBuf> {
             Vec::new()
         }
+    }
+
+    fn migration_candidate(paths: &AppPaths) -> MigrationCandidate {
+        MigrationCandidate {
+            source: paths.active_root.clone(),
+            target: paths.stable_root.clone(),
+            bytes: 0,
+            profiles: 0,
+            workspaces: 0,
+        }
+    }
+
+    fn tree_snapshot(root: &Path) -> Vec<(PathBuf, Option<Vec<u8>>)> {
+        fn visit(root: &Path, current: &Path, entries: &mut Vec<(PathBuf, Option<Vec<u8>>)>) {
+            let Ok(children) = fs::read_dir(current) else {
+                return;
+            };
+            let mut children = children.map(Result::unwrap).collect::<Vec<_>>();
+            children.sort_by_key(|entry| entry.file_name());
+            for child in children {
+                let path = child.path();
+                let relative = path.strip_prefix(root).unwrap().to_path_buf();
+                if path.is_dir() {
+                    entries.push((relative, None));
+                    visit(root, &path, entries);
+                } else {
+                    entries.push((relative, Some(fs::read(&path).unwrap())));
+                }
+            }
+        }
+
+        let mut entries = Vec::new();
+        visit(root, root, &mut entries);
+        entries
+    }
+
+    fn sha256(path: &Path) -> String {
+        hex::encode(Sha256::digest(fs::read(path).unwrap()))
     }
 
     #[test]
@@ -411,5 +514,207 @@ mod foundation_tests {
             "interrupted-generation"
         );
         assert_eq!(profiles.list().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn non_ready_foundation_states_leave_the_entire_data_tree_unchanged_and_read_only() {
+        for migration_conflict in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let paths =
+                AppPaths::from_roots(dir.path().join("app-data"), dir.path().join("resources"));
+            fs::create_dir_all(&paths.active_root).unwrap();
+            fs::write(paths.active_root.join("legacy-marker.txt"), b"preserve-me").unwrap();
+            let profiles =
+                Arc::new(ProfileRepository::open_read_only(paths.profiles.clone()).unwrap());
+            let migration = Arc::new(MigrationService::new(
+                paths.stable_root.clone(),
+                paths.backups.clone(),
+            ));
+            let candidate = migration_candidate(&paths);
+            let state = if migration_conflict {
+                FoundationBootstrapState::MigrationConflict(candidate)
+            } else {
+                FoundationBootstrapState::MigrationRequired(candidate)
+            };
+            let before = tree_snapshot(&paths.active_root);
+
+            let foundation = DesktopFoundation::from_parts_with_state(
+                paths.clone(),
+                Arc::new(TestPlatform),
+                profiles,
+                migration,
+                state,
+            )
+            .unwrap();
+
+            assert!(foundation.agent_store.is_none());
+            assert_eq!(tree_snapshot(&paths.active_root), before);
+            assert!(!paths.agent_database.exists());
+            assert!(!paths.agent_backups.exists());
+            assert!(!paths.profiles.exists());
+            assert!(
+                foundation
+                    .profiles
+                    .create(ProfileDraft::named(
+                        "blocked",
+                        paths.active_root.join("blocked")
+                    ))
+                    .is_err()
+            );
+            assert_eq!(tree_snapshot(&paths.active_root), before);
+        }
+    }
+
+    #[test]
+    fn deferred_migration_does_not_initialize_agent_state_or_make_the_repository_writable() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = AppPaths::from_roots(dir.path().join("app-data"), dir.path().join("resources"));
+        fs::create_dir_all(&paths.active_root).unwrap();
+        fs::write(paths.active_root.join("legacy-marker.txt"), b"preserve-me").unwrap();
+        let before = tree_snapshot(&paths.active_root);
+        let profiles = Arc::new(ProfileRepository::open_read_only(paths.profiles.clone()).unwrap());
+        let migration = Arc::new(MigrationService::new(
+            paths.stable_root.clone(),
+            paths.backups.clone(),
+        ));
+
+        let foundation = DesktopFoundation::from_parts_with_state(
+            paths.clone(),
+            Arc::new(TestPlatform),
+            profiles,
+            migration,
+            FoundationBootstrapState::MigrationRequired(migration_candidate(&paths)),
+        )
+        .unwrap();
+        foundation.migration_deferred.store(true, Ordering::SeqCst);
+
+        assert!(foundation.agent_store.is_none());
+        assert_eq!(tree_snapshot(&paths.active_root), before);
+        assert!(!paths.agent_database.exists());
+        assert!(!paths.profiles.exists());
+        assert!(
+            foundation
+                .profiles
+                .create(ProfileDraft::named(
+                    "blocked",
+                    paths.active_root.join("blocked")
+                ))
+                .is_err()
+        );
+        assert_eq!(tree_snapshot(&paths.active_root), before);
+    }
+
+    #[test]
+    fn migration_required_with_separate_legacy_root_changes_neither_tree() {
+        let dir = tempfile::tempdir().unwrap();
+        let stable_root = dir.path().join("stable-data");
+        let legacy_root = dir.path().join("legacy-data");
+        fs::create_dir_all(&stable_root).unwrap();
+        fs::create_dir_all(&legacy_root).unwrap();
+        fs::write(stable_root.join("stable-marker.txt"), b"stable-preserve").unwrap();
+        fs::write(legacy_root.join("legacy-marker.txt"), b"legacy-preserve").unwrap();
+        let paths = AppPaths::with_active_root(
+            stable_root.clone(),
+            legacy_root.clone(),
+            dir.path().join("resources"),
+        );
+        let stable_before = tree_snapshot(&stable_root);
+        let legacy_before = tree_snapshot(&legacy_root);
+        let profiles = Arc::new(ProfileRepository::open_read_only(paths.profiles.clone()).unwrap());
+        let migration = Arc::new(MigrationService::new(
+            paths.stable_root.clone(),
+            paths.backups.clone(),
+        ));
+
+        let foundation = DesktopFoundation::from_parts_with_state(
+            paths.clone(),
+            Arc::new(TestPlatform),
+            profiles,
+            migration,
+            FoundationBootstrapState::MigrationRequired(migration_candidate(&paths)),
+        )
+        .unwrap();
+
+        assert!(foundation.agent_store.is_none());
+        assert_eq!(tree_snapshot(&stable_root), stable_before);
+        assert_eq!(tree_snapshot(&legacy_root), legacy_before);
+        assert!(!paths.agent_database.exists());
+        assert!(!paths.agent_backups.exists());
+        assert!(!paths.profiles.exists());
+    }
+
+    #[test]
+    fn bootstrap_preserves_structured_recovery_and_verified_backup_can_restore_elsewhere() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = AppPaths::from_roots(dir.path().join("app-data"), dir.path().join("resources"));
+        paths.create_owned_directories().unwrap();
+        let profiles = Arc::new(ProfileRepository::open(paths.profiles.clone()).unwrap());
+        let source = rusqlite::Connection::open(&paths.agent_database).unwrap();
+        source
+            .execute_batch(
+                "PRAGMA user_version = 0;
+                 CREATE TABLE providers (broken_fixture TEXT NOT NULL);
+                 INSERT INTO providers VALUES ('preserve-me');",
+            )
+            .unwrap();
+        drop(source);
+        let source_before = fs::read(&paths.agent_database).unwrap();
+        let migration = Arc::new(MigrationService::new(
+            paths.stable_root.clone(),
+            paths.backups.clone(),
+        ));
+
+        let error = match DesktopFoundation::from_parts(
+            paths.clone(),
+            Arc::new(TestPlatform),
+            profiles,
+            migration,
+        ) {
+            Ok(_) => panic!("broken v0 schema unexpectedly bootstrapped"),
+            Err(error) => error,
+        };
+        let recovery = error.recovery().expect("structured bootstrap recovery");
+        let backup = recovery.backup.as_ref().expect("verified backup evidence");
+
+        assert_eq!(recovery.source_path, paths.agent_database);
+        assert_eq!(backup.source_path, paths.agent_database);
+        assert!(backup.backup_path.starts_with(&paths.agent_backups));
+        assert_eq!(backup.sha256, sha256(&backup.backup_path));
+        assert_eq!(
+            backup.byte_length,
+            fs::metadata(&backup.backup_path).unwrap().len()
+        );
+        assert!(backup.metadata_path.exists());
+        let sidecar: BackupMetadata =
+            serde_json::from_slice(&fs::read(&backup.metadata_path).unwrap()).unwrap();
+        assert_eq!(&sidecar, backup);
+        assert_eq!(fs::read(&paths.agent_database).unwrap(), source_before);
+
+        let restored_path = dir
+            .path()
+            .join("manual-recovery/agent-platform-restored.sqlite3");
+        fs::create_dir_all(restored_path.parent().unwrap()).unwrap();
+        fs::copy(&backup.backup_path, &restored_path).unwrap();
+        let restored = rusqlite::Connection::open(&restored_path).unwrap();
+        assert_eq!(
+            restored
+                .query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
+                .unwrap(),
+            "ok"
+        );
+        assert_eq!(
+            restored
+                .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            restored
+                .query_row("SELECT broken_fixture FROM providers", [], |row| {
+                    row.get::<_, String>(0)
+                })
+                .unwrap(),
+            "preserve-me"
+        );
     }
 }
