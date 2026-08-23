@@ -1,0 +1,250 @@
+name: DeepSeek Harness Upstream Sync
+
+on:
+  schedule:
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deepseek-harness-upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
+      state_status: ${{ steps.state.outputs.status }}
+      current_tag: ${{ steps.state.outputs.current_tag }}
+      prepare_action: ${{ steps.prepare.outputs.action }}
+      release_tag: ${{ steps.release.outputs.release_tag }}
+      previous_dsh_version: ${{ steps.prepare.outputs.previous_dsh_version }}
+      dsh_version: ${{ steps.prepare.outputs.dsh_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Pin analyzed source commit
+        id: source
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+
+      - name: Read pinned toolchain versions
+        id: versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const v=JSON.parse(require('fs').readFileSync('release/versions.json')); for (const [key,value] of Object.entries({DESKTOP_VERSION:v.desktopVersion,LEGACY_RELEASE_BASELINE:v.legacyReleaseBaseline,NODE_VERSION:v.nodeVersion})) console.log(key+'='+value)" >> "${GITHUB_ENV}"
+          node -e "const v=JSON.parse(require('fs').readFileSync('release/versions.json')); console.log('node_version='+v.nodeVersion)" >> "${GITHUB_OUTPUT}"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.versions.outputs.node_version }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install exact dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Classify current release state
+        id: state
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          CURRENT_TAG="desktop-v${DESKTOP_VERSION}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${CURRENT_TAG}" >/dev/null 2>&1; then
+            TAG_EXISTS=true
+          else
+            TAG_EXISTS=false
+          fi
+          if gh release view "${CURRENT_TAG}" --repo "${GITHUB_REPOSITORY}" --json isDraft,assets > "${RUNNER_TEMP}/current-release.json" 2>/dev/null; then
+            :
+          else
+            echo 'null' > "${RUNNER_TEMP}/current-release.json"
+          fi
+          node scripts/release-state.mjs \
+            --version="${DESKTOP_VERSION}" \
+            --legacy-release-baseline="${LEGACY_RELEASE_BASELINE}" \
+            --tag-exists="${TAG_EXISTS}" \
+            --release-json-file="${RUNNER_TEMP}/current-release.json" \
+            > "${RUNNER_TEMP}/release-state.json"
+          STATUS="$(node -p "JSON.parse(require('fs').readFileSync(process.argv[1])).status" "${RUNNER_TEMP}/release-state.json")"
+          REASON="$(node -p "JSON.parse(require('fs').readFileSync(process.argv[1])).reason" "${RUNNER_TEMP}/release-state.json")"
+          echo "status=${STATUS}" >> "${GITHUB_OUTPUT}"
+          echo "current_tag=${CURRENT_TAG}" >> "${GITHUB_OUTPUT}"
+          echo "Release state: ${STATUS} - ${REASON}"
+          if [[ "${STATUS}" == 'blocked' ]]; then
+            echo "::error::Current public release is incomplete and immutable: ${REASON}"
+            exit 1
+          fi
+
+      - name: Prepare a newer upstream version
+        id: prepare
+        if: steps.state.outputs.status == 'complete'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/prepare-upstream-release.mjs > "${RUNNER_TEMP}/prepare-result.json"
+          cat "${RUNNER_TEMP}/prepare-result.json"
+          ACTION="$(node -p "JSON.parse(require('fs').readFileSync(process.argv[1])).action" "${RUNNER_TEMP}/prepare-result.json")"
+          RELEASE_TAG="$(node -p "JSON.parse(require('fs').readFileSync(process.argv[1])).tag" "${RUNNER_TEMP}/prepare-result.json")"
+          PREVIOUS_DSH_VERSION="$(node -p "JSON.parse(require('fs').readFileSync(process.argv[1])).previousDshVersion" "${RUNNER_TEMP}/prepare-result.json")"
+          DSH_VERSION="$(node -p "JSON.parse(require('fs').readFileSync(process.argv[1])).dshVersion" "${RUNNER_TEMP}/prepare-result.json")"
+          echo "action=${ACTION}" >> "${GITHUB_OUTPUT}"
+          echo "release_tag=${RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
+          echo "previous_dsh_version=${PREVIOUS_DSH_VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "dsh_version=${DSH_VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Verify prepared source before publishing refs
+        if: steps.prepare.outputs.action == 'upgrade'
+        run: |
+          npm run release:versions:check
+          npm run check
+          cargo test --manifest-path src-tauri/Cargo.toml --locked
+
+      - name: Stage exact derived version files
+        if: steps.prepare.outputs.action == 'upgrade'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p prepared-release/release prepared-release/src-tauri
+          cp release/versions.json prepared-release/release/versions.json
+          cp package.json prepared-release/package.json
+          cp package-lock.json prepared-release/package-lock.json
+          cp src-tauri/tauri.conf.json prepared-release/src-tauri/tauri.conf.json
+          cp src-tauri/Cargo.toml prepared-release/src-tauri/Cargo.toml
+          cp src-tauri/Cargo.lock prepared-release/src-tauri/Cargo.lock
+
+      - uses: actions/upload-artifact@v4
+        if: steps.prepare.outputs.action == 'upgrade'
+        with:
+          name: prepared-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: prepared-release
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Resolve release tag to recover or publish
+        id: release
+        if: steps.state.outputs.status != 'complete' || steps.prepare.outputs.action == 'upgrade'
+        shell: bash
+        run: |
+          set -euo pipefail
+          STATUS="${{ steps.state.outputs.status }}"
+          if [[ "${STATUS}" == 'pending-tag' || "${STATUS}" == 'pending-release' ]]; then
+            RELEASE_TAG="${{ steps.state.outputs.current_tag }}"
+          else
+            RELEASE_TAG="${{ steps.prepare.outputs.release_tag }}"
+          fi
+          echo "release_tag=${RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
+
+  publish_refs:
+    needs: prepare
+    if: needs.prepare.outputs.state_status == 'pending-tag' || needs.prepare.outputs.prepare_action == 'upgrade'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        if: needs.prepare.outputs.prepare_action == 'upgrade'
+        with:
+          name: prepared-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: prepared-release
+
+      - name: Apply and commit exact prepared version files
+        if: needs.prepare.outputs.prepare_action == 'upgrade'
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=(
+            package-lock.json
+            package.json
+            release/versions.json
+            src-tauri/Cargo.lock
+            src-tauri/Cargo.toml
+            src-tauri/tauri.conf.json
+          )
+          mapfile -t actual < <(find prepared-release -type f -print | sed 's#^prepared-release/##' | sort)
+          test "${#actual[@]}" -eq "${#expected[@]}"
+          for index in "${!expected[@]}"; do test "${actual[$index]}" = "${expected[$index]}"; done
+          cp prepared-release/package.json package.json
+          cp prepared-release/package-lock.json package-lock.json
+          cp prepared-release/release/versions.json release/versions.json
+          cp prepared-release/src-tauri/tauri.conf.json src-tauri/tauri.conf.json
+          cp prepared-release/src-tauri/Cargo.toml src-tauri/Cargo.toml
+          cp prepared-release/src-tauri/Cargo.lock src-tauri/Cargo.lock
+          mapfile -t changed < <(git diff --name-only | sort)
+          test "${#changed[@]}" -eq "${#expected[@]}"
+          for index in "${!expected[@]}"; do test "${changed[$index]}" = "${expected[$index]}"; done
+          test "$(node -p "JSON.parse(require('fs').readFileSync('release/versions.json')).dshVersion")" = "${{ needs.prepare.outputs.dsh_version }}"
+          git config user.name 'deepseek-harness-release-bot'
+          git config user.email 'deepseek-harness-release-bot@users.noreply.github.com'
+          git add "${expected[@]}"
+          git commit -m "chore(release): sync DSH ${{ needs.prepare.outputs.previous_dsh_version }} to ${{ needs.prepare.outputs.dsh_version }}"
+
+      - name: Create version tag and push refs atomically
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          git config user.name 'deepseek-harness-release-bot'
+          git config user.email 'deepseek-harness-release-bot@users.noreply.github.com'
+          git tag -a "${RELEASE_TAG}" -m "DeepSeek Harness Desktop ${RELEASE_TAG#desktop-v}"
+          BASIC_AUTH="$(printf 'x-access-token:%s' "${GH_TOKEN}" | base64 -w0)"
+          if [[ "${{ needs.prepare.outputs.prepare_action }}" == 'upgrade' ]]; then
+            git -c http.https://github.com/.extraheader="AUTHORIZATION: basic ${BASIC_AUTH}" push --atomic origin "HEAD:${DEFAULT_BRANCH}" "refs/tags/${RELEASE_TAG}"
+          else
+            git -c http.https://github.com/.extraheader="AUTHORIZATION: basic ${BASIC_AUTH}" push --atomic origin "refs/tags/${RELEASE_TAG}"
+          fi
+          unset BASIC_AUTH
+
+  dispatch:
+    needs: [prepare, publish_refs]
+    if: >-
+      always() &&
+      needs.prepare.result == 'success' &&
+      (needs.publish_refs.result == 'success' || needs.publish_refs.result == 'skipped') &&
+      (needs.prepare.outputs.state_status == 'pending-tag' ||
+       needs.prepare.outputs.state_status == 'pending-release' ||
+       needs.prepare.outputs.prepare_action == 'upgrade')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Dispatch exact tag build once
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          ACTIVE_STATUSES='queued,in_progress'
+          active_runs="$(gh run list \
+            --repo "${GITHUB_REPOSITORY}" \
+            --workflow desktop.yml \
+            --branch "${RELEASE_TAG}" \
+            --limit 100 \
+            --json status \
+            --jq '[.[] | select(.status == "queued" or .status == "in_progress")] | length')"
+          if [[ "${active_runs}" != '0' ]]; then
+            echo "Desktop workflow already ${ACTIVE_STATUSES} for ${RELEASE_TAG}; skipping duplicate dispatch."
+            exit 0
+          fi
+          gh workflow run desktop.yml --repo "${GITHUB_REPOSITORY}" --ref "${RELEASE_TAG}"

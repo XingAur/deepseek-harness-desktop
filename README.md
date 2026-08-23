@@ -5,7 +5,7 @@
 <h1 align="center">DeepSeek Harness Desktop</h1>
 
 <p align="center">
-  让普通用户无需命令行，即可在 Windows 上安装并使用 DeepSeek Harness。
+  让普通用户无需命令行，即可在 Windows 和 Apple Silicon Mac 上使用 DeepSeek Harness。
 </p>
 
 > [!IMPORTANT]
@@ -25,7 +25,14 @@ DeepSeek Harness Desktop 把官方 DeepSeek Harness Web 工作台放进原生桌
 
 ## 安装与首次启动
 
-当前交付重点是 **Windows x64 完整安装包**。
+正式安装包统一发布在 [GitHub Releases](https://github.com/XingAur/deepseek-harness-desktop/releases)。请选择与系统对应的版本：
+
+- Windows x64：下载 `.exe` 安装包；后续新版本可在应用内更新。
+- macOS Apple Silicon：下载 `.dmg`，拖入“应用程序”完成安装；后续由应用提示新版本并打开可信下载页，再由用户手动替换旧应用。
+
+Windows 应用内更新使用免费的 Tauri updater 密钥校验更新包完整性，不等同于付费的 Windows Authenticode 发行者证书。当前没有 Authenticode 证书，因此首次下载或安装时 Windows 仍可能显示“未知发布者”或 SmartScreen 提示；但安装后的应用内更新不会接受缺少正确 Tauri 签名的更新包。
+
+macOS 包未使用 Apple Developer ID 签名、未经过 Apple 公证，因为当前项目没有付费 Apple Developer Program 证书。macOS 可能在第一次启动时显示开发者验证提示；请只从本仓库 Release 下载，随后在 Finder 中按住 Control 点按应用并选择“打开”，或在“系统设置 → 隐私与安全性”中确认打开。项目不会要求关闭 Gatekeeper 或执行移除隔离属性的命令。
 
 安装程序同时携带桌面应用和已签名的受管 Runtime。首次打开应用时，启动页会自动：
 
@@ -37,7 +44,7 @@ DeepSeek Harness Desktop 把官方 DeepSeek Harness Web 工作台放进原生桌
 
 整个过程都在应用启动页中完成，不会在安装器中额外弹出命令行或下载窗口。正常的首次准备不依赖网络；如果内置 Runtime 损坏、版本需要升级或用户主动修复，应用才会从不可变 Runtime Release 下载并验证替代版本。失败时可以重试、修复或导出诊断文件。
 
-目前 GitHub 上尚未发布项目所需的不可变 Runtime Release，因此暂不提供面向普通用户的下载按钮。Release 就绪并完成安装包端到端验证后，会在这里提供正式入口。
+安装与更新只替换桌面程序和版本化 Runtime，不迁移或清空 Profile、Workspace 和会话数据。升级前退出正在运行的应用即可；重要项目仍建议按日常习惯独立备份。
 
 ## 日常使用
 
@@ -76,8 +83,12 @@ Profile 是一套相互隔离的工作环境。不同 Profile 拥有各自的工
 - Runtime 启动失败时，可以重试或执行修复下载；
 - “查看详情”显示失败阶段和技术信息，主提示保持面向普通用户；
 - “导出诊断”生成已经脱敏的 ZIP，便于定位网络、版本或进程问题；
-- 应用本体更新和 Runtime 更新是两个独立的签名通道，互不混用；
-- 应用更新可以立即安装、在退出应用时安装，或暂时跳过；更新检查失败不会阻止已经可用的工作台启动。
+- 应用本体更新和 Runtime 更新是两个独立通道，互不混用；
+- Windows x64 使用 Tauri 签名校验的应用内更新，可以立即安装、在退出应用时安装，或暂时跳过；
+- macOS Apple Silicon 只提示新版本并打开本仓库的 HTTPS 下载地址，不会在后台执行未签名 DMG；下载后请退出应用、打开 DMG、把新应用拖入“应用程序”并确认手动替换；
+- 更新检查或打开下载页失败不会阻止已经可用的工作台启动，也不会删除用户数据。
+
+GitHub Actions 每天 10:30（中国标准时间）检查 npm 上游 `@deepseek-ai/dsh` 的 `latest` dist-tag 所指向的精确版本（允许上游仍处于预发布阶段）。发现新版后会先更新统一版本源并执行测试，再创建版本提交、标签及 Windows/macOS 构建；任一平台失败时都不会发布不完整版本。仓库维护者也可手动重跑同一版本，已发布资产不会被静默覆盖。
 
 ## 为什么后续启动更快
 
@@ -100,11 +111,9 @@ Profile 是一套相互隔离的工作环境。不同 Profile 拥有各自的工
 
 | 平台 | 状态 |
 | --- | --- |
-| Windows x64 | 当前发布目标；完整安装包、首次内置 Runtime 准备和后续快速启动已实现 |
-| macOS Apple Silicon | 保留构建配置，当前 Windows 预览版不以它作为发布承诺 |
+| Windows x64 | 完整安装包、内置受管 Runtime、Tauri 签名应用内更新 |
+| macOS Apple Silicon | DMG、内置受管 Runtime、应用内更新提醒与手动替换；无 Developer ID 签名和公证 |
 | Windows ARM64、macOS Intel、Linux | 当前不支持 |
-
-首个公开版本还需要完成：发布不可变且已签名的 Windows Runtime、配置生产签名密钥、运行真实安装包端到端验证，并发布 GitHub Release。
 
 ## 常见问题
 
@@ -125,7 +134,7 @@ Profile 是一套相互隔离的工作环境。不同 Profile 拥有各自的工
 <details>
 <summary><strong>为什么现在会提示网络不可用？</strong></summary>
 
-正常的首次启动会使用安装包内置 Runtime，不需要联网。只有内置或本地 Runtime 损坏、版本需要升级，或者用户主动修复时，应用才会访问不可变 Runtime Release；如果该 Release 尚未发布、网络受限或下载地址不可达，就会提示网络不可用。
+正常的首次启动会使用安装包内置 Runtime，不需要联网。只有内置或本地 Runtime 损坏、版本需要升级，或者用户主动修复时，应用才会访问不可变 Runtime Release；如果网络受限、下载地址不可达或 Release 资产不完整，就会提示网络不可用且保留当前数据和可用版本。
 
 </details>
 
@@ -177,7 +186,7 @@ DSH_DESKTOP_RUNTIME_MANIFEST_URL=<manifest-url> npm run tauri dev
 ### Runtime 组装与签名
 
 ```bash
-npm run runtime:build -- --target=windows-x86_64 --version=0.1.9-preview --url=https://github.com/XingAur/deepseek-harness-desktop/releases/download/runtime-v0.1.9-preview/dsh-runtime-windows-x86_64.zip
+npm run runtime:build -- --target=windows-x86_64 --version=<runtime-version> --url=https://github.com/XingAur/deepseek-harness-desktop/releases/download/runtime-v<runtime-version>/dsh-runtime-windows-x86_64.zip
 
 node scripts/sign-manifest.mjs \
   runtime-build/windows-x86_64/manifest-windows-x86_64.unsigned.json \
@@ -191,20 +200,49 @@ node scripts/sign-manifest.mjs \
 
 仓库中的密钥只能用于开发测试。生产私钥必须保存在 GitHub Secrets 或等价的发布密钥服务中。
 
+### 自动上游同步与发布
+
+`release/versions.json` 是桌面版、受管 Runtime、DeepSeek Harness、Node.js 和 pnpm 的统一版本源。只读一致性检查为：
+
+```bash
+npm run release:versions:check
+```
+
+以下准备命令会在确认上游版本更高后修改统一版本源及 5 个派生版本文件；请在独立分支或干净工作区中执行：
+
+```bash
+npm run release:prepare -- --latest=<已确认存在的精确版本>
+```
+
+`.github/workflows/upstream-sync.yml` 每日或手动检查上游并触发精确标签上的 `.github/workflows/desktop.yml`。正式发布需要在 GitHub Secrets 中配置 Runtime Ed25519 密钥和 Windows Tauri updater 私钥；macOS 构建不要求 Apple 证书，但必须继续明确标为未签名、未公证。发布工作流只补齐缺失资产，对同名不同内容的不可变资产会直接失败。
+
+需要配置的 GitHub Secrets：
+
+- `DSH_DESKTOP_SIGNING_PUBLIC_KEY`、`DSH_DESKTOP_SIGNING_PRIVATE_KEY`：受管 Runtime 清单 Ed25519 密钥；
+- `TAURI_UPDATER_PUBLIC_KEY`、`TAURI_SIGNING_PRIVATE_KEY`：Windows Tauri updater 公私钥；
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`：仅当 Windows updater 私钥设置了密码时需要；
+- `GITHUB_TOKEN` 由 GitHub Actions 自动提供，不应另存个人访问令牌。
+
+Runtime 与 Desktop Release 都先停留在草稿状态并校验精确资产集合；Runtime 归档先于其签名清单上传，以便中断后从不可变归档重建清单。Windows 构建还会在上传前使用编译进应用的公钥重新验证 updater 包和 `.sig`，公私钥错配会直接阻断发布。
+
+当前仓库已实现并在本地验证发布状态机和构建契约；GitHub 托管 Windows/macOS runner、真实 Release 中断恢复、Windows 已安装旧版本升级以及 Apple Silicon 实机 Gatekeeper/DMG 覆盖仍需要推送后在真实环境完成验收，不能仅凭本地测试视为已验证。
+
+未来接入 Codex、Claude、其他模型、Plugins、Skills 和 MCP 的职责及安全边界见 [扩展平台架构](docs/architecture/extension-platform.md)。该文档是本期交付的架构基础，不代表这些 Provider 已经实现。
+
 ### Windows 构建
 
 正式 Windows 完整安装包会嵌入已签名 Runtime，同时必须把不可变 Runtime 清单地址和对应公钥编译进应用，用于后续修复与升级：
 
 ```bash
 export DSH_DESKTOP_RELEASE_PUBLIC_KEY='<Ed25519 raw public JWK x>'
-export DSH_DESKTOP_RUNTIME_MANIFEST_URL='https://github.com/XingAur/deepseek-harness-desktop/releases/download/runtime-v0.1.9-preview/runtime-{target}.json'
+export DSH_DESKTOP_RUNTIME_MANIFEST_URL='https://github.com/XingAur/deepseek-harness-desktop/releases/download/runtime-v<runtime-version>/runtime-{target}.json'
 npm run installer:windows
 ```
 
 输出位于：
 
 ```text
-src-tauri/target/release/bundle/nsis/DeepSeek-Harness-v0.1.0-Windows-x64.exe
+src-tauri/target/release/bundle/nsis/DeepSeek-Harness-v<desktop-version>-Windows-x64.exe
 ```
 
 ### 项目结构

@@ -67,6 +67,13 @@ pub async fn defer_app_update(
 }
 
 #[tauri::command]
+pub async fn open_app_update_download(
+    state: State<'_, Arc<AppUpdateController>>,
+) -> Result<(), AppUpdateFailure> {
+    state.open_manual_download().await
+}
+
+#[tauri::command]
 pub fn take_app_update_receipt(
     state: State<'_, Arc<AppUpdateController>>,
 ) -> Result<Option<AppUpdateReceipt>, AppUpdateFailure> {

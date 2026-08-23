@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { StrictMode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { App } from './App'
 import type { AppUpdateEvent, BootstrapReply, DesktopEvent, LocalAppEvent, RuntimeClient, RuntimeEvent, RuntimeFailureCode } from './runtime-contract'
@@ -26,6 +27,7 @@ function fakeRuntime() {
     installAppUpdateNow: vi.fn(async () => undefined),
     installAppUpdateOnExit: vi.fn(async () => ({ phase: 'idle' as const })),
     deferAppUpdate: vi.fn(async () => ({ phase: 'idle' as const })),
+    openAppUpdateDownload: vi.fn(async () => undefined),
     takeAppUpdateReceipt: vi.fn(async () => null),
     subscribeRuntimeProgress: vi.fn(async (next) => { listener = next; return () => undefined }),
     subscribeDesktopEvents: vi.fn(async (next) => { desktopListener = next; return () => undefined }),
@@ -51,11 +53,76 @@ function fakeWindowControls(): WindowControls {
 }
 
 describe('App', () => {
+  it('checks for an application update once when the shell mounts before Runtime is ready', async () => {
+    const { runtime } = fakeRuntime()
+    render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
+
+    await waitFor(() => expect(runtime.checkAppUpdate).toHaveBeenCalledWith('automatic'))
+    expect(runtime.checkAppUpdate).toHaveBeenCalledTimes(1)
+    expect(runtime.bootstrapRuntime).toHaveBeenCalled()
+  })
+
+  it('does not repeat the automatic check under React Strict Mode', async () => {
+    const { runtime } = fakeRuntime()
+    render(<StrictMode><App runtime={runtime} windowControls={fakeWindowControls()} /></StrictMode>)
+
+    await waitFor(() => expect(runtime.checkAppUpdate).toHaveBeenCalledWith('automatic'))
+    expect(runtime.checkAppUpdate).toHaveBeenCalledTimes(1)
+    expect(runtime.takeAppUpdateReceipt).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers only a trusted DMG download and unsigned warning for macOS manual updates', async () => {
+    const { runtime } = fakeRuntime()
+    vi.mocked(runtime.checkAppUpdate).mockResolvedValue({
+      phase: 'available',
+      update: {
+        version: '0.1.13',
+        notes: '同步新版 DeepSeek Harness，并保留现有 Profile、项目和本地数据。',
+        size: 2048,
+        mode: 'manual-dmg',
+        downloadUrl: 'https://github.com/XingAur/deepseek-harness-desktop/releases/download/desktop-v0.1.13/file_0.1.13_aarch64.dmg',
+        developerIdSigned: false,
+        notarized: false,
+      },
+    })
+    render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
+
+    expect(await screen.findByRole('button', { name: '下载 DMG' })).toBeVisible()
+    expect(screen.getByText(/未使用 Apple Developer ID 签名、未经过 Apple 公证/)).toBeVisible()
+    expect(screen.getByText(/保留现有 Profile、项目和本地数据/)).toBeVisible()
+    expect(screen.getByText(/退出本应用.*拖入“应用程序”.*确认替换/)).toBeVisible()
+    expect(screen.getByText(/不要删除 Application Support 中的数据/)).toBeVisible()
+    expect(screen.getByText(/Control 点按应用.*隐私与安全性/)).toBeVisible()
+    expect(screen.queryByRole('button', { name: '后台下载' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '稍后提醒' })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: '下载 DMG' }))
+    await waitFor(() => expect(runtime.openAppUpdateDownload).toHaveBeenCalledTimes(1))
+    expect(runtime.downloadAppUpdate).not.toHaveBeenCalled()
+  })
+
+  it('keeps a manual DMG open failure non-blocking and actionable', async () => {
+    const { runtime } = fakeRuntime()
+    vi.mocked(runtime.checkAppUpdate).mockResolvedValue({
+      phase: 'available',
+      update: {
+        version: '0.1.13', notes: null, size: 2048, mode: 'manual-dmg',
+        downloadUrl: 'https://github.com/XingAur/deepseek-harness-desktop/releases/download/desktop-v0.1.13/file_0.1.13_aarch64.dmg',
+        developerIdSigned: false, notarized: false,
+      },
+    })
+    vi.mocked(runtime.openAppUpdateDownload).mockRejectedValue(new Error('无法打开浏览器'))
+    render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '下载 DMG' }))
+    expect(await screen.findByText('应用更新暂时不可用')).toBeVisible()
+    expect(screen.getByText(/不影响当前工作台/)).toBeVisible()
+  })
+
   it('offers restart, install on exit, and defer after a signed download', async () => {
     const { runtime, emitDesktop } = fakeRuntime()
     vi.mocked(runtime.checkAppUpdate).mockResolvedValue({
       phase: 'ready',
-      update: { version: '0.2.0', notes: '稳定性更新', size: 1024 },
+      update: { version: '0.2.0', notes: '稳定性更新', size: 1024, mode: 'in-app' },
     })
     render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
     await waitFor(() => expect(runtime.bootstrapRuntime).toHaveBeenCalled())

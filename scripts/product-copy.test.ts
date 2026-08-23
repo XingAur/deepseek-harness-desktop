@@ -1,6 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { loadReleaseVersions } from './release-versions.mjs'
+
+const releaseVersions = loadReleaseVersions()
 
 const productCopyFiles = [
   'index.html',
@@ -64,10 +67,30 @@ describe('product copy', () => {
     expect(css).not.toMatch(/\.bootstrapShell::?-webkit-scrollbar[^}]*display:\s*none/s)
   })
 
-  it('presents the repository to ordinary users without advertising an unavailable download', () => {
+  it('keeps keyboard focus visible on every application-update action', () => {
+    const css = readFileSync('src/app.css', 'utf8')
+
+    expect(css).toContain('.updatePrimaryButton:focus-visible')
+    expect(css).toContain('.updateSecondaryButton:focus-visible')
+    expect(css).toContain('.updateTextButton:focus-visible')
+    expect(css).toContain('outline-offset: 2px')
+  })
+
+  it('presents the released product and its platform-specific update paths to ordinary users', () => {
     const readme = readFileSync('README.md', 'utf8')
 
-    expect(readme).toContain('首个公开版本还需要完成')
+    expect(readme).toContain('https://github.com/XingAur/deepseek-harness-desktop/releases')
+    expect(readme).toContain('Windows x64')
+    expect(readme).toContain('应用内更新')
+    expect(readme).toContain('不等同于付费的 Windows Authenticode 发行者证书')
+    expect(readme).toContain('未知发布者')
+    expect(readme).toContain('macOS Apple Silicon')
+    expect(readme).toContain('手动替换')
+    expect(readme).toContain('未使用 Apple Developer ID 签名、未经过 Apple 公证')
+    expect(readme).toContain('每天 10:30')
+    expect(readme).toContain('Profile、Workspace 和会话数据')
+    expect(readme).toContain('npm run release:prepare -- --latest=<已确认存在的精确版本>')
+    expect(readme).not.toContain('--dsh-version=')
     expect(readme).toContain('首次打开应用')
     expect(readme).toContain('后续启动')
     expect(readme).toContain('本地项目')
@@ -76,8 +99,34 @@ describe('product copy', () => {
     expect(readFileSync('packages/dsh-plugin-desktop/README.md', 'utf8')).toContain('项目路径、Profile 和权限由桌面端自动处理')
     expect(readme).toContain('## 开发者指南')
     expect(readme).not.toMatch(/releases\/latest\/download\/.+setup/i)
+    expect(readme).not.toContain('首个公开版本还需要完成')
+    expect(readme).not.toContain('尚未发布项目所需的不可变 Runtime Release')
     expect(readme).not.toContain('手机远程控制')
     expect(readme).not.toContain('社区插件市场')
+  })
+
+  it('documents the governed extension-platform foundation without claiming integrations are complete', () => {
+    const path = 'docs/architecture/extension-platform.md'
+    expect(existsSync(path)).toBe(true)
+    const architecture = readFileSync(path, 'utf8')
+
+    for (const required of [
+      'Codex',
+      'Claude',
+      'API Provider',
+      'CLI Worker',
+      'Plugins',
+      'Skills',
+      'MCP',
+      'Profile',
+      '权限',
+      '审计',
+      '回滚',
+      '凭证',
+    ]) {
+      expect(architecture, required).toContain(required)
+    }
+    expect(architecture).toContain('本期没有实现')
   })
 
   it('ships one in-app runtime preparation surface', () => {
@@ -102,9 +151,11 @@ describe('product copy', () => {
     expect(lib).not.toContain('exit_after_bundled_runtime_install')
   })
 
-  it('builds a profile-aware readiness proxy into the managed runtime', () => {
+  it('keeps the Runtime manifest health path aligned with the readiness proxy', () => {
     const source = readFileSync('scripts/build-runtime.mjs', 'utf8')
-    expect(source).toContain("healthPath: '/__desktop/health'")
+    const manifestSource = readFileSync('scripts/runtime-release-manifest.mjs', 'utf8')
+    expect(manifestSource).toContain("healthPath: '/__desktop/health'")
+    expect(source).toContain("request.url === '/__desktop/health'")
     expect(source).toContain('DSH_DESKTOP_PROFILE_REVISION')
     expect(source).toContain("request.url === '/__desktop/control/health'")
   })
@@ -140,9 +191,12 @@ describe('product copy', () => {
     const source = readFileSync('scripts/build-runtime.mjs', 'utf8')
     const runtimeReadme = readFileSync('runtime/README.md', 'utf8')
 
-    expect(source).toContain("const DSH_VERSION = '0.1.0-rc.8'")
-    expect(source).not.toContain("const DSH_VERSION = '0.1.0-rc.7'")
-    expect(runtimeReadme).toContain('DeepSeek Harness `0.1.0-rc.8`')
+    expect(source).toContain("import { loadReleaseVersions } from './release-versions.mjs'")
+    expect(source).toContain('const DSH_VERSION = versions.dshVersion')
+    expect(source).not.toMatch(/const DSH_VERSION = ['"]/)
+    expect(runtimeReadme).toContain('versions pinned in')
+    expect(runtimeReadme).toContain('`release/versions.json`')
+    expect(runtimeReadme).not.toContain(`DeepSeek Harness \`${releaseVersions.dshVersion}\``)
   })
 
   it('installs the required Runtime peers without npm peer backtracking', () => {
@@ -199,7 +253,7 @@ describe('product copy', () => {
     expect(source).toContain('builder.danger_accept_invalid_certs(true)')
   })
 
-  it('builds tagged releases with signed application updater artifacts', () => {
+  it('builds signed Windows updater artifacts without direct Tauri release publication', () => {
     const workflow = readFileSync('.github/workflows/desktop.yml', 'utf8')
     expect(workflow).toContain('TAURI_SIGNING_PRIVATE_KEY:')
     expect(workflow).toContain('TAURI_SIGNING_PRIVATE_KEY_PASSWORD:')
@@ -207,11 +261,13 @@ describe('product copy', () => {
     expect(workflow).toContain('node scripts/write-updater-config.mjs')
     expect(workflow).toContain('signer generate --ci --write-keys')
     expect(workflow).toContain('--config src-tauri/tauri.release.conf.json')
-    expect(workflow).toContain('includeUpdaterJson: true')
-    expect(workflow).toContain('updaterJsonPreferNsis: true')
-    expect(workflow).not.toContain('uploadUpdaterJson: true')
-    expect(workflow).not.toContain('uploadUpdaterSignatures: true')
-    expect(workflow).not.toContain('uploadWorkflowArtifacts: true')
+    expect(workflow).toContain('--platform=windows-x86_64')
+    expect(workflow).toContain('--platform=darwin-aarch64')
+    expect(workflow).toContain('node scripts/desktop-release.mjs')
+    expect(workflow).not.toContain('tagName:')
+    expect(workflow).not.toContain('releaseDraft:')
+    expect(workflow).not.toContain('includeUpdaterJson:')
+    expect(workflow).not.toContain('updaterJsonPreferNsis:')
     expect(workflow).toContain('secrets.DSH_DESKTOP_SIGNING_PRIVATE_KEY')
     expect(workflow).not.toContain('runtime-signing-state.mjs')
     expect(workflow).not.toContain('wbAbExHsjryIT22fTuRA3W61tJdaXFC7YxoAeN9uKnQ')
@@ -223,33 +279,33 @@ describe('product copy', () => {
     const source = readFileSync('scripts/windows-installer.mjs', 'utf8')
     const workflow = readFileSync('.github/workflows/desktop.yml', 'utf8')
 
-    expect(source).toContain("export const MANAGED_RUNTIME_VERSION = '0.1.9-preview'")
-    expect(workflow).toContain('MANAGED_RUNTIME_VERSION: 0.1.9-preview')
+    expect(source).toContain('export const MANAGED_RUNTIME_VERSION = loadReleaseVersions().runtimeVersion')
+    expect(workflow).toContain('MANAGED_RUNTIME_VERSION:v.runtimeVersion')
     expect(workflow).toContain(
-      'releases/download/runtime-v${MANAGED_RUNTIME_VERSION}/dsh-runtime-',
+      'releases/download/runtime-v${MANAGED_RUNTIME_VERSION}/${ARCHIVE_NAME}',
     )
     expect(workflow).toContain(
       "tauri_args: '--config src-tauri/target/windows-installer/tauri.windows-installer.conf.json'",
     )
-    expect(workflow).toContain('cp "$RUNTIME_DIR/$ARCHIVE_NAME" "runtime/$ARCHIVE_NAME"')
+    expect(workflow).toContain('cp "${RUNTIME_DIR}/${ARCHIVE_NAME}" "runtime/${ARCHIVE_NAME}"')
     expect(readFileSync('scripts/write-updater-config.mjs', 'utf8')).toContain(
       "resources: { '../runtime/': 'runtime/' }",
     )
     const prepareConfig = workflow.indexOf('- name: Prepare Windows installer config')
     const signManifest = workflow.indexOf('- name: Sign and stage Runtime manifest')
-    const buildInstaller = workflow.indexOf('- name: Build Tauri installer')
+    const buildInstaller = workflow.indexOf('- name: Build Tauri bundle without publishing')
     expect(prepareConfig).toBeGreaterThan(-1)
     expect(signManifest).toBeLessThan(prepareConfig)
     expect(prepareConfig).toBeLessThan(buildInstaller)
     expect(workflow).toContain('node scripts/windows-installer.mjs --prepare-config')
     expect(workflow).toContain(
-      'args: ${{ env.TAURI_RELEASE_CONFIG_ARGS }} ${{ matrix.tauri_args }}',
+      'args: --config src-tauri/tauri.release.conf.json ${{ matrix.tauri_args }}',
     )
   })
 
   it('never replaces an existing managed Runtime release asset', () => {
     const workflow = readFileSync('.github/workflows/desktop.yml', 'utf8')
-    const marker = '- name: Add managed Runtime files to draft release'
+    const marker = '- name: Upload or verify immutable Runtime assets'
     const runtimeUpload = workflow.slice(workflow.indexOf(marker))
 
     expect(runtimeUpload).toContain('gh release upload')
@@ -258,7 +314,7 @@ describe('product copy', () => {
 
   it('publishes Runtime assets to the immutable managed Runtime tag', () => {
     const workflow = readFileSync('.github/workflows/desktop.yml', 'utf8')
-    const release = workflow.slice(workflow.indexOf('  release:'))
+    const release = workflow.slice(workflow.indexOf('  publish:'))
 
     expect(release).toContain('RUNTIME_TAG="runtime-v${MANAGED_RUNTIME_VERSION}"')
     expect(release).toContain('gh release view "${RUNTIME_TAG}"')
@@ -274,23 +330,23 @@ describe('product copy', () => {
       workflow.indexOf('- name: Prepare Windows installer config'),
     )
 
-    expect(runtimePreparation).toContain('gh release view "$RUNTIME_TAG"')
-    expect(runtimePreparation).toContain('gh release download "$RUNTIME_TAG"')
-    expect(runtimePreparation).toContain('touch "$RUNTIME_DIR/.managed-runtime-reused"')
-    expect(runtimePreparation).toContain('if test -f "$RUNTIME_DIR/.managed-runtime-reused"')
+    expect(runtimePreparation).toContain('gh release view "${RUNTIME_TAG}"')
+    expect(runtimePreparation).toContain('gh release download "${RUNTIME_TAG}"')
+    expect(runtimePreparation).toContain('touch "${RUNTIME_DIR}/.managed-runtime-reused"')
+    expect(runtimePreparation).toContain('if test -f "${RUNTIME_DIR}/.managed-runtime-reused"')
   })
 
   it('can publish managed Runtime assets from a manually dispatched build', () => {
     const workflow = readFileSync('.github/workflows/desktop.yml', 'utf8')
-    const release = workflow.slice(workflow.indexOf('  release:'))
+    const release = workflow.slice(workflow.indexOf('  publish:'))
 
-    expect(release).toContain(
-      "if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'",
-    )
+    expect(release).toContain("if: github.event_name != 'pull_request'")
+    expect(release).toContain('test "${GITHUB_REF_TYPE}" = \'tag\'')
+    expect(release).toContain('test "${GITHUB_REF_NAME}" = "desktop-v${DESKTOP_VERSION}"')
   })
 
   it('keeps the desktop release version aligned across package manifests', () => {
-    const expectedVersion = '0.1.12'
+    const expectedVersion = releaseVersions.desktopVersion
     const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }
     const packageLock = readFileSync('package-lock.json', 'utf8')
     const tauriConfig = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8')) as { version: string }
@@ -308,18 +364,17 @@ describe('product copy', () => {
 
   it('verifies Runtime assets that already exist in the managed release', () => {
     const workflow = readFileSync('.github/workflows/desktop.yml', 'utf8')
-    const release = workflow.slice(workflow.indexOf('  release:'))
+    const release = workflow.slice(workflow.indexOf('  publish:'))
 
-    expect(release).toContain('existing_assets=')
+    expect(release).toContain('existing_names=')
     expect(release).toContain('basename "${asset}"')
-    expect(release).toContain('Verified existing Runtime asset')
     expect(release).toContain('gh release download "${RUNTIME_TAG}"')
     expect(release).toContain('cmp -s "${asset}"')
   })
 
   it('finds Runtime assets below the downloaded artifact directory', () => {
     const workflow = readFileSync('.github/workflows/desktop.yml', 'utf8')
-    const release = workflow.slice(workflow.indexOf('  release:'))
+    const release = workflow.slice(workflow.indexOf('  publish:'))
 
     expect(release).toContain('find release-assets -type f')
     expect(release).not.toContain('find release-assets -maxdepth 1')

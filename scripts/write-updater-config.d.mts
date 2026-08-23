@@ -1,6 +1,9 @@
 export interface UpdaterReleaseConfig {
-  bundle: { createUpdaterArtifacts: true }
-  plugins: {
+  bundle: {
+    createUpdaterArtifacts: boolean
+    resources: { '../runtime/': 'runtime/' }
+  }
+  plugins?: {
     updater: {
       pubkey: string
       endpoints: string[]
@@ -10,4 +13,8 @@ export interface UpdaterReleaseConfig {
 }
 
 export const productionUpdaterEndpoint: string
-export function updaterConfig(publicKey: string | undefined, endpoint?: string): UpdaterReleaseConfig
+export function updaterConfig(options: {
+  platform: 'windows-x86_64' | 'darwin-aarch64'
+  publicKey?: string
+  endpoint?: string
+}): UpdaterReleaseConfig

@@ -121,6 +121,10 @@ export interface AppUpdateInfo {
   version: string
   notes: string | null
   size: number | null
+  mode?: 'in-app' | 'manual-dmg'
+  downloadUrl?: string | null
+  developerIdSigned?: boolean | null
+  notarized?: boolean | null
 }
 
 export interface AppUpdateFailure {
@@ -168,6 +172,7 @@ export interface RuntimeClient {
   installAppUpdateNow(): Promise<void>
   installAppUpdateOnExit(): Promise<AppUpdateState>
   deferAppUpdate(): Promise<AppUpdateState>
+  openAppUpdateDownload(): Promise<void>
   takeAppUpdateReceipt(): Promise<AppUpdateReceipt | null>
   subscribeRuntimeProgress(listener: (event: RuntimeEvent) => void): Promise<() => void>
   subscribeDesktopEvents(listener: (event: DesktopEvent) => void): Promise<() => void>

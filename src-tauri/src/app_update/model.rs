@@ -7,6 +7,13 @@ pub enum AppUpdateSource {
     Manual,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum AppUpdateMode {
+    InApp,
+    ManualDmg,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AppUpdateEvent {
@@ -20,6 +27,10 @@ pub struct UpdateInfo {
     pub version: String,
     pub notes: Option<String>,
     pub size: Option<u64>,
+    pub mode: AppUpdateMode,
+    pub download_url: Option<String>,
+    pub developer_id_signed: Option<bool>,
+    pub notarized: Option<bool>,
 }
 
 impl UpdateInfo {
@@ -29,6 +40,10 @@ impl UpdateInfo {
             version: version.to_string(),
             notes: Some("稳定性更新".into()),
             size: Some(1024),
+            mode: AppUpdateMode::InApp,
+            download_url: None,
+            developer_id_signed: None,
+            notarized: None,
         }
     }
 }
@@ -92,9 +107,13 @@ impl AppUpdateState {
             (State::Idle | State::Failed(_), Action::Check) => Ok(State::Checking),
             (State::Checking, Action::NoUpdate) => Ok(State::Idle),
             (State::Checking, Action::Found(update)) => Ok(State::Available(update)),
-            (State::Available(update), Action::Download) => Ok(State::Downloading(update)),
+            (State::Available(update), Action::Download) if update.mode == AppUpdateMode::InApp => {
+                Ok(State::Downloading(update))
+            }
             (State::Downloading(update), Action::DownloadReady) => Ok(State::Ready(update)),
-            (State::Ready(update), Action::InstallNow) => Ok(State::Installing(update)),
+            (State::Ready(update), Action::InstallNow) if update.mode == AppUpdateMode::InApp => {
+                Ok(State::Installing(update))
+            }
             (State::Installing(update), Action::DownloadReady) => Ok(State::Restarting(update)),
             (State::Available(_) | State::Ready(_), Action::Defer) => Ok(State::Idle),
             (_, Action::Fail(failure)) => Ok(State::Failed(failure)),
@@ -151,5 +170,28 @@ mod tests {
         let value = serde_json::to_value(event).unwrap();
         assert_eq!(value["source"], "manual");
         assert_eq!(value["state"]["phase"], "failed");
+    }
+
+    #[test]
+    fn manual_dmg_cannot_enter_signed_download_or_install_transitions() {
+        let update = UpdateInfo {
+            version: "0.2.0".into(),
+            notes: Some("稳定性更新".into()),
+            size: Some(1024),
+            mode: AppUpdateMode::ManualDmg,
+            download_url: Some("https://github.com/XingAur/deepseek-harness-desktop/releases/download/desktop-v0.2.0/app_0.2.0_aarch64.dmg".into()),
+            developer_id_signed: Some(false),
+            notarized: Some(false),
+        };
+        assert!(
+            AppUpdateState::Available(update.clone())
+                .transition(AppUpdateAction::Download)
+                .is_err()
+        );
+        assert!(
+            AppUpdateState::Ready(update)
+                .transition(AppUpdateAction::InstallNow)
+                .is_err()
+        );
     }
 }

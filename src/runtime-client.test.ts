@@ -21,6 +21,11 @@ describe('runtime client app updates', () => {
     expect(tauri.invoke).toHaveBeenCalledWith('check_app_update', { source: 'automatic' })
   })
 
+  it('opens only the native controller stored update download', async () => {
+    await tauriRuntimeClient.openAppUpdateDownload()
+    expect(tauri.invoke).toHaveBeenCalledWith('open_app_update_download')
+  })
+
   it('forwards source-aware native update events', async () => {
     let receive: ((event: { payload: unknown }) => void) | undefined
     tauri.listen.mockImplementation(async (_name, listener) => {

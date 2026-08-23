@@ -2,21 +2,33 @@ use std::{path::PathBuf, sync::Arc};
 
 use chrono::Utc;
 use tauri::{AppHandle, Emitter};
-use tauri_plugin_updater::{Update, UpdaterExt};
+use tauri_plugin_opener::OpenerExt;
+use tauri_plugin_updater::Update;
+#[cfg(not(target_os = "macos"))]
+use tauri_plugin_updater::UpdaterExt;
 use tokio::sync::Mutex;
 
+#[cfg(target_os = "macos")]
+use super::manual::fetch_manual_update;
 use super::model::{
-    AppUpdateAction, AppUpdateEvent, AppUpdateFailure, AppUpdateReceipt, AppUpdateSource,
-    AppUpdateState, UpdateInfo,
+    AppUpdateAction, AppUpdateEvent, AppUpdateFailure, AppUpdateMode, AppUpdateReceipt,
+    AppUpdateSource, AppUpdateState, UpdateInfo,
 };
 use crate::{
     desktop::DesktopCoordinator,
     storage::atomic_json::{read_optional, write_atomic},
 };
 
-struct PendingUpdate {
-    update: Update,
-    bytes: Option<Vec<u8>>,
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+enum PendingUpdate {
+    Signed {
+        update: Update,
+        bytes: Option<Vec<u8>>,
+    },
+    ManualDmg {
+        info: UpdateInfo,
+        download_url: url::Url,
+    },
 }
 
 pub struct AppUpdateController {
@@ -51,27 +63,10 @@ impl AppUpdateController {
         *self.source.lock().await = source;
         self.apply(AppUpdateAction::Check).await?;
         let result: Result<Option<UpdateInfo>, AppUpdateFailure> = async {
-            let updater = self
-                .app
-                .updater()
-                .map_err(|cause| failure("configuration", cause))?;
-            let Some(update) = updater
-                .check()
-                .await
-                .map_err(|cause| failure("check", cause))?
-            else {
+            let Some(info) = self.check_platform_update().await? else {
                 self.apply(AppUpdateAction::NoUpdate).await?;
                 return Ok(None);
             };
-            let info = UpdateInfo {
-                version: update.version.clone(),
-                notes: update.body.clone(),
-                size: update.raw_json.get("size").and_then(|size| size.as_u64()),
-            };
-            *self.pending.lock().await = Some(PendingUpdate {
-                update,
-                bytes: None,
-            });
             self.apply(AppUpdateAction::Found(info.clone())).await?;
             Ok(Some(info))
         }
@@ -89,7 +84,10 @@ impl AppUpdateController {
             .lock()
             .await
             .as_ref()
-            .map(|pending| pending.update.clone())
+            .and_then(|pending| match pending {
+                PendingUpdate::Signed { update, .. } => Some(update.clone()),
+                PendingUpdate::ManualDmg { .. } => None,
+            })
             .ok_or_else(|| AppUpdateFailure::new("missing-update", "没有可下载的应用更新"))?;
         let result = update
             .download(|_, _| {}, || {})
@@ -99,10 +97,13 @@ impl AppUpdateController {
             Ok(bytes) => {
                 let stored = {
                     let mut guard = self.pending.lock().await;
-                    guard.as_mut().is_some_and(|pending| {
-                        pending.bytes = Some(bytes);
-                        true
-                    })
+                    match guard.as_mut() {
+                        Some(PendingUpdate::Signed { bytes: stored, .. }) => {
+                            *stored = Some(bytes);
+                            true
+                        }
+                        _ => false,
+                    }
                 };
                 if !stored {
                     let cause = AppUpdateFailure::new("missing-update", "应用更新已失效");
@@ -153,6 +154,29 @@ impl AppUpdateController {
             .load(std::sync::atomic::Ordering::SeqCst)
     }
 
+    pub async fn open_manual_download(&self) -> Result<(), AppUpdateFailure> {
+        let url = self
+            .pending
+            .lock()
+            .await
+            .as_ref()
+            .and_then(|pending| match pending {
+                PendingUpdate::ManualDmg { info, download_url }
+                    if info.mode == AppUpdateMode::ManualDmg =>
+                {
+                    Some(download_url.clone())
+                }
+                _ => None,
+            })
+            .ok_or_else(|| {
+                AppUpdateFailure::new("missing-manual-update", "没有经过校验的 macOS DMG 下载地址")
+            })?;
+        self.app
+            .opener()
+            .open_url(url.as_str(), None::<&str>)
+            .map_err(|cause| failure("open-download", cause))
+    }
+
     pub async fn install_scheduled_after_shutdown(&self) -> Result<(), AppUpdateFailure> {
         if !self
             .install_on_exit
@@ -196,7 +220,13 @@ impl AppUpdateController {
             state.clone()
         };
         let source = *self.source.lock().await;
-        let _ = self.app.emit("app-update-event", AppUpdateEvent { source, state: snapshot });
+        let _ = self.app.emit(
+            "app-update-event",
+            AppUpdateEvent {
+                source,
+                state: snapshot,
+            },
+        );
         Ok(())
     }
 
@@ -207,19 +237,72 @@ impl AppUpdateController {
             .await
             .take()
             .ok_or_else(|| AppUpdateFailure::new("missing-update", "应用更新已失效"))?;
-        let bytes = pending
-            .bytes
+        let PendingUpdate::Signed { update, bytes } = pending else {
+            return Err(AppUpdateFailure::new(
+                "manual-update",
+                "macOS 手动更新不能进入应用内安装流程",
+            ));
+        };
+        let bytes = bytes
             .ok_or_else(|| AppUpdateFailure::new("missing-download", "应用更新尚未下载完成"))?;
         let receipt = AppUpdateReceipt {
-            previous_version: pending.update.current_version.clone(),
-            target_version: pending.update.version.clone(),
+            previous_version: update.current_version.clone(),
+            target_version: update.version.clone(),
             installed_at: Utc::now(),
         };
         write_atomic(&self.receipt_path, &receipt).map_err(|cause| failure("receipt", cause))?;
-        pending
-            .update
+        update
             .install(bytes)
             .map_err(|cause| failure("install", cause))
+    }
+
+    #[cfg(target_os = "macos")]
+    async fn check_platform_update(&self) -> Result<Option<UpdateInfo>, AppUpdateFailure> {
+        let Some(info) = fetch_manual_update().await? else {
+            *self.pending.lock().await = None;
+            return Ok(None);
+        };
+        let download_url = info
+            .download_url
+            .as_deref()
+            .ok_or_else(|| AppUpdateFailure::new("manifest", "macOS 更新缺少 DMG 地址"))?
+            .parse()
+            .map_err(|cause| failure("manifest", cause))?;
+        *self.pending.lock().await = Some(PendingUpdate::ManualDmg {
+            info: info.clone(),
+            download_url,
+        });
+        Ok(Some(info))
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    async fn check_platform_update(&self) -> Result<Option<UpdateInfo>, AppUpdateFailure> {
+        let updater = self
+            .app
+            .updater()
+            .map_err(|cause| failure("configuration", cause))?;
+        let Some(update) = updater
+            .check()
+            .await
+            .map_err(|cause| failure("check", cause))?
+        else {
+            *self.pending.lock().await = None;
+            return Ok(None);
+        };
+        let info = UpdateInfo {
+            version: update.version.clone(),
+            notes: update.body.clone(),
+            size: update.raw_json.get("size").and_then(|size| size.as_u64()),
+            mode: AppUpdateMode::InApp,
+            download_url: None,
+            developer_id_signed: None,
+            notarized: None,
+        };
+        *self.pending.lock().await = Some(PendingUpdate::Signed {
+            update,
+            bytes: None,
+        });
+        Ok(Some(info))
     }
 
     async fn fail(&self, failure: AppUpdateFailure) {

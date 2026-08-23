@@ -130,10 +130,13 @@ button { font: inherit; }
 }
 .appUpdateBanner.error { border-color: color-mix(in srgb, var(--shell-error) 35%, var(--shell-border)); }
 .appUpdateBanner.success { border-color: color-mix(in srgb, #3c9a65 35%, var(--shell-border)); }
+.appUpdateBanner.manual { align-items: flex-start; }
 .appUpdateCopy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
 .appUpdateCopy strong { font-size: 14px; font-weight: 650; }
-.appUpdateCopy span, .appUpdateCopy small { overflow: hidden; color: var(--shell-muted); font-size: 12px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
+.appUpdateCopy span, .appUpdateCopy small { overflow-wrap: anywhere; color: var(--shell-muted); font-size: 12px; line-height: 1.45; white-space: normal; }
 .appUpdateCopy small { color: var(--shell-brand); }
+.appUpdateCopy .manualUpdateWarning { margin-top: 4px; color: color-mix(in srgb, #d69035 82%, var(--shell-text)); }
+.appUpdateCopy .manualUpdateSteps { color: var(--shell-muted); }
 .appUpdateActions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
 .updatePrimaryButton, .updateSecondaryButton, .updateTextButton {
   min-height: 34px;
@@ -146,6 +149,10 @@ button { font: inherit; }
 .updateSecondaryButton { border: 1px solid var(--shell-border); color: var(--shell-text); background: var(--shell-layer); }
 .updateTextButton { padding-inline: 8px; border: 0; color: var(--shell-muted); background: transparent; }
 .updatePrimaryButton:hover, .updateSecondaryButton:hover, .updateTextButton:hover { filter: brightness(.96); }
+.updatePrimaryButton:focus-visible, .updateSecondaryButton:focus-visible, .updateTextButton:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--shell-brand) 78%, #fff);
+  outline-offset: 2px;
+}
 .updateSecondaryButton:disabled { cursor: default; opacity: .55; }
 .updateSpinner { width: 18px; height: 18px; border: 2px solid var(--shell-brand-soft); border-top-color: var(--shell-brand); border-radius: 50%; animation: updateSpinner .8s linear infinite; }
 @keyframes updateBannerEnter { from { opacity: 0; transform: translateY(-8px) scale(.985); } to { opacity: 1; transform: none; } }

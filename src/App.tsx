@@ -73,7 +73,7 @@ function workbenchUrl(rendererUrl: string): string {
   }
 }
 
-interface AppUpdateBannerProps {
+export interface AppUpdateBannerProps {
   state: AppUpdateState
   receipt: AppUpdateReceipt | null
   installOnExit: boolean
@@ -82,12 +82,13 @@ interface AppUpdateBannerProps {
   onInstallNow(): void
   onInstallOnExit(): void
   onDefer(): void
+  onOpenManual(): void
   onRetry(): void
   onDismissReceipt(): void
   onExportDiagnostics(): void
 }
 
-function AppUpdateBanner(props: AppUpdateBannerProps) {
+export function AppUpdateBanner(props: AppUpdateBannerProps) {
   const { state, receipt } = props
   if (state.phase === 'idle') {
     if (receipt === null) return null
@@ -123,6 +124,7 @@ function AppUpdateBanner(props: AppUpdateBannerProps) {
 
   const size = formatUpdateSize(state.update.size)
   const copy = state.update.notes?.trim() || '包含体验与稳定性改进'
+  const manualDmg = state.update.mode === 'manual-dmg'
   const title = state.phase === 'available'
     ? `发现 DeepSeek Harness ${state.update.version}`
     : state.phase === 'downloading'
@@ -134,17 +136,28 @@ function AppUpdateBanner(props: AppUpdateBannerProps) {
           : `正在重启到 ${state.update.version}`
 
   return (
-    <aside className="appUpdateBanner" role="status">
+    <aside className={`appUpdateBanner${manualDmg ? ' manual' : ''}`} role="status">
       <div className="appUpdateCopy">
         <strong>{title}</strong>
         <span>{copy}{size !== null ? ` · ${size}` : ''}</span>
+        {manualDmg && (
+          <>
+            <small className="manualUpdateWarning">
+              此 DMG 未使用 Apple Developer ID 签名、未经过 Apple 公证。Profile、项目和本地数据不会随应用替换而删除。
+            </small>
+            <small className="manualUpdateSteps">
+              操作：退出本应用，打开 DMG，将新应用拖入“应用程序”并确认替换。不要删除 Application Support 中的数据。若被拦截，请在 Finder 中按住 Control 点按应用并选择“打开”，或到“系统设置 → 隐私与安全性”确认打开。
+            </small>
+          </>
+        )}
         {props.installOnExit && state.phase === 'ready' && <small>已安排在退出应用时安装</small>}
       </div>
       <div className="appUpdateActions">
-        {state.phase === 'available' && <button className="updatePrimaryButton" onClick={props.onDownload}>后台下载</button>}
-        {state.phase === 'ready' && <button className="updatePrimaryButton" onClick={props.onInstallNow}>立即重启安装</button>}
-        {state.phase === 'ready' && <button className="updateSecondaryButton" disabled={props.installOnExit} onClick={props.onInstallOnExit}>退出时安装</button>}
-        {(state.phase === 'available' || state.phase === 'ready') && <button className="updateTextButton" onClick={props.onDefer}>暂不安装</button>}
+        {manualDmg && state.phase === 'available' && <button className="updatePrimaryButton" onClick={props.onOpenManual}>下载 DMG</button>}
+        {!manualDmg && state.phase === 'available' && <button className="updatePrimaryButton" onClick={props.onDownload}>后台下载</button>}
+        {!manualDmg && state.phase === 'ready' && <button className="updatePrimaryButton" onClick={props.onInstallNow}>立即重启安装</button>}
+        {!manualDmg && state.phase === 'ready' && <button className="updateSecondaryButton" disabled={props.installOnExit} onClick={props.onInstallOnExit}>退出时安装</button>}
+        {(state.phase === 'available' || state.phase === 'ready') && <button className="updateTextButton" onClick={props.onDefer}>{manualDmg ? '稍后提醒' : '暂不安装'}</button>}
         {(state.phase === 'downloading' || state.phase === 'installing' || state.phase === 'restarting') && <span className="updateSpinner" aria-label="处理中" />}
       </div>
     </aside>
@@ -162,7 +175,11 @@ export function App({ runtime, windowControls }: AppProps) {
   const [updateDiagnosticPath, setUpdateDiagnosticPath] = useState<string | null>(null)
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [activeApp, setActiveApp] = useState<{ workspaceId: string; origin: string; title: string } | null>(null)
-  const checkedUpdateGeneration = useRef<string | null>(null)
+  const startupUpdate = useRef<{
+    runtime: RuntimeClient
+    receipt: Promise<AppUpdateReceipt | null>
+    check: Promise<AppUpdateState>
+  } | null>(null)
   const manualUpdateSeen = useRef(false)
 
   const start = useCallback(async (repair: boolean) => {
@@ -219,17 +236,24 @@ export function App({ runtime, windowControls }: AppProps) {
   }, [runtime, start])
 
   useEffect(() => {
-    if (state.rendererUrl === null || state.generationId === null || !['ready', 'active'].includes(state.phase)) return
-    if (checkedUpdateGeneration.current === state.generationId) return
-    checkedUpdateGeneration.current = state.generationId
-    manualUpdateSeen.current = false
-    void runtime.takeAppUpdateReceipt()
-      .then((receipt) => setAppUpdateReceipt(receipt))
+    let subscribed = true
+    if (startupUpdate.current?.runtime !== runtime) {
+      manualUpdateSeen.current = false
+      startupUpdate.current = {
+        runtime,
+        receipt: runtime.takeAppUpdateReceipt(),
+        check: runtime.checkAppUpdate('automatic'),
+      }
+    }
+    const startup = startupUpdate.current
+    void startup.receipt
+      .then((receipt) => { if (subscribed) setAppUpdateReceipt(receipt) })
       .catch(() => { /* 回执读取失败只进入诊断，不打扰启动。 */ })
-    void runtime.checkAppUpdate('automatic')
-      .then((next) => { if (!manualUpdateSeen.current) setAppUpdate(next) })
+    void startup.check
+      .then((next) => { if (subscribed && !manualUpdateSeen.current) setAppUpdate(next) })
       .catch(() => { /* 自动检查失败保持静默，用户可从原生菜单手动重试。 */ })
-  }, [runtime, state.generationId, state.phase, state.rendererUrl])
+    return () => { subscribed = false }
+  }, [runtime])
 
   const deferMigration = async () => {
     await runtime.deferMigration()
@@ -323,6 +347,14 @@ export function App({ runtime, windowControls }: AppProps) {
     setInstallOnExit(false)
   }
 
+  const openManualUpdate = async () => {
+    try {
+      await runtime.openAppUpdateDownload()
+    } catch (cause) {
+      setAppUpdate({ phase: 'failed', update: updateFailureFromUnknown(cause) })
+    }
+  }
+
   const exportUpdateDiagnostics = async () => {
     try {
       setUpdateDiagnosticPath(await runtime.exportDiagnostics())
@@ -344,8 +376,7 @@ export function App({ runtime, windowControls }: AppProps) {
     <main className="windowShell" data-theme={shellTheme}>
       <TitleBar controls={windowControls} />
       <div className="windowContent">
-        {state.rendererUrl !== null && (
-          <AppUpdateBanner
+        <AppUpdateBanner
             state={appUpdate}
             receipt={appUpdateReceipt}
             installOnExit={installOnExit}
@@ -354,11 +385,11 @@ export function App({ runtime, windowControls }: AppProps) {
             onInstallNow={() => void installUpdateNow()}
             onInstallOnExit={() => void scheduleUpdateOnExit()}
             onDefer={() => void deferAppUpdate()}
+            onOpenManual={() => void openManualUpdate()}
             onRetry={() => void runUpdate(() => runtime.checkAppUpdate('manual'))}
             onDismissReceipt={() => setAppUpdateReceipt(null)}
             onExportDiagnostics={() => void exportUpdateDiagnostics()}
           />
-        )}
         {state.rendererUrl !== null ? (
           <>
             {/* 受管工作台与桌面壳不同源；不委托 clipboard-write 时 WebView2 会拦截官方 UI 的复制操作。 */}

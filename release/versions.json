@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "desktopVersion": "0.1.12",
+  "runtimeVersion": "0.1.9-preview",
+  "dshVersion": "0.1.0-rc.8",
+  "nodeVersion": "24.14.0",
+  "pnpmVersion": "11.7.0",
+  "legacyReleaseBaseline": "0.1.12"
+}

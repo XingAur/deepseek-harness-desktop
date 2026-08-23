@@ -15,6 +15,7 @@ export const tauriRuntimeClient: RuntimeClient = {
   installAppUpdateNow: () => invoke<void>('install_app_update_now'),
   installAppUpdateOnExit: () => invoke<AppUpdateState>('install_app_update_on_exit'),
   deferAppUpdate: () => invoke<AppUpdateState>('defer_app_update'),
+  openAppUpdateDownload: () => invoke<void>('open_app_update_download'),
   takeAppUpdateReceipt: () => invoke<AppUpdateReceipt | null>('take_app_update_receipt'),
   async subscribeRuntimeProgress(listener) {
     const unlisten = await listen<RuntimeEvent>('runtime-event', ({ payload }) => listener(payload))

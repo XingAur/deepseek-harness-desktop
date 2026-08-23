@@ -5,7 +5,8 @@ dist/
 target/
 build/
 resources/
-release/
+release/*
+!release/versions.json
 *.tsbuildinfo
 runtime-build/
 src-tauri/gen/

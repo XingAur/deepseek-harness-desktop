@@ -810,6 +810,7 @@ dependencies = [
  "futures-util",
  "hex",
  "libc",
+ "minisign-verify",
  "regex",
  "reqwest 0.12.28",
  "semver",

@@ -12,8 +12,9 @@ import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 import { canonicalJson } from './canonical-json.mjs'
+import { loadReleaseVersions } from './release-versions.mjs'
 
-export const MANAGED_RUNTIME_VERSION = '0.1.9-preview'
+export const MANAGED_RUNTIME_VERSION = loadReleaseVersions().runtimeVersion
 const MANAGED_RUNTIME_RELEASE_PATH = `/releases/download/runtime-v${MANAGED_RUNTIME_VERSION}/`
 
 const portable = (value) => value.replaceAll('\\', '/')

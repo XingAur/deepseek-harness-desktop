@@ -1,13 +1,16 @@
 import { createHash } from 'node:crypto'
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { basename, dirname, join, resolve } from 'node:path'
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { materializeRuntimeLinks } from './materialize-runtime-links.mjs'
 import { assertRuntimePeerDependencies, runtimePeerDependencies } from './runtime-peer-dependencies.mjs'
+import { loadReleaseVersions } from './release-versions.mjs'
+import { writeUnsignedRuntimeManifest } from './runtime-release-manifest.mjs'
 
-const NODE_VERSION = '24.14.0'
-const DSH_VERSION = '0.1.0-rc.8'
-const PNPM_VERSION = '11.7.0'
+const versions = loadReleaseVersions()
+const NODE_VERSION = versions.nodeVersion
+const DSH_VERSION = versions.dshVersion
+const PNPM_VERSION = versions.pnpmVersion
 const args = Object.fromEntries(process.argv.slice(2).map((item) => {
   const [key, ...value] = item.replace(/^--/, '').split('=')
   return [key, value.join('=')]
@@ -75,22 +78,14 @@ materializeRuntimeLinks(stage, output)
 const archive = join(output, target === 'windows-x86_64' ? `dsh-runtime-${target}.zip` : `dsh-runtime-${target}.tar.gz`)
 if (target === 'windows-x86_64') run(tarExecutable, ['-a', '-cf', archive, '.'], { cwd: stage })
 else run(tarExecutable, ['-czf', archive, '.'], { cwd: stage })
-const bytes = readFileSync(archive)
-const manifest = {
-  schemaVersion: 1,
+writeUnsignedRuntimeManifest({
+  archivePath: archive,
+  outputPath: join(output, `manifest-${target}.unsigned.json`),
+  target,
   version: args.version || '0.1.0',
   dshVersion: DSH_VERSION,
-  target,
   url: args.url,
-  size: statSync(archive).size,
-  sha256: createHash('sha256').update(bytes).digest('hex'),
-  archive: target === 'windows-x86_64' ? 'zip' : 'tar-gz',
-  entrypoint: target === 'windows-x86_64' ? 'node.exe' : 'bin/node',
-  args: ['app/launcher.mjs', '--port', '{port}'],
-  healthPath: '/__desktop/health',
-  signature: '',
-}
-writeFileSync(join(output, `manifest-${target}.unsigned.json`), `${JSON.stringify(manifest, null, 2)}\n`)
+})
 console.log(`Runtime created: ${archive}`)
 
 async function download(url, destination) {

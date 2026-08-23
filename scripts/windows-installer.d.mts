@@ -4,7 +4,7 @@ export interface WindowsTauriConfig {
   }
 }
 
-export const MANAGED_RUNTIME_VERSION: '0.1.9-preview'
+export const MANAGED_RUNTIME_VERSION: string
 
 export function createWindowsTauriConfig(rootDirectory: string): WindowsTauriConfig
 

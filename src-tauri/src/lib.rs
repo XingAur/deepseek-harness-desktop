@@ -15,6 +15,7 @@ mod runtime;
 mod safe_remove;
 mod storage;
 mod tray;
+pub mod updater_signature_verifier;
 mod window;
 
 use std::sync::{Arc, atomic::AtomicBool};
@@ -254,6 +255,7 @@ fn run_desktop() {
             commands::install_app_update_now,
             commands::install_app_update_on_exit,
             commands::defer_app_update,
+            commands::open_app_update_download,
             commands::take_app_update_receipt,
             commands::orderly_quit,
             commands::hide_window,
