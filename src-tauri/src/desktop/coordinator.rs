@@ -442,4 +442,37 @@ mod tests {
             "breaker must stop the fourth equivalent candidate before launch"
         );
     }
+
+    #[tokio::test]
+    async fn deferred_read_only_repository_fails_before_coordinator_launch_or_state_write() {
+        let temporary = tempfile::tempdir().unwrap();
+        let profile_root = temporary.path().join("profiles");
+        let writable = ProfileRepository::open(profile_root.clone()).unwrap();
+        writable
+            .create(ProfileDraft::named("A", temporary.path().join("a")))
+            .unwrap();
+        drop(writable);
+        let profiles_path = profile_root.join("profiles.json");
+        let state_path = profile_root.join("state.json");
+        let profiles_before = std::fs::read(&profiles_path).unwrap();
+        let state_before = std::fs::read(&state_path).unwrap_or_default();
+        let profiles = Arc::new(ProfileRepository::open_read_only(profile_root).unwrap());
+        let launcher = Arc::new(FakeLauncher::default());
+        let sink: Arc<dyn DesktopEventSink> = Arc::new(NoopSink);
+        let generations = GenerationCoordinator::new(
+            runtime_paths(temporary.path().to_path_buf()),
+            launcher.clone(),
+            sink.clone(),
+        )
+        .unwrap();
+        let desktop = DesktopCoordinator::new(generations, profiles, sink);
+
+        assert!(desktop.start().await.is_err());
+        assert_eq!(
+            launcher.launches.load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+        assert_eq!(std::fs::read(&profiles_path).unwrap(), profiles_before);
+        assert_eq!(std::fs::read(&state_path).unwrap_or_default(), state_before);
+    }
 }

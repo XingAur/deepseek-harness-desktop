@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
-import type { AppUpdateFailure, AppUpdateReceipt, AppUpdateState, GenerationPhase, LocalAppEvent, MigrationStatus, RuntimeClient, RuntimeFailure, RuntimeFailureCode, RuntimePhase } from './runtime-contract'
+import type { AppUpdateFailure, AppUpdateReceipt, AppUpdateState, GenerationPhase, LocalAppEvent, MigrationStatus, RecoveryStatus, RuntimeClient, RuntimeFailure, RuntimeFailureCode, RuntimePhase } from './runtime-contract'
 import { failureFromUnknown, initialRuntimeState, runtimeReducer } from './runtime-reducer'
 import { themeFromWorkbenchMessage } from './theme-message'
 import type { DesktopColorScheme } from './theme-message'
@@ -169,6 +169,7 @@ export function App({ runtime, windowControls }: AppProps) {
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [shellTheme, setShellTheme] = useState<DesktopColorScheme | undefined>()
   const [migration, setMigration] = useState<MigrationStatus | null>(null)
+  const [recovery, setRecovery] = useState<RecoveryStatus | null>(null)
   const [appUpdate, setAppUpdate] = useState<AppUpdateState>({ phase: 'idle' })
   const [appUpdateReceipt, setAppUpdateReceipt] = useState<AppUpdateReceipt | null>(null)
   const [installOnExit, setInstallOnExit] = useState(false)
@@ -225,10 +226,11 @@ export function App({ runtime, windowControls }: AppProps) {
       if (disposed) off()
       else unsubscribes.push(off)
     }).catch(() => { /* 本地应用事件监听失败不阻塞工作台。 */ })
-    void runtime.migrationStatus().then((status) => {
+    void Promise.all([runtime.migrationStatus(), runtime.recoveryStatus()]).then(([status, recoveryStatus]) => {
       if (disposed) return
       setMigration(status)
-      if (status.phase === 'ready') void start(false)
+      setRecovery(recoveryStatus)
+      if (status.phase === 'ready' && recoveryStatus === null) void start(false)
     }).catch((cause) => {
       if (!disposed) dispatch({ type: 'request-failed', error: failureFromUnknown(cause) })
     })
@@ -257,8 +259,7 @@ export function App({ runtime, windowControls }: AppProps) {
 
   const deferMigration = async () => {
     await runtime.deferMigration()
-    setMigration({ phase: 'ready' })
-    await start(false)
+    setMigration({ phase: 'deferred' })
   }
 
   useEffect(() => {
@@ -422,7 +423,27 @@ export function App({ runtime, windowControls }: AppProps) {
         ) : (
           <div className="bootstrapShell">
             <section className="bootstrapCard" aria-live="polite" data-failed={failed || undefined}>
-        {migration !== null && migration.phase !== 'ready' ? (
+        {recovery !== null ? (
+          <section className="migrationPanel" aria-live="polite">
+            <p className="eyebrow">DEEPSEEK HARNESS DESKTOP · 安全恢复</p>
+            <h1>Agent 数据库需要人工恢复</h1>
+            <p className="statusMessage">已阻止 Runtime 和所有写操作。请保留源库，并使用下列已重新验证的备份证据进行人工恢复。</p>
+            <dl className="migrationSummary">
+              <div><dt>源库</dt><dd>{recovery.source}</dd></div>
+              <div><dt>备份</dt><dd>{recovery.backup}</dd></div>
+              <div><dt>SHA-256</dt><dd>{recovery.sha256}</dd></div>
+              <div><dt>长度</dt><dd>{recovery.length} bytes</dd></div>
+              <div><dt>Schema</dt><dd>{recovery.schema}</dd></div>
+              <div><dt>Sidecar</dt><dd>{recovery.sidecar}</dd></div>
+            </dl>
+          </section>
+        ) : migration?.phase === 'deferred' ? (
+          <section className="migrationPanel" aria-live="polite">
+            <p className="eyebrow">DEEPSEEK HARNESS DESKTOP · 数据迁移</p>
+            <h1>数据迁移已暂缓</h1>
+            <p className="statusMessage">应用仍处于阻断状态；重新启动后可继续确认迁移。</p>
+          </section>
+        ) : migration !== null && migration.phase !== 'ready' ? (
           <MigrationPrompt
             migration={migration}
             onConfirm={() => runtime.confirmMigration()}

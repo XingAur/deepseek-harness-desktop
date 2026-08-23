@@ -128,6 +128,17 @@ pub struct MigrationStatusReply {
     workspaces: Option<usize>,
 }
 
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoveryStatusReply {
+    pub source: std::path::PathBuf,
+    pub backup: std::path::PathBuf,
+    pub sha256: String,
+    pub length: u64,
+    pub schema: i64,
+    pub sidecar: std::path::PathBuf,
+}
+
 impl MigrationStatusReply {
     fn ready() -> Self {
         Self {
@@ -161,7 +172,14 @@ pub fn migration_status(foundation: State<'_, Arc<DesktopFoundation>>) -> Migrat
         .migration_deferred
         .load(std::sync::atomic::Ordering::SeqCst)
     {
-        return MigrationStatusReply::ready();
+        return MigrationStatusReply {
+            phase: "deferred",
+            source: None,
+            target: None,
+            bytes: None,
+            profiles: None,
+            workspaces: None,
+        };
     }
     match &foundation.bootstrap_state {
         FoundationBootstrapState::Ready => MigrationStatusReply::ready(),
@@ -171,7 +189,40 @@ pub fn migration_status(foundation: State<'_, Arc<DesktopFoundation>>) -> Migrat
         FoundationBootstrapState::MigrationConflict(candidate) => {
             MigrationStatusReply::candidate("conflict", candidate)
         }
+        FoundationBootstrapState::RecoveryBlocked(_) => MigrationStatusReply::ready(),
     }
+}
+
+pub(crate) fn recovery_status_for(
+    foundation: &DesktopFoundation,
+) -> Result<Option<RecoveryStatusReply>, RuntimeFailure> {
+    let FoundationBootstrapState::RecoveryBlocked(recovery) = &foundation.bootstrap_state else {
+        return Ok(None);
+    };
+    let metadata = crate::agent_store::validate_recovery_state(&foundation.paths, recovery)
+        .map_err(|_| {
+            let mut error = RuntimeFailure::new(
+                crate::runtime::model::RuntimeFailureCode::RepairRequired,
+                "恢复证据验证失败",
+            );
+            error.recoverable = false;
+            error
+        })?;
+    Ok(Some(RecoveryStatusReply {
+        source: recovery.source_path.clone(),
+        backup: metadata.backup_path,
+        sha256: metadata.sha256,
+        length: metadata.byte_length,
+        schema: metadata.schema_version,
+        sidecar: metadata.metadata_path,
+    }))
+}
+
+#[tauri::command]
+pub fn recovery_status(
+    foundation: State<'_, Arc<DesktopFoundation>>,
+) -> Result<Option<RecoveryStatusReply>, RuntimeFailure> {
+    recovery_status_for(&foundation)
 }
 
 #[tauri::command]
@@ -187,6 +238,10 @@ pub async fn confirm_migration(
                 crate::runtime::model::RuntimeFailureCode::MigrationConflict,
                 "新旧目录都有数据，不能自动迁移",
             ));
+        }
+        FoundationBootstrapState::RecoveryBlocked(_) => {
+            foundation.runtime_allowed()?;
+            unreachable!("blocked foundation cannot confirm migration")
         }
     };
     let migration = Arc::clone(&foundation.migration);
@@ -209,7 +264,9 @@ pub fn defer_migration(foundation: State<'_, Arc<DesktopFoundation>>) {
 #[tauri::command]
 pub async fn bootstrap_runtime(
     state: State<'_, Arc<DesktopCoordinator>>,
+    foundation: State<'_, Arc<DesktopFoundation>>,
 ) -> Result<BootstrapReply, RuntimeFailure> {
+    foundation.runtime_allowed()?;
     state.inner().start().await
 }
 
@@ -224,7 +281,9 @@ pub async fn cancel_runtime(
 pub async fn repair_runtime(
     state: State<'_, Arc<DesktopCoordinator>>,
     launcher: State<'_, Arc<AppLauncher>>,
+    foundation: State<'_, Arc<DesktopFoundation>>,
 ) -> Result<BootstrapReply, RuntimeFailure> {
+    foundation.runtime_allowed()?;
     // 修复运行时会重建受管进程环境，先停掉所有本地应用避免悬挂引用。
     launcher.inner().stop_all().await;
     state.inner().repair().await
@@ -245,9 +304,11 @@ pub async fn export_diagnostics(
 pub async fn switch_profile(
     state: State<'_, Arc<DesktopCoordinator>>,
     launcher: State<'_, Arc<AppLauncher>>,
+    foundation: State<'_, Arc<DesktopFoundation>>,
     profile_id: uuid::Uuid,
     generation_id: Option<String>,
 ) -> Result<BootstrapReply, RuntimeFailure> {
+    foundation.runtime_allowed()?;
     if let Some(generation_id) = generation_id {
         state.validate_generation(&generation_id).await?;
     }
@@ -477,7 +538,9 @@ pub fn open_user_data(
 pub async fn restart_runtime(
     state: State<'_, Arc<DesktopCoordinator>>,
     launcher: State<'_, Arc<AppLauncher>>,
+    foundation: State<'_, Arc<DesktopFoundation>>,
 ) -> Result<BootstrapReply, RuntimeFailure> {
+    foundation.runtime_allowed()?;
     // 重启运行时前先停掉所有本地应用，避免残留进程占用旧运行时。
     launcher.inner().stop_all().await;
     state.inner().restart().await

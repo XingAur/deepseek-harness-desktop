@@ -140,6 +140,9 @@ impl ProfileRepository {
         if profiles[index].revision != expected_revision {
             return Err(fatal("Profile revision 已变化，请刷新后重试"));
         }
+        if patch.name.is_none() && patch.data_root.is_none() && patch.permission_mode.is_none() {
+            return Ok(profiles[index].clone());
+        }
         let draft = ProfileDraft {
             name: patch.name.unwrap_or_else(|| profiles[index].name.clone()),
             data_root: patch
@@ -439,18 +442,46 @@ mod tests {
         let before: serde_json::Value = serde_json::from_str(LEGACY_PROFILES).unwrap();
         let repo = ProfileRepository::open(dir.path().to_path_buf()).unwrap();
         let profile = repo.list().unwrap().remove(0);
+        let profiles_before = std::fs::read(&profiles_path).unwrap();
+        let state_before = std::fs::read(&state_path).unwrap();
 
-        repo.update(&profile.id, profile.revision, Default::default())
+        let unchanged = repo
+            .update(&profile.id, profile.revision, Default::default())
             .unwrap();
 
         let after: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&profiles_path).unwrap()).unwrap();
+        assert_eq!(unchanged, profile);
+        assert_eq!(std::fs::read(&profiles_path).unwrap(), profiles_before);
+        assert_eq!(std::fs::read(&state_path).unwrap(), state_before);
         assert_eq!(after[0]["id"], before[0]["id"]);
         assert_eq!(after[0]["dataRoot"], before[0]["dataRoot"]);
         assert_eq!(after[0]["permissionMode"], before[0]["permissionMode"]);
         assert_eq!(after[1], before[1]);
         assert!(!profiles_path.with_extension("json.tmp").exists());
         assert!(!profiles_path.with_extension("json.bak").exists());
+    }
+
+    #[test]
+    fn truly_empty_patch_preserves_revision_updated_at_and_both_repository_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = ProfileRepository::open(dir.path().to_path_buf()).unwrap();
+        let profile = repo
+            .create(ProfileDraft::named("A", dir.path().join("a")))
+            .unwrap();
+        let profiles_path = dir.path().join("profiles.json");
+        let state_path = dir.path().join("state.json");
+        let profiles_before = std::fs::read(&profiles_path).unwrap();
+        let state_before = std::fs::read(&state_path).unwrap_or_default();
+
+        let unchanged = repo
+            .update(&profile.id, profile.revision, Default::default())
+            .unwrap();
+
+        assert_eq!(unchanged.revision, profile.revision);
+        assert_eq!(unchanged.updated_at, profile.updated_at);
+        assert_eq!(std::fs::read(&profiles_path).unwrap(), profiles_before);
+        assert_eq!(std::fs::read(&state_path).unwrap_or_default(), state_before);
     }
 
     #[test]

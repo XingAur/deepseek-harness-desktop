@@ -8,8 +8,9 @@ mod tests {
     use super::{
         model::{CredentialStatus, SecretValue},
         vault::{
-            BackendCredentialVault, BackendError, BackendErrorKind, CredentialVault, MemoryBackend,
-            NativeCredentialVault, PlatformAccessCode, SERVICE_NAME, classify_platform_access,
+            BackendCredentialVault, BackendError, BackendErrorKind, CredentialVault,
+            KeyringBackend, MemoryBackend, NativeCredentialVault, NativeStoreAdapter,
+            PlatformAccessCode, SERVICE_NAME, SecureStoreBackend, classify_platform_access,
         },
     };
 
@@ -146,6 +147,73 @@ mod tests {
     #[test]
     fn native_backend_constructor_does_not_access_the_real_secure_store() {
         let _vault = NativeCredentialVault::new();
+    }
+
+    struct MockNativeAdapter {
+        set_value: std::sync::Mutex<Vec<u8>>,
+        get_result: std::sync::Mutex<Option<keyring::Result<Vec<u8>>>>,
+    }
+
+    impl NativeStoreAdapter for MockNativeAdapter {
+        fn set_secret(&self, _account: &str, secret: &[u8]) -> keyring::Result<()> {
+            *self.set_value.lock().unwrap() = secret.to_vec();
+            Ok(())
+        }
+
+        fn get_secret(&self, _account: &str) -> keyring::Result<Vec<u8>> {
+            self.get_result.lock().unwrap().take().unwrap()
+        }
+
+        fn delete(&self, _account: &str) -> keyring::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn native_adapter_uses_binary_secret_api_without_utf8_conversion() {
+        let adapter = MockNativeAdapter {
+            set_value: std::sync::Mutex::new(Vec::new()),
+            get_result: std::sync::Mutex::new(Some(Ok(vec![0xff, 0x00, 0x80]))),
+        };
+        let backend = KeyringBackend::new(adapter);
+        assert!(
+            backend
+                .set(
+                    "opaque-account",
+                    &SecretValue::from_bytes(vec![0xff, 0x00, 0x80])
+                )
+                .is_ok()
+        );
+        let resolved = match backend.get("opaque-account") {
+            Ok(secret) => secret,
+            Err(_) => panic!("mock native binary secret unexpectedly failed"),
+        };
+        assert_eq!(resolved.expose_bytes_for_backend(), &[0xff, 0x00, 0x80]);
+    }
+
+    #[test]
+    fn native_adapter_redacts_and_zeroizes_errors_that_carry_secret_bytes() {
+        for error in [
+            keyring::Error::BadEncoding(FIRST_SECRET.as_bytes().to_vec()),
+            keyring::Error::BadDataFormat(
+                SECOND_SECRET.as_bytes().to_vec(),
+                Box::new(std::io::Error::other("malformed native record")),
+            ),
+        ] {
+            let backend = KeyringBackend::new(MockNativeAdapter {
+                set_value: std::sync::Mutex::new(Vec::new()),
+                get_result: std::sync::Mutex::new(Some(Err(error))),
+            });
+            let vault_error = match backend.get("opaque-account") {
+                Ok(_) => panic!("mock native error unexpectedly returned a secret"),
+                Err(error) => error.into_vault_error(),
+            };
+            assert_eq!(vault_error.code(), "secure_store_unavailable");
+            assert!(!format!("{vault_error:?}").contains("secret"));
+        }
+        let source = include_str!("vault.rs");
+        assert!(source.contains("keyring::Error::BadEncoding(bytes) => bytes.zeroize()"));
+        assert!(source.contains("keyring::Error::BadDataFormat(bytes, _) => bytes.zeroize()"));
     }
 
     #[test]

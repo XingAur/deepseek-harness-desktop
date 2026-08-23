@@ -70,6 +70,10 @@ impl SecretValue {
     pub(crate) fn expose_for_backend(&self) -> &str {
         std::str::from_utf8(&self.bytes).expect("SecretValue is constructed from UTF-8 text")
     }
+
+    pub(crate) fn expose_bytes_for_backend(&self) -> &[u8] {
+        &self.bytes
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

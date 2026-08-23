@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { MigrationStatus } from './runtime-contract'
 
 interface MigrationPromptProps {
-  migration: Exclude<MigrationStatus, { phase: 'ready' }>
+  migration: Extract<MigrationStatus, { phase: 'candidate' | 'conflict' }>
   onConfirm(): Promise<void>
   onDefer(): Promise<void>
 }

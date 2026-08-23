@@ -2,7 +2,7 @@
 
 ## 状态
 
-Task 2 第一轮审查修复已完成。范围仅包含 Foundation/Profile 启动边界、Agent SQLite 打开/备份/迁移/恢复证据、CredentialVault 安全边界和 renderer 命令注册隔离；未进入 Task 3 的 permission broker、审批流程或 secret renderer API。
+Task 2 第二轮审查修复实现已收口，最终验证结果见文末。范围仅包含 Foundation/Profile 启动边界、Agent SQLite 打开/备份/迁移/恢复证据、CredentialVault 安全边界和 renderer 命令注册隔离；未进入 Task 3 的 permission broker、审批流程或 secret renderer API。
 
 ## Review round 1 继承改动审计
 
@@ -115,3 +115,111 @@ git diff --check
 - 应用内 writer 可精确协调；外部 writer 不能被本应用安全关闭，只能依赖 SQLite 锁检测并 fail closed。本实现不声称关闭未知 writer。
 - 未执行自动恢复或覆盖用户数据库；只返回结构化恢复证据并验证备份可复制到独立路径恢复，这是有意的数据安全边界。
 - CredentialVault 仍是 Task 2 内部契约，除 Foundation 构造外尚无生产调用方；未为消除 dead-code warning 提前实现 Task 3。
+
+## Review round 2 TDD 证据
+
+### 真实 RED（不把继承行为或首次通过冒充 RED）
+
+1. 前端新增 defer/recovery 流测试首次运行是 `27 passed, 2 failed`：defer 仍调用 `bootstrapRuntime`，且 runtime contract/client/UI 没有 recovery DTO 边界。
+2. Foundation/Tauri 测试首次编译失败：缺少 `RecoveryBlocked` 状态、`recovery_status` command 和序列化 DTO；这是壳层与 command 边界的真实 RED。
+3. 按审查建议实测“同一 connection 的 deferred read snapshot + backup + transaction upgrade”：在已建立事务的 connection 上调用 rusqlite backup 返回 SQLite `database is locked`（`SQLITE_BUSY`），证明该具体方案不可用。
+4. 原子发布 fault-injection 测试先编译失败：缺少 backup filesystem seam、唯一 temp bundle 和 write/fsync/rename failure points。
+5. native adapter、二进制 secret API 与 byte-bearing keyring error 测试先编译失败：缺少 `NativeStoreAdapter`/`KeyringBackend`，生产路径仍未形成可 mock 的 `get_secret`/`set_secret` 边界。
+6. empty patch 测试在实现前加入；首次 crate build 被同批 credentials 缺失类型阻断，因此不声明观察到了独立的行为 RED。旧代码逐行确认会递增 revision/updated_at 并写文件，随后仅增加真正空 patch 的早返回。
+
+### GREEN
+
+- AgentStore：20 passed，覆盖生产 migration barrier、rollback/WAL 协议实验、原子 bundle failure injection、16 MiB 流式 hash、恢复重新验证和真实 crash hot journal。
+- Credentials：12 passed，覆盖 binary native adapter、BadEncoding/BadDataFormat、typed platform classifier、zeroize 边界及 renderer allowlist。
+- ProfileRepository：7 passed，覆盖 empty patch 的 profiles/state bytes、revision、updated_at 完整 no-op。
+- Foundation：6 passed，覆盖 recovery-blocked 壳层、真实 Tauri mock invoke、tamper 后固定错误、deferred 状态和零新增持久化边界。
+- DesktopCoordinator deferred + read-only repository 集成：1 passed；launcher 调用数为 0，profiles/state bytes 不变。
+- 前端 App：29 passed；defer/recovery 均不 bootstrap，恢复证据被明确呈现且无自动覆盖源库按钮。
+
+## Review round 2：5 个 Important 修复与安全保证
+
+1. **实际 recovery 壳层和经验证 DTO**
+   - AgentStore 打开失败不再让 Tauri setup `expect`/退出；Foundation 转为 `RecoveryBlocked(RecoveryState)`，仅保留只读 ProfileRepository、Foundation、窗口和不依赖 Agent runtime 的最小壳层。
+   - `recovery_status` 是只读且唯一新增的 renderer command，返回 source、backup、SHA-256、length、schema、sidecar；不返回 credential/secret，也没有新增 secret command。
+   - 每次 command 返回前重新 canonicalize 并验证 backup/sidecar containment、固定 bundle 文件名、sidecar 全字段一致、文件存在、64 KiB 流式 SHA-256/length、SQLite `integrity_check` 与 `user_version`。任何漂移只返回固定 `恢复证据验证失败`，不透传路径解析或 SQLite 错误细节。
+   - UI 明确显示阻断状态和六项恢复证据；没有自动恢复或覆盖源库按钮。Agent runtime/profile/project 写命令要么显式通过 `runtime_allowed`，要么因 blocked setup 不注册 coordinator/launcher 而 fail closed。
+
+2. **defer 仍是 blocked/deferred**
+   - Rust `migration_status` 返回独立 `deferred`，不再伪报 Ready；`runtime_allowed` 对 defer 和所有非 Ready Foundation 返回不可恢复的固定阻断错误。
+   - renderer defer 后只显示“迁移已暂缓”，禁止 `bootstrapRuntime`。真实只读 ProfileRepository + DesktopCoordinator 集成测试证明启动在 launcher 前失败且无 profile/state 写入。
+
+3. **消除 backup→migration TOCTOU**
+   - 先以 `READ_ONLY | NO_CREATE` 探测版本；需要迁移时打开 RW connection 并取得 `BEGIN IMMEDIATE` writer reservation，重新读取并比对版本。
+   - 在 reservation 持有期间，由独立 RO connection 取得 SQLite 一致 snapshot 并完成 verified backup；随后在原 RW transaction 中直接执行 migration 和 commit。SQLite 只允许一个 writer，因此 rollback 与 WAL 下外部 writer 都不能在 backup snapshot 和 migration 之间提交。
+   - 确定性 barrier 放在 bundle 已 rename、schema migration 尚未开始的精确窗口；竞争 writer 的 commit 被 SQLite 锁阻断，backup 包含锁前全部已提交数据且不包含未提交竞争写，source 最终升级到 v1。
+   - 本协议不把进程 mutex 当外部 writer 安全保证；mutex 仅协调本应用 writer。外部/未知 writer 无法取得 SQLite writer reservation 时返回 `agent_store_writer_active` 并 fail closed。
+
+4. **backup + sidecar 原子可信发布**
+   - SQLite backup、integrity、流式 hash、sidecar 均在唯一 `.<uuid>.tmp` bundle 内完成；同步 backup/sidecar 文件和 bundle 目录后，原子 rename 整个目录，再同步 backup parent 目录。
+   - sidecar write、任一 file fsync、bundle-dir fsync、rename、parent-dir fsync 注入失败均不返回 backup metadata，不留下正式命名 bundle，源 DB bytes 不变。parent-dir fsync 失败只清理本次已发布 bundle，不删除碰巧同名的既有数据。
+   - 16 MiB fixture 验证 hash/length 走固定 64 KiB 流式读取；不再把完整 DB 装入内存。
+
+5. **keyring binary API 与错误 bytes 清零**
+   - 锁定 `keyring 4.1.6` 的 v1 API 使用 `set_secret/get_secret`，SecretValue 保持 opaque bytes，不再经过 UTF-8 password 解码路径。
+   - `BadEncoding(Vec<u8>)` 和 `BadDataFormat(Vec<u8>, ...)` 在映射固定 code 前显式 `zeroize()`；backend 私有错误继续 `ZeroizeOnDrop`，不使用错误字符串分类。
+   - Native adapter error-path 完全由 mock 驱动，覆盖非 UTF-8 round-trip 和两个 byte-bearing error；没有访问真实 Keychain/Credential Manager。
+
+## Review round 2：3 个 Minor 修复与安全保证
+
+1. **真实 SQLite hot rollback journal**
+   - 子进程创建 DB、`BEGIN IMMEDIATE`、更新 8 MiB payload 后 `abort`，产生真实 non-empty hot journal；父测试确认 AgentStore 安全阻断且 DB/journal bytes 均保持不变，不再手写伪 journal 字符串。
+2. **empty patch 真正 no-op**
+   - 所有 patch 字段均为 `None` 时，在 existence/revision 校验后直接返回当前 Profile；profiles/state bytes、revision、updated_at 全部不变。任一非空字段仍沿用既有校验、revision+1 和 atomic write 语义。
+3. **统一 secret-bearing 词表**
+   - schema、列名和真实 fixture 值共用闭合词表，覆盖 `client_secret`、`refresh_token`、`authorization`、`bearer`、`private_key`，以及 context 中 password/token/session/access token/API key 等 snake/camel/紧凑形式。
+
+## Review round 2 残余风险与明确边界
+
+- 同 connection transaction 内直接执行 rusqlite backup 经真实 SQLite 实验返回 `SQLITE_BUSY`，因此采用“RW `BEGIN IMMEDIATE` reservation + 独立 RO snapshot backup + 原 transaction migration”的等价协议；这是 SQLite 锁保证，不是进程 mutex 猜测。
+- recovery DTO 只在存在已发布且重新验证成功的 backup bundle 时返回。真实 hot journal 等没有可信 backup 的阻断状态不会伪造证据，command 只返回固定验证失败；仍需人工诊断。
+- 恢复路径只展示证据，不自动覆盖、删除或迁移源 DB。实际人工恢复工具/流程不属于 Task 2，未进入 Task 3。
+- native secure-store 测试坚持纯 mock；Windows keyring v1 没有稳定可下转平台码时继续保守映射 Unavailable。
+
+## Review round 2 最终验证
+
+```text
+cargo test -q --locked agent_store::tests
+  20 passed; 0 failed; 159 filtered out
+
+cargo test -q --locked credentials::tests
+  12 passed; 0 failed; 167 filtered out
+
+cargo test -q --locked profile::repository::tests
+  7 passed; 0 failed; 172 filtered out
+
+cargo test -q --locked foundation_tests
+  6 passed; 0 failed; 173 filtered out
+
+cargo test -q --locked deferred_read_only_repository_fails_before_coordinator_launch_or_state_write
+  1 passed; 0 failed; 178 filtered out
+
+npm test -- --run src/App.test.tsx
+  1 test file passed; 29 tests passed
+
+cargo test --locked（沙箱外，允许 loopback bind）
+  lib: 179 passed; 0 failed
+  main: 0 tests
+  doc-tests: 0 tests
+
+npm run check（沙箱外，允许 loopback bind）
+  root: 37 files / 245 tests passed
+  desktop plugin: 15 files / 69 tests passed
+  agent adapter: 3 files / 25 tests passed
+  build:web、plugin:build、agent:build 均通过
+
+同一全量命令在 sandbox 内的对照结果
+  Rust: 174 passed; 5 loopback bind tests failed with EPERM
+  root Vitest: 235 passed; 10 loopback fixture tests failed with listen EPERM
+  沙箱外原命令全部通过，确认不是实现回归
+
+rustfmt --edition 2024 --check --config skip_children=true <全部变更 Rust 文件>
+  passed; no output
+
+git diff --check
+  passed; no output
+```

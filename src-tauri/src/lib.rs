@@ -61,6 +61,7 @@ macro_rules! renderer_commands {
             commands::migration_status,
             commands::confirm_migration,
             commands::defer_migration,
+            commands::recovery_status,
             commands::check_app_update,
             commands::download_app_update,
             commands::install_app_update_now,
@@ -96,6 +97,7 @@ pub enum FoundationBootstrapState {
     Ready,
     MigrationRequired(MigrationCandidate),
     MigrationConflict(MigrationCandidate),
+    RecoveryBlocked(RecoveryState),
 }
 
 #[derive(Debug)]
@@ -171,9 +173,31 @@ impl DesktopFoundation {
         bootstrap_state: FoundationBootstrapState,
     ) -> Result<Self, FoundationBootstrapError> {
         let credential_vault: Arc<dyn CredentialVault> = Arc::new(NativeCredentialVault::new());
+        let mut bootstrap_state = bootstrap_state;
+        let mut profiles = profiles;
         let agent_store = if matches!(bootstrap_state, FoundationBootstrapState::Ready) {
             paths.create_owned_directories()?;
-            let agent_store = Arc::new(AgentStore::open(&paths)?);
+            let agent_store = match AgentStore::open(&paths) {
+                Ok(store) => Arc::new(store),
+                Err(error) => {
+                    let recovery = error
+                        .recovery()
+                        .expect("AgentStore errors always carry recovery state")
+                        .clone();
+                    profiles = Arc::new(ProfileRepository::open_read_only(paths.profiles.clone())?);
+                    bootstrap_state = FoundationBootstrapState::RecoveryBlocked(recovery);
+                    return Ok(Self {
+                        paths,
+                        platform,
+                        profiles,
+                        agent_store: None,
+                        credential_vault,
+                        migration,
+                        bootstrap_state,
+                        migration_deferred: AtomicBool::new(false),
+                    });
+                }
+            };
             if profiles.list()?.is_empty() {
                 let default_root = paths.profiles.join("default");
                 std::fs::create_dir_all(&default_root)
@@ -195,6 +219,22 @@ impl DesktopFoundation {
             bootstrap_state,
             migration_deferred: AtomicBool::new(false),
         })
+    }
+
+    pub(crate) fn runtime_allowed(&self) -> Result<(), runtime::model::RuntimeFailure> {
+        if matches!(self.bootstrap_state, FoundationBootstrapState::Ready)
+            && !self
+                .migration_deferred
+                .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            return Ok(());
+        }
+        let mut failure = runtime::model::RuntimeFailure::new(
+            runtime::model::RuntimeFailureCode::MigrationConflict,
+            "应用处于数据安全阻断状态",
+        );
+        failure.recoverable = false;
+        Err(failure)
     }
 
     fn resolve(app: &tauri::AppHandle) -> Result<Self, FoundationBootstrapError> {
@@ -298,31 +338,34 @@ fn run_desktop() {
                 DesktopFoundation::resolve(app.handle())
                     .map_err(|cause| Box::<dyn std::error::Error>::from(cause))?,
             );
-            let runtime_paths = RuntimePaths::from_app_paths(&foundation.paths)
-                .map_err(|cause| Box::<dyn std::error::Error>::from(cause))?;
-            let sink = TauriEventSink::new(app.handle().clone());
-            let launcher = ProcessRuntimeLauncher::new(runtime_paths.clone(), sink.clone())
-                .map_err(|cause| Box::<dyn std::error::Error>::from(cause))?;
-            // 本地应用启动器：与运行时共享 RuntimePaths，生命周期事件广播给壳层。
-            // 注意 runtime_paths 随后会被 move 进 GenerationCoordinator，必须在此之前 clone。
-            let app_events = app.handle().clone();
-            let app_launcher = Arc::new(apps::AppLauncher::new(
-                runtime_paths.clone(),
-                Box::new(move |event| {
-                    let _ = app_events.emit(apps::launcher::LOCAL_APP_EVENT, event);
-                }),
-            ));
-            app.manage(Arc::clone(&app_launcher));
-            let generations = GenerationCoordinator::new(runtime_paths, launcher, sink.clone())
-                .map_err(|cause| Box::<dyn std::error::Error>::from(cause))?;
-            let coordinator =
-                DesktopCoordinator::new(generations, Arc::clone(&foundation.profiles), sink);
+            let runtime_services = if foundation.runtime_allowed().is_ok() {
+                let runtime_paths = RuntimePaths::from_app_paths(&foundation.paths)
+                    .map_err(|cause| Box::<dyn std::error::Error>::from(cause))?;
+                let sink = TauriEventSink::new(app.handle().clone());
+                let launcher = ProcessRuntimeLauncher::new(runtime_paths.clone(), sink.clone())
+                    .map_err(|cause| Box::<dyn std::error::Error>::from(cause))?;
+                // 本地应用启动器：与运行时共享 RuntimePaths，生命周期事件广播给壳层。
+                // 注意 runtime_paths 随后会被 move 进 GenerationCoordinator，必须在此之前 clone。
+                let app_events = app.handle().clone();
+                let app_launcher = Arc::new(apps::AppLauncher::new(
+                    runtime_paths.clone(),
+                    Box::new(move |event| {
+                        let _ = app_events.emit(apps::launcher::LOCAL_APP_EVENT, event);
+                    }),
+                ));
+                let generations = GenerationCoordinator::new(runtime_paths, launcher, sink.clone())
+                    .map_err(|cause| Box::<dyn std::error::Error>::from(cause))?;
+                let coordinator =
+                    DesktopCoordinator::new(generations, Arc::clone(&foundation.profiles), sink);
+                Some((app_launcher, coordinator))
+            } else {
+                None
+            };
             let app_updates = app_update::AppUpdateController::new(
                 app.handle().clone(),
                 foundation.paths.state.join("app-update-receipt.json"),
             );
             app.manage(Arc::clone(&foundation));
-            app.manage(Arc::clone(&coordinator));
             app.manage(Arc::clone(&app_updates));
             let config = app
                 .config()
@@ -336,7 +379,11 @@ fn run_desktop() {
                 .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
                 .on_download(|_, _| false)
                 .build()?;
-            tray::install(app, window.clone(), coordinator, foundation, app_updates)?;
+            if let Some((app_launcher, coordinator)) = runtime_services {
+                app.manage(Arc::clone(&app_launcher));
+                app.manage(Arc::clone(&coordinator));
+                tray::install(app, window.clone(), coordinator, foundation, app_updates)?;
+            }
             window.show()?;
             Ok(())
         })
@@ -578,17 +625,20 @@ mod foundation_tests {
             paths.backups.clone(),
         ));
 
-        let foundation = DesktopFoundation::from_parts_with_state(
-            paths.clone(),
-            Arc::new(TestPlatform),
-            profiles,
-            migration,
-            FoundationBootstrapState::MigrationRequired(migration_candidate(&paths)),
-        )
-        .unwrap();
+        let foundation = Arc::new(
+            DesktopFoundation::from_parts_with_state(
+                paths.clone(),
+                Arc::new(TestPlatform),
+                profiles,
+                migration,
+                FoundationBootstrapState::MigrationRequired(migration_candidate(&paths)),
+            )
+            .unwrap(),
+        );
         foundation.migration_deferred.store(true, Ordering::SeqCst);
 
         assert!(foundation.agent_store.is_none());
+        assert!(foundation.runtime_allowed().is_err());
         assert_eq!(tree_snapshot(&paths.active_root), before);
         assert!(!paths.agent_database.exists());
         assert!(!paths.profiles.exists());
@@ -602,6 +652,31 @@ mod foundation_tests {
                 .is_err()
         );
         assert_eq!(tree_snapshot(&paths.active_root), before);
+
+        let app = tauri::test::mock_builder()
+            .manage(Arc::clone(&foundation))
+            .invoke_handler(tauri::generate_handler![crate::commands::migration_status])
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+        let response = tauri::test::get_ipc_response(
+            &webview,
+            tauri::webview::InvokeRequest {
+                cmd: "migration_status".into(),
+                callback: tauri::ipc::CallbackFn(0),
+                error: tauri::ipc::CallbackFn(1),
+                url: "tauri://localhost".parse().unwrap(),
+                body: tauri::ipc::InvokeBody::default(),
+                headers: Default::default(),
+                invoke_key: tauri::test::INVOKE_KEY.to_string(),
+            },
+        )
+        .unwrap()
+        .deserialize::<serde_json::Value>()
+        .unwrap();
+        assert_eq!(response["phase"], "deferred");
     }
 
     #[test]
@@ -664,16 +739,19 @@ mod foundation_tests {
             paths.backups.clone(),
         ));
 
-        let error = match DesktopFoundation::from_parts(
-            paths.clone(),
-            Arc::new(TestPlatform),
-            profiles,
-            migration,
-        ) {
-            Ok(_) => panic!("broken v0 schema unexpectedly bootstrapped"),
-            Err(error) => error,
+        let foundation = Arc::new(
+            DesktopFoundation::from_parts(
+                paths.clone(),
+                Arc::new(TestPlatform),
+                profiles,
+                migration,
+            )
+            .expect("recovery-blocked bootstrap must keep the application shell alive"),
+        );
+        let FoundationBootstrapState::RecoveryBlocked(recovery) = &foundation.bootstrap_state
+        else {
+            panic!("broken v0 schema did not produce a recovery-blocked shell")
         };
-        let recovery = error.recovery().expect("structured bootstrap recovery");
         let backup = recovery.backup.as_ref().expect("verified backup evidence");
 
         assert_eq!(recovery.source_path, paths.agent_database);
@@ -716,5 +794,69 @@ mod foundation_tests {
                 .unwrap(),
             "preserve-me"
         );
+        assert!(foundation.agent_store.is_none());
+        assert!(
+            foundation
+                .profiles
+                .create(ProfileDraft::named(
+                    "blocked",
+                    paths.profiles.join("blocked")
+                ))
+                .is_err()
+        );
+
+        let dto = crate::commands::recovery_status_for(&foundation)
+            .expect("revalidated recovery DTO")
+            .expect("recovery DTO");
+        assert_eq!(dto.source, paths.agent_database);
+        assert_eq!(dto.backup, backup.backup_path);
+        assert_eq!(dto.sha256, backup.sha256);
+        assert_eq!(dto.length, backup.byte_length);
+        assert_eq!(dto.schema, backup.schema_version);
+        assert_eq!(dto.sidecar, backup.metadata_path);
+
+        let app = tauri::test::mock_builder()
+            .manage(Arc::clone(&foundation))
+            .invoke_handler(tauri::generate_handler![crate::commands::recovery_status])
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("recovery-blocked Tauri setup must keep the shell alive");
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+        let response = tauri::test::get_ipc_response(
+            &webview,
+            tauri::webview::InvokeRequest {
+                cmd: "recovery_status".into(),
+                callback: tauri::ipc::CallbackFn(0),
+                error: tauri::ipc::CallbackFn(1),
+                url: "tauri://localhost".parse().unwrap(),
+                body: tauri::ipc::InvokeBody::default(),
+                headers: Default::default(),
+                invoke_key: tauri::test::INVOKE_KEY.to_string(),
+            },
+        )
+        .expect("recovery command returned a fixed error unexpectedly")
+        .deserialize::<serde_json::Value>()
+        .unwrap();
+        assert_eq!(response["sha256"], backup.sha256);
+        assert_eq!(response["length"], backup.byte_length);
+
+        fs::write(&backup.backup_path, b"tampered after bootstrap").unwrap();
+        let response = tauri::test::get_ipc_response(
+            &webview,
+            tauri::webview::InvokeRequest {
+                cmd: "recovery_status".into(),
+                callback: tauri::ipc::CallbackFn(2),
+                error: tauri::ipc::CallbackFn(3),
+                url: "tauri://localhost".parse().unwrap(),
+                body: tauri::ipc::InvokeBody::default(),
+                headers: Default::default(),
+                invoke_key: tauri::test::INVOKE_KEY.to_string(),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(response["message"], "恢复证据验证失败");
+        let error = crate::commands::recovery_status_for(&foundation).unwrap_err();
+        assert_eq!(error.message, "恢复证据验证失败");
     }
 }

@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import type { AppUpdateEvent, AppUpdateReceipt, AppUpdateState, BootstrapReply, DesktopEvent, LocalAppEvent, MigrationStatus, RuntimeClient, RuntimeEvent } from './runtime-contract'
+import type { AppUpdateEvent, AppUpdateReceipt, AppUpdateState, BootstrapReply, DesktopEvent, LocalAppEvent, MigrationStatus, RecoveryStatus, RuntimeClient, RuntimeEvent } from './runtime-contract'
 
 export const tauriRuntimeClient: RuntimeClient = {
   bootstrapRuntime: () => invoke<BootstrapReply>('bootstrap_runtime'),
@@ -10,6 +10,7 @@ export const tauriRuntimeClient: RuntimeClient = {
   migrationStatus: () => invoke<MigrationStatus>('migration_status'),
   confirmMigration: () => invoke<void>('confirm_migration'),
   deferMigration: () => invoke<void>('defer_migration'),
+  recoveryStatus: () => invoke<RecoveryStatus | null>('recovery_status'),
   checkAppUpdate: (source) => invoke<AppUpdateState>('check_app_update', { source }),
   downloadAppUpdate: () => invoke<AppUpdateState>('download_app_update'),
   installAppUpdateNow: () => invoke<void>('install_app_update_now'),

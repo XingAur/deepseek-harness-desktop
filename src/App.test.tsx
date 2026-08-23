@@ -22,6 +22,7 @@ function fakeRuntime() {
     migrationStatus: vi.fn(async () => ({ phase: 'ready' as const })),
     confirmMigration: vi.fn(async () => undefined),
     deferMigration: vi.fn(async () => undefined),
+    recoveryStatus: vi.fn(async () => null),
     checkAppUpdate: vi.fn(async () => ({ phase: 'idle' as const })),
     downloadAppUpdate: vi.fn(async () => ({ phase: 'idle' as const })),
     installAppUpdateNow: vi.fn(async () => undefined),
@@ -210,7 +211,7 @@ describe('App', () => {
     expect(screen.queryByText('DeepSeek Harness 已更新')).not.toBeInTheDocument()
   })
 
-  it('does not bootstrap until a discovered migration is deferred', async () => {
+  it('keeps a deferred migration blocked without bootstrapping a read-only foundation', async () => {
     const { runtime } = fakeRuntime()
     vi.mocked(runtime.migrationStatus).mockResolvedValue({
       phase: 'candidate', source: 'C:\\旧数据', target: 'C:\\新数据',
@@ -221,7 +222,31 @@ describe('App', () => {
     expect(runtime.bootstrapRuntime).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '稍后处理' }))
     await waitFor(() => expect(runtime.deferMigration).toHaveBeenCalled())
-    await waitFor(() => expect(runtime.bootstrapRuntime).toHaveBeenCalled())
+    expect(await screen.findByText('数据迁移已暂缓')).toBeInTheDocument()
+    expect(runtime.bootstrapRuntime).not.toHaveBeenCalled()
+  })
+
+  it('renders verified recovery evidence without offering automatic source replacement', async () => {
+    const { runtime } = fakeRuntime()
+    vi.mocked(runtime.migrationStatus).mockResolvedValue({ phase: 'ready' })
+    vi.mocked(runtime.recoveryStatus).mockResolvedValue({
+      source: '/data/state/agent-platform.sqlite3',
+      backup: '/data/backups/agent-platform/bundle/agent-platform.sqlite3',
+      sha256: '0123456789abcdef'.repeat(4),
+      length: 8192,
+      schema: 0,
+      sidecar: '/data/backups/agent-platform/bundle/metadata.json',
+    })
+
+    render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
+
+    expect(await screen.findByText('Agent 数据库需要人工恢复')).toBeInTheDocument()
+    expect(screen.getByText('/data/state/agent-platform.sqlite3')).toBeInTheDocument()
+    expect(screen.getByText('/data/backups/agent-platform/bundle/agent-platform.sqlite3')).toBeInTheDocument()
+    expect(screen.getByText(/0123456789abcdef/)).toBeInTheDocument()
+    expect(screen.getByText(/8192/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /恢复|覆盖|替换/ })).not.toBeInTheDocument()
+    expect(runtime.bootstrapRuntime).not.toHaveBeenCalled()
   })
 
   it('shows version transition and last-known-good recovery events', async () => {

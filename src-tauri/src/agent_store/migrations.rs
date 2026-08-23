@@ -1,4 +1,4 @@
-use rusqlite::{Connection, TransactionBehavior};
+use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 pub const CURRENT_SCHEMA_VERSION: i64 = 1;
 
@@ -147,7 +147,12 @@ pub fn user_version(connection: &Connection) -> rusqlite::Result<i64> {
 
 pub fn migrate_to_v1(connection: &mut Connection) -> rusqlite::Result<()> {
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Exclusive)?;
+    migrate_to_v1_in_transaction(&transaction)?;
+    transaction.commit()
+}
+
+pub fn migrate_to_v1_in_transaction(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
     transaction.execute_batch(V1_SCHEMA)?;
     transaction.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION)?;
-    transaction.commit()
+    Ok(())
 }

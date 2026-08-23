@@ -3,19 +3,127 @@ pub mod model;
 
 use std::{
     collections::HashSet,
-    fs,
+    fs::{self, File},
+    io::{Read, Write},
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
     time::Duration,
 };
 
 use chrono::Utc;
-use model::{AgentStoreError, BackupMetadata};
-use rusqlite::{Connection, MAIN_DB, OpenFlags};
+use model::{AgentStoreError, BackupMetadata, RecoveryState};
+use rusqlite::{Connection, MAIN_DB, OpenFlags, TransactionBehavior};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use crate::{storage::app_paths::AppPaths, storage::atomic_json::write_atomic};
+use crate::storage::app_paths::AppPaths;
+
+trait BackupFilesystem {
+    fn write_sidecar(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()>;
+    fn sync_file(&self, path: &Path) -> std::io::Result<()>;
+    fn sync_bundle_directory(&self, path: &Path) -> std::io::Result<()>;
+    fn rename_bundle(&self, from: &Path, to: &Path) -> std::io::Result<()>;
+    fn sync_backup_directory(&self, path: &Path) -> std::io::Result<()>;
+}
+
+struct RealBackupFilesystem;
+
+impl BackupFilesystem for RealBackupFilesystem {
+    fn write_sidecar(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+        let mut file = File::create(path)?;
+        file.write_all(bytes)?;
+        Ok(())
+    }
+
+    fn sync_file(&self, path: &Path) -> std::io::Result<()> {
+        File::open(path)?.sync_all()
+    }
+
+    fn sync_bundle_directory(&self, path: &Path) -> std::io::Result<()> {
+        sync_directory(path)
+    }
+
+    fn rename_bundle(&self, from: &Path, to: &Path) -> std::io::Result<()> {
+        fs::rename(from, to)
+    }
+
+    fn sync_backup_directory(&self, path: &Path) -> std::io::Result<()> {
+        sync_directory(path)
+    }
+}
+
+#[cfg(unix)]
+fn sync_directory(path: &Path) -> std::io::Result<()> {
+    File::open(path)?.sync_all()
+}
+
+#[cfg(windows)]
+fn sync_directory(path: &Path) -> std::io::Result<()> {
+    use std::os::windows::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(0x02000000)
+        .open(path)?
+        .sync_all()
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BackupFailurePoint {
+    WriteSidecar,
+    SyncFile,
+    SyncBundleDirectory,
+    RenameBundle,
+    SyncBackupDirectory,
+}
+
+#[cfg(test)]
+struct FaultingBackupFilesystem {
+    point: BackupFailurePoint,
+}
+
+#[cfg(test)]
+impl FaultingBackupFilesystem {
+    fn new(point: BackupFailurePoint) -> Self {
+        Self { point }
+    }
+
+    fn fail(&self, point: BackupFailurePoint) -> std::io::Result<()> {
+        if self.point == point {
+            Err(std::io::Error::other("injected backup publication failure"))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[cfg(test)]
+impl BackupFilesystem for FaultingBackupFilesystem {
+    fn write_sidecar(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+        self.fail(BackupFailurePoint::WriteSidecar)?;
+        RealBackupFilesystem.write_sidecar(path, bytes)
+    }
+
+    fn sync_file(&self, path: &Path) -> std::io::Result<()> {
+        self.fail(BackupFailurePoint::SyncFile)?;
+        RealBackupFilesystem.sync_file(path)
+    }
+
+    fn sync_bundle_directory(&self, path: &Path) -> std::io::Result<()> {
+        self.fail(BackupFailurePoint::SyncBundleDirectory)?;
+        RealBackupFilesystem.sync_bundle_directory(path)
+    }
+
+    fn rename_bundle(&self, from: &Path, to: &Path) -> std::io::Result<()> {
+        self.fail(BackupFailurePoint::RenameBundle)?;
+        RealBackupFilesystem.rename_bundle(from, to)
+    }
+
+    fn sync_backup_directory(&self, path: &Path) -> std::io::Result<()> {
+        self.fail(BackupFailurePoint::SyncBackupDirectory)?;
+        RealBackupFilesystem.sync_backup_directory(path)
+    }
+}
 
 #[derive(Default)]
 struct StoreCoordinator {
@@ -33,6 +141,13 @@ pub struct AgentStore {
 
 impl AgentStore {
     pub fn open(paths: &AppPaths) -> Result<Self, AgentStoreError> {
+        Self::open_with_backup_filesystem(paths, &RealBackupFilesystem)
+    }
+
+    fn open_with_backup_filesystem(
+        paths: &AppPaths,
+        backup_filesystem: &dyn BackupFilesystem,
+    ) -> Result<Self, AgentStoreError> {
         let controller = STORE_COORDINATOR.get_or_init(|| Mutex::new(StoreCoordinator::default()));
         let coordinator = controller
             .lock()
@@ -89,22 +204,51 @@ impl AgentStore {
             ));
         }
 
-        let backup = Some(create_verified_backup(
-            &probe,
-            &paths.agent_database,
-            &paths.agent_backups,
-            version,
-        )?);
         drop(probe);
 
         let mut connection = configured_connection(
             &paths.agent_database,
             OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_FULL_MUTEX,
         )
-        .map_err(|_| {
-            AgentStoreError::migration_failed(paths.agent_database.clone(), backup.clone())
-        })?;
-        if let Err(error) = migrations::migrate_to_v1(&mut connection) {
+        .map_err(|_| AgentStoreError::writer_active(paths.agent_database.clone(), None))?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| {
+                if is_lock_error(&error) {
+                    AgentStoreError::writer_active(paths.agent_database.clone(), None)
+                } else {
+                    AgentStoreError::migration_failed(paths.agent_database.clone(), None)
+                }
+            })?;
+        let locked_version = migrations::user_version(&transaction)
+            .map_err(|_| AgentStoreError::migration_failed(paths.agent_database.clone(), None))?;
+        if locked_version != version {
+            return Err(AgentStoreError::writer_active(
+                paths.agent_database.clone(),
+                None,
+            ));
+        }
+        let snapshot = configured_connection(
+            &paths.agent_database,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_FULL_MUTEX,
+        )
+        .map_err(|_| AgentStoreError::migration_failed(paths.agent_database.clone(), None))?;
+        let backup = Some(create_verified_backup(
+            &snapshot,
+            &paths.agent_database,
+            &paths.agent_backups,
+            version,
+            backup_filesystem,
+        )?);
+        drop(snapshot);
+        if let Err(error) = migrations::migrate_to_v1_in_transaction(&transaction) {
+            return Err(if is_lock_error(&error) {
+                AgentStoreError::writer_active(paths.agent_database.clone(), backup)
+            } else {
+                AgentStoreError::migration_failed(paths.agent_database.clone(), backup)
+            });
+        }
+        if let Err(error) = transaction.commit() {
             return Err(if is_lock_error(&error) {
                 AgentStoreError::writer_active(paths.agent_database.clone(), backup)
             } else {
@@ -227,6 +371,7 @@ fn create_verified_backup(
     source_path: &Path,
     backup_dir: &Path,
     schema_version: i64,
+    backup_filesystem: &dyn BackupFilesystem,
 ) -> Result<BackupMetadata, AgentStoreError> {
     fs::create_dir_all(backup_dir)
         .map_err(|_| AgentStoreError::recovery_required(source_path.to_path_buf(), None))?;
@@ -236,36 +381,40 @@ fn create_verified_backup(
         created_at.format("%Y%m%dT%H%M%S%.3fZ"),
         Uuid::new_v4()
     );
-    let backup_path = backup_dir.join(format!("{stem}.sqlite3"));
-    let metadata_path = backup_dir.join(format!("{stem}.metadata.json"));
-    source
-        .backup(MAIN_DB, &backup_path, None)
+    let final_bundle = backup_dir.join(&stem);
+    let temporary_bundle = backup_dir.join(format!(".{stem}.tmp"));
+    fs::create_dir(&temporary_bundle)
         .map_err(|_| AgentStoreError::recovery_required(source_path.to_path_buf(), None))?;
+    let temporary_backup = temporary_bundle.join("agent-platform.sqlite3");
+    let temporary_metadata = temporary_bundle.join("metadata.json");
+    let backup_path = final_bundle.join("agent-platform.sqlite3");
+    let metadata_path = final_bundle.join("metadata.json");
+    let fail = || {
+        let _ = fs::remove_dir_all(&temporary_bundle);
+        AgentStoreError::recovery_required(source_path.to_path_buf(), None)
+    };
+    source
+        .backup(MAIN_DB, &temporary_backup, None)
+        .map_err(|_| fail())?;
     let backup_connection = configured_connection(
-        &backup_path,
+        &temporary_backup,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_FULL_MUTEX,
     )
-    .map_err(|_| AgentStoreError::recovery_required(source_path.to_path_buf(), None))?;
+    .map_err(|_| fail())?;
     let mut integrity_statement = backup_connection
         .prepare("PRAGMA integrity_check")
-        .map_err(|_| AgentStoreError::recovery_required(source_path.to_path_buf(), None))?;
+        .map_err(|_| fail())?;
     let integrity = integrity_statement
         .query_map([], |row| row.get::<_, String>(0))
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
-        .map_err(|_| AgentStoreError::recovery_required(source_path.to_path_buf(), None))?;
+        .map_err(|_| fail())?;
     if integrity != ["ok"] {
-        return Err(AgentStoreError::recovery_required(
-            source_path.to_path_buf(),
-            None,
-        ));
+        return Err(fail());
     }
     drop(integrity_statement);
     drop(backup_connection);
 
-    let bytes = fs::read(&backup_path)
-        .map_err(|_| AgentStoreError::recovery_required(source_path.to_path_buf(), None))?;
-    let byte_length = bytes.len() as u64;
-    let sha256 = hex::encode(Sha256::digest(&bytes));
+    let (byte_length, sha256) = stream_sha256(&temporary_backup).map_err(|_| fail())?;
     let metadata = BackupMetadata {
         schema_version,
         created_at,
@@ -275,10 +424,140 @@ fn create_verified_backup(
         sha256,
         byte_length,
     };
-    write_atomic(&metadata_path, &metadata).map_err(|_| {
-        AgentStoreError::recovery_required(source_path.to_path_buf(), Some(metadata.clone()))
-    })?;
+    let sidecar = serde_json::to_vec_pretty(&metadata).map_err(|_| fail())?;
+    backup_filesystem
+        .write_sidecar(&temporary_metadata, &sidecar)
+        .map_err(|_| fail())?;
+    backup_filesystem
+        .sync_file(&temporary_backup)
+        .and_then(|_| backup_filesystem.sync_file(&temporary_metadata))
+        .and_then(|_| backup_filesystem.sync_bundle_directory(&temporary_bundle))
+        .map_err(|_| fail())?;
+    backup_filesystem
+        .rename_bundle(&temporary_bundle, &final_bundle)
+        .map_err(|_| fail())?;
+    if backup_filesystem.sync_backup_directory(backup_dir).is_err() {
+        let _ = fs::remove_dir_all(&final_bundle);
+        let _ = sync_directory(backup_dir);
+        return Err(AgentStoreError::recovery_required(
+            source_path.to_path_buf(),
+            None,
+        ));
+    }
     Ok(metadata)
+}
+
+fn stream_sha256(path: &Path) -> std::io::Result<(u64, String)> {
+    let mut file = File::open(path)?;
+    let mut digest = Sha256::new();
+    let mut length = 0_u64;
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        digest.update(&buffer[..read]);
+        length += read as u64;
+    }
+    Ok((length, hex::encode(digest.finalize())))
+}
+
+pub(crate) fn validate_recovery_state(
+    paths: &AppPaths,
+    recovery: &RecoveryState,
+) -> Result<BackupMetadata, AgentStoreError> {
+    let expected = recovery
+        .backup
+        .as_ref()
+        .ok_or_else(|| AgentStoreError::recovery_required(recovery.source_path.clone(), None))?;
+    let backup_root = paths
+        .agent_backups
+        .canonicalize()
+        .map_err(|_| AgentStoreError::recovery_required(recovery.source_path.clone(), None))?;
+    let backup_path = expected
+        .backup_path
+        .canonicalize()
+        .map_err(|_| AgentStoreError::recovery_required(recovery.source_path.clone(), None))?;
+    let metadata_path = expected
+        .metadata_path
+        .canonicalize()
+        .map_err(|_| AgentStoreError::recovery_required(recovery.source_path.clone(), None))?;
+    if !backup_path.starts_with(&backup_root) || !metadata_path.starts_with(&backup_root) {
+        return Err(AgentStoreError::recovery_required(
+            recovery.source_path.clone(),
+            None,
+        ));
+    }
+    let Some(bundle) = backup_path.parent() else {
+        return Err(AgentStoreError::recovery_required(
+            recovery.source_path.clone(),
+            None,
+        ));
+    };
+    if metadata_path.parent() != Some(bundle)
+        || bundle.parent() != Some(backup_root.as_path())
+        || backup_path.file_name().and_then(|name| name.to_str()) != Some("agent-platform.sqlite3")
+        || metadata_path.file_name().and_then(|name| name.to_str()) != Some("metadata.json")
+    {
+        return Err(AgentStoreError::recovery_required(
+            recovery.source_path.clone(),
+            None,
+        ));
+    }
+    let sidecar: BackupMetadata = serde_json::from_slice(
+        &fs::read(&metadata_path)
+            .map_err(|_| AgentStoreError::recovery_required(recovery.source_path.clone(), None))?,
+    )
+    .map_err(|_| AgentStoreError::recovery_required(recovery.source_path.clone(), None))?;
+    if sidecar != *expected
+        || sidecar.source_path != recovery.source_path
+        || sidecar.backup_path.canonicalize().ok().as_ref() != Some(&backup_path)
+        || sidecar.metadata_path.canonicalize().ok().as_ref() != Some(&metadata_path)
+    {
+        return Err(AgentStoreError::recovery_required(
+            recovery.source_path.clone(),
+            None,
+        ));
+    }
+    let mut file = File::open(&backup_path)
+        .map_err(|_| AgentStoreError::recovery_required(recovery.source_path.clone(), None))?;
+    let mut digest = Sha256::new();
+    let mut length = 0_u64;
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|_| AgentStoreError::recovery_required(recovery.source_path.clone(), None))?;
+        if read == 0 {
+            break;
+        }
+        digest.update(&buffer[..read]);
+        length += read as u64;
+    }
+    if length != sidecar.byte_length || hex::encode(digest.finalize()) != sidecar.sha256 {
+        return Err(AgentStoreError::recovery_required(
+            recovery.source_path.clone(),
+            None,
+        ));
+    }
+    let backup = configured_connection(
+        &backup_path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_FULL_MUTEX,
+    )
+    .map_err(|_| AgentStoreError::recovery_required(recovery.source_path.clone(), None))?;
+    let integrity = backup
+        .query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
+        .map_err(|_| AgentStoreError::recovery_required(recovery.source_path.clone(), None))?;
+    let schema = migrations::user_version(&backup)
+        .map_err(|_| AgentStoreError::recovery_required(recovery.source_path.clone(), None))?;
+    if integrity != "ok" || schema != sidecar.schema_version {
+        return Err(AgentStoreError::recovery_required(
+            recovery.source_path.clone(),
+            None,
+        ));
+    }
+    Ok(sidecar)
 }
 
 #[cfg(test)]
@@ -293,7 +572,7 @@ mod tests {
     use rusqlite::Connection;
     use sha2::{Digest, Sha256};
 
-    use super::AgentStore;
+    use super::{AgentStore, BackupFailurePoint, FaultingBackupFilesystem};
     use crate::storage::app_paths::AppPaths;
 
     const V0_FIXTURE: &str = include_str!("fixtures/v0.sql");
@@ -311,6 +590,28 @@ mod tests {
         "compatibility_results",
         "credential_metadata",
         "audit_summaries",
+    ];
+    const SECRET_BEARING_TERMS: &[&str] = &[
+        "secret",
+        "secretvalue",
+        "secret_value",
+        "password",
+        "token",
+        "sessiontoken",
+        "session_token",
+        "accesstoken",
+        "access_token",
+        "clientsecret",
+        "client_secret",
+        "refreshtoken",
+        "refresh_token",
+        "authorization",
+        "bearer",
+        "apikey",
+        "api_key",
+        "api-key",
+        "privatekey",
+        "private_key",
     ];
 
     fn paths(dir: &tempfile::TempDir) -> AppPaths {
@@ -478,6 +779,17 @@ mod tests {
         );
         assert_eq!(backup.schema_version, 0);
         assert!(backup.metadata_path.exists());
+        assert_eq!(backup.backup_path.parent(), backup.metadata_path.parent());
+        let bundle = backup.backup_path.parent().unwrap();
+        assert_eq!(bundle.parent(), Some(paths.agent_backups.as_path()));
+        assert_eq!(fs::read_dir(bundle).unwrap().count(), 2);
+        assert!(fs::read_dir(&paths.agent_backups).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with('.')
+        }));
         let backup_connection = Connection::open(&backup.backup_path).unwrap();
         assert_eq!(
             backup_connection
@@ -486,6 +798,116 @@ mod tests {
             "ok"
         );
         assert_eq!(user_version(&backup_connection), 0);
+    }
+
+    #[test]
+    fn backup_publication_failures_leave_no_formally_named_bundle_or_sidecar() {
+        for point in [
+            BackupFailurePoint::WriteSidecar,
+            BackupFailurePoint::SyncFile,
+            BackupFailurePoint::SyncBundleDirectory,
+            BackupFailurePoint::RenameBundle,
+            BackupFailurePoint::SyncBackupDirectory,
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let paths = paths(&dir);
+            let fixture = Connection::open(&paths.agent_database).unwrap();
+            fixture.execute_batch(V0_FIXTURE).unwrap();
+            drop(fixture);
+            let source_before = fs::read(&paths.agent_database).unwrap();
+
+            let error = AgentStore::open_with_backup_filesystem(
+                &paths,
+                &FaultingBackupFilesystem::new(point),
+            )
+            .unwrap_err();
+
+            assert_eq!(error.code(), "agent_store_recovery_required", "{point:?}");
+            assert_eq!(fs::read(&paths.agent_database).unwrap(), source_before);
+            assert!(error.recovery().unwrap().backup.is_none());
+            if paths.agent_backups.exists() {
+                assert_eq!(
+                    fs::read_dir(&paths.agent_backups).unwrap().count(),
+                    0,
+                    "{point:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn large_backup_is_hashed_streamingly_and_revalidates_after_atomic_publication() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths(&dir);
+        let fixture = Connection::open(&paths.agent_database).unwrap();
+        fixture.execute_batch(V0_FIXTURE).unwrap();
+        fixture
+            .execute("CREATE TABLE large_fixture (payload BLOB NOT NULL)", [])
+            .unwrap();
+        fixture
+            .execute("INSERT INTO large_fixture VALUES (zeroblob(16777216))", [])
+            .unwrap();
+        drop(fixture);
+
+        let store = AgentStore::open(&paths).unwrap();
+        let metadata = store.migration_backup().unwrap();
+        assert!(metadata.byte_length > 16 * 1024 * 1024);
+        let recovery = crate::agent_store::model::RecoveryState {
+            source_path: paths.agent_database.clone(),
+            backup: Some(metadata.clone()),
+        };
+        assert_eq!(
+            super::validate_recovery_state(&paths, &recovery).unwrap(),
+            *metadata
+        );
+    }
+
+    #[test]
+    fn recovery_revalidation_rejects_sidecar_drift_and_paths_outside_the_backup_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths(&dir);
+        let fixture = Connection::open(&paths.agent_database).unwrap();
+        fixture.execute_batch(V0_FIXTURE).unwrap();
+        drop(fixture);
+        let store = AgentStore::open(&paths).unwrap();
+        let metadata = store.migration_backup().unwrap().clone();
+        let recovery = crate::agent_store::model::RecoveryState {
+            source_path: paths.agent_database.clone(),
+            backup: Some(metadata.clone()),
+        };
+
+        let mut drifted = metadata.clone();
+        drifted.byte_length += 1;
+        fs::write(
+            &metadata.metadata_path,
+            serde_json::to_vec_pretty(&drifted).unwrap(),
+        )
+        .unwrap();
+        assert!(super::validate_recovery_state(&paths, &recovery).is_err());
+
+        fs::write(
+            &metadata.metadata_path,
+            serde_json::to_vec_pretty(&metadata).unwrap(),
+        )
+        .unwrap();
+        let outside_bundle = dir.path().join("outside-bundle");
+        fs::create_dir(&outside_bundle).unwrap();
+        let outside_backup = outside_bundle.join("agent-platform.sqlite3");
+        let outside_sidecar = outside_bundle.join("metadata.json");
+        fs::copy(&metadata.backup_path, &outside_backup).unwrap();
+        let mut outside_metadata = metadata;
+        outside_metadata.backup_path = outside_backup;
+        outside_metadata.metadata_path = outside_sidecar.clone();
+        fs::write(
+            &outside_sidecar,
+            serde_json::to_vec_pretty(&outside_metadata).unwrap(),
+        )
+        .unwrap();
+        let outside_recovery = crate::agent_store::model::RecoveryState {
+            source_path: paths.agent_database.clone(),
+            backup: Some(outside_metadata),
+        };
+        assert!(super::validate_recovery_state(&paths, &outside_recovery).is_err());
     }
 
     #[test]
@@ -676,10 +1098,22 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let paths = paths(&dir);
         let connection = Connection::open(&paths.agent_database).unwrap();
-        connection.execute_batch(V0_FIXTURE).unwrap();
+        connection
+            .execute_batch(&format!(
+                "{V0_FIXTURE}\nCREATE TABLE crash_fixture (id INTEGER PRIMARY KEY, payload BLOB NOT NULL);\nINSERT INTO crash_fixture VALUES (1, zeroblob(8388608));"
+            ))
+            .unwrap();
         drop(connection);
         let journal = sqlite_sidecar(&paths.agent_database, "-journal");
-        fs::write(&journal, b"unresolved-hot-journal").unwrap();
+        let child = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg("agent_store::tests::hot_journal_crash_helper")
+            .arg("--nocapture")
+            .env("DSH_AGENT_STORE_HOT_JOURNAL_DB", &paths.agent_database)
+            .status()
+            .unwrap();
+        assert!(!child.success(), "crash helper unexpectedly exited cleanly");
+        assert!(fs::metadata(&journal).unwrap().len() > 512);
         let source_before = fs::read(&paths.agent_database).unwrap();
         let journal_before = fs::read(&journal).unwrap();
 
@@ -689,6 +1123,118 @@ mod tests {
         assert_eq!(fs::read(&paths.agent_database).unwrap(), source_before);
         assert_eq!(fs::read(&journal).unwrap(), journal_before);
         assert!(!paths.agent_backups.exists());
+    }
+
+    #[test]
+    fn hot_journal_crash_helper() {
+        let Ok(database_path) = std::env::var("DSH_AGENT_STORE_HOT_JOURNAL_DB") else {
+            return;
+        };
+        let connection = Connection::open(database_path).unwrap();
+        connection
+            .pragma_update(None, "journal_mode", "delete")
+            .unwrap();
+        connection.pragma_update(None, "cache_size", 8).unwrap();
+        connection.execute_batch("BEGIN IMMEDIATE").unwrap();
+        connection
+            .execute(
+                "UPDATE crash_fixture SET payload = randomblob(8388608) WHERE id = 1",
+                [],
+            )
+            .unwrap();
+        std::process::abort();
+    }
+
+    #[test]
+    fn production_migration_barrier_blocks_a_writer_after_bundle_publish_before_schema_change() {
+        use std::sync::{Arc, mpsc};
+
+        struct BarrierFilesystem {
+            published: mpsc::Sender<()>,
+            resume: std::sync::Mutex<mpsc::Receiver<()>>,
+        }
+
+        impl super::BackupFilesystem for BarrierFilesystem {
+            fn write_sidecar(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+                super::RealBackupFilesystem.write_sidecar(path, bytes)
+            }
+            fn sync_file(&self, path: &Path) -> std::io::Result<()> {
+                super::RealBackupFilesystem.sync_file(path)
+            }
+            fn sync_bundle_directory(&self, path: &Path) -> std::io::Result<()> {
+                super::RealBackupFilesystem.sync_bundle_directory(path)
+            }
+            fn rename_bundle(&self, from: &Path, to: &Path) -> std::io::Result<()> {
+                super::RealBackupFilesystem.rename_bundle(from, to)?;
+                self.published.send(()).unwrap();
+                self.resume.lock().unwrap().recv().unwrap();
+                Ok(())
+            }
+            fn sync_backup_directory(&self, path: &Path) -> std::io::Result<()> {
+                super::RealBackupFilesystem.sync_backup_directory(path)
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths(&dir);
+        let fixture = Connection::open(&paths.agent_database).unwrap();
+        fixture.execute_batch(V0_FIXTURE).unwrap();
+        fixture
+            .execute(
+                "INSERT INTO legacy_settings VALUES ('committed-before', 'must-be-backed-up')",
+                [],
+            )
+            .unwrap();
+        drop(fixture);
+        let (published_tx, published_rx) = mpsc::channel();
+        let (resume_tx, resume_rx) = mpsc::channel();
+        let filesystem = Arc::new(BarrierFilesystem {
+            published: published_tx,
+            resume: std::sync::Mutex::new(resume_rx),
+        });
+        let migration_paths = paths.clone();
+        let migration_filesystem = Arc::clone(&filesystem);
+        let migration = thread::spawn(move || {
+            AgentStore::open_with_backup_filesystem(&migration_paths, migration_filesystem.as_ref())
+        });
+        published_rx.recv().unwrap();
+
+        let racing_writer = Connection::open(&paths.agent_database).unwrap();
+        racing_writer
+            .busy_timeout(std::time::Duration::from_millis(150))
+            .unwrap();
+        let error = racing_writer
+            .execute(
+                "INSERT INTO legacy_settings VALUES ('racing-writer', 'must-not-slip-in')",
+                [],
+            )
+            .unwrap_err();
+        assert!(super::is_lock_error(&error));
+        resume_tx.send(()).unwrap();
+
+        let store = migration.join().unwrap().unwrap();
+        let backup = Connection::open(&store.migration_backup().unwrap().backup_path).unwrap();
+        assert_eq!(
+            backup
+                .query_row(
+                    "SELECT setting_value FROM legacy_settings WHERE setting_key = 'committed-before'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+            "must-be-backed-up"
+        );
+        assert_eq!(
+            backup
+                .query_row(
+                    "SELECT COUNT(*) FROM legacy_settings WHERE setting_key = 'racing-writer'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            0
+        );
+        assert_eq!(user_version(&store.reader().unwrap()), 1);
     }
 
     #[test]
@@ -787,6 +1333,78 @@ mod tests {
     }
 
     #[test]
+    fn sqlite_immediate_writer_reservation_keeps_backup_and_schema_change_in_one_writer_epoch() {
+        use rusqlite::TransactionBehavior;
+        use std::{sync::mpsc, time::Duration};
+
+        for journal_mode in ["delete", "wal"] {
+            let dir = tempfile::tempdir().unwrap();
+            let paths = paths(&dir);
+            let seed = Connection::open(&paths.agent_database).unwrap();
+            seed.pragma_update(None, "journal_mode", journal_mode)
+                .unwrap();
+            seed.execute_batch(V0_FIXTURE).unwrap();
+            drop(seed);
+            let backup_path = dir.path().join("snapshot.sqlite3");
+            let mut migration = Connection::open(&paths.agent_database).unwrap();
+            let transaction = migration
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .unwrap();
+            let snapshot = Connection::open_with_flags(
+                &paths.agent_database,
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+            )
+            .unwrap();
+            snapshot
+                .backup(rusqlite::MAIN_DB, &backup_path, None)
+                .unwrap();
+            drop(snapshot);
+
+            let (attempted_tx, attempted_rx) = mpsc::channel();
+            let (finished_tx, finished_rx) = mpsc::channel();
+            let database_path = paths.agent_database.clone();
+            let writer = thread::spawn(move || {
+                let external = Connection::open(database_path).unwrap();
+                external.busy_timeout(Duration::from_millis(150)).unwrap();
+                attempted_tx.send(()).unwrap();
+                let result = external.execute(
+                    "INSERT INTO legacy_settings (setting_key, setting_value) VALUES ('racing', 'writer')",
+                    [],
+                );
+                finished_tx.send(result).unwrap();
+            });
+            attempted_rx.recv().unwrap();
+            let result = finished_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert!(super::is_lock_error(&result.unwrap_err()), "{journal_mode}");
+
+            transaction
+                .execute_batch("CREATE TABLE migration_marker (value TEXT NOT NULL);")
+                .unwrap();
+            transaction.commit().unwrap();
+            writer.join().unwrap();
+
+            let backup = Connection::open(backup_path).unwrap();
+            assert_eq!(user_version(&backup), 0);
+            assert_eq!(
+                backup
+                    .query_row("SELECT COUNT(*) FROM legacy_settings", [], |row| row
+                        .get::<_, i64>(0))
+                    .unwrap(),
+                1
+            );
+            let migrated = Connection::open(&paths.agent_database).unwrap();
+            assert_eq!(
+                migrated
+                    .query_row("SELECT COUNT(*) FROM legacy_settings", [], |row| row
+                        .get::<_, i64>(0))
+                    .unwrap(),
+                1
+            );
+            assert!(table_names(&migrated).contains(&"migration_marker".to_string()));
+        }
+    }
+
+    #[test]
     fn schema_and_seeded_values_have_no_secret_bearing_columns_or_values() {
         let dir = tempfile::tempdir().unwrap();
         let paths = paths(&dir);
@@ -804,13 +1422,7 @@ mod tests {
             .unwrap()
             .to_ascii_lowercase();
 
-        for forbidden in [
-            "api_key",
-            "apikey",
-            "password",
-            "access_token",
-            "secret_value",
-        ] {
+        for forbidden in SECRET_BEARING_TERMS {
             assert!(!schema.contains(forbidden), "schema contains {forbidden}");
         }
         for table in REQUIRED_TABLES {
@@ -824,7 +1436,7 @@ mod tests {
             for column in columns {
                 let column = column.to_ascii_lowercase();
                 assert!(
-                    !["secret", "token", "password", "authorization", "api_key"]
+                    !SECRET_BEARING_TERMS
                         .iter()
                         .any(|forbidden| column.contains(forbidden)),
                     "secret-bearing column {table}.{column}"
@@ -836,9 +1448,12 @@ mod tests {
         for value in seeded_values {
             let value = value.to_ascii_lowercase();
             assert!(!value.contains("sk-unit-test-secret"));
-            assert!(!value.contains("api_key"));
-            assert!(!value.contains("access_token"));
-            assert!(!value.contains("password"));
+            for forbidden in SECRET_BEARING_TERMS {
+                assert!(
+                    !value.contains(forbidden),
+                    "seed value contains {forbidden}"
+                );
+            }
         }
     }
 }

@@ -108,6 +108,7 @@ export type DesktopEvent =
 
 export type MigrationStatus =
   | { phase: 'ready' }
+  | { phase: 'deferred' }
   | {
       phase: 'candidate' | 'conflict'
       source: string
@@ -116,6 +117,15 @@ export type MigrationStatus =
       profiles: number
       workspaces: number
     }
+
+export interface RecoveryStatus {
+  source: string
+  backup: string
+  sha256: string
+  length: number
+  schema: number
+  sidecar: string
+}
 
 export interface AppUpdateInfo {
   version: string
@@ -167,6 +177,7 @@ export interface RuntimeClient {
   migrationStatus(): Promise<MigrationStatus>
   confirmMigration(): Promise<void>
   deferMigration(): Promise<void>
+  recoveryStatus(): Promise<RecoveryStatus | null>
   checkAppUpdate(source: AppUpdateSource): Promise<AppUpdateState>
   downloadAppUpdate(): Promise<AppUpdateState>
   installAppUpdateNow(): Promise<void>

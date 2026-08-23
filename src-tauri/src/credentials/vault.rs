@@ -146,41 +146,68 @@ impl<B: SecureStoreBackend> CredentialVault for BackendCredentialVault<B> {
     }
 }
 
-struct KeyringBackend;
+pub(crate) trait NativeStoreAdapter: Send + Sync {
+    fn set_secret(&self, account: &str, secret: &[u8]) -> keyring::Result<()>;
+    fn get_secret(&self, account: &str) -> keyring::Result<Vec<u8>>;
+    fn delete(&self, account: &str) -> keyring::Result<()>;
+}
 
-impl KeyringBackend {
-    fn entry(account: &str) -> Result<keyring::Entry, BackendError> {
-        keyring::Entry::new(SERVICE_NAME, account).map_err(map_keyring_error)
+struct SystemNativeStoreAdapter;
+
+impl NativeStoreAdapter for SystemNativeStoreAdapter {
+    fn set_secret(&self, account: &str, secret: &[u8]) -> keyring::Result<()> {
+        keyring::Entry::new(SERVICE_NAME, account)?.set_secret(secret)
+    }
+
+    fn get_secret(&self, account: &str) -> keyring::Result<Vec<u8>> {
+        keyring::Entry::new(SERVICE_NAME, account)?.get_secret()
+    }
+
+    fn delete(&self, account: &str) -> keyring::Result<()> {
+        keyring::Entry::new(SERVICE_NAME, account)?.delete_credential()
     }
 }
 
-impl SecureStoreBackend for KeyringBackend {
+pub(crate) struct KeyringBackend<A> {
+    adapter: A,
+}
+
+impl<A> KeyringBackend<A> {
+    pub(crate) fn new(adapter: A) -> Self {
+        Self { adapter }
+    }
+}
+
+impl<A: NativeStoreAdapter> SecureStoreBackend for KeyringBackend<A> {
     fn set(&self, account: &str, secret: &SecretValue) -> Result<(), BackendError> {
-        Self::entry(account)?
-            .set_password(secret.expose_for_backend())
+        self.adapter
+            .set_secret(account, secret.expose_bytes_for_backend())
             .map_err(map_keyring_error)
     }
 
     fn get(&self, account: &str) -> Result<SecretValue, BackendError> {
-        let bytes = Self::entry(account)?
-            .get_password()
-            .map(String::into_bytes)
+        let bytes = self
+            .adapter
+            .get_secret(account)
             .map_err(map_keyring_error)?;
         Ok(SecretValue::from_bytes(bytes))
     }
 
     fn delete(&self, account: &str) -> Result<(), BackendError> {
-        Self::entry(account)?
-            .delete_credential()
-            .map_err(map_keyring_error)
+        self.adapter.delete(account).map_err(map_keyring_error)
     }
 }
 
-pub(crate) fn map_keyring_error(error: keyring::Error) -> BackendError {
+pub(crate) fn map_keyring_error(mut error: keyring::Error) -> BackendError {
     let kind = match &error {
         keyring::Error::NoEntry => BackendErrorKind::Missing,
         _ => classify_platform_access(platform_access_code(&error)),
     };
+    match &mut error {
+        keyring::Error::BadEncoding(bytes) => bytes.zeroize(),
+        keyring::Error::BadDataFormat(bytes, _) => bytes.zeroize(),
+        _ => {}
+    }
     BackendError::new(kind, "native secure-store operation failed")
 }
 
@@ -198,13 +225,13 @@ fn platform_access_code(error: &keyring::Error) -> PlatformAccessCode {
 }
 
 pub(crate) struct NativeCredentialVault {
-    inner: BackendCredentialVault<KeyringBackend>,
+    inner: BackendCredentialVault<KeyringBackend<SystemNativeStoreAdapter>>,
 }
 
 impl NativeCredentialVault {
     pub(crate) fn new() -> Self {
         Self {
-            inner: BackendCredentialVault::new(KeyringBackend),
+            inner: BackendCredentialVault::new(KeyringBackend::new(SystemNativeStoreAdapter)),
         }
     }
 }
@@ -284,7 +311,7 @@ impl SecureStoreBackend for MemoryBackend {
         Self::pending_failure(&mut state)?;
         state.entries.insert(
             account.to_owned(),
-            Zeroizing::new(secret.expose_for_backend().as_bytes().to_vec()),
+            Zeroizing::new(secret.expose_bytes_for_backend().to_vec()),
         );
         Ok(())
     }
