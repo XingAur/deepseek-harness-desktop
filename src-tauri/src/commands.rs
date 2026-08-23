@@ -199,6 +199,14 @@ pub(crate) fn recovery_status_for(
     let FoundationBootstrapState::RecoveryBlocked(recovery) = &foundation.bootstrap_state else {
         return Ok(None);
     };
+    if recovery.backup.is_none() {
+        let mut error = RuntimeFailure::new(
+            crate::runtime::model::RuntimeFailureCode::RepairRequired,
+            "Agent 数据库恢复证据已丢失，已阻止启动",
+        );
+        error.recoverable = false;
+        return Err(error);
+    }
     let metadata = crate::agent_store::validate_recovery_state(&foundation.paths, recovery)
         .map_err(|_| {
             let mut error = RuntimeFailure::new(

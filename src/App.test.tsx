@@ -249,6 +249,21 @@ describe('App', () => {
     expect(runtime.bootstrapRuntime).not.toHaveBeenCalled()
   })
 
+  it('shows the fixed blocking message when published recovery evidence is lost', async () => {
+    const { runtime } = fakeRuntime()
+    vi.mocked(runtime.migrationStatus).mockResolvedValue({ phase: 'ready' })
+    vi.mocked(runtime.recoveryStatus).mockRejectedValue({
+      code: 'repair-required',
+      message: 'Agent 数据库恢复证据已丢失，已阻止启动',
+      recoverable: false,
+    })
+
+    render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
+
+    expect(await screen.findByText('Agent 数据库恢复证据已丢失，已阻止启动')).toBeVisible()
+    expect(runtime.bootstrapRuntime).not.toHaveBeenCalled()
+  })
+
   it('shows version transition and last-known-good recovery events', async () => {
     const { runtime, emitDesktop } = fakeRuntime()
     render(<App runtime={runtime} windowControls={fakeWindowControls()} />)

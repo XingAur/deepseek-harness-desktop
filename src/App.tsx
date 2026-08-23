@@ -42,6 +42,8 @@ const failureCopy: Record<RuntimeFailureCode, string> = {
   internal: '程序内部出现了一点问题。请重试；若持续出现，请导出诊断并反馈。',
 }
 
+const backupEvidenceLostMessage = 'Agent 数据库恢复证据已丢失，已阻止启动'
+
 export interface AppProps {
   runtime: RuntimeClient
   windowControls: WindowControls
@@ -365,7 +367,11 @@ export function App({ runtime, windowControls }: AppProps) {
   }
 
   const failed = state.phase === 'failed'
-  const failureText = state.error === null ? null : failureCopy[state.error.code] ?? failureCopy.internal
+  const failureText = state.error === null
+    ? null
+    : state.error.message === backupEvidenceLostMessage
+      ? backupEvidenceLostMessage
+      : failureCopy[state.error.code] ?? failureCopy.internal
   // 只为「技术信息」行保留最近一次失败的原始消息;主文案由 failureCopy 提供。
   const [lastFailure, setLastFailure] = useState<RuntimeFailure | null>(state.error)
 

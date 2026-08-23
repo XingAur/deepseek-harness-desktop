@@ -859,4 +859,33 @@ mod foundation_tests {
         let error = crate::commands::recovery_status_for(&foundation).unwrap_err();
         assert_eq!(error.message, "恢复证据验证失败");
     }
+
+    #[test]
+    fn recovery_without_published_evidence_returns_the_fixed_blocking_message() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = AppPaths::from_roots(dir.path().join("app-data"), dir.path().join("resources"));
+        paths.create_owned_directories().unwrap();
+        let profiles = Arc::new(ProfileRepository::open_read_only(paths.profiles.clone()).unwrap());
+        let migration = Arc::new(MigrationService::new(
+            paths.stable_root.clone(),
+            paths.backups.clone(),
+        ));
+        let recovery = crate::agent_store::model::RecoveryState {
+            source_path: paths.agent_database.clone(),
+            backup: None,
+        };
+        let foundation = DesktopFoundation::from_parts_with_state(
+            paths,
+            Arc::new(TestPlatform),
+            profiles,
+            migration,
+            FoundationBootstrapState::RecoveryBlocked(recovery),
+        )
+        .unwrap();
+
+        let error = crate::commands::recovery_status_for(&foundation).unwrap_err();
+
+        assert_eq!(error.message, "Agent 数据库恢复证据已丢失，已阻止启动");
+        assert!(!error.recoverable);
+    }
 }

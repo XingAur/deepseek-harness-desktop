@@ -285,3 +285,58 @@ npm run check
   agent adapter: 3 files / 25 tests passed
   build:web、plugin:build、agent:build 均通过
 ```
+
+## Review round 4 工作区基线、继承改动与 TDD
+
+- 本轮以 `fb3d86eff91c0ce9a4fd9608101e9d52e65b5e71` 为审计基线。开始时的四处非文档改动为用户确认的上一位 Round 4 代理 inherited partial changes；逐行审计后保留其中正确的 Windows durability、evidence 定位和 verification-copy 基础，未把它们记作本轮 RED，也未回退。两份 `docs/superpowers/` 未跟踪文档始终没有修改或暂存。
+- 本轮新增 macOS 专项先暴露真实问题：真实 SQLite backup API 的 unlinked verification FD 在原实现中被 `/dev/fd` metadata 误判而报 `agent_store_backup_evidence_lost`，使 V0 迁移无法继续。这是本轮的真实 RED。直接 URI 专项随后确认 macOS SQLite 可通过 `file:/dev/fd/<fd>?mode=ro&immutable=1` 读取同一已 unlink inode；修正为以已持有 fd 的 identity 作为绑定证据，并保留该 URI 验证。
+- 新增 foundation/UI 测试还暴露了 evidence 已丢失时命令层仍会尝试重验空 metadata、以及 UI 被通用 repair 文案覆盖的问题。测试先失败，随后令命令层 fail closed，并保留明确的 evidence-lost 阻断文案。
+
+## Review round 4：3 个 Important 修复
+
+1. **Windows 可实际迁移的 durability 边界**
+   - 删除对无 `GENERIC_WRITE` 目录 handle 及 rename source handle 的 `sync_all` / `FlushFileBuffers` 假设。普通文件仍以可写 handle flush；目录的 Windows 边界明确为不承诺 Unix 式 directory fsync。
+   - 保留固定 source handle、exclusive no-replace rename：`DELETE | SYNCHRONIZE`、`FILE_FLAG_WRITE_THROUGH` 与 `SetFileInformationByHandle(FileRenameInfo)`。不回退到 path pre-check 或可覆盖 rename。
+   - 新增 `#[cfg(windows)]` 正常旧库迁移和 verification replacement 专项；它们由现有 Windows CI 的 `cargo test --locked` 执行。本机是 macOS，未声称执行过 Windows 测试。
+
+2. **final drift 不再返回 stale backup**
+   - `BackupMetadata` 含 owner token；published evidence 只能在 path、owner token、sidecar、backup 与 filesystem identity 全部再次验证后返回。
+   - 若 trusted parent 内真实 bundle 仅发生 rename，则在有界目录扫描内按 owner token 与 identity 定位，重建并重验 metadata 后才继续；若已删除或无法定位，返回 `agent_store_backup_evidence_lost` 且 `backup = None`。
+   - command 层和启动 UI 将 evidence-lost 固定为不可恢复的 repair 阻断，不再把 stale path 传给 bootstrap 或显示成可恢复 backup。
+
+3. **verification copy 与同 inode SQLite 验证**
+   - Unix 在私有、`create_new` verification copy 写入、flush 与 identity 检查后立即 unlink，只保留原 fd；SQLite 使用 `file:/dev/fd/<fd>?mode=ro&immutable=1`（Linux 对应 `/proc/self/fd`）验证，不会按原 source 或临时副本路径重新打开。
+   - macOS 已用 V0、SQLite backup API 和 WAL backup API 的实际迁移专项验证该 unlinked FD URI；descriptor path 的 metadata 在该平台不作为反向身份判断，绑定性由同一已持有 fd 的 identity 保证。
+   - Windows 保持不共享 `FILE_SHARE_DELETE` 的 verification handle，SQLite 按 path 打开期间 replacement 必须失败，并在前后核对 handle/path identity。各路径 cleanup 不留下含用户数据的 verification 副本。
+   - 覆盖 deterministic replacement、owned bundle rename 定位、删除后 `evidence_lost`，以及 Windows 正常迁移 target test。
+
+## Review round 4 验证与残余边界
+
+```text
+cargo test --manifest-path src-tauri/Cargo.toml --locked agent_store::tests
+  36 passed; 0 failed; 161 filtered out
+
+cargo test --manifest-path src-tauri/Cargo.toml --locked foundation_tests
+  7 passed; 0 failed; 190 filtered out
+
+npm test -- --run src/App.test.tsx
+  1 test file passed; 30 tests passed
+
+cargo test --manifest-path src-tauri/Cargo.toml --locked
+  192 passed; 5 failed
+  失败均为 workspace sandbox 拒绝 loopback 监听（Operation not permitted）：
+  apps launcher/static-server 与 runtime health 的 5 个既有网络 fixture 测试。
+  未重跑或扩大到沙箱外；本轮 AgentStore/foundation 专项均通过。
+
+npm run check
+  root Vitest: 236 passed; 10 failed
+  失败均为 workspace sandbox 对 127.0.0.1 listen 的 EPERM，位于 e2e fixture/
+  websocket-proxy 测试；因此后续 plugin、agent 与 build 阶段未启动。
+  按用户要求未重跑或扩大验证。
+
+rustfmt --edition 2024 --check --config skip_children=true <本轮变更 Rust 文件>
+  passed; no output
+
+git diff --check
+  passed; no output
+```

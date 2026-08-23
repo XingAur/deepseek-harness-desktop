@@ -48,7 +48,11 @@ impl BackupFilesystem for RealBackupFilesystem {
     }
 
     fn sync_file(&self, path: &Path) -> std::io::Result<()> {
-        File::open(path)?.sync_all()
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)?
+            .sync_all()
     }
 
     fn sync_bundle_directory(&self, path: &Path) -> std::io::Result<()> {
@@ -325,9 +329,7 @@ fn atomic_publish_bundle(
         return Err(std::io::Error::last_os_error());
     }
     Ok(
-        if source.sync_all().is_ok()
-            && parent.handle.sync_all().is_ok()
-            && ensure_trusted_directory(parent).is_ok()
+        if ensure_trusted_directory(parent).is_ok()
             && path_identity(to).is_ok_and(|identity| identity == source_identity)
         {
             BundlePublication::Verified
@@ -366,6 +368,38 @@ fn cleanup_owned_bundle(bundle: &OwnedBundle) -> std::io::Result<()> {
     fs::remove_dir_all(&bundle.path)
 }
 
+const MAX_PUBLISHED_BUNDLE_SCAN_ENTRIES: usize = 256;
+
+fn locate_owned_bundle(
+    parent: &TrustedDirectory,
+    bundle: &OwnedBundle,
+) -> std::io::Result<PathBuf> {
+    ensure_trusted_directory(parent)?;
+    let mut found = None;
+    for (index, entry) in fs::read_dir(&parent.path)?.enumerate() {
+        if index >= MAX_PUBLISHED_BUNDLE_SCAN_ENTRIES {
+            return Err(std::io::Error::other(
+                "published bundle scan limit exceeded",
+            ));
+        }
+        let path = entry?.path();
+        if !path
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().contains(&bundle.owner_token))
+            || !path_identity(&path).is_ok_and(|identity| identity == bundle.identity)
+        {
+            continue;
+        }
+        if found.replace(path).is_some() {
+            return Err(std::io::Error::other(
+                "published bundle identity is ambiguous",
+            ));
+        }
+    }
+    ensure_trusted_directory(parent)?;
+    found.ok_or_else(|| std::io::Error::other("published bundle evidence lost"))
+}
+
 #[cfg(unix)]
 fn sync_directory(path: &Path) -> std::io::Result<()> {
     File::open(path)?.sync_all()
@@ -373,12 +407,10 @@ fn sync_directory(path: &Path) -> std::io::Result<()> {
 
 #[cfg(windows)]
 fn sync_directory(path: &Path) -> std::io::Result<()> {
-    use std::os::windows::fs::OpenOptionsExt;
-    std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(0x02000000)
-        .open(path)?
-        .sync_all()
+    // Windows does not expose a reliable directory-fsync equivalent for these handles.
+    // Regular bundle files are flushed before the write-through, handle-relative rename;
+    // this boundary only revalidates that the directory is not a reparse point.
+    open_trusted_directory(path).map(drop)
 }
 
 #[cfg(test)]
@@ -707,7 +739,7 @@ fn create_verified_backup(
     let temporary_bundle = backup_dir.join(format!(".{stem}.tmp"));
     fs::create_dir(&temporary_bundle)
         .map_err(|_| AgentStoreError::recovery_required(source_path.to_path_buf(), None))?;
-    let mut owned = owned_bundle(temporary_bundle.clone(), owner_token)
+    let mut owned = owned_bundle(temporary_bundle.clone(), owner_token.clone())
         .map_err(|_| AgentStoreError::recovery_required(source_path.to_path_buf(), None))?;
     let temporary_backup = temporary_bundle.join("agent-platform.sqlite3");
     let temporary_metadata = temporary_bundle.join("metadata.json");
@@ -742,6 +774,7 @@ fn create_verified_backup(
     let metadata = BackupMetadata {
         schema_version,
         created_at,
+        owner_token,
         source_path: source_path.to_path_buf(),
         backup_path,
         metadata_path: metadata_path.clone(),
@@ -766,24 +799,72 @@ fn create_verified_backup(
         || !owned_bundle_is_current(&owned)
         || ensure_trusted_directory(&trusted_backup_dir).is_err()
     {
-        return Err(AgentStoreError::backup_durability_uncertain(
-            source_path.to_path_buf(),
-            metadata,
+        return Err(published_backup_error(
+            source_path,
+            backup_dir,
+            &trusted_backup_dir,
+            &owned,
+            &metadata,
         ));
     }
     if backup_filesystem.sync_backup_directory(backup_dir).is_err() {
-        return Err(AgentStoreError::backup_durability_uncertain(
-            source_path.to_path_buf(),
-            metadata,
+        return Err(published_backup_error(
+            source_path,
+            backup_dir,
+            &trusted_backup_dir,
+            &owned,
+            &metadata,
         ));
     }
     if !owned_bundle_is_current(&owned) || ensure_trusted_directory(&trusted_backup_dir).is_err() {
-        return Err(AgentStoreError::backup_durability_uncertain(
-            source_path.to_path_buf(),
-            metadata,
+        return Err(published_backup_error(
+            source_path,
+            backup_dir,
+            &trusted_backup_dir,
+            &owned,
+            &metadata,
         ));
     }
-    Ok(metadata)
+    resolve_published_metadata(backup_dir, &trusted_backup_dir, &owned, &metadata)
+        .map_err(|_| AgentStoreError::backup_evidence_lost(source_path.to_path_buf()))
+}
+
+fn rebound_metadata(metadata: &BackupMetadata, bundle: &Path) -> BackupMetadata {
+    let mut rebound = metadata.clone();
+    rebound.backup_path = bundle.join("agent-platform.sqlite3");
+    rebound.metadata_path = bundle.join("metadata.json");
+    rebound
+}
+
+fn resolve_published_metadata(
+    backup_root: &Path,
+    trusted_backup_root: &TrustedDirectory,
+    owned: &OwnedBundle,
+    metadata: &BackupMetadata,
+) -> Result<BackupMetadata, ()> {
+    let bundle = locate_owned_bundle(trusted_backup_root, owned).map_err(|_| ())?;
+    let rebound = rebound_metadata(metadata, &bundle);
+    let recovery = RecoveryState {
+        source_path: metadata.source_path.clone(),
+        backup: Some(rebound.clone()),
+    };
+    validate_recovery_state_in_root(backup_root, &recovery, |_| {}).map_err(|_| ())?;
+    Ok(rebound)
+}
+
+fn published_backup_error(
+    source_path: &Path,
+    backup_root: &Path,
+    trusted_backup_root: &TrustedDirectory,
+    owned: &OwnedBundle,
+    metadata: &BackupMetadata,
+) -> AgentStoreError {
+    match resolve_published_metadata(backup_root, trusted_backup_root, owned, metadata) {
+        Ok(rebound) => {
+            AgentStoreError::backup_durability_uncertain(source_path.to_path_buf(), rebound)
+        }
+        Err(()) => AgentStoreError::backup_evidence_lost(source_path.to_path_buf()),
+    }
 }
 
 fn stream_sha256(path: &Path) -> std::io::Result<(u64, String)> {
@@ -992,6 +1073,7 @@ struct VerificationCopy {
     path: PathBuf,
     file: Option<File>,
     identity: FileIdentity,
+    named: bool,
 }
 
 impl VerificationCopy {
@@ -1012,10 +1094,12 @@ impl VerificationCopy {
         #[cfg(windows)]
         {
             use std::os::windows::fs::OpenOptionsExt;
-            options.custom_flags(
-                windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_TEMPORARY
-                    | windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT,
-            );
+            use windows_sys::Win32::Storage::FileSystem::{
+                FILE_ATTRIBUTE_TEMPORARY, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ,
+            };
+            options
+                .share_mode(FILE_SHARE_READ)
+                .custom_flags(FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_OPEN_REPARSE_POINT);
         }
         let file = options.open(&path)?;
         let identity = metadata_identity(&file.metadata()?);
@@ -1024,6 +1108,7 @@ impl VerificationCopy {
             path,
             file: Some(file),
             identity,
+            named: true,
         })
     }
 
@@ -1033,23 +1118,146 @@ impl VerificationCopy {
             .ok_or_else(|| std::io::Error::other("verification copy handle is closed"))
     }
 
-    fn cleanup(mut self) -> std::io::Result<()> {
-        drop(self.file.take());
+    fn seal_for_sqlite(&mut self) -> std::io::Result<()> {
+        #[cfg(unix)]
+        {
+            fs::remove_file(&self.path)?;
+            self.named = false;
+        }
+        #[cfg(windows)]
+        {
+            if path_file_snapshot(&self.path)?.identity != self.identity {
+                return Err(std::io::Error::other("verification copy identity changed"));
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    fn sqlite_path(&self) -> std::io::Result<PathBuf> {
+        use std::os::fd::AsRawFd;
+
+        let file = self
+            .file
+            .as_ref()
+            .ok_or_else(|| std::io::Error::other("verification copy handle is closed"))?;
+        let descriptor_path = if cfg!(target_os = "linux") {
+            PathBuf::from(format!("/proc/self/fd/{}", file.as_raw_fd()))
+        } else {
+            PathBuf::from(format!("/dev/fd/{}", file.as_raw_fd()))
+        };
+        #[cfg(not(target_os = "macos"))]
+        {
+            let descriptor_metadata = fs::metadata(&descriptor_path)?;
+            if !descriptor_metadata.is_file()
+                || metadata_identity(&descriptor_metadata) != self.identity
+            {
+                return Err(std::io::Error::other(
+                    "SQLite descriptor path changed verification identity",
+                ));
+            }
+        }
+        Ok(PathBuf::from(format!(
+            "file:{}?mode=ro&immutable=1",
+            descriptor_path.display()
+        )))
+    }
+
+    #[cfg(windows)]
+    fn sqlite_path(&self) -> std::io::Result<PathBuf> {
         if path_file_snapshot(&self.path)?.identity != self.identity {
             return Err(std::io::Error::other("verification copy identity changed"));
         }
-        fs::remove_file(&self.path)
+        Ok(self.path.clone())
+    }
+
+    fn identity_is_current(&self) -> bool {
+        let handle_matches = self
+            .file
+            .as_ref()
+            .and_then(|file| file.metadata().ok())
+            .is_some_and(|metadata| metadata_identity(&metadata) == self.identity);
+        if !handle_matches {
+            return false;
+        }
+        #[cfg(unix)]
+        {
+            self.sqlite_path().is_ok()
+        }
+        #[cfg(windows)]
+        {
+            path_file_snapshot(&self.path).is_ok_and(|snapshot| snapshot.identity == self.identity)
+        }
+    }
+
+    fn cleanup(mut self) -> std::io::Result<()> {
+        #[cfg(unix)]
+        {
+            drop(self.file.take());
+            if self.named {
+                if path_file_snapshot(&self.path)?.identity != self.identity {
+                    return Err(std::io::Error::other("verification copy identity changed"));
+                }
+                fs::remove_file(&self.path)?;
+                self.named = false;
+            }
+        }
+        #[cfg(windows)]
+        {
+            drop(self.file.take());
+            delete_windows_verification(&self.path, &self.identity)?;
+            self.named = false;
+        }
+        Ok(())
     }
 }
 
 impl Drop for VerificationCopy {
     fn drop(&mut self) {
-        if self.file.take().is_some()
-            && path_file_snapshot(&self.path).is_ok_and(|value| value.identity == self.identity)
-        {
-            let _ = fs::remove_file(&self.path);
+        drop(self.file.take());
+        if self.named {
+            #[cfg(unix)]
+            if path_file_snapshot(&self.path).is_ok_and(|value| value.identity == self.identity) {
+                let _ = fs::remove_file(&self.path);
+            }
+            #[cfg(windows)]
+            let _ = delete_windows_verification(&self.path, &self.identity);
         }
     }
+}
+
+#[cfg(windows)]
+fn delete_windows_verification(path: &Path, identity: &FileIdentity) -> std::io::Result<()> {
+    use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
+    use windows_sys::Win32::Storage::FileSystem::{
+        DELETE, FILE_DISPOSITION_INFO, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ,
+        FILE_SHARE_WRITE, FileDispositionInfo, SYNCHRONIZE, SetFileInformationByHandle,
+    };
+
+    let mut options = OpenOptions::new();
+    options
+        .access_mode(DELETE | SYNCHRONIZE)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    let file = options.open(path)?;
+    if metadata_identity(&file.metadata()?) != *identity
+        || path_file_snapshot(path)?.identity != *identity
+    {
+        return Err(std::io::Error::other("verification copy identity changed"));
+    }
+    let disposition = FILE_DISPOSITION_INFO { DeleteFile: true };
+    let result = unsafe {
+        SetFileInformationByHandle(
+            file.as_raw_handle().cast(),
+            FileDispositionInfo,
+            std::ptr::addr_of!(disposition).cast(),
+            std::mem::size_of::<FILE_DISPOSITION_INFO>() as u32,
+        )
+    };
+    if result == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
 }
 
 fn copy_and_hash(source: &mut File, destination: &mut File) -> std::io::Result<(u64, String)> {
@@ -1074,7 +1282,7 @@ pub(crate) fn validate_recovery_state(
     paths: &AppPaths,
     recovery: &RecoveryState,
 ) -> Result<BackupMetadata, AgentStoreError> {
-    validate_recovery_state_with_barrier(paths, recovery, || {})
+    validate_recovery_state_with_barrier(paths, recovery, |_| {})
 }
 
 fn validate_recovery_state_with_barrier<F>(
@@ -1083,19 +1291,63 @@ fn validate_recovery_state_with_barrier<F>(
     barrier: F,
 ) -> Result<BackupMetadata, AgentStoreError>
 where
-    F: FnOnce(),
+    F: FnOnce(&Path),
+{
+    validate_recovery_state_in_root(&paths.agent_backups, recovery, barrier)
+}
+
+fn metadata_paths_are_well_formed(metadata: &BackupMetadata, backup_root: &Path) -> bool {
+    let Some(bundle) = metadata.backup_path.parent() else {
+        return false;
+    };
+    metadata.metadata_path.parent() == Some(bundle)
+        && bundle.parent() == Some(backup_root)
+        && bundle
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().contains(&metadata.owner_token))
+        && metadata
+            .backup_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            == Some("agent-platform.sqlite3")
+        && metadata
+            .metadata_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            == Some("metadata.json")
+}
+
+fn metadata_matches_manifest(
+    sidecar: &BackupMetadata,
+    expected: &BackupMetadata,
+    backup_root: &Path,
+) -> bool {
+    if expected.owner_token.is_empty()
+        || !metadata_paths_are_well_formed(sidecar, backup_root)
+        || !metadata_paths_are_well_formed(expected, backup_root)
+    {
+        return false;
+    }
+    let mut rebound = sidecar.clone();
+    rebound.backup_path = expected.backup_path.clone();
+    rebound.metadata_path = expected.metadata_path.clone();
+    rebound == *expected
+}
+
+fn validate_recovery_state_in_root<F>(
+    backup_root: &Path,
+    recovery: &RecoveryState,
+    barrier: F,
+) -> Result<BackupMetadata, AgentStoreError>
+where
+    F: FnOnce(&Path),
 {
     let fail = || AgentStoreError::recovery_required(recovery.source_path.clone(), None);
     let expected = recovery.backup.as_ref().ok_or_else(&fail)?;
-    let backup_root = &paths.agent_backups;
     let backup_path = &expected.backup_path;
     let metadata_path = &expected.metadata_path;
     let bundle = backup_path.parent().ok_or_else(&fail)?;
-    if metadata_path.parent() != Some(bundle)
-        || bundle.parent() != Some(backup_root.as_path())
-        || backup_path.file_name().and_then(|name| name.to_str()) != Some("agent-platform.sqlite3")
-        || metadata_path.file_name().and_then(|name| name.to_str()) != Some("metadata.json")
-    {
+    if !metadata_paths_are_well_formed(expected, backup_root) {
         return Err(fail());
     }
     let trusted_root = open_trusted_directory(backup_root).map_err(|_| fail())?;
@@ -1118,10 +1370,8 @@ where
         return Err(fail());
     }
     let sidecar: BackupMetadata = serde_json::from_slice(&sidecar_bytes).map_err(|_| fail())?;
-    if sidecar != *expected
-        || sidecar.source_path != recovery.source_path
-        || sidecar.backup_path != *backup_path
-        || sidecar.metadata_path != *metadata_path
+    if sidecar.source_path != recovery.source_path
+        || !metadata_matches_manifest(&sidecar, expected, backup_root)
     {
         return Err(fail());
     }
@@ -1130,18 +1380,22 @@ where
     let mut verification = VerificationCopy::create(&trusted_root).map_err(|_| fail())?;
     let verification_file = verification.file_mut().map_err(|_| fail())?;
     let (length, sha256) = copy_and_hash(&mut source, verification_file).map_err(|_| fail())?;
+    verification.seal_for_sqlite().map_err(|_| fail())?;
     if length != sidecar.byte_length || sha256 != sidecar.sha256 {
         return Err(fail());
     }
-    let verification_before = path_file_snapshot(&verification.path).map_err(|_| fail())?;
 
-    barrier();
-
+    #[cfg(unix)]
+    barrier(&verification.path);
     let copy = configured_connection(
-        &verification.path,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_FULL_MUTEX,
+        &verification.sqlite_path().map_err(|_| fail())?,
+        OpenFlags::SQLITE_OPEN_READ_ONLY
+            | OpenFlags::SQLITE_OPEN_FULL_MUTEX
+            | OpenFlags::SQLITE_OPEN_URI,
     )
     .map_err(|_| fail())?;
+    #[cfg(windows)]
+    barrier(&verification.path);
     let mut integrity_statement = copy.prepare("PRAGMA integrity_check").map_err(|_| fail())?;
     let integrity = integrity_statement
         .query_map([], |row| row.get::<_, String>(0))
@@ -1156,23 +1410,16 @@ where
 
     let source_after = file_snapshot(&source.metadata().map_err(|_| fail())?);
     let source_path_after = path_file_snapshot(backup_path).map_err(|_| fail())?;
-    let verification_after = path_file_snapshot(&verification.path).map_err(|_| fail())?;
     if source_after != source_before
         || source_path_after != source_before
-        || verification_after != verification_before
-        || metadata_identity(
-            &verification
-                .file_mut()
-                .and_then(|file| file.metadata())
-                .map_err(|_| fail())?,
-        ) != verification.identity
+        || !verification.identity_is_current()
         || ensure_trusted_directory(&trusted_root).is_err()
         || ensure_trusted_directory(&trusted_bundle).is_err()
     {
         return Err(fail());
     }
     verification.cleanup().map_err(|_| fail())?;
-    Ok(sidecar)
+    Ok(expected.clone())
 }
 
 #[cfg(test)]
@@ -1479,6 +1726,79 @@ mod tests {
             .expect("Windows publication implementation");
         assert!(windows_publish.contains("path_identity(to).is_ok_and"));
         assert!(windows_publish.contains("BundlePublication::DurabilityUncertain"));
+        assert!(!windows_publish.contains("source.sync_all()"));
+        assert!(!windows_publish.contains("parent.handle.sync_all()"));
+
+        let windows_directory_sync = production
+            .split("#[cfg(windows)]\nfn sync_directory")
+            .nth(1)
+            .expect("Windows directory durability boundary")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        assert!(!windows_directory_sync.contains("sync_all()"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_real_migration_publishes_a_revalidatable_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths(&dir);
+        let fixture = Connection::open(&paths.agent_database).unwrap();
+        fixture.execute_batch(V0_FIXTURE).unwrap();
+        drop(fixture);
+
+        let store = AgentStore::open(&paths).unwrap();
+        let metadata = store
+            .migration_backup()
+            .expect("Windows migration must publish a backup")
+            .clone();
+        let recovery = crate::agent_store::model::RecoveryState {
+            source_path: paths.agent_database.clone(),
+            backup: Some(metadata.clone()),
+        };
+
+        assert_eq!(user_version(&store.reader().unwrap()), 1);
+        assert_eq!(
+            super::validate_recovery_state(&paths, &recovery).unwrap(),
+            metadata
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_verification_handle_blocks_replacement_while_sqlite_is_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths(&dir);
+        let fixture = Connection::open(&paths.agent_database).unwrap();
+        fixture.execute_batch(V0_FIXTURE).unwrap();
+        drop(fixture);
+        let store = AgentStore::open(&paths).unwrap();
+        let metadata = store.migration_backup().unwrap().clone();
+        let recovery = crate::agent_store::model::RecoveryState {
+            source_path: paths.agent_database.clone(),
+            backup: Some(metadata.clone()),
+        };
+
+        let result =
+            super::validate_recovery_state_with_barrier(&paths, &recovery, |verification_path| {
+                let before = super::path_file_snapshot(verification_path)
+                    .unwrap()
+                    .identity;
+                let replacement = verification_path.with_extension("replacement.sqlite3");
+                Connection::open(&replacement).unwrap();
+
+                assert!(fs::rename(&replacement, verification_path).is_err());
+                assert_eq!(
+                    super::path_file_snapshot(verification_path)
+                        .unwrap()
+                        .identity,
+                    before
+                );
+                fs::remove_file(replacement).unwrap();
+            });
+
+        assert_eq!(result.unwrap(), metadata);
     }
 
     #[cfg(unix)]
@@ -1570,7 +1890,10 @@ mod tests {
                 to: &Path,
             ) -> std::io::Result<super::BundlePublication> {
                 if matches!(self.point, SwapPoint::Temp) {
-                    let diverted = from.with_extension("owned");
+                    let diverted = from.with_file_name(format!(
+                        "{}-owned",
+                        from.file_name().unwrap().to_string_lossy()
+                    ));
                     fs::rename(from, &diverted)?;
                     symlink(&diverted, from)?;
                 }
@@ -1581,7 +1904,10 @@ mod tests {
             fn sync_backup_directory(&self, path: &Path) -> std::io::Result<()> {
                 if matches!(self.point, SwapPoint::Final) {
                     let published = self.published.lock().unwrap().clone().unwrap();
-                    let diverted = published.with_extension("owned");
+                    let diverted = published.with_file_name(format!(
+                        "{}-owned",
+                        published.file_name().unwrap().to_string_lossy()
+                    ));
                     fs::rename(&published, &diverted)?;
                     symlink(&diverted, &published)?;
                 }
@@ -1613,12 +1939,135 @@ mod tests {
                 );
                 let diverted = fs::read_link(&published).unwrap();
                 assert!(diverted.join("agent-platform.sqlite3").is_file());
-                assert!(error.recovery().unwrap().backup.is_some());
+                let recovery = error.recovery().unwrap();
+                let metadata = recovery
+                    .backup
+                    .as_ref()
+                    .expect("the identity-bound published bundle must be relocated");
+                assert_eq!(metadata.backup_path.parent(), Some(diverted.as_path()));
+                assert_eq!(
+                    super::validate_recovery_state(&paths, recovery).unwrap(),
+                    *metadata
+                );
             } else {
                 assert_eq!(error.code(), "agent_store_recovery_required");
                 assert!(error.recovery().unwrap().backup.is_none());
             }
         }
+    }
+
+    #[test]
+    fn published_bundle_replacement_is_relocated_by_owner_and_filesystem_identity() {
+        use std::sync::Mutex;
+
+        struct ReplaceFinal {
+            actual: Mutex<Option<PathBuf>>,
+            replacement: Mutex<Option<PathBuf>>,
+        }
+
+        impl super::BackupFilesystem for ReplaceFinal {
+            fn write_sidecar(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+                super::RealBackupFilesystem.write_sidecar(path, bytes)
+            }
+            fn sync_file(&self, path: &Path) -> std::io::Result<()> {
+                super::RealBackupFilesystem.sync_file(path)
+            }
+            fn sync_bundle_directory(&self, path: &Path) -> std::io::Result<()> {
+                super::RealBackupFilesystem.sync_bundle_directory(path)
+            }
+            fn rename_bundle(
+                &self,
+                parent: &super::TrustedDirectory,
+                from: &Path,
+                to: &Path,
+            ) -> std::io::Result<super::BundlePublication> {
+                super::RealBackupFilesystem.rename_bundle(parent, from, to)?;
+                let actual = to.with_file_name(format!(
+                    "{}-identity-bound-published",
+                    to.file_name().unwrap().to_string_lossy()
+                ));
+                fs::rename(to, &actual)?;
+                fs::create_dir(to)?;
+                fs::write(to.join("replacement-marker"), b"do-not-trust")?;
+                *self.actual.lock().unwrap() = Some(actual);
+                *self.replacement.lock().unwrap() = Some(to.to_path_buf());
+                Ok(super::BundlePublication::DurabilityUncertain)
+            }
+            fn sync_backup_directory(&self, path: &Path) -> std::io::Result<()> {
+                super::RealBackupFilesystem.sync_backup_directory(path)
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths(&dir);
+        let fixture = Connection::open(&paths.agent_database).unwrap();
+        fixture.execute_batch(V0_FIXTURE).unwrap();
+        drop(fixture);
+        let filesystem = ReplaceFinal {
+            actual: Mutex::new(None),
+            replacement: Mutex::new(None),
+        };
+
+        let error = AgentStore::open_with_backup_filesystem(&paths, &filesystem).unwrap_err();
+
+        assert_eq!(error.code(), "agent_store_backup_durability_uncertain");
+        let actual = filesystem.actual.into_inner().unwrap().unwrap();
+        let replacement = filesystem.replacement.into_inner().unwrap().unwrap();
+        assert_eq!(
+            fs::read(replacement.join("replacement-marker")).unwrap(),
+            b"do-not-trust"
+        );
+        let recovery = error.recovery().unwrap();
+        let metadata = recovery
+            .backup
+            .as_ref()
+            .expect("relocated published evidence");
+        assert_eq!(metadata.backup_path.parent(), Some(actual.as_path()));
+        assert_eq!(
+            super::validate_recovery_state(&paths, recovery).unwrap(),
+            *metadata
+        );
+    }
+
+    #[test]
+    fn deleted_published_bundle_returns_distinct_evidence_lost_without_stale_metadata() {
+        struct DeletePublished;
+
+        impl super::BackupFilesystem for DeletePublished {
+            fn write_sidecar(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+                super::RealBackupFilesystem.write_sidecar(path, bytes)
+            }
+            fn sync_file(&self, path: &Path) -> std::io::Result<()> {
+                super::RealBackupFilesystem.sync_file(path)
+            }
+            fn sync_bundle_directory(&self, path: &Path) -> std::io::Result<()> {
+                super::RealBackupFilesystem.sync_bundle_directory(path)
+            }
+            fn rename_bundle(
+                &self,
+                parent: &super::TrustedDirectory,
+                from: &Path,
+                to: &Path,
+            ) -> std::io::Result<super::BundlePublication> {
+                super::RealBackupFilesystem.rename_bundle(parent, from, to)?;
+                fs::remove_dir_all(to)?;
+                Ok(super::BundlePublication::DurabilityUncertain)
+            }
+            fn sync_backup_directory(&self, path: &Path) -> std::io::Result<()> {
+                super::RealBackupFilesystem.sync_backup_directory(path)
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths(&dir);
+        let fixture = Connection::open(&paths.agent_database).unwrap();
+        fixture.execute_batch(V0_FIXTURE).unwrap();
+        drop(fixture);
+
+        let error = AgentStore::open_with_backup_filesystem(&paths, &DeletePublished).unwrap_err();
+
+        assert_eq!(error.code(), "agent_store_backup_evidence_lost");
+        assert!(error.recovery().unwrap().backup.is_none());
     }
 
     #[cfg(unix)]
@@ -1847,7 +2296,7 @@ mod tests {
         drop(replacement_connection);
         let displaced = metadata.backup_path.with_extension("source-a.sqlite3");
 
-        let result = super::validate_recovery_state_with_barrier(&paths, &recovery, || {
+        let result = super::validate_recovery_state_with_barrier(&paths, &recovery, |_| {
             fs::rename(&metadata.backup_path, &displaced).unwrap();
             fs::rename(&replacement, &metadata.backup_path).unwrap();
         });
@@ -1863,6 +2312,161 @@ mod tests {
                 .unwrap(),
             "replacement-b"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sqlite_validation_uses_the_unlinked_verification_inode_that_was_hashed() {
+        use std::sync::Mutex;
+
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths(&dir);
+        let fixture = Connection::open(&paths.agent_database).unwrap();
+        fixture.execute_batch(V0_FIXTURE).unwrap();
+        drop(fixture);
+        let store = AgentStore::open(&paths).unwrap();
+        let metadata = store.migration_backup().unwrap().clone();
+        let recovery = crate::agent_store::model::RecoveryState {
+            source_path: paths.agent_database.clone(),
+            backup: Some(metadata.clone()),
+        };
+        let recreated = Mutex::new(None);
+
+        let result =
+            super::validate_recovery_state_with_barrier(&paths, &recovery, |verification_path| {
+                assert!(
+                    !verification_path.exists(),
+                    "the private verification copy must already be unlinked"
+                );
+                fs::write(verification_path, b"attacker replacement, not sqlite").unwrap();
+                *recreated.lock().unwrap() = Some(verification_path.to_path_buf());
+            });
+
+        assert_eq!(result.unwrap(), metadata);
+        let recreated = recreated.into_inner().unwrap().unwrap();
+        assert_eq!(
+            fs::read(&recreated).unwrap(),
+            b"attacker replacement, not sqlite"
+        );
+        fs::remove_file(recreated).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_migrates_a_v0_database_after_unlinked_verification() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths(&dir);
+        let fixture = Connection::open(&paths.agent_database).unwrap();
+        fixture.execute_batch(V0_FIXTURE).unwrap();
+        drop(fixture);
+
+        let store = AgentStore::open(&paths).unwrap();
+
+        assert!(store.migration_backup().is_some());
+        assert_eq!(user_version(&store.reader().unwrap()), 1);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_sqlite_opens_an_unlinked_verification_fd_with_read_only_uri_mode() {
+        use std::fs::File;
+        use std::os::fd::AsRawFd;
+
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths(&dir);
+        let fixture = Connection::open(&paths.agent_database).unwrap();
+        fixture.execute_batch(V0_FIXTURE).unwrap();
+        drop(fixture);
+        fs::create_dir_all(&paths.agent_backups).unwrap();
+        let trusted_root = super::open_trusted_directory(&paths.agent_backups).unwrap();
+        let mut verification = super::VerificationCopy::create(&trusted_root).unwrap();
+        let mut source = File::open(&paths.agent_database).unwrap();
+        super::copy_and_hash(&mut source, verification.file_mut().unwrap()).unwrap();
+        verification.seal_for_sqlite().unwrap();
+        let file = verification.file.as_ref().unwrap();
+        let uri = PathBuf::from(format!(
+            "file:/dev/fd/{}?mode=ro&immutable=1",
+            file.as_raw_fd()
+        ));
+
+        let copy = super::configured_connection(
+            &uri,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+                | rusqlite::OpenFlags::SQLITE_OPEN_FULL_MUTEX
+                | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+        )
+        .unwrap();
+
+        assert_eq!(user_version(&copy), 0);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_sqlite_opens_an_unlinked_backup_api_verification_fd() {
+        use std::fs::File;
+
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths(&dir);
+        let source = Connection::open(&paths.agent_database).unwrap();
+        source.execute_batch(V0_FIXTURE).unwrap();
+        fs::create_dir_all(&paths.agent_backups).unwrap();
+        let backup = paths.agent_backups.join("backup-api.sqlite3");
+        source.backup(rusqlite::MAIN_DB, &backup, None).unwrap();
+
+        let trusted_root = super::open_trusted_directory(&paths.agent_backups).unwrap();
+        let mut verification = super::VerificationCopy::create(&trusted_root).unwrap();
+        let mut backup_file = File::open(&backup).unwrap();
+        let (_length, _sha256) =
+            super::copy_and_hash(&mut backup_file, verification.file_mut().unwrap()).unwrap();
+        verification.seal_for_sqlite().unwrap();
+        let copy = super::configured_connection(
+            &verification.sqlite_path().unwrap(),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+                | rusqlite::OpenFlags::SQLITE_OPEN_FULL_MUTEX
+                | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+        )
+        .unwrap();
+
+        assert_eq!(user_version(&copy), 0);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_sqlite_opens_an_unlinked_wal_backup_api_verification_fd() {
+        use std::fs::File;
+
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths(&dir);
+        let writer = Connection::open(&paths.agent_database).unwrap();
+        writer
+            .query_row("PRAGMA journal_mode = WAL", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .unwrap();
+        writer.pragma_update(None, "wal_autocheckpoint", 0).unwrap();
+        writer.execute_batch(V0_FIXTURE).unwrap();
+        let reader = Connection::open(&paths.agent_database).unwrap();
+        reader.execute_batch("BEGIN").unwrap();
+        drop(writer);
+        fs::create_dir_all(&paths.agent_backups).unwrap();
+        let backup = paths.agent_backups.join("backup-api.sqlite3");
+        reader.backup(rusqlite::MAIN_DB, &backup, None).unwrap();
+
+        let trusted_root = super::open_trusted_directory(&paths.agent_backups).unwrap();
+        let mut verification = super::VerificationCopy::create(&trusted_root).unwrap();
+        let mut backup_file = File::open(&backup).unwrap();
+        let (_length, _sha256) =
+            super::copy_and_hash(&mut backup_file, verification.file_mut().unwrap()).unwrap();
+        verification.seal_for_sqlite().unwrap();
+        let copy = super::configured_connection(
+            &verification.sqlite_path().unwrap(),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+                | rusqlite::OpenFlags::SQLITE_OPEN_FULL_MUTEX
+                | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+        )
+        .unwrap();
+
+        assert_eq!(user_version(&copy), 0);
     }
 
     #[cfg(unix)]

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 pub struct BackupMetadata {
     pub schema_version: i64,
     pub created_at: DateTime<Utc>,
+    pub owner_token: String,
     pub source_path: PathBuf,
     pub backup_path: PathBuf,
     pub metadata_path: PathBuf,
@@ -72,6 +73,17 @@ impl AgentStoreError {
             recovery: RecoveryState {
                 source_path,
                 backup: Some(backup),
+            },
+        }
+    }
+
+    pub(super) fn backup_evidence_lost(source_path: PathBuf) -> Self {
+        Self {
+            code: "agent_store_backup_evidence_lost",
+            message: "Agent 数据库恢复证据已丢失，已阻止启动",
+            recovery: RecoveryState {
+                source_path,
+                backup: None,
             },
         }
     }
