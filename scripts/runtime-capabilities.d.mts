@@ -8,6 +8,7 @@ type BaseEntrypoints = { '.': ModuleEntrypoint; './invariant': InvariantEntrypoi
 type WebAppEntrypoints = BaseEntrypoints & { './startup': { default: './lib/startup.js'; types: './lib/types/startup.d.ts' } }
 type DesktopPluginEntrypoints = { '.': './lib/index.js'; './client': './lib/client.js'; './package.json': './package.json' }
 type OptionalEntrypoints = { '.': ModuleEntrypoint; './invariant': InvariantEntrypoint; './package.json': './package.json' }
+type EmptyEntrypoints = { readonly [key: string]: never }
 
 type CompatibleRecord<Name extends RuntimePackageName, Entrypoints, Bundle extends boolean = false> = {
   name: Name
@@ -19,7 +20,7 @@ type FailedRecord<Name extends RuntimePackageName, Status extends 'missing' | 'i
   name: Name
   observedVersion: Status extends 'missing' ? null : string | null
   status: Status
-  entrypoints: Record<never, never>
+  entrypoints: EmptyEntrypoints
   reasonCode: RuntimeCapabilityReasonCode
 }
 
