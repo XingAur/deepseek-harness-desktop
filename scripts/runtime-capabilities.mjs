@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -28,13 +28,13 @@ const optionalBundleEntrypoints = Object.freeze({
   './package.json': './package.json',
 })
 const packageContracts = Object.freeze({
-  '@deepseek-ai/dsh': { entrypoints: cliEntrypoints, noExports: true, required: true, dshVersion: true },
-  '@deepseek-ai/dsh-base': { entrypoints: baseBundleEntrypoints, bundle: true, required: true, dshVersion: true },
-  '@deepseek-ai/dsh-web-app': { entrypoints: { ...baseBundleEntrypoints, './startup': { default: './lib/startup.js', types: './lib/types/startup.d.ts' } }, bundle: true, required: true, dshVersion: true },
-  '@dsh/desktop-plugin': { entrypoints: { '.': './lib/index.js', './client': './lib/client.js', './package.json': './package.json' }, bundle: true, required: true },
-  '@deepseek-ai/dsh-llm-pi-ai': { entrypoints: optionalBundleEntrypoints, dshVersion: true },
-  '@deepseek-ai/dsh-skill': { entrypoints: optionalBundleEntrypoints, dshVersion: true },
-  '@deepseek-ai/dsh-mcp-client': { entrypoints: optionalBundleEntrypoints, dshVersion: true },
+  '@deepseek-ai/dsh': { entrypoints: cliEntrypoints, license: 'MIT', noExports: true, required: true, dshVersion: true },
+  '@deepseek-ai/dsh-base': { entrypoints: baseBundleEntrypoints, bundle: true, license: 'MIT', required: true, dshVersion: true },
+  '@deepseek-ai/dsh-web-app': { entrypoints: { ...baseBundleEntrypoints, './startup': { default: './lib/startup.js', types: './lib/types/startup.d.ts' } }, bundle: true, license: 'MIT', required: true, dshVersion: true },
+  '@dsh/desktop-plugin': { entrypoints: { '.': './lib/index.js', './client': './lib/client.js', './package.json': './package.json' }, bundle: true, license: 'UNLICENSED', required: true },
+  '@deepseek-ai/dsh-llm-pi-ai': { entrypoints: optionalBundleEntrypoints, license: 'MIT', dshVersion: true },
+  '@deepseek-ai/dsh-skill': { entrypoints: optionalBundleEntrypoints, license: 'MIT', dshVersion: true },
+  '@deepseek-ai/dsh-mcp-client': { entrypoints: optionalBundleEntrypoints, license: 'MIT', dshVersion: true },
 })
 
 export function inspectRuntimeCapabilities(runtimeRoot, { dshVersion, desktopPluginVersion }) {
@@ -43,7 +43,7 @@ export function inspectRuntimeCapabilities(runtimeRoot, { dshVersion, desktopPlu
     name,
     contract.dshVersion ? dshVersion : desktopPluginVersion,
     contract.entrypoints,
-    { noExports: contract.noExports, bundle: contract.bundle },
+    { noExports: contract.noExports, bundle: contract.bundle, license: contract.license },
   ))
   const byName = new Map(packages.map((record) => [record.name, record]))
   const profileBundles = PROFILE_BUNDLES.every((name) => byName.get(name)?.status === 'compatible') ? [...PROFILE_BUNDLES] : undefined
@@ -57,6 +57,7 @@ export function inspectRuntimeCapabilities(runtimeRoot, { dshVersion, desktopPlu
 
 export function assertRuntimeCapabilities(report) {
   if (report?.schemaVersion !== CAPABILITY_REPORT_SCHEMA_VERSION) throw new Error('Runtime capability compatibility failed: capability report schema version is invalid')
+  if (!hasExactKeys(report, ['capabilities', 'packages', 'profileBundles', 'schemaVersion'])) throw new Error('Runtime capability compatibility failed: capability report has unknown or missing fields')
   const packages = Array.isArray(report.packages) ? report.packages : []
   const records = new Map()
   if (packages.length !== Object.keys(packageContracts).length) throw new Error('Runtime capability compatibility failed: capability package records are incomplete')
@@ -71,6 +72,10 @@ export function assertRuntimeCapabilities(report) {
   for (const [name, contract] of Object.entries(packageContracts)) {
     const record = records.get(name)
     if (!record || !['compatible', 'missing', 'incompatible'].includes(record.status)) throw new Error(`Runtime capability compatibility failed: ${name}; capability record is invalid`)
+    const recordKeys = record.status === 'compatible'
+      ? ['entrypoints', 'name', 'observedVersion', 'status', ...(contract.bundle ? ['bundlePatch'] : [])]
+      : ['entrypoints', 'name', 'observedVersion', 'reason', 'status']
+    if (!hasExactKeys(record, recordKeys)) throw new Error(`Runtime capability compatibility failed: ${name}; capability record has unknown or missing fields`)
     if (contract.required && record.status !== 'compatible') throw new Error(`Runtime capability compatibility failed: ${name}; ${record.reason ?? 'missing compatible capability record'}`)
     if (record.status === 'compatible') {
       if (!isVersion(record.observedVersion)) throw new Error(`Runtime capability compatibility failed: ${name}; observed version is invalid`)
@@ -97,9 +102,10 @@ function inspectPackage(runtimeRoot, name, expectedVersion, entrypoints, options
     return record(name, undefined, 'incompatible', {}, undefined, 'package.json is not valid JSON')
   }
   const observedVersion = typeof manifest.version === 'string' ? manifest.version : undefined
+  if (manifest.name !== name) return record(name, observedVersion, 'incompatible', {}, undefined, `name expected ${name}; observed ${String(manifest.name)}`)
   if (observedVersion !== expectedVersion) return record(name, observedVersion, 'incompatible', {}, undefined, `version expected ${expectedVersion}; observed ${observedVersion ?? 'missing'}`)
   if (manifest.type !== 'module') return record(name, observedVersion, 'incompatible', {}, undefined, `type expected module; observed ${String(manifest.type)}`)
-  if (manifest.license !== 'MIT') return record(name, observedVersion, 'incompatible', {}, undefined, `license expected MIT; observed ${String(manifest.license)}`)
+  if (manifest.license !== options.license) return record(name, observedVersion, 'incompatible', {}, undefined, `license expected ${options.license}; observed ${String(manifest.license)}`)
   if (options.noExports && manifest.exports !== undefined) return record(name, observedVersion, 'incompatible', {}, undefined, 'exports expected absent; observed present')
   const actualEntrypoints = options.noExports ? { bin: manifest.bin?.dsh } : manifest.exports
   for (const [key, expected] of Object.entries(entrypoints)) {
@@ -126,10 +132,10 @@ function entrypointPaths(value) {
 }
 
 function assertCapabilityRecords(capabilities, records) {
-  if (!isRecord(capabilities) || Object.keys(capabilities).length !== optionalCapabilities.length) throw new Error('Runtime capability compatibility failed: capability records are invalid')
+  if (!hasExactKeys(capabilities, optionalCapabilities.map(([capability]) => capability))) throw new Error('Runtime capability compatibility failed: capability records are invalid')
   for (const [capability, name] of optionalCapabilities) {
     const value = capabilities[capability]
-    if (!isRecord(value) || value.package !== name || value.available !== (records.get(name).status === 'compatible')) {
+    if (!hasExactKeys(value, ['available', 'package']) || value.package !== name || value.available !== (records.get(name).status === 'compatible')) {
       throw new Error(`Runtime capability compatibility failed: ${capability} capability record is invalid`)
     }
   }
@@ -143,13 +149,30 @@ function isRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-export function isFileWithin(directory, relativePath, { pathImplementation = { resolve, relative, isAbsolute, sep }, statSync: inspectStatSync = statSync } = {}) {
+function hasExactKeys(value, expectedKeys) {
+  if (!isRecord(value)) return false
+  const keys = Object.keys(value).sort()
+  const expected = [...expectedKeys].sort()
+  return keys.length === expected.length && keys.every((key, index) => key === expected[index])
+}
+
+export function isFileWithin(directory, relativePath, {
+  pathImplementation = { resolve, relative, isAbsolute, sep },
+  statSync: inspectStatSync = statSync,
+  lstatSync: inspectLstatSync = lstatSync,
+  realpathSync: inspectRealpathSync = realpathSync,
+} = {}) {
   if (typeof relativePath !== 'string') return false
   const target = pathImplementation.resolve(directory, relativePath)
   const targetRelative = pathImplementation.relative(directory, target)
   if (targetRelative === '..' || targetRelative.startsWith(`..${pathImplementation.sep}`) || pathImplementation.isAbsolute(targetRelative)) return false
   try {
-    return inspectStatSync(target).isFile()
+    if (inspectLstatSync(target).isSymbolicLink()) return false
+    const canonicalDirectory = inspectRealpathSync(directory)
+    const canonicalTarget = inspectRealpathSync(target)
+    const canonicalRelative = pathImplementation.relative(canonicalDirectory, canonicalTarget)
+    if (canonicalRelative === '..' || canonicalRelative.startsWith(`..${pathImplementation.sep}`) || pathImplementation.isAbsolute(canonicalRelative)) return false
+    return inspectStatSync(canonicalTarget).isFile()
   } catch {
     return false
   }

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -15,12 +15,13 @@ function runtimeFixture() {
 function writePackage(root: string, name: string, manifest: Record<string, unknown>) {
   const directory = join(root, 'node_modules', ...name.split('/'))
   mkdirSync(directory, { recursive: true })
-  writeFileSync(join(directory, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`)
-  for (const value of Object.values(manifest.exports ?? {})) {
+  const completeManifest: Record<string, unknown> = { name, ...manifest }
+  writeFileSync(join(directory, 'package.json'), `${JSON.stringify(completeManifest, null, 2)}\n`)
+  for (const value of Object.values(completeManifest.exports ?? {})) {
     for (const path of typeof value === 'string' ? [value] : Object.values(value as Record<string, unknown>)) writeEntrypoint(directory, path)
   }
-  for (const path of Object.values(manifest.bin ?? {})) writeEntrypoint(directory, path)
-  const patch = (manifest.dsh as { bundle?: { patch?: unknown } } | undefined)?.bundle?.patch
+  for (const path of Object.values(completeManifest.bin ?? {})) writeEntrypoint(directory, path)
+  const patch = (completeManifest.dsh as { bundle?: { patch?: unknown } } | undefined)?.bundle?.patch
   writeEntrypoint(directory, patch)
 }
 
@@ -61,7 +62,7 @@ function compatibleRuntime(root: string, missingOptionalPackage?: string) {
   writePackage(root, '@dsh/desktop-plugin', {
     version: desktopPluginVersion,
     type: 'module',
-    license: 'MIT',
+    license: 'UNLICENSED',
     exports: { '.': './lib/index.js', './client': './lib/client.js', './package.json': './package.json' },
     dsh: { bundle: { patch: './cordis.patch.yml' } },
   })
@@ -120,6 +121,22 @@ describe('inspectRuntimeCapabilities', () => {
     expect(report.profileBundles).toEqual(DESKTOP_BUNDLES)
   })
 
+  it.each([
+    ['required package', '@deepseek-ai/dsh-base'],
+    ['optional package', '@deepseek-ai/dsh-skill'],
+  ])('rejects a spoofed manifest name for a %s', (_label, name) => {
+    const root = runtimeFixture()
+    compatibleRuntime(root)
+    const manifest = name === '@deepseek-ai/dsh-base' ? bundleManifest() : optionalManifest()
+    writePackage(root, name, { ...manifest, name: '@spoofed/package' })
+
+    const report = inspect(root)
+
+    expect(report.packages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name, status: 'incompatible', reason: expect.stringMatching(/name expected/i) }),
+    ]))
+  })
+
   it('never mounts an optional package solely because its directory exists', () => {
     const root = runtimeFixture()
     compatibleRuntime(root)
@@ -135,8 +152,44 @@ describe('inspectRuntimeCapabilities', () => {
     const files = new Set(['C:\\runtime\\app\\node_modules\\@deepseek-ai\\dsh-base\\lib\\index.js'])
     const stat = (path: string) => ({ isFile: () => files.has(path) })
 
-    expect(isFileWithin(directory, './lib/index.js', { pathImplementation: win32, statSync: stat })).toBe(true)
-    expect(isFileWithin(directory, '..\\outside.js', { pathImplementation: win32, statSync: stat })).toBe(false)
-    expect(isFileWithin(directory, './lib', { pathImplementation: win32, statSync: stat })).toBe(false)
+    const adapter = {
+      pathImplementation: win32,
+      statSync: stat,
+      lstatSync: () => ({ isSymbolicLink: () => false }),
+      realpathSync: (path: string) => path,
+    }
+
+    expect(isFileWithin(directory, './lib/index.js', adapter)).toBe(true)
+    expect(isFileWithin(directory, '..\\outside.js', adapter)).toBe(false)
+    expect(isFileWithin(directory, './lib', adapter)).toBe(false)
+  })
+
+  it('rejects an intermediate POSIX symlink that escapes the package root', () => {
+    const root = runtimeFixture()
+    const outside = mkdtempSync(join(tmpdir(), 'dsh-runtime-outside-'))
+    writeFileSync(join(outside, 'secret.js'), '')
+    symlinkSync(outside, join(root, 'lib'))
+
+    expect(isFileWithin(root, './lib/secret.js')).toBe(false)
+  })
+
+  it('rejects a final POSIX symlink even when it points inside the package root', () => {
+    const root = runtimeFixture()
+    mkdirSync(join(root, 'lib'), { recursive: true })
+    writeFileSync(join(root, 'lib', 'target.js'), '')
+    symlinkSync(join(root, 'lib', 'target.js'), join(root, 'lib', 'index.js'))
+
+    expect(isFileWithin(root, './lib/index.js')).toBe(false)
+  })
+
+  it('keeps canonical containment testable with Windows path semantics', () => {
+    const directory = 'C:\\runtime\\app\\node_modules\\@deepseek-ai\\dsh-base'
+
+    expect(isFileWithin(directory, './lib/index.js', {
+      pathImplementation: win32,
+      statSync: () => ({ isFile: () => true }),
+      lstatSync: () => ({ isSymbolicLink: () => false }),
+      realpathSync: (path: string) => path === directory ? directory : 'D:\\escaped\\index.js',
+    })).toBe(false)
   })
 })

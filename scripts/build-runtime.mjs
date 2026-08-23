@@ -121,13 +121,14 @@ import { createServer as createNetServer } from 'node:net'
 import { ensureDesktopProfile } from './desktop-profile.mjs'
 import { markerMatches, writeInstallMarker } from './plugin-install-state.mjs'
 import { attachRuntimeWebSocketProxy } from './runtime-websocket-proxy.mjs'
+import { assertRuntimeCapabilities } from './runtime-capabilities.mjs'
 const app = dirname(fileURLToPath(import.meta.url))
 const runtime = dirname(app)
 const dsh = join(app, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
 const plugin = join(app, 'desktop-plugin.tgz')
 const home = process.env.DSH_HOME
 if (!home) throw new Error('DSH_HOME is required')
-const runtimeCapabilities = JSON.parse(readFileSync(join(app, 'runtime-capabilities.json'), 'utf8'))
+const runtimeCapabilities = assertRuntimeCapabilities(JSON.parse(readFileSync(join(app, 'runtime-capabilities.json'), 'utf8')))
 const installMarker = join(home, 'profiles', 'desktop', '.desktop-plugin-install.json')
 const bin = join(runtime, 'desktop-bin')
 const env = { ...process.env, PATH: bin + delimiter + (process.env.PATH ?? '') }
@@ -190,7 +191,6 @@ const child = spawn(process.execPath, [dsh, '--profile', 'desktop', ...dshArgs],
   stdio: 'inherit', env, windowsHide: process.platform === 'win32',
 })
 child.once('exit', (code, signal) => proxy.close(() => process.exit(code ?? (signal ? 128 : 1))))
-
 function reserveLoopbackPort() {
   return new Promise((resolve, reject) => {
     const server = createNetServer()

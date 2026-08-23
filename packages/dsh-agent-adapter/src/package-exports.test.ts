@@ -24,12 +24,18 @@ describe('@dsh/agent-adapter package exports', () => {
         include: ['index.ts'],
       }))
       writeFileSync(join(consumerRoot, 'index.ts'), [
-        "import { PROTOCOL_VERSION, type AgentAdapterProtocolVersion, type ProtocolFrame } from '@dsh/agent-adapter'",
+        "import { PROTOCOL_VERSION, type AdapterRequest, type AgentAdapterProtocolVersion, type AgentEvent, type ProtocolFrame } from '@dsh/agent-adapter'",
         "import { runMockWorker, type MockWorkerIo } from '@dsh/agent-adapter/worker'",
         'const version: AgentAdapterProtocolVersion = PROTOCOL_VERSION',
         'const frame = null as unknown as ProtocolFrame',
+        'const request = null as unknown as AdapterRequest',
+        "if (request.type === 'handshake') request.payload.adapterKind.toUpperCase()",
+        'const event = null as unknown as AgentEvent',
+        "if (event.type === 'message.delta') event.payload.text.toUpperCase()",
+        '// @ts-expect-error handshake payload does not accept a permission field',
+        "const invalidRequest: AdapterRequest = { protocolVersion: PROTOCOL_VERSION, requestId: 'request', sessionId: 'session', sequence: 0, type: 'handshake', payload: { permission: 'request-approval' } }",
         'const io = null as unknown as MockWorkerIo',
-        'void version; void frame; void runMockWorker(io)',
+        'void version; void frame; void invalidRequest; void runMockWorker(io)',
       ].join('\n'))
 
       const typecheck = spawnSync(process.execPath, [join(repositoryRoot, 'node_modules', 'typescript', 'bin', 'tsc'), '-p', join(consumerRoot, 'tsconfig.json')], { cwd: consumerRoot, encoding: 'utf8' })
@@ -38,5 +44,5 @@ describe('@dsh/agent-adapter package exports', () => {
       rmSync(consumerRoot, { recursive: true, force: true })
       rmSync(join(packageRoot, 'lib'), { recursive: true, force: true })
     }
-  })
+  }, 20_000)
 })

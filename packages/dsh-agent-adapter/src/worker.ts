@@ -9,15 +9,30 @@ export interface MockWorkerIo {
   stderr: Writable
 }
 
-export async function runMockWorker(io: MockWorkerIo): Promise<void> {
+/** A transport is closed after this many distinct session identities to keep all session maps bounded. */
+export const MAX_UNIQUE_SESSIONS_PER_TRANSPORT = 1024
+
+export interface MockWorkerOptions {
+  maximumUniqueSessions?: number
+}
+
+export async function runMockWorker(io: MockWorkerIo, { maximumUniqueSessions = MAX_UNIQUE_SESSIONS_PER_TRANSPORT }: MockWorkerOptions = {}): Promise<void> {
   let handshaken = false
   const outputSequences = new Map<string, number>()
   const inputSequences = createSessionSequenceGuard()
   const terminatedSessions = new Set<string>()
+  const knownSessions = new Set<string>()
+  const activeSessions = new Set<string>()
+  const registerSession = (sessionId: string): boolean => {
+    if (knownSessions.has(sessionId)) return true
+    if (knownSessions.size >= maximumUniqueSessions) return false
+    knownSessions.add(sessionId)
+    return true
+  }
   for await (const inputLine of readBoundedJsonlLines(io.input)) {
     if (inputLine.oversized) {
       io.stderr.write(`${redactDiagnostic(new Error('Protocol frame exceeds 32 KiB'))}\n`)
-      continue
+      return
     }
     const line = inputLine.value
     if (!line.trim()) continue
@@ -27,11 +42,19 @@ export async function runMockWorker(io: MockWorkerIo): Promise<void> {
     } catch (cause) {
       const identity = extractSafeIdentity(line)
       if (identity?.sessionId) {
+        if (!registerSession(identity.sessionId)) {
+          io.stderr.write(`${redactDiagnostic(new Error('Protocol session budget exhausted'))}\n`)
+          return
+        }
         terminatedSessions.add(identity.sessionId)
         if (identity.requestId) writeError(io.stdout, outputSequences, { protocolVersion: PROTOCOL_VERSION, requestId: identity.requestId, sessionId: identity.sessionId }, 'INVALID_FRAME', 'Invalid adapter protocol frame')
       }
       io.stderr.write(`${redactDiagnostic(cause)}\n`)
       continue
+    }
+    if (!registerSession(frame.sessionId)) {
+      io.stderr.write(`${redactDiagnostic(new Error('Protocol session budget exhausted'))}\n`)
+      return
     }
     try {
       inputSequences.accept(frame)
@@ -64,15 +87,16 @@ export async function runMockWorker(io: MockWorkerIo): Promise<void> {
       continue
     }
     if (frame.type === 'session.start') {
+      activeSessions.add(frame.sessionId)
       writeOk(io.stdout, outputSequences, frame)
       for (const event of mockSessionEvents(frame)) writeFrame(io.stdout, outputSequences, event)
+      activeSessions.delete(frame.sessionId)
       continue
     }
     if (frame.type === 'session.cancel' || frame.type === 'approval.resolve') {
       writeOk(io.stdout, outputSequences, frame)
       continue
     }
-    writeError(io.stdout, outputSequences, frame, 'UNSUPPORTED_REQUEST', `Request type ${frame.type} is not implemented by mock`)
   }
 }
 
@@ -91,21 +115,29 @@ async function* readBoundedJsonlLines(input: Readable): AsyncGenerator<{ value: 
         if (newline !== -1) discardingOversizedLine = false
         continue
       }
-      if (buffered.length + segment.length > CONTROL_FRAME_MAX_BYTES) {
-        buffered = Buffer.alloc(0)
-        yield { oversized: true }
-        if (newline === -1) discardingOversizedLine = true
-        continue
-      }
       buffered = Buffer.concat([buffered, segment])
       if (newline !== -1) {
-        const line = buffered.toString('utf8').replace(/\r$/, '')
+        const lineBytes = buffered.at(-1) === 0x0d ? buffered.subarray(0, -1) : buffered
         buffered = Buffer.alloc(0)
-        yield { value: line, oversized: false }
+        if (lineBytes.length > CONTROL_FRAME_MAX_BYTES) {
+          yield { oversized: true }
+          return
+        }
+        yield { value: lineBytes.toString('utf8'), oversized: false }
+        continue
+      }
+      if (buffered.length > CONTROL_FRAME_MAX_BYTES) {
+        if (buffered.length === CONTROL_FRAME_MAX_BYTES + 1 && buffered.at(-1) === 0x0d) continue
+        buffered = Buffer.alloc(0)
+        yield { oversized: true }
+        return
       }
     }
   }
-  if (!discardingOversizedLine && buffered.length > 0) yield { value: buffered.toString('utf8').replace(/\r$/, ''), oversized: false }
+  if (!discardingOversizedLine && buffered.length > 0) {
+    if (buffered.length > CONTROL_FRAME_MAX_BYTES) yield { oversized: true }
+    else yield { value: buffered.toString('utf8'), oversized: false }
+  }
 }
 
 function writeOk(stdout: Writable, sequences: Map<string, number>, request: AdapterRequest): void {

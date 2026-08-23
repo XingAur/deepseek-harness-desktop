@@ -9,7 +9,7 @@ import {
   decodeProtocolFrame,
   encodeProtocolFrame,
 } from './protocol.js'
-import { runMockWorker } from './worker.js'
+import { MAX_UNIQUE_SESSIONS_PER_TRANSPORT, runMockWorker } from './worker.js'
 
 const request = {
   protocolVersion: PROTOCOL_VERSION,
@@ -150,6 +150,42 @@ describe('agent adapter protocol', () => {
     expect(diagnostics.join('')).toMatch(/32 KiB/i)
   })
 
+  it('terminates transport after an oversized line and does not accept a following request', async () => {
+    const input = new PassThrough()
+    const stdout = new PassThrough()
+    const stderr = new PassThrough()
+    const output: string[] = []
+    stdout.setEncoding('utf8')
+    stdout.on('data', (chunk: string) => output.push(chunk))
+    const diagnostics: string[] = []
+    stderr.setEncoding('utf8')
+    stderr.on('data', (chunk: string) => diagnostics.push(chunk))
+    const worker = runMockWorker({ input, stdout, stderr })
+
+    const secret = 'oversized-secret-must-not-leak'
+    input.end(`${secret}${'x'.repeat(CONTROL_FRAME_MAX_BYTES + 1 - secret.length)}\n${JSON.stringify(request)}\n`)
+    await worker
+
+    expect(output.join('')).toBe('')
+    expect(diagnostics.join('')).not.toContain(secret)
+    expect(Buffer.byteLength(diagnostics.join(''), 'utf8')).toBeLessThanOrEqual(CONTROL_FRAME_MAX_BYTES)
+  })
+
+  it.each(['\n', '\r\n'])('accepts exactly 32 KiB before a %j terminator without classifying the line as oversized', async (terminator) => {
+    const input = new PassThrough()
+    const stdout = new PassThrough()
+    const stderr = new PassThrough()
+    const diagnostics: string[] = []
+    stderr.setEncoding('utf8')
+    stderr.on('data', (chunk: string) => diagnostics.push(chunk))
+    const worker = runMockWorker({ input, stdout, stderr })
+
+    input.end(`${'x'.repeat(CONTROL_FRAME_MAX_BYTES)}${terminator}`)
+    await worker
+
+    expect(diagnostics.join('')).not.toMatch(/32 KiB/i)
+  })
+
   it('drops malformed identifiers without crashing or echoing them in worker errors', async () => {
     const input = new PassThrough()
     const stdout = new PassThrough()
@@ -190,5 +226,32 @@ describe('agent adapter protocol', () => {
     const frames = lines.map((line) => decodeProtocolFrame(line))
     expect(frames.find((frame) => frame.requestId === 'version-mismatch')).toMatchObject({ type: 'response.error', payload: { code: 'INVALID_FRAME' } })
     expect(frames.find((frame) => frame.requestId === 'after-version-mismatch')).toMatchObject({ type: 'response.error', payload: { code: 'SESSION_TERMINATED' } })
+  })
+
+  it('bounds unique session state and never revives a terminated session', async () => {
+    const input = new PassThrough()
+    const stdout = new PassThrough()
+    const stderr = new PassThrough()
+    const lines: string[] = []
+    stdout.setEncoding('utf8')
+    stdout.on('data', (chunk: string) => lines.push(...chunk.split('\n').filter(Boolean)))
+    const worker = runMockWorker({ input, stdout, stderr }, { maximumUniqueSessions: 2 })
+
+    input.end([
+      request,
+      { ...request, requestId: 'terminated-sequence', sessionId: request.sessionId, sequence: 0 },
+      { ...request, requestId: 'second-session', sessionId: 'second-session', sequence: 0 },
+      { ...request, requestId: 'over-budget', sessionId: 'third-session', sequence: 0 },
+      { ...request, requestId: 'must-not-revive', sessionId: request.sessionId, sequence: 1 },
+    ].map((frame) => JSON.stringify(frame)).join('\n') + '\n')
+    await worker
+
+    expect(MAX_UNIQUE_SESSIONS_PER_TRANSPORT).toBeGreaterThan(2)
+    expect(lines.map((line) => decodeProtocolFrame(line))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ requestId: 'terminated-sequence', payload: expect.objectContaining({ code: 'INVALID_SEQUENCE' }) }),
+      expect.objectContaining({ requestId: 'second-session', type: 'response.ok' }),
+    ]))
+    expect(lines.join('\n')).not.toContain('over-budget')
+    expect(lines.join('\n')).not.toContain('must-not-revive')
   })
 })

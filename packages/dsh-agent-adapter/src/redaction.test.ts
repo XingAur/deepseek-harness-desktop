@@ -26,4 +26,22 @@ describe('redactDiagnostic', () => {
     expect(Buffer.byteLength(redacted, 'utf8')).toBeLessThanOrEqual(MAX_DIAGNOSTIC_TEXT_BYTES)
     expect(redacted).not.toContain('hidden')
   })
+
+  it('redacts quoted JSON credentials, assignment forms, and cookie variants before UTF-8 truncation', () => {
+    const secrets = ['json-token', 'json-key', 'quoted-password', 'bearer-secret', 'cookie-secret', 'set-cookie-secret', 'access-secret']
+    const diagnostic = [
+      '{"token":"json-token","apiKey":"json-key","password":"quoted-password"}',
+      'Authorization=Bearer bearer-secret',
+      'cookie=session=cookie-secret',
+      'Set-Cookie: auth=set-cookie-secret; HttpOnly',
+      'access_token: access-secret',
+      '中'.repeat(MAX_DIAGNOSTIC_TEXT_BYTES),
+    ].join('\n')
+
+    const redacted = redactDiagnostic(diagnostic)
+
+    for (const secret of secrets) expect(redacted).not.toContain(secret)
+    expect(redacted).toContain('[REDACTED]')
+    expect(Buffer.byteLength(redacted, 'utf8')).toBeLessThanOrEqual(MAX_DIAGNOSTIC_TEXT_BYTES)
+  })
 })

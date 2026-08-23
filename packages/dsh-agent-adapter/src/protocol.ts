@@ -51,18 +51,42 @@ export interface ExtensionDescriptor {
   type: ExtensionType
 }
 
-interface FrameBase {
+interface FrameBase<Type extends string, Payload> {
   protocolVersion: AgentAdapterProtocolVersion
   requestId: string
   sessionId: string
   sequence: number
-  type: AdapterRequestType | AdapterResponseType | AgentEventType
-  payload: Record<string, unknown>
+  type: Type
+  payload: Payload
 }
 
-export type AdapterRequest = FrameBase & { type: AdapterRequestType }
-export type AdapterResponse = FrameBase & { type: AdapterResponseType }
-export type AgentEvent = FrameBase & { type: AgentEventType }
+export type EmptyPayload = { [key: string]: never }
+export interface HandshakePayload { adapterKind: AdapterKind }
+export interface SessionStartPayload { permission: PermissionProfile }
+export interface ApprovalResolvePayload { approved: boolean }
+export interface ResponseOkPayload { accepted: boolean }
+export interface ResponseErrorPayload { code: string; message: string }
+export interface TextPayload { text: string }
+export interface ContentReferencePayload { contentRef: OpaqueContentReference }
+
+export type HandshakeRequest = FrameBase<'handshake', HandshakePayload>
+export type SessionStartRequest = FrameBase<'session.start', SessionStartPayload>
+export type SessionCancelRequest = FrameBase<'session.cancel', EmptyPayload>
+export type ApprovalResolveRequest = FrameBase<'approval.resolve', ApprovalResolvePayload>
+export type AdapterRequest = HandshakeRequest | SessionStartRequest | SessionCancelRequest | ApprovalResolveRequest
+
+export type ResponseOk = FrameBase<'response.ok', ResponseOkPayload>
+export type ResponseError = FrameBase<'response.error', ResponseErrorPayload>
+export type AdapterResponse = ResponseOk | ResponseError
+
+export type EmptyAgentEventType = Exclude<AgentEventType, 'message.delta' | 'message.completed' | 'tool.output' | 'command.output' | 'file.diff.available'>
+export type EmptyAgentEvent = FrameBase<EmptyAgentEventType, EmptyPayload>
+export type MessageDeltaEvent = FrameBase<'message.delta', TextPayload>
+export type MessageCompletedEvent = FrameBase<'message.completed', TextPayload>
+export type ToolOutputEvent = FrameBase<'tool.output', ContentReferencePayload>
+export type CommandOutputEvent = FrameBase<'command.output', ContentReferencePayload>
+export type FileDiffAvailableEvent = FrameBase<'file.diff.available', ContentReferencePayload>
+export type AgentEvent = EmptyAgentEvent | MessageDeltaEvent | MessageCompletedEvent | ToolOutputEvent | CommandOutputEvent | FileDiffAvailableEvent
 export type ProtocolFrame = AdapterRequest | AdapterResponse | AgentEvent
 
 export function decodeProtocolFrame(serialized: string): ProtocolFrame {

@@ -4,9 +4,10 @@ export function redactDiagnostic(value: unknown): string {
   const text = typeof value === 'string' ? value : String(value)
   const redacted = text
     .replace(/-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/g, '[REDACTED PRIVATE KEY]')
-    .replace(/^(authorization|proxy-authorization|x-api-key|api-key|cookie|set-cookie)\s*:\s*.*$/gim, '$1: [REDACTED]')
-    .replace(/\b(?:api[_-]?key|oauth[_-]?token|access[_-]?token|refresh[_-]?token|id[_-]?token)\s*[:=]\s*[^\s,;]+/gi, (match) => `${match.split(/[:=]/, 1)[0]}=[REDACTED]`)
-    .replace(/\b[A-Z][A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|PASSWD|API_KEY|PRIVATE_KEY|COOKIE)[A-Z0-9_]*\s*=\s*[^\s,;]+/g, (match) => `${match.split('=', 1)[0]}=[REDACTED]`)
+    .replace(/"(authorization|proxy-authorization|x-api-key|api-key|api[_-]?key|oauth[_-]?token|access[_-]?token|refresh[_-]?token|id[_-]?token|token|secret|password|passwd|private[_-]?key|cookie)"\s*:\s*"(?:\\.|[^"\\])*"/gi, '"$1":"[REDACTED]"')
+    .replace(/(^|[\r\n])\s*(authorization|proxy-authorization|x-api-key|api-key|cookie|set-cookie)\s*[:=]\s*[^\r\n]*/gim, '$1$2: [REDACTED]')
+    .replace(/\b(api[_-]?key|oauth[_-]?token|access[_-]?token|refresh[_-]?token|id[_-]?token|token|secret|password|passwd|private[_-]?key)\s*[:=]\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;\]}]+)/gi, '$1=[REDACTED]')
+    .replace(/\b[A-Z][A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|PASSWD|API_KEY|PRIVATE_KEY|COOKIE)[A-Z0-9_]*\s*=\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;\]}]+)/g, (match) => `${match.split('=', 1)[0]}=[REDACTED]`)
   return truncateUtf8(redacted, MAX_DIAGNOSTIC_TEXT_BYTES)
 }
 

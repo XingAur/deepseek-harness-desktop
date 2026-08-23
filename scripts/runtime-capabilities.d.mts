@@ -27,4 +27,6 @@ export interface RuntimePathImplementation {
 export function isFileWithin(directory: string, relativePath: unknown, options?: {
   pathImplementation?: RuntimePathImplementation
   statSync?: (path: string) => { isFile(): boolean }
+  lstatSync?: (path: string) => { isSymbolicLink(): boolean }
+  realpathSync?: (path: string) => string
 }): boolean

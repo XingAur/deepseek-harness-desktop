@@ -95,4 +95,19 @@ describe('ensureDesktopProfile', () => {
     expect(() => ensureDesktopProfile(path, report)).toThrow(/capabilit/i)
     expect(JSON.parse(readFileSync(path, 'utf8')).dsh.profile.bundles).toEqual([])
   })
+
+  it.each([
+    ['an unknown top-level timestamp', (report: Record<string, unknown>) => { report.timestamp = '2026-08-24T00:00:00Z' }],
+    ['a package filesystem path', (report: Record<string, unknown>) => { ((report.packages as Array<Record<string, unknown>>)[0]).path = '/private/runtime' }],
+    ['a package secret-shaped field', (report: Record<string, unknown>) => { ((report.packages as Array<Record<string, unknown>>)[0]).apiKey = 'must-not-pass' }],
+    ['an unknown capabilities field', (report: Record<string, unknown>) => { (report.capabilities as Record<string, unknown>).extra = { package: '@spoofed/package', available: false } }],
+    ['an unknown nested capability field', (report: Record<string, unknown>) => { ((report.capabilities as Record<string, Record<string, unknown>>).apiProvider).extra = true }],
+  ])('rejects %s before any profile mutation', (_label, mutate) => {
+    const path = fixture([])
+    const report = JSON.parse(JSON.stringify(compatibleReport)) as Record<string, unknown>
+    mutate(report)
+
+    expect(() => ensureDesktopProfile(path, report as unknown as RuntimeCapabilityReport)).toThrow(/capabilit/i)
+    expect(JSON.parse(readFileSync(path, 'utf8')).dsh.profile.bundles).toEqual([])
+  })
 })
