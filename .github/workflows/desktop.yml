@@ -394,7 +394,21 @@ jobs:
             \( -name '*_x64-setup.exe' -o -name '*_x64-setup.exe.sig' -o -name '*_aarch64.dmg' \) -print0)
           test "${#desktop_candidates[@]}" -eq 3
           for asset in "${desktop_candidates[@]}"; do
-            destination="desktop-assets/$(basename "${asset}")"
+            case "${asset}" in
+              *_x64-setup.exe)
+                destination="desktop-assets/DeepSeek.Harness.Desktop_${DESKTOP_VERSION}_x64-setup.exe"
+                ;;
+              *_x64-setup.exe.sig)
+                destination="desktop-assets/DeepSeek.Harness.Desktop_${DESKTOP_VERSION}_x64-setup.exe.sig"
+                ;;
+              *_aarch64.dmg)
+                destination="desktop-assets/DeepSeek.Harness.Desktop_${DESKTOP_VERSION}_aarch64.dmg"
+                ;;
+              *)
+                echo "::error::Unsupported desktop asset: ${asset}"
+                exit 1
+                ;;
+            esac
             test ! -e "${destination}"
             cp "${asset}" "${destination}"
           done

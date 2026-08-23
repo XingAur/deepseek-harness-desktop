@@ -11,7 +11,9 @@ import { fileURLToPath } from 'node:url'
 import { loadReleaseVersions, validateReleaseVersions } from './release-versions.mjs'
 
 export const productionRepository = 'XingAur/deepseek-harness-desktop'
-const safeAssetName = /^(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9._ -]*$/
+// GitHub normalizes spaces in uploaded release asset names. Restrict metadata
+// inputs to names that remain byte-for-byte addressable after upload.
+const safeAssetName = /^(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9._-]*$/
 
 export function verifyDesktopReleaseAssets({ assetDirectory, versions }) {
   const releaseVersions = validateReleaseVersions(versions)

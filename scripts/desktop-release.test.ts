@@ -83,10 +83,13 @@ describe('desktop release metadata', () => {
     expect(await readFile(join(fixture.output, 'desktop-release.json'), 'utf8')).toMatch(/\n$/)
   })
 
-  it('URL-encodes safe artifact names without allowing repository substitution', async () => {
+  it('rejects artifact names that GitHub would normalize during upload', async () => {
     const fixture = await assetFixture('DeepSeek Harness Desktop')
-    const verified = verifyDesktopReleaseAssets({ assetDirectory: fixture.assets, versions })
-    expect(verified.windowsInstallerName).toContain(' ')
+    expect(() => verifyDesktopReleaseAssets({ assetDirectory: fixture.assets, versions })).toThrow(/不安全的发布资产/)
+  })
+
+  it('does not allow repository substitution', async () => {
+    const fixture = await assetFixture()
     expect(() => generateDesktopRelease({
       assetDirectory: fixture.assets,
       outputDirectory: fixture.output,
