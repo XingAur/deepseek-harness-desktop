@@ -6,7 +6,7 @@ describe('application updater release config', () => {
     const config = updaterConfig('PUBLIC-KEY', productionUpdaterEndpoint)
     expect(config.bundle).toMatchObject({
       createUpdaterArtifacts: true,
-      resources: ['../runtime'],
+      resources: { '../runtime/': 'runtime/' },
     })
     expect(config.plugins.updater.pubkey).toBe('PUBLIC-KEY')
     expect(config.plugins.updater.endpoints).toEqual([productionUpdaterEndpoint])

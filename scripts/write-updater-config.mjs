@@ -14,7 +14,7 @@ export function updaterConfig(publicKey, endpoint = productionUpdaterEndpoint) {
   return {
     bundle: {
       createUpdaterArtifacts: true,
-      resources: ['../runtime'],
+      resources: { '../runtime/': 'runtime/' },
     },
     plugins: {
       updater: {

@@ -226,7 +226,7 @@ describe('product copy', () => {
     )
     expect(workflow).toContain('cp "$RUNTIME_DIR/$ARCHIVE_NAME" "runtime/$ARCHIVE_NAME"')
     expect(readFileSync('scripts/write-updater-config.mjs', 'utf8')).toContain(
-      "resources: ['../runtime']",
+      "resources: { '../runtime/': 'runtime/' }",
     )
     const prepareConfig = workflow.indexOf('- name: Prepare Windows installer config')
     const signManifest = workflow.indexOf('- name: Sign and stage Runtime manifest')
@@ -283,7 +283,7 @@ describe('product copy', () => {
   })
 
   it('keeps the desktop release version aligned across package manifests', () => {
-    const expectedVersion = '0.1.10'
+    const expectedVersion = '0.1.11'
     const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }
     const packageLock = readFileSync('package-lock.json', 'utf8')
     const tauriConfig = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8')) as { version: string }
