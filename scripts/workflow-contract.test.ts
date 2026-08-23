@@ -119,4 +119,31 @@ describe('automated upstream release workflows', () => {
       'permissions:\n      contents: write',
     )
   })
+
+  it('pins and validates the macOS desktop entrypoint before staging the DMG', () => {
+    const cargoManifest = readFileSync('src-tauri/Cargo.toml', 'utf8')
+    const tauriConfig = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8')) as {
+      mainBinaryName?: string
+    }
+    const workflow = normalizeLineEndings(readFileSync('.github/workflows/desktop.yml', 'utf8'))
+
+    expect(cargoManifest).toContain('default-run = "deepseek-harness-desktop"')
+    expect(cargoManifest).toContain('updater-verifier-cli = []')
+    expect(cargoManifest).toContain('required-features = ["updater-verifier-cli"]')
+    expect(tauriConfig.mainBinaryName).toBe('deepseek-harness-desktop')
+    expect(workflow).toContain('- name: Verify macOS application bundle entrypoint')
+    expect(workflow).toContain("Print :CFBundleExecutable")
+    expect(workflow).toContain("test \"${EXECUTABLE_NAME}\" = 'deepseek-harness-desktop'")
+    expect(workflow).toContain('file "${EXECUTABLE_PATH}" | grep -q')
+    expect(workflow).toContain("'arm64'")
+    expect(workflow).toContain('Contents/MacOS/verify_updater_signature')
+    expect(workflow).toContain('--features updater-verifier-cli --bin verify_updater_signature')
+
+    const entrypointVerification = workflow.slice(
+      workflow.indexOf('      - name: Verify macOS application bundle entrypoint'),
+      workflow.indexOf('      - name: Stage release artifacts'),
+    )
+    expect(entrypointVerification).toContain("if: runner.os == 'macOS'")
+    expect(entrypointVerification).toContain('set -euo pipefail')
+  })
 })

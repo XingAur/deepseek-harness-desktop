@@ -235,6 +235,29 @@ jobs:
           args: --config src-tauri/tauri.release.conf.json ${{ matrix.tauri_args }}
           retryAttempts: 3
 
+      - name: Verify macOS application bundle entrypoint
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          APP_BUNDLES=(src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app)
+          if [[ "${#APP_BUNDLES[@]}" -ne 1 ]]; then
+            echo '::error::Expected exactly one macOS application bundle.'
+            find src-tauri/target/aarch64-apple-darwin/release/bundle/macos -maxdepth 1 -print
+            exit 1
+          fi
+          APP_BUNDLE="${APP_BUNDLES[0]}"
+          EXECUTABLE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "${APP_BUNDLE}/Contents/Info.plist")"
+          test "${EXECUTABLE_NAME}" = 'deepseek-harness-desktop'
+          EXECUTABLE_PATH="${APP_BUNDLE}/Contents/MacOS/${EXECUTABLE_NAME}"
+          test -x "${EXECUTABLE_PATH}"
+          file "${EXECUTABLE_PATH}" | grep -q 'arm64'
+          if test -e "${APP_BUNDLE}/Contents/MacOS/verify_updater_signature"; then
+            echo '::error::The internal updater verifier must not be bundled as the macOS application entrypoint.'
+            exit 1
+          fi
+
       - name: Stage release artifacts
         shell: bash
         run: |
@@ -269,7 +292,7 @@ jobs:
           mapfile -d '' updater_signatures < <(find release-stage/desktop -maxdepth 1 -type f -name '*_x64-setup.exe.sig' -print0)
           test "${#updater_installers[@]}" -eq 1
           test "${#updater_signatures[@]}" -eq 1
-          cargo run --locked --manifest-path src-tauri/Cargo.toml --bin verify_updater_signature -- \
+          cargo run --locked --manifest-path src-tauri/Cargo.toml --features updater-verifier-cli --bin verify_updater_signature -- \
             "${updater_installers[0]}" "${updater_signatures[0]}"
 
       - uses: actions/upload-artifact@v4
