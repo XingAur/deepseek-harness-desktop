@@ -62,6 +62,20 @@ impl AgentStoreError {
         }
     }
 
+    pub(super) fn backup_durability_uncertain(
+        source_path: PathBuf,
+        backup: BackupMetadata,
+    ) -> Self {
+        Self {
+            code: "agent_store_backup_durability_uncertain",
+            message: "Agent 数据库备份已发布，但持久化状态无法确认，需要人工恢复",
+            recovery: RecoveryState {
+                source_path,
+                backup: Some(backup),
+            },
+        }
+    }
+
     pub fn code(&self) -> &'static str {
         self.code
     }

@@ -63,15 +63,15 @@ mod tests {
             vault
                 .resolve(&first.credential_id)
                 .unwrap()
-                .expose_for_backend(),
-            SECOND_SECRET
+                .expose_bytes_for_backend(),
+            SECOND_SECRET.as_bytes()
         );
         assert_eq!(
             vault
                 .resolve(&other.credential_id)
                 .unwrap()
-                .expose_for_backend(),
-            "other-secret"
+                .expose_bytes_for_backend(),
+            b"other-secret"
         );
     }
 
@@ -189,6 +189,13 @@ mod tests {
             Err(_) => panic!("mock native binary secret unexpectedly failed"),
         };
         assert_eq!(resolved.expose_bytes_for_backend(), &[0xff, 0x00, 0x80]);
+    }
+
+    #[test]
+    fn production_binary_secret_path_has_no_infallible_utf8_accessor() {
+        let model_source = include_str!("model.rs");
+        assert!(!model_source.contains("expose_for_backend"));
+        assert!(!model_source.contains("from_utf8(&self.bytes).expect"));
     }
 
     #[test]

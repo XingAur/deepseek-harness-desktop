@@ -223,3 +223,65 @@ rustfmt --edition 2024 --check --config skip_children=true <全部变更 Rust �
 git diff --check
   passed; no output
 ```
+
+## Review round 3 工作区基线与 TDD 证据
+
+- 基线 HEAD 为 `16bb2b638a908ef1bfe22b692c558b75d9eeb129`。开始时除两份 controller-owned 未跟踪设计文档外，`agent_store/mod.rs` 与 `agent_store/model.rs` 还存在 inherited partial Round 3 改动；逐行审计后保留正确部分，没有回退用户改动。
+- inherited partial 中已有“同名 final 预占、temp/final symlink swap、cleanup replacement、parent fsync + cleanup failure”测试及部分实现，基线 AgentStore 专项为 24 passed；这些不冒充本代理观察到的 RED。
+- 本轮新增 recovery A→B barrier、no-follow source open、compound secret detector 测试后，首次运行因 `validate_recovery_state_with_barrier`、`open_recovery_source`、`contains_secret_bearing_term` 均不存在而编译失败，Rust `E0425`，exit 101。这是本轮第一组真实 RED。
+- 独立审查新增 Windows final identity 契约和“发布后异常必须保留结构化证据”断言；平台契约测试首次运行在 `windows_publish.contains("path_identity(to)?")` 失败，exit 101。这是第二组真实 RED。实现最终采用不产生发布状态歧义的 `BundlePublication::{Verified, DurabilityUncertain}`，测试随后 GREEN。
+- 中途有一次测试源码自扫描错误，把测试区自己的 `final_bundle.exists()` 当成生产代码；收窄到 `#[cfg(test)] mod tests` 之前的生产区后通过。该项是测试修正，不记作产品 RED。
+
+## Review round 3：2 个 Important 修复与安全保证
+
+1. **真正 atomic no-replace bundle publish 与安全证据保留**
+   - macOS 使用 `libc::renameatx_np(..., RENAME_EXCL)`；Linux 使用 `libc::renameat2(..., RENAME_NOREPLACE)`；Windows 使用 `SetFileInformationByHandle(FileRenameInfo)`，`ReplaceIfExists = false`，source directory handle 带 `FILE_FLAG_WRITE_THROUGH | FILE_FLAG_OPEN_REPARSE_POINT`。全部按 target `cfg` 隔离，不存在 `exists() + rename` 竞态回退；其他 Unix target 明确返回 Unsupported。
+   - `libc` 精确固定为 `=0.2.189`，`windows-sys` 精确固定为 `=0.61.2`；两者本地锁定 crate manifest 均为 `MIT OR Apache-2.0`。
+   - backup parent 以 no-follow directory handle 固定并保存 filesystem identity；Unix 使用 dev+ino+uid，Windows 使用 volume serial + file index。parent、temp、final 均拒绝 symlink，Windows 额外拒绝 reparse point；发布前后回验 parent/final identity。
+   - temp bundle 名含随机 owner token，cleanup 同时校验 token 与 bundle filesystem identity。若名字已被替换，cleanup fail closed，不删除 replacement。
+   - 原子 syscall 前失败才允许清理 owned temp。syscall 成功后任何 final/parent identity、write-through、parent fsync 不确定均返回 `agent_store_backup_durability_uncertain`，携带完整 `BackupMetadata` 并保留正式 bundle；不再尝试可能失败并丢失恢复证据的 post-publish cleanup。
+   - 覆盖同名 final 预占不覆盖、temp/final symlink swap、cleanup replacement 不删除、parent fsync 失败、parent fsync 且 cleanup 确认不可行时仍保留并可重新验证的正式证据。
+
+2. **固定 source handle 的 recovery validation**
+   - recovery source 通过 `O_NOFOLLOW`（Unix）或 `FILE_FLAG_OPEN_REPARSE_POINT`（Windows）打开并拒绝 symlink/reparse，随后只从同一固定 handle 以 64 KiB buffer 流式 SHA-256 并复制到 `create_new`、私有权限的 verification copy。
+   - SQLite `integrity_check` 与 `user_version` 只在 verification copy 上执行，不再重新打开原 recovery source path。
+   - Unix source snapshot 比较 dev+ino、owner、size、mode、links、group、mtime/ctime；Windows 比较 volume/file identity、size、attributes、creation/last-write/change time、links。复制/校验前后同时比较 source handle 与 source path snapshot，并回验 trusted root/bundle 和 verification copy identity。
+   - 确定性 barrier 在 source A 已复制、SQLite copy 校验前把原路径替换为 B；即使 B 是有效 SQLite，最终 source path identity/metadata 不一致仍 fail closed。source symlink 同样在 open 阶段拒绝。
+
+## Review round 3：2 个 Minor 修复与安全保证
+
+1. secret detector 按 separator、snake_case、hyphen-case、camelCase/acronym 和指定 compact compound 边界拆分；覆盖 `private-key/private_key/privateKey/privatekey`、client/refresh/session/access token、API key、authorization、bearer、password，同时明确拒绝 `tokenizer`、`secretary`、`tokenized`、`keynote`、`monkey`、`publicKey` 误报。
+2. 删除生产 `SecretValue::expose_for_backend(&str)`；所有测试与 backend 边界只使用 bytes accessor。生产 secret model 中不再存在 `from_utf8(...).expect(...)` 路径。
+
+## Review round 3 平台编译证据与边界
+
+- 当前工具链为 Homebrew `rustc 1.98.0`，host `aarch64-apple-darwin`，无 `rustup`；macOS target 已由专项与全量测试真实编译和执行。
+- 尝试 `cargo check --locked --target x86_64-unknown-linux-gnu --lib` 与 `cargo check --locked --target x86_64-pc-windows-gnu --lib`，均在编译业务代码前失败：Rust `E0463: can't find crate for core`，提示 target 未安装；本机无 `rustup`，因此不能声称 Linux/Windows target 已交叉编译。
+- 安全替代证据为：精确锁定 crate 本地源码中核对 `libc 0.2.189` 的 `renameatx_np/RENAME_EXCL/renameat2/RENAME_NOREPLACE`，以及 `windows-sys 0.61.2` 的 `FILE_RENAME_INFO`、bool `ReplaceIfExists`、`SetFileInformationByHandle`、`FileRenameInfo` 与 `FILE_FLAG_WRITE_THROUGH` 签名/常量。未退回竞态 API；目标缺失时 fail closed。
+
+## Review round 3 最终验证
+
+```text
+cargo test --locked agent_store::tests
+  29 passed; 0 failed; 160 filtered out
+
+cargo test --locked credentials::tests
+  13 passed; 0 failed; 176 filtered out
+
+cargo test --locked foundation_tests
+  6 passed; 0 failed; 183 filtered out
+
+npm test -- --run src/App.test.tsx
+  1 test file passed; 29 tests passed
+
+cargo test --locked
+  lib: 189 passed; 0 failed
+  main: 0 tests
+  doc-tests: 0 tests
+
+npm run check
+  root: 37 files / 245 tests passed
+  desktop plugin: 15 files / 69 tests passed
+  agent adapter: 3 files / 25 tests passed
+  build:web、plugin:build、agent:build 均通过
+```
