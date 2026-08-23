@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PassThrough } from 'node:stream'
+import { PassThrough, Readable } from 'node:stream'
 import type { AgentAdapterProtocolVersion } from './protocol.js'
 import {
   CONTROL_FRAME_MAX_BYTES,
@@ -215,6 +215,25 @@ describe('agent adapter protocol', () => {
     await worker
 
     expect(diagnostics.join('')).not.toMatch(/32 KiB/i)
+  })
+
+  it('accepts an exactly 32 KiB CRLF frame when content, CR, and LF arrive separately', async () => {
+    const content = JSON.stringify({ ...request, type: 'message.delta', payload: { text: '' } })
+    const frame = JSON.stringify({ ...request, type: 'message.delta', payload: { text: 'x'.repeat(CONTROL_FRAME_MAX_BYTES - Buffer.byteLength(content, 'utf8')) } })
+    expect(Buffer.byteLength(frame, 'utf8')).toBe(CONTROL_FRAME_MAX_BYTES)
+    const input = Readable.from([Buffer.from(frame), Buffer.from('\r'), Buffer.from('\n')])
+    const stdout = new PassThrough()
+    const stderr = new PassThrough()
+    const output: string[] = []
+    const diagnostics: string[] = []
+    stdout.setEncoding('utf8')
+    stderr.setEncoding('utf8')
+    stdout.on('data', (chunk: string) => output.push(chunk))
+    stderr.on('data', (chunk: string) => diagnostics.push(chunk))
+    const worker = runMockWorker({ input, stdout, stderr })
+    await worker
+    expect(diagnostics.join('')).not.toMatch(/32 KiB/i)
+    expect(output.join('')).toContain('UNEXPECTED_FRAME')
   })
 
   it('drops malformed identifiers without crashing or echoing them in worker errors', async () => {

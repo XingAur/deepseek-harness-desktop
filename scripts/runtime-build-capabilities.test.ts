@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -65,14 +65,26 @@ function writeUpstreamPackages(appDirectory: string) {
 describe('inspectAssembledRuntimeCapabilities', () => {
   it('probes an assembled app root without appending node_modules twice', () => {
     const appDirectory = mkdtempSync(join(tmpdir(), 'dsh-assembled-runtime-'))
-    writeCompatibleAssembledApp(appDirectory)
+    try {
+      writeCompatibleAssembledApp(appDirectory)
+      const report = inspectAssembledRuntimeCapabilities(appDirectory, { dshVersion, desktopPluginVersion })
+      expect(report.packages).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: '@deepseek-ai/dsh', status: 'compatible' }),
+        expect.objectContaining({ name: '@dsh/desktop-plugin', status: 'compatible' }),
+      ]))
+    } finally {
+      rmSync(appDirectory, { recursive: true, force: true })
+    }
+  })
 
-    const report = inspectAssembledRuntimeCapabilities(appDirectory, { dshVersion, desktopPluginVersion })
-
-    expect(report.packages).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: '@deepseek-ai/dsh', status: 'compatible' }),
-      expect.objectContaining({ name: '@dsh/desktop-plugin', status: 'compatible' }),
-    ]))
+  it('cleans an assembled fixture when capability inspection rejects', () => {
+    const appDirectory = mkdtempSync(join(tmpdir(), 'dsh-assembled-runtime-failure-'))
+    try {
+      expect(() => inspectAssembledRuntimeCapabilities(appDirectory, { dshVersion, desktopPluginVersion })).toThrow(/capability report/i)
+    } finally {
+      rmSync(appDirectory, { recursive: true, force: true })
+    }
+    expect(existsSync(appDirectory)).toBe(false)
   })
 
   it('accepts the actual packed private desktop plugin installed into an assembled app without network access', () => {

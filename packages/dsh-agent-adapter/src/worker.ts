@@ -115,7 +115,9 @@ async function* readBoundedJsonlLines(input: Readable): AsyncGenerator<{ value: 
       start = newline === -1 ? bytes.length : newline + 1
       const permitsTrailingCr = segment.at(-1) === 0x0d
       const maximum = CONTROL_FRAME_MAX_BYTES + (permitsTrailingCr ? 1 : 0)
-      if (segment.length > maximum - bufferedLength) {
+      const bufferedTrailingCr = newline !== -1 && bufferedLength === CONTROL_FRAME_MAX_BYTES + 1 && buffered[bufferedLength - 1] === 0x0d
+      const effectiveBufferedLength = bufferedLength - (bufferedTrailingCr ? 1 : 0)
+      if (segment.length > maximum - effectiveBufferedLength) {
         yield { oversized: true }
         return
       }
