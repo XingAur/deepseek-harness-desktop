@@ -7,7 +7,7 @@ export const inject = ['slots', 'sessions', 'theme', 'workspaces']
 export function apply(ctx: ClientContextLike): void {
   const environment = parseDesktopEnvironment(window.location.search)
   if (environment === null) return
-  applyAdvancedShell(ctx, environment.platform)
+  applyAdvancedShell(ctx, environment.platform, { parentOrigin: environment.parentOrigin })
 }
 
 export { AdvancedFrame } from './AdvancedFrame'

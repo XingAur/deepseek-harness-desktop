@@ -207,17 +207,24 @@ describe('product copy', () => {
     expect(workflow).toContain('node scripts/write-updater-config.mjs')
     expect(workflow).toContain('signer generate --ci --write-keys')
     expect(workflow).toContain('--config src-tauri/tauri.release.conf.json')
-    expect(workflow).toContain('uploadUpdaterJson: true')
+    expect(workflow).toContain('includeUpdaterJson: true')
     expect(workflow).toContain('updaterJsonPreferNsis: true')
-    expect(workflow).toContain('uploadUpdaterSignatures: true')
+    expect(workflow).not.toContain('uploadUpdaterJson: true')
+    expect(workflow).not.toContain('uploadUpdaterSignatures: true')
+    expect(workflow).not.toContain('uploadWorkflowArtifacts: true')
+    expect(workflow).toContain('secrets.DSH_DESKTOP_SIGNING_PRIVATE_KEY')
+    expect(workflow).not.toContain('runtime-signing-state.mjs')
+    expect(workflow).not.toContain('wbAbExHsjryIT22fTuRA3W61tJdaXFC7YxoAeN9uKnQ')
+    expect(workflow).toContain('- name: Verify Runtime manifest')
+    expect(workflow).toContain('node scripts/verify-runtime-manifest.mjs')
   })
 
   it('requires the current managed Runtime identity for Windows releases', () => {
     const source = readFileSync('scripts/windows-installer.mjs', 'utf8')
     const workflow = readFileSync('.github/workflows/desktop.yml', 'utf8')
 
-    expect(source).toContain("export const MANAGED_RUNTIME_VERSION = '0.1.8-preview'")
-    expect(workflow).toContain('MANAGED_RUNTIME_VERSION: 0.1.8-preview')
+    expect(source).toContain("export const MANAGED_RUNTIME_VERSION = '0.1.9-preview'")
+    expect(workflow).toContain('MANAGED_RUNTIME_VERSION: 0.1.9-preview')
     expect(workflow).toContain(
       'releases/download/runtime-v${MANAGED_RUNTIME_VERSION}/dsh-runtime-',
     )
@@ -283,7 +290,7 @@ describe('product copy', () => {
   })
 
   it('keeps the desktop release version aligned across package manifests', () => {
-    const expectedVersion = '0.1.11'
+    const expectedVersion = '0.1.12'
     const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }
     const packageLock = readFileSync('package-lock.json', 'utf8')
     const tauriConfig = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8')) as { version: string }
@@ -325,7 +332,7 @@ describe('product copy', () => {
     expect(config.plugins?.updater).toBeTypeOf('object')
     expect(config.plugins?.updater?.pubkey).toMatch(/\S+/)
     expect(config.plugins?.updater?.endpoints).toEqual([
-      'https://github.com/XingAur/DSH-Desktop/releases/latest/download/latest.json',
+      'https://github.com/XingAur/deepseek-harness-desktop/releases/latest/download/latest.json',
     ])
   })
 

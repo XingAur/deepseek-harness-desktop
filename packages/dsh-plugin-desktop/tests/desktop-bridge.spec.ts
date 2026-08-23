@@ -13,6 +13,22 @@ function fixture(timeoutMs = 100) {
 }
 
 describe('desktop bridge client', () => {
+  it('keeps the plugin loadable when the embedded page has no referrer', async () => {
+    const listeners = new Set<(event: MessageEvent) => void>()
+    const host = {
+      addEventListener: (_type: 'message', listener: (event: MessageEvent) => void) => listeners.add(listener),
+      removeEventListener: (_type: 'message', listener: (event: MessageEvent) => void) => listeners.delete(listener),
+    }
+    const parent = { postMessage: vi.fn() }
+
+    const bridge = createDesktopBridge({ host, parent, createRequestId: () => 'r-no-origin' })
+
+    await expect(bridge.request('profile.list')).rejects.toThrow('无法确定桌面壳层来源')
+    expect(parent.postMessage).not.toHaveBeenCalled()
+    expect(listeners.size).toBe(1)
+    bridge.dispose()
+  })
+
   it('correlates replies from only the configured parent and origin', async () => {
     const { bridge, parent, emit } = fixture()
     const pending = bridge.request('profile.list')

@@ -63,6 +63,16 @@ function formatUpdateSize(bytes: number | null) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+function workbenchUrl(rendererUrl: string): string {
+  try {
+    const url = new URL(rendererUrl)
+    url.searchParams.set('dsh-desktop-parent-origin', window.location.origin)
+    return url.toString()
+  } catch {
+    return rendererUrl
+  }
+}
+
 interface AppUpdateBannerProps {
   state: AppUpdateState
   receipt: AppUpdateReceipt | null
@@ -356,7 +366,7 @@ export function App({ runtime, windowControls }: AppProps) {
               ref={iframeRef}
               className="workbenchFrame"
               title="DeepSeek Harness 工作台"
-              src={state.rendererUrl}
+              src={workbenchUrl(state.rendererUrl)}
               data-hidden={activeApp !== null || undefined}
               allow="clipboard-write"
             />

@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-export const productionUpdaterEndpoint = 'https://github.com/XingAur/DSH-Desktop/releases/latest/download/latest.json'
+export const productionUpdaterEndpoint = 'https://github.com/XingAur/deepseek-harness-desktop/releases/latest/download/latest.json'
 
 export function updaterConfig(publicKey, endpoint = productionUpdaterEndpoint) {
   if (typeof publicKey !== 'string' || publicKey.trim().length === 0) {

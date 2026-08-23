@@ -63,7 +63,7 @@ export function createDesktopBridge(options: DesktopBridgeOptions = {}): Desktop
   let disposed = false
 
   const onMessage = (event: MessageEvent) => {
-    if (event.source !== parent || event.origin !== targetOrigin || !isResponse(event.data)) return
+    if (targetOrigin === null || event.source !== parent || event.origin !== targetOrigin || !isResponse(event.data)) return
     const request = pending.get(event.data.requestId)
     if (request === undefined) return
     clearTimeout(request.timer)
@@ -76,6 +76,7 @@ export function createDesktopBridge(options: DesktopBridgeOptions = {}): Desktop
   return {
     request<T = unknown>(action: DesktopBridgeAction, payload: Record<string, unknown> = {}): Promise<T> {
       if (disposed) return Promise.reject(new Error('桌面桥已关闭'))
+      if (targetOrigin === null) return Promise.reject(new Error('无法确定桌面壳层来源'))
       const requestId = createRequestId()
       return new Promise<T>((resolve, reject) => {
         const timer = setTimeout(() => {
@@ -108,9 +109,18 @@ export function createDesktopBridge(options: DesktopBridgeOptions = {}): Desktop
   }
 }
 
-function parentOrigin(referrer: string): string {
-  if (referrer.length === 0) throw new Error('无法确定桌面壳层来源')
-  return new URL(referrer).origin
+function parentOrigin(referrer: string): string | null {
+  if (referrer.length === 0) return null
+  try {
+    const url = new URL(referrer)
+    if (url.origin !== 'null') return url.origin
+    if (url.protocol === 'tauri:' && url.hostname !== '' && url.username === '' && url.password === '') {
+      return `${url.protocol}//${url.host}`
+    }
+  } catch {
+    // 桌面桥保持不可用，但宿主未提供 referrer 不应阻断插件加载。
+  }
+  return null
 }
 
 function isResponse(value: unknown): value is DesktopBridgeResponse {

@@ -25,7 +25,7 @@
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDYyRjczNUMwNTUxQzUzRkMKUldUOFV4eFZ3RFgzWXAwZEU1QmkxV1RGc3JRVWQxN09oNU9SMWsydmQ3WjF6UXdOTE5VRkg2NmMK",
-      "endpoints": ["https://github.com/XingAur/DSH-Desktop/releases/latest/download/latest.json"],
+      "endpoints": ["https://github.com/XingAur/deepseek-harness-desktop/releases/latest/download/latest.json"],
       "dangerousAcceptInvalidCerts": true,
       "windows": { "installMode": "passive" }
     }

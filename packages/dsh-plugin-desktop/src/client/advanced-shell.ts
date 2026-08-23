@@ -10,11 +10,17 @@ import { ProfileSettingsSection } from './ProfileSettingsSection'
 import { LocalProjectsFooterAction } from './LocalProjectsFooterAction'
 import { LocalProjectsState } from './local-projects-state'
 
+export interface AdvancedShellOptions {
+  bridge?: DesktopBridgeLike
+  parentOrigin?: string
+}
+
 export function applyAdvancedShell(
   ctx: ClientContextLike,
   platform: DesktopPlatform,
-  bridge: DesktopBridgeLike = desktopBridgeForWindow(),
+  options: AdvancedShellOptions = {},
 ): void {
+  const bridge = options.bridge ?? desktopBridgeForWindow(options.parentOrigin)
   const layout = new DesktopLayoutState()
   const localProjects = new LocalProjectsState()
   ctx.effect(() => {
@@ -60,8 +66,8 @@ export function applyAdvancedShell(
   }, 'desktop: layout service + advanced root slot')
 }
 
-function desktopBridgeForWindow(): DesktopBridgeLike {
-  if (window.parent !== window) return createDesktopBridge()
+function desktopBridgeForWindow(targetOrigin?: string): DesktopBridgeLike {
+  if (window.parent !== window) return createDesktopBridge({ targetOrigin })
   return {
     request: () => Promise.reject(new Error('桌面桥仅在受管工作台中可用')),
     dispose: () => undefined,

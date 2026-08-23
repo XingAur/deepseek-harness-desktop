@@ -18,8 +18,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  MANAGED_RUNTIME_VERSION: 0.1.8-preview
-  DSH_DESKTOP_RUNTIME_MANIFEST_URL: https://github.com/${{ github.repository }}/releases/download/runtime-v0.1.8-preview/runtime-{target}.json
+  MANAGED_RUNTIME_VERSION: 0.1.9-preview
+  DSH_DESKTOP_RUNTIME_MANIFEST_URL: https://github.com/${{ github.repository }}/releases/download/runtime-v0.1.9-preview/runtime-{target}.json
 
 jobs:
   desktop:
@@ -42,9 +42,11 @@ jobs:
             tauri_args: '--target aarch64-apple-darwin'
     runs-on: ${{ matrix.runner }}
     env:
-      DSH_DESKTOP_SIGNING_PUBLIC_KEY: ${{ startsWith(github.ref, 'refs/tags/') && secrets.DSH_DESKTOP_SIGNING_PUBLIC_KEY || 'cmFlmJvjXIrMN8AbIXxF2c6Gnpt9rDFd_Zhbl0U7AlI' }}
-      DSH_DESKTOP_SIGNING_PRIVATE_KEY: ${{ startsWith(github.ref, 'refs/tags/') && secrets.DSH_DESKTOP_SIGNING_PRIVATE_KEY || 'wbAbExHsjryIT22fTuRA3W61tJdaXFC7YxoAeN9uKnQ' }}
-      DSH_DESKTOP_RELEASE_PUBLIC_KEY: ${{ startsWith(github.ref, 'refs/tags/') && secrets.DSH_DESKTOP_SIGNING_PUBLIC_KEY || 'cmFlmJvjXIrMN8AbIXxF2c6Gnpt9rDFd_Zhbl0U7AlI' }}
+      # Runtime v0.1.9-preview is immutable; every build must use the same
+      # Runtime key pair so reused manifests remain verifiable.
+      DSH_DESKTOP_SIGNING_PUBLIC_KEY: ${{ secrets.DSH_DESKTOP_SIGNING_PUBLIC_KEY || 'cmFlmJvjXIrMN8AbIXxF2c6Gnpt9rDFd_Zhbl0U7AlI' }}
+      DSH_DESKTOP_SIGNING_PRIVATE_KEY: ${{ secrets.DSH_DESKTOP_SIGNING_PRIVATE_KEY || '' }}
+      DSH_DESKTOP_RELEASE_PUBLIC_KEY: ${{ secrets.DSH_DESKTOP_SIGNING_PUBLIC_KEY || 'cmFlmJvjXIrMN8AbIXxF2c6Gnpt9rDFd_Zhbl0U7AlI' }}
       TAURI_RELEASE_CONFIG_ARGS: ${{ startsWith(github.ref, 'refs/tags/') && '--config src-tauri/tauri.release.conf.json' || '' }}
       APPLE_SIGNING_CONFIGURED: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.APPLE_SIGNING_IDENTITY != '' }}
     steps:
@@ -167,6 +169,15 @@ jobs:
           test -s "$RUNTIME_DIR/$ARCHIVE_NAME"
           cp "$RUNTIME_DIR/$ARCHIVE_NAME" "runtime/$ARCHIVE_NAME"
 
+      - name: Verify Runtime manifest
+        shell: bash
+        run: |
+          node scripts/verify-runtime-manifest.mjs \
+            "runtime/manifests/runtime-${{ matrix.runtime_target }}.json" \
+            "runtime/dsh-runtime-${{ matrix.runtime_target }}.${{ matrix.runtime_extension }}" \
+            "${{ matrix.runtime_target }}" \
+            "${MANAGED_RUNTIME_VERSION}"
+
       - name: Prepare Windows installer config
         if: runner.os == 'Windows'
         run: node scripts/windows-installer.mjs --prepare-config
@@ -186,11 +197,8 @@ jobs:
           releaseDraft: true
           prerelease: false
           retryAttempts: 3
-          uploadUpdaterJson: true
+          includeUpdaterJson: true
           updaterJsonPreferNsis: true
-          uploadUpdaterSignatures: true
-          uploadWorkflowArtifacts: true
-          workflowArtifactNamePattern: desktop-[platform]-[arch]-[bundle]
 
       - name: Build signed Tauri installer
         if: runner.os == 'macOS' && env.APPLE_SIGNING_CONFIGURED == 'true'
@@ -213,11 +221,8 @@ jobs:
           releaseDraft: true
           prerelease: false
           retryAttempts: 3
-          uploadUpdaterJson: true
+          includeUpdaterJson: true
           updaterJsonPreferNsis: true
-          uploadUpdaterSignatures: true
-          uploadWorkflowArtifacts: true
-          workflowArtifactNamePattern: desktop-[platform]-[arch]-[bundle]
 
       - name: Upload Windows installer
         if: runner.os == 'Windows'

@@ -234,6 +234,7 @@ describe('App', () => {
 
     const frame = await screen.findByTitle('DeepSeek Harness 工作台')
     expect(frame).toHaveAttribute('src', expect.stringContaining('127.0.0.1:39000'))
+    expect(new URL(frame.getAttribute('src') ?? '').searchParams.get('dsh-desktop-parent-origin')).toBe(window.location.origin)
     // 官方 UI 的复制按钮依赖 clipboard-write 被委托进跨源 iframe。
     expect(frame).toHaveAttribute('allow', 'clipboard-write')
   })
