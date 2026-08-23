@@ -4,6 +4,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 use flate2::read::GzDecoder;
 
 use super::{
@@ -178,20 +181,36 @@ fn extract_tar_gz(
         let mut entry = entry
             .map_err(|cause| RuntimeFailure::new(RuntimeFailureCode::Archive, cause.to_string()))?;
         let kind = entry.header().entry_type();
+        let mode = entry.header().mode().map_err(RuntimeFailure::internal)?;
         let path = entry.path().map_err(RuntimeFailure::internal)?;
         let output = confined_destination(destination, &path)?;
         if kind.is_dir() {
-            fs::create_dir_all(output).map_err(RuntimeFailure::internal)?;
+            fs::create_dir_all(&output).map_err(RuntimeFailure::internal)?;
+            restore_permissions(&output, mode)?;
         } else {
             if let Some(parent) = output.parent() {
                 fs::create_dir_all(parent).map_err(RuntimeFailure::internal)?;
             }
-            let mut target = File::create(output).map_err(RuntimeFailure::internal)?;
+            let mut target = File::create(&output).map_err(RuntimeFailure::internal)?;
             copy_with_progress(&mut entry, &mut target, &mut completed, total, progress)?;
             target.flush().map_err(RuntimeFailure::internal)?;
+            restore_permissions(&output, mode)?;
         }
     }
     progress(total, total);
+    Ok(())
+}
+
+fn restore_permissions(path: &Path, mode: u32) -> Result<(), RuntimeFailure> {
+    #[cfg(unix)]
+    {
+        fs::set_permissions(path, fs::Permissions::from_mode(mode & 0o7777))
+            .map_err(RuntimeFailure::internal)?;
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, mode);
+    }
     Ok(())
 }
 
@@ -278,10 +297,41 @@ mod tests {
         assert_progress(events.into_inner().unwrap(), 9);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn restores_tar_file_execute_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temporary = tempfile::tempdir().unwrap();
+        let archive = temporary.path().join("runtime.tar.gz");
+        let destination = temporary.path().join("output");
+        let encoder = GzEncoder::new(File::create(&archive).unwrap(), Compression::default());
+        let mut builder = tar::Builder::new(encoder);
+        append_tar_file_with_mode(&mut builder, "bin/node", b"node", 0o755);
+        builder.into_inner().unwrap().finish().unwrap();
+
+        extract_archive(&archive, &destination, ArchiveKind::TarGz).unwrap();
+
+        let mode = fs::metadata(destination.join("bin/node"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o111, 0o111);
+    }
+
     fn append_tar_file(builder: &mut tar::Builder<GzEncoder<File>>, path: &str, contents: &[u8]) {
+        append_tar_file_with_mode(builder, path, contents, 0o644);
+    }
+
+    fn append_tar_file_with_mode(
+        builder: &mut tar::Builder<GzEncoder<File>>,
+        path: &str,
+        contents: &[u8],
+        mode: u32,
+    ) {
         let mut header = tar::Header::new_gnu();
         header.set_size(contents.len() as u64);
-        header.set_mode(0o644);
+        header.set_mode(mode);
         header.set_cksum();
         builder.append_data(&mut header, path, contents).unwrap();
     }
