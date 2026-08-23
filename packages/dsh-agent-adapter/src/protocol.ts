@@ -1,4 +1,5 @@
 export const PROTOCOL_VERSION = 'dsh-agent-adapter/v1'
+export type AgentAdapterProtocolVersion = typeof PROTOCOL_VERSION
 export const CONTROL_FRAME_MAX_BYTES = 32 * 1024
 
 const identifier = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
@@ -51,7 +52,7 @@ export interface ExtensionDescriptor {
 }
 
 interface FrameBase {
-  protocolVersion: typeof PROTOCOL_VERSION
+  protocolVersion: AgentAdapterProtocolVersion
   requestId: string
   sessionId: string
   sequence: number
@@ -65,6 +66,7 @@ export type AgentEvent = FrameBase & { type: AgentEventType }
 export type ProtocolFrame = AdapterRequest | AdapterResponse | AgentEvent
 
 export function decodeProtocolFrame(serialized: string): ProtocolFrame {
+  if (Buffer.byteLength(serialized, 'utf8') > CONTROL_FRAME_MAX_BYTES) throw new Error('Protocol frame exceeds 32 KiB')
   let value: unknown
   try {
     value = JSON.parse(serialized)
@@ -178,7 +180,11 @@ function asRecord(value: unknown, label: string): Record<string, unknown> {
 }
 
 function assertIdentifier(value: unknown, field: string): void {
-  if (typeof value !== 'string' || !identifier.test(value)) throw new Error(`Protocol ${field} is invalid`)
+  if (!isProtocolIdentifier(value)) throw new Error(`Protocol ${field} is invalid`)
+}
+
+export function isProtocolIdentifier(value: unknown): value is string {
+  return typeof value === 'string' && identifier.test(value)
 }
 
 function assertExactKeys(value: Record<string, unknown>, expected: string[], label: string): void {

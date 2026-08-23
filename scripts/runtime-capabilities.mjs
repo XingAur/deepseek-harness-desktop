@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { existsSync, readFileSync, statSync } from 'node:fs'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const CAPABILITY_REPORT_SCHEMA_VERSION = 1
@@ -15,14 +15,36 @@ const optionalCapabilities = Object.freeze([
   ['mcp', '@deepseek-ai/dsh-mcp-client'],
 ])
 
+const cliEntrypoints = Object.freeze({ bin: 'lib/bin.js' })
+const baseBundleEntrypoints = Object.freeze({
+  '.': { default: './lib/index.js', types: './lib/types/index.d.ts' },
+  './invariant': { default: './lib/invariant.js', types: './lib/types/invariant.d.ts' },
+  './cordis.patch.yml': './cordis.patch.yml',
+  './package.json': './package.json',
+})
+const optionalBundleEntrypoints = Object.freeze({
+  '.': { default: './lib/index.js', types: './lib/types/index.d.ts' },
+  './invariant': { default: './lib/invariant.js', types: './lib/types/invariant.d.ts' },
+  './package.json': './package.json',
+})
+const packageContracts = Object.freeze({
+  '@deepseek-ai/dsh': { entrypoints: cliEntrypoints, noExports: true, required: true, dshVersion: true },
+  '@deepseek-ai/dsh-base': { entrypoints: baseBundleEntrypoints, bundle: true, required: true, dshVersion: true },
+  '@deepseek-ai/dsh-web-app': { entrypoints: { ...baseBundleEntrypoints, './startup': { default: './lib/startup.js', types: './lib/types/startup.d.ts' } }, bundle: true, required: true, dshVersion: true },
+  '@dsh/desktop-plugin': { entrypoints: { '.': './lib/index.js', './client': './lib/client.js', './package.json': './package.json' }, bundle: true, required: true },
+  '@deepseek-ai/dsh-llm-pi-ai': { entrypoints: optionalBundleEntrypoints, dshVersion: true },
+  '@deepseek-ai/dsh-skill': { entrypoints: optionalBundleEntrypoints, dshVersion: true },
+  '@deepseek-ai/dsh-mcp-client': { entrypoints: optionalBundleEntrypoints, dshVersion: true },
+})
+
 export function inspectRuntimeCapabilities(runtimeRoot, { dshVersion, desktopPluginVersion }) {
-  const packages = [
-    inspectCli(runtimeRoot, dshVersion),
-    inspectBundle(runtimeRoot, '@deepseek-ai/dsh-base', dshVersion, bundleEntrypoints()),
-    inspectBundle(runtimeRoot, '@deepseek-ai/dsh-web-app', dshVersion, bundleEntrypoints({ './startup': { default: './lib/startup.js', types: './lib/types/startup.d.ts' } })),
-    inspectBundle(runtimeRoot, '@dsh/desktop-plugin', desktopPluginVersion, { '.': './lib/index.js', './client': './lib/client.js', './package.json': './package.json' }),
-    ...optionalCapabilities.map(([, name]) => inspectPackage(runtimeRoot, name, dshVersion, optionalEntrypoints())),
-  ]
+  const packages = Object.entries(packageContracts).map(([name, contract]) => inspectPackage(
+    runtimeRoot,
+    name,
+    contract.dshVersion ? dshVersion : desktopPluginVersion,
+    contract.entrypoints,
+    { noExports: contract.noExports, bundle: contract.bundle },
+  ))
   const byName = new Map(packages.map((record) => [record.name, record]))
   const profileBundles = PROFILE_BUNDLES.every((name) => byName.get(name)?.status === 'compatible') ? [...PROFILE_BUNDLES] : undefined
   return {
@@ -34,20 +56,34 @@ export function inspectRuntimeCapabilities(runtimeRoot, { dshVersion, desktopPlu
 }
 
 export function assertRuntimeCapabilities(report) {
-  const required = ['@deepseek-ai/dsh', ...PROFILE_BUNDLES]
-  const packages = Array.isArray(report?.packages) ? report.packages : []
-  const incompatible = required.map((name) => ({ name, record: packages.find((record) => record.name === name) })).find(({ record }) => record?.status !== 'compatible')
-  if (incompatible) throw new Error(`Runtime capability compatibility failed: ${incompatible.name}; ${incompatible.record?.reason ?? 'missing compatible capability record'}`)
+  if (report?.schemaVersion !== CAPABILITY_REPORT_SCHEMA_VERSION) throw new Error('Runtime capability compatibility failed: capability report schema version is invalid')
+  const packages = Array.isArray(report.packages) ? report.packages : []
+  const records = new Map()
+  if (packages.length !== Object.keys(packageContracts).length) throw new Error('Runtime capability compatibility failed: capability package records are incomplete')
+  for (const record of packages) {
+    if (!isRecord(record) || typeof record.name !== 'string' || !packageContracts[record.name] || records.has(record.name)) {
+      throw new Error('Runtime capability compatibility failed: capability package records are malformed or duplicated')
+    }
+    records.set(record.name, record)
+  }
+  const dshVersion = records.get('@deepseek-ai/dsh')?.observedVersion
+  if (!isVersion(dshVersion)) throw new Error('Runtime capability compatibility failed: DSH observed version is invalid')
+  for (const [name, contract] of Object.entries(packageContracts)) {
+    const record = records.get(name)
+    if (!record || !['compatible', 'missing', 'incompatible'].includes(record.status)) throw new Error(`Runtime capability compatibility failed: ${name}; capability record is invalid`)
+    if (contract.required && record.status !== 'compatible') throw new Error(`Runtime capability compatibility failed: ${name}; ${record.reason ?? 'missing compatible capability record'}`)
+    if (record.status === 'compatible') {
+      if (!isVersion(record.observedVersion)) throw new Error(`Runtime capability compatibility failed: ${name}; observed version is invalid`)
+      if (contract.dshVersion && record.observedVersion !== dshVersion) throw new Error(`Runtime capability compatibility failed: ${name}; observed version does not match DSH`)
+      if (!sameValue(record.entrypoints, contract.entrypoints)) throw new Error(`Runtime capability compatibility failed: ${name}; validated entrypoints are invalid`)
+      if (contract.bundle && record.bundlePatch !== './cordis.patch.yml') throw new Error(`Runtime capability compatibility failed: ${name}; validated bundle patch is invalid`)
+    } else if (!sameValue(record.entrypoints, {}) || typeof record.reason !== 'string' || !record.reason) {
+      throw new Error(`Runtime capability compatibility failed: ${name}; incompatible capability record is malformed`)
+    }
+  }
+  assertCapabilityRecords(report.capabilities, records)
   if (!sameBundles(report.profileBundles, PROFILE_BUNDLES)) throw new Error('Runtime capability compatibility failed: exact desktop profile bundles are unavailable')
   return report
-}
-
-function inspectCli(runtimeRoot, expectedVersion) {
-  return inspectPackage(runtimeRoot, '@deepseek-ai/dsh', expectedVersion, { bin: 'lib/bin.js' }, { noExports: true })
-}
-
-function inspectBundle(runtimeRoot, name, expectedVersion, entrypoints) {
-  return inspectPackage(runtimeRoot, name, expectedVersion, entrypoints, { bundle: true })
 }
 
 function inspectPackage(runtimeRoot, name, expectedVersion, entrypoints, options = {}) {
@@ -85,31 +121,38 @@ function inspectPackage(runtimeRoot, name, expectedVersion, entrypoints, options
   return record(name, observedVersion, 'compatible', entrypoints, bundlePatch)
 }
 
-function bundleEntrypoints(extra = {}) {
-  return {
-    '.': { default: './lib/index.js', types: './lib/types/index.d.ts' },
-    './invariant': { default: './lib/invariant.js', types: './lib/types/invariant.d.ts' },
-    './cordis.patch.yml': './cordis.patch.yml',
-    './package.json': './package.json',
-    ...extra,
-  }
-}
-
-function optionalEntrypoints() {
-  const entries = bundleEntrypoints()
-  delete entries['./cordis.patch.yml']
-  return entries
-}
-
 function entrypointPaths(value) {
   return typeof value === 'string' ? [value] : Object.values(value)
 }
 
-function isFileWithin(directory, relativePath) {
-  if (relativePath === './package.json') return existsSync(resolve(directory, 'package.json'))
+function assertCapabilityRecords(capabilities, records) {
+  if (!isRecord(capabilities) || Object.keys(capabilities).length !== optionalCapabilities.length) throw new Error('Runtime capability compatibility failed: capability records are invalid')
+  for (const [capability, name] of optionalCapabilities) {
+    const value = capabilities[capability]
+    if (!isRecord(value) || value.package !== name || value.available !== (records.get(name).status === 'compatible')) {
+      throw new Error(`Runtime capability compatibility failed: ${capability} capability record is invalid`)
+    }
+  }
+}
+
+function isVersion(value) {
+  return typeof value === 'string' && value.length > 0
+}
+
+function isRecord(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+export function isFileWithin(directory, relativePath, { pathImplementation = { resolve, relative, isAbsolute, sep }, statSync: inspectStatSync = statSync } = {}) {
   if (typeof relativePath !== 'string') return false
-  const target = resolve(directory, relativePath)
-  return target.startsWith(`${directory}/`) && existsSync(target)
+  const target = pathImplementation.resolve(directory, relativePath)
+  const targetRelative = pathImplementation.relative(directory, target)
+  if (targetRelative === '..' || targetRelative.startsWith(`..${pathImplementation.sep}`) || pathImplementation.isAbsolute(targetRelative)) return false
+  try {
+    return inspectStatSync(target).isFile()
+  } catch {
+    return false
+  }
 }
 
 function record(name, observedVersion, status, entrypoints, bundlePatch, reason) {

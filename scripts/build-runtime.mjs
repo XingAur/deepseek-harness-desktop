@@ -6,7 +6,7 @@ import { materializeRuntimeLinks } from './materialize-runtime-links.mjs'
 import { assertRuntimePeerDependencies, runtimePeerDependencies } from './runtime-peer-dependencies.mjs'
 import { loadReleaseVersions } from './release-versions.mjs'
 import { writeUnsignedRuntimeManifest } from './runtime-release-manifest.mjs'
-import { assertRuntimeCapabilities, inspectRuntimeCapabilities } from './runtime-capabilities.mjs'
+import { inspectAssembledRuntimeCapabilities } from './runtime-build-capabilities.mjs'
 
 const versions = loadReleaseVersions()
 const NODE_VERSION = versions.nodeVersion
@@ -73,7 +73,7 @@ if (!reusedDependencies) {
   replaceCachedDesktopPlugin(appDir, pluginTarball, output)
 }
 assertRuntimePeerDependencies(appDir)
-const runtimeCapabilities = assertRuntimeCapabilities(inspectRuntimeCapabilities(join(appDir, 'node_modules'), {
+const runtimeCapabilities = inspectAssembledRuntimeCapabilities(appDir, {
   dshVersion: DSH_VERSION,
   desktopPluginVersion,
 }))

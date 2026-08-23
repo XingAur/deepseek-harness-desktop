@@ -4,9 +4,16 @@
   "private": true,
   "type": "module",
   "main": "lib/protocol.js",
+  "types": "lib/types/protocol.d.ts",
   "exports": {
-    ".": "./lib/protocol.js",
-    "./worker": "./lib/worker.js"
+    ".": {
+      "types": "./lib/types/protocol.d.ts",
+      "default": "./lib/protocol.js"
+    },
+    "./worker": {
+      "types": "./lib/types/worker.d.ts",
+      "default": "./lib/worker.js"
+    }
   },
   "files": ["lib/**"],
   "scripts": {

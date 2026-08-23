@@ -1,9 +1,9 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, win32 } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { DESKTOP_BUNDLES } from './desktop-profile.mjs'
-import { inspectRuntimeCapabilities } from './runtime-capabilities.mjs'
+import { inspectRuntimeCapabilities, isFileWithin } from './runtime-capabilities.mjs'
 
 const dshVersion = '0.1.1-rc.2'
 const desktopPluginVersion = '0.3.2'
@@ -128,5 +128,15 @@ describe('inspectRuntimeCapabilities', () => {
 
     expect(report.profileBundles).toEqual(DESKTOP_BUNDLES)
     expect(report.profileBundles).not.toContain('@deepseek-ai/dsh-skill')
+  })
+
+  it('uses platform-safe relative containment and requires a regular file for entrypoints', () => {
+    const directory = 'C:\\runtime\\app\\node_modules\\@deepseek-ai\\dsh-base'
+    const files = new Set(['C:\\runtime\\app\\node_modules\\@deepseek-ai\\dsh-base\\lib\\index.js'])
+    const stat = (path: string) => ({ isFile: () => files.has(path) })
+
+    expect(isFileWithin(directory, './lib/index.js', { pathImplementation: win32, statSync: stat })).toBe(true)
+    expect(isFileWithin(directory, '..\\outside.js', { pathImplementation: win32, statSync: stat })).toBe(false)
+    expect(isFileWithin(directory, './lib', { pathImplementation: win32, statSync: stat })).toBe(false)
   })
 })
