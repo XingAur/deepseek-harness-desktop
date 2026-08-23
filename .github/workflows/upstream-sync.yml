@@ -103,28 +103,11 @@ jobs:
           echo "previous_dsh_version=${PREVIOUS_DSH_VERSION}" >> "${GITHUB_OUTPUT}"
           echo "dsh_version=${DSH_VERSION}" >> "${GITHUB_OUTPUT}"
 
-      - name: Install Tauri Linux system dependencies
-        if: steps.prepare.outputs.action == 'upgrade'
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
-            libwebkit2gtk-4.1-dev \
-            build-essential \
-            curl \
-            wget \
-            file \
-            libxdo-dev \
-            libssl-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev
-
       - name: Verify prepared source before publishing refs
         if: steps.prepare.outputs.action == 'upgrade'
         run: |
           npm run release:versions:check
           npm run check
-          cargo test --manifest-path src-tauri/Cargo.toml --locked
 
       - name: Stage exact derived version files
         if: steps.prepare.outputs.action == 'upgrade'
@@ -161,9 +144,48 @@ jobs:
           fi
           echo "release_tag=${RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
 
-  publish_refs:
+  verify_supported_platform:
     needs: prepare
-    if: needs.prepare.outputs.state_status == 'pending-tag' || needs.prepare.outputs.prepare_action == 'upgrade'
+    if: needs.prepare.outputs.prepare_action == 'upgrade'
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: prepared-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: prepared-release
+
+      - name: Apply exact prepared version files
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp prepared-release/package.json package.json
+          cp prepared-release/package-lock.json package-lock.json
+          cp prepared-release/release/versions.json release/versions.json
+          cp prepared-release/src-tauri/tauri.conf.json src-tauri/tauri.conf.json
+          cp prepared-release/src-tauri/Cargo.toml src-tauri/Cargo.toml
+          cp prepared-release/src-tauri/Cargo.lock src-tauri/Cargo.lock
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Verify prepared Rust source on a supported platform
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+
+  publish_refs:
+    needs: [prepare, verify_supported_platform]
+    if: >-
+      always() &&
+      needs.prepare.result == 'success' &&
+      (needs.verify_supported_platform.result == 'success' || needs.verify_supported_platform.result == 'skipped') &&
+      (needs.prepare.outputs.state_status == 'pending-tag' || needs.prepare.outputs.prepare_action == 'upgrade')
     runs-on: ubuntu-latest
     permissions:
       contents: write
