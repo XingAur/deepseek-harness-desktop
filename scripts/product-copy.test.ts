@@ -250,6 +250,19 @@ describe('product copy', () => {
     expect(release).not.toContain('gh release upload "${{ github.ref_name }}"')
   })
 
+  it('reuses existing immutable Runtime assets before rebuilding them', () => {
+    const workflow = readFileSync('.github/workflows/desktop.yml', 'utf8')
+    const runtimePreparation = workflow.slice(
+      workflow.indexOf('- name: Assemble managed Runtime'),
+      workflow.indexOf('- name: Prepare Windows installer config'),
+    )
+
+    expect(runtimePreparation).toContain('gh release view "$RUNTIME_TAG"')
+    expect(runtimePreparation).toContain('gh release download "$RUNTIME_TAG"')
+    expect(runtimePreparation).toContain('touch "$RUNTIME_DIR/.managed-runtime-reused"')
+    expect(runtimePreparation).toContain('if test -f "$RUNTIME_DIR/.managed-runtime-reused"')
+  })
+
   it('can publish managed Runtime assets from a manually dispatched build', () => {
     const workflow = readFileSync('.github/workflows/desktop.yml', 'utf8')
     const release = workflow.slice(workflow.indexOf('  release:'))
@@ -260,7 +273,7 @@ describe('product copy', () => {
   })
 
   it('keeps the desktop release version aligned across package manifests', () => {
-    const expectedVersion = '0.1.4'
+    const expectedVersion = '0.1.5'
     const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }
     const packageLock = readFileSync('package-lock.json', 'utf8')
     const tauriConfig = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8')) as { version: string }

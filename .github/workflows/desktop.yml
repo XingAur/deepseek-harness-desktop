@@ -122,22 +122,47 @@ jobs:
 
       - name: Assemble managed Runtime
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          node scripts/build-runtime.mjs \
-            --target=${{ matrix.runtime_target }} \
-            --version="${MANAGED_RUNTIME_VERSION}" \
-            --url=https://github.com/${{ github.repository }}/releases/download/runtime-v${MANAGED_RUNTIME_VERSION}/dsh-runtime-${{ matrix.runtime_target }}.${{ matrix.runtime_extension }}
+          set -euo pipefail
+          RUNTIME_TAG="runtime-v${MANAGED_RUNTIME_VERSION}"
+          RUNTIME_DIR="runtime-build/${{ matrix.runtime_target }}"
+          ARCHIVE_NAME="dsh-runtime-${{ matrix.runtime_target }}.${{ matrix.runtime_extension }}"
+          MANIFEST_NAME="runtime-${{ matrix.runtime_target }}.json"
+          if gh release view "$RUNTIME_TAG" \
+            --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            mkdir -p "$RUNTIME_DIR"
+            gh release download "$RUNTIME_TAG" \
+              --repo "${{ github.repository }}" \
+              --pattern "$ARCHIVE_NAME" \
+              --pattern "$MANIFEST_NAME" \
+              --dir "$RUNTIME_DIR"
+            test -s "$RUNTIME_DIR/$ARCHIVE_NAME"
+            test -s "$RUNTIME_DIR/$MANIFEST_NAME"
+            touch "$RUNTIME_DIR/.managed-runtime-reused"
+            echo "Reusing immutable Runtime assets from $RUNTIME_TAG."
+          else
+            node scripts/build-runtime.mjs \
+              --target=${{ matrix.runtime_target }} \
+              --version="${MANAGED_RUNTIME_VERSION}" \
+              --url=https://github.com/${{ github.repository }}/releases/download/runtime-v${MANAGED_RUNTIME_VERSION}/dsh-runtime-${{ matrix.runtime_target }}.${{ matrix.runtime_extension }}
+          fi
 
       - name: Sign and stage Runtime manifest
         shell: bash
         run: |
           mkdir -p runtime/manifests
-          node scripts/sign-manifest.mjs \
-            runtime-build/${{ matrix.runtime_target }}/manifest-${{ matrix.runtime_target }}.unsigned.json \
-            runtime-build/${{ matrix.runtime_target }}/runtime-${{ matrix.runtime_target }}.json
-          cp \
-            runtime-build/${{ matrix.runtime_target }}/runtime-${{ matrix.runtime_target }}.json \
-            runtime/manifests/runtime-${{ matrix.runtime_target }}.json
+          RUNTIME_DIR="runtime-build/${{ matrix.runtime_target }}"
+          MANIFEST_NAME="runtime-${{ matrix.runtime_target }}.json"
+          if test -f "$RUNTIME_DIR/.managed-runtime-reused"; then
+            cp "$RUNTIME_DIR/$MANIFEST_NAME" "runtime/manifests/$MANIFEST_NAME"
+          else
+            node scripts/sign-manifest.mjs \
+              "$RUNTIME_DIR/manifest-${{ matrix.runtime_target }}.unsigned.json" \
+              "$RUNTIME_DIR/$MANIFEST_NAME"
+            cp "$RUNTIME_DIR/$MANIFEST_NAME" "runtime/manifests/$MANIFEST_NAME"
+          fi
 
       - name: Prepare Windows installer config
         if: runner.os == 'Windows'
