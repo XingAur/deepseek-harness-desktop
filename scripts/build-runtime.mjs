@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { materializeRuntimeLinks } from './materialize-runtime-links.mjs'
 import { assertRuntimePeerDependencies, runtimePeerDependencies } from './runtime-peer-dependencies.mjs'
 
 const NODE_VERSION = '24.14.0'
@@ -69,6 +70,7 @@ if (!reusedDependencies) {
 assertRuntimePeerDependencies(appDir)
 writeLauncher(appDir, desktopPluginVersion, desktopPluginSha256, args.version || '0.1.0')
 writePnpmShim(stage, target)
+materializeRuntimeLinks(stage, output)
 
 const archive = join(output, target === 'windows-x86_64' ? `dsh-runtime-${target}.zip` : `dsh-runtime-${target}.tar.gz`)
 if (target === 'windows-x86_64') run(tarExecutable, ['-a', '-cf', archive, '.'], { cwd: stage })

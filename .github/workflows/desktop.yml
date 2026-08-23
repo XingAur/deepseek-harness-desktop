@@ -18,8 +18,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  MANAGED_RUNTIME_VERSION: 0.1.6-preview
-  DSH_DESKTOP_RUNTIME_MANIFEST_URL: https://github.com/${{ github.repository }}/releases/download/runtime-v0.1.6-preview/runtime-{target}.json
+  MANAGED_RUNTIME_VERSION: 0.1.7-preview
+  DSH_DESKTOP_RUNTIME_MANIFEST_URL: https://github.com/${{ github.repository }}/releases/download/runtime-v0.1.7-preview/runtime-{target}.json
 
 jobs:
   desktop:

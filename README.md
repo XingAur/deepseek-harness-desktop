@@ -177,7 +177,7 @@ DSH_DESKTOP_RUNTIME_MANIFEST_URL=<manifest-url> npm run tauri dev
 ### Runtime 组装与签名
 
 ```bash
-npm run runtime:build -- --target=windows-x86_64 --version=0.1.6-preview --url=https://github.com/XingAur/deepseek-harness-desktop/releases/download/runtime-v0.1.6-preview/dsh-runtime-windows-x86_64.zip
+npm run runtime:build -- --target=windows-x86_64 --version=0.1.7-preview --url=https://github.com/XingAur/deepseek-harness-desktop/releases/download/runtime-v0.1.7-preview/dsh-runtime-windows-x86_64.zip
 
 node scripts/sign-manifest.mjs \
   runtime-build/windows-x86_64/manifest-windows-x86_64.unsigned.json \
@@ -197,7 +197,7 @@ node scripts/sign-manifest.mjs \
 
 ```bash
 export DSH_DESKTOP_RELEASE_PUBLIC_KEY='<Ed25519 raw public JWK x>'
-export DSH_DESKTOP_RUNTIME_MANIFEST_URL='https://github.com/XingAur/deepseek-harness-desktop/releases/download/runtime-v0.1.6-preview/runtime-{target}.json'
+export DSH_DESKTOP_RUNTIME_MANIFEST_URL='https://github.com/XingAur/deepseek-harness-desktop/releases/download/runtime-v0.1.7-preview/runtime-{target}.json'
 npm run installer:windows
 ```
 
