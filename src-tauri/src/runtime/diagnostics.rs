@@ -161,6 +161,7 @@ mod tests {
         let paths = RuntimePaths {
             versions: root.join("runtime/versions"),
             downloads: root.join("runtime/downloads"),
+            user_downloads: root.join("Downloads"),
             current: root.join("runtime/current.json"),
             bundled_runtime: root.join("bundled-runtime"),
             logs,

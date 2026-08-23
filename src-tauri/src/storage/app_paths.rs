@@ -20,6 +20,7 @@ pub struct AppPaths {
     pub provisioning_candidates: PathBuf,
     pub provisioning_prepared: PathBuf,
     pub provisioning_receipt: PathBuf,
+    pub user_downloads: PathBuf,
 }
 
 impl AppPaths {
@@ -40,7 +41,13 @@ impl AppPaths {
             .path()
             .resource_dir()
             .map_err(RuntimeFailure::internal)?;
-        Ok(Self::from_roots(stable_root, resource_root))
+        let user_downloads = app
+            .path()
+            .download_dir()
+            .map_err(RuntimeFailure::internal)?;
+        let mut paths = Self::from_roots(stable_root, resource_root);
+        paths.user_downloads = user_downloads;
+        Ok(paths)
     }
 
     pub fn from_roots(stable_root: PathBuf, resource_root: PathBuf) -> Self {
@@ -51,6 +58,20 @@ impl AppPaths {
         stable_root: PathBuf,
         active_root: PathBuf,
         resource_root: PathBuf,
+    ) -> Self {
+        Self::with_active_root_and_downloads(
+            stable_root.clone(),
+            active_root,
+            resource_root,
+            stable_root.join("Downloads"),
+        )
+    }
+
+    pub fn with_active_root_and_downloads(
+        stable_root: PathBuf,
+        active_root: PathBuf,
+        resource_root: PathBuf,
+        user_downloads: PathBuf,
     ) -> Self {
         let state = active_root.join("state");
         let runtime = active_root.join("runtime");
@@ -69,6 +90,7 @@ impl AppPaths {
             bundled_runtime: resource_root.join("runtime"),
             stable_root,
             active_root,
+            user_downloads,
         }
     }
 

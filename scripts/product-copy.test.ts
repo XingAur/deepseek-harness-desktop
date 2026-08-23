@@ -260,7 +260,7 @@ describe('product copy', () => {
   })
 
   it('keeps the desktop release version aligned across package manifests', () => {
-    const expectedVersion = '0.1.3'
+    const expectedVersion = '0.1.4'
     const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }
     const packageLock = readFileSync('package-lock.json', 'utf8')
     const tauriConfig = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8')) as { version: string }

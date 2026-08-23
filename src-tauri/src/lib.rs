@@ -104,10 +104,11 @@ impl DesktopFoundation {
             [] => (stable_paths, FoundationBootstrapState::Ready),
             [candidate] => match migration.plan(&candidate.source) {
                 Ok(_) => (
-                    AppPaths::with_active_root(
+                    AppPaths::with_active_root_and_downloads(
                         stable_paths.stable_root.clone(),
                         candidate.source.clone(),
                         resource_root,
+                        stable_paths.user_downloads.clone(),
                     ),
                     FoundationBootstrapState::MigrationRequired(candidate.clone()),
                 ),

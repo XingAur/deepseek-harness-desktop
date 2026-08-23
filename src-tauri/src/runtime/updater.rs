@@ -300,7 +300,7 @@ impl RuntimeUpdater {
                     message: "正在下载运行组件".into(),
                 });
                 let download_progress = Arc::clone(&progress);
-                download_runtime(
+                self.download_archive(
                     &self.client,
                     &manifest,
                     &archive,
@@ -442,7 +442,7 @@ impl RuntimeUpdater {
         let (archive, remove_archive_after_prepare) = match self.archive_source {
             CandidateArchiveSource::Download => {
                 let archive = provisioning_archive_path(&downloads, session, &manifest);
-                download_runtime(
+                self.download_archive(
                     &self.client,
                     &manifest,
                     &archive,
@@ -560,6 +560,50 @@ impl RuntimeUpdater {
             probe_contract_version: 0,
             prepared_at: Utc::now(),
         })
+    }
+
+    async fn download_archive<F>(
+        &self,
+        client: &reqwest::Client,
+        manifest: &RuntimeManifest,
+        destination: &Path,
+        cancellation: &CancellationToken,
+        progress: F,
+    ) -> Result<(), RuntimeFailure>
+    where
+        F: FnMut(u64, u64) + Send,
+    {
+        let Some(source) = self.user_download_archive(manifest).await? else {
+            return download_runtime(client, manifest, destination, cancellation, progress).await;
+        };
+
+        let mut local_manifest = manifest.clone();
+        local_manifest.url = url::Url::from_file_path(source).map_err(|_| {
+            RuntimeFailure::new(
+                RuntimeFailureCode::Network,
+                "下载文件夹中的 Runtime 路径无效",
+            )
+        })?;
+        download_runtime(client, &local_manifest, destination, cancellation, progress).await
+    }
+
+    async fn user_download_archive(
+        &self,
+        manifest: &RuntimeManifest,
+    ) -> Result<Option<PathBuf>, RuntimeFailure> {
+        let path = self
+            .paths
+            .user_downloads
+            .join(bundled_archive_name(manifest.target, manifest.archive));
+        match tokio::fs::metadata(&path).await {
+            Ok(metadata) if metadata.is_file() && metadata.len() == manifest.size => Ok(Some(path)),
+            Ok(_) => Ok(None),
+            Err(cause) if cause.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(cause) => Err(RuntimeFailure::new(
+                RuntimeFailureCode::Archive,
+                format!("读取下载文件夹中的 Runtime 失败：{cause}"),
+            )),
+        }
     }
 
     pub fn activate_candidate(
@@ -1098,6 +1142,7 @@ mod tests {
             let paths = RuntimePaths {
                 versions: root.join("runtime/versions"),
                 downloads: root.join("runtime/downloads"),
+                user_downloads: root.join("Downloads"),
                 logs: root.join("logs"),
                 diagnostics: root.join("diagnostics"),
                 current: root.join("runtime/current.json"),
@@ -1106,6 +1151,7 @@ mod tests {
             };
             std::fs::create_dir_all(&paths.versions).unwrap();
             std::fs::create_dir_all(&paths.downloads).unwrap();
+            std::fs::create_dir_all(&paths.user_downloads).unwrap();
             let version = Version::parse(version).unwrap();
             let current_manifest =
                 manifest_for_archive(temporary.path(), version.to_string().as_str(), b"current");
@@ -1257,6 +1303,32 @@ mod tests {
             0
         );
         assert_eq!(fixture.manifest_source.fetches.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn downloaded_runtime_archive_is_used_before_network_download() {
+        let fixture = UpdaterFixture::with_current("1.0.0").await;
+        let mut manifest = fixture.manifest("1.1.0");
+        let source = manifest.url.to_file_path().unwrap();
+        let downloaded = fixture
+            .paths
+            .user_downloads
+            .join(bundled_archive_name(current_target(), manifest.archive));
+        std::fs::copy(source, &downloaded).unwrap();
+        manifest.url = Url::parse("https://example.invalid/runtime.tar.gz").unwrap();
+
+        let prepared = fixture
+            .updater
+            .prepare_manifest_with_progress(
+                "manual-download",
+                manifest,
+                &CancellationToken::new(),
+                Arc::new(|_| {}),
+            )
+            .await
+            .unwrap();
+
+        assert!(prepared.archive.unwrap().is_file());
     }
 
     #[tokio::test]

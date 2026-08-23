@@ -334,6 +334,7 @@ mod tests {
         RuntimePaths {
             versions: root.join("runtime/versions"),
             downloads: root.join("runtime/downloads"),
+            user_downloads: root.join("Downloads"),
             logs: root.join("logs"),
             diagnostics: root.join("diagnostics"),
             current: root.join("runtime/current.json"),

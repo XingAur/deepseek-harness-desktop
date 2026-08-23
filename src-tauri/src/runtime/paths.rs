@@ -13,6 +13,7 @@ pub struct RuntimePaths {
     pub diagnostics: PathBuf,
     pub current: PathBuf,
     pub bundled_runtime: PathBuf,
+    pub user_downloads: PathBuf,
 }
 
 impl RuntimePaths {
@@ -25,6 +26,7 @@ impl RuntimePaths {
             diagnostics: app_paths.diagnostics.clone(),
             current: app_paths.runtime.join("current.json"),
             bundled_runtime: app_paths.bundled_runtime.clone(),
+            user_downloads: app_paths.user_downloads.clone(),
             root,
         };
         paths.create()?;
