@@ -1,9 +1,13 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
+function normalizeLineEndings(value: string) {
+  return value.replace(/\r\n/g, '\n')
+}
+
 describe('automated upstream release workflows', () => {
   it('runs a non-cancelling daily sync with recoverable release state', () => {
-    const sync = readFileSync('.github/workflows/upstream-sync.yml', 'utf8')
+    const sync = normalizeLineEndings(readFileSync('.github/workflows/upstream-sync.yml', 'utf8'))
 
     expect(sync).toContain("cron: '30 2 * * *'")
     expect(sync.slice(0, sync.indexOf('jobs:'))).toContain('contents: read')
@@ -46,7 +50,7 @@ describe('automated upstream release workflows', () => {
   })
 
   it('builds both platforms before one immutable final publication job', () => {
-    const workflow = readFileSync('.github/workflows/desktop.yml', 'utf8')
+    const workflow = normalizeLineEndings(readFileSync('.github/workflows/desktop.yml', 'utf8'))
 
     expect(workflow).toContain("runtime_target: windows-x86_64")
     expect(workflow).toContain("runtime_target: darwin-aarch64")
@@ -63,6 +67,20 @@ describe('automated upstream release workflows', () => {
     expect(workflow).toContain('test "${GITHUB_REF_NAME}" = "desktop-v${DESKTOP_VERSION}"')
     expect(workflow).toContain('actions/upload-artifact@v4')
     expect(workflow).toContain('actions/download-artifact@v4')
+    const contractVerification = workflow.slice(
+      workflow.indexOf('      - name: Verify source and platform contracts'),
+      workflow.indexOf('      - name: Require immutable Runtime signing keys for a release'),
+    )
+    expect(contractVerification).toContain('shell: bash')
+    expect(contractVerification).toContain('set -euo pipefail')
+    const artifactStaging = workflow.slice(
+      workflow.indexOf('      - name: Stage release artifacts'),
+      workflow.indexOf('      - name: Verify Windows updater signature against the bundled public key'),
+    )
+    expect(artifactStaging).toContain('windows_installers')
+    expect(artifactStaging).toContain('windows_updater_archives')
+    expect(artifactStaging).toContain('windows_updater_signatures')
+    expect(artifactStaging).not.toContain('desktop_count')
     expect(workflow).toContain('node scripts/desktop-release.mjs')
     expect(workflow).toContain('node scripts/runtime-release-manifest.mjs')
     expect(workflow).toContain('gh release create "${RUNTIME_TAG}" --draft --prerelease')
@@ -81,5 +99,11 @@ describe('automated upstream release workflows', () => {
     expect(workflow).not.toContain('updaterJsonPreferNsis:')
     expect(workflow).not.toContain('--clobber')
     expect(workflow.slice(0, workflow.indexOf('steps:'))).not.toContain('DSH_DESKTOP_SIGNING_PRIVATE_KEY')
+  })
+
+  it('normalizes Windows workflow line endings before checking contracts', () => {
+    expect(normalizeLineEndings('permissions:\r\n      contents: write')).toBe(
+      'permissions:\n      contents: write',
+    )
   })
 })

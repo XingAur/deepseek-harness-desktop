@@ -85,7 +85,9 @@ jobs:
           node -e "const {generateKeyPairSync}=require('crypto'); const {privateKey,publicKey}=generateKeyPairSync('ed25519'); const privateJwk=privateKey.export({format:'jwk'}); const publicJwk=publicKey.export({format:'jwk'}); for (const [key,value] of Object.entries({DSH_DESKTOP_SIGNING_PUBLIC_KEY:publicJwk.x,DSH_DESKTOP_SIGNING_PRIVATE_KEY:privateJwk.d,DSH_DESKTOP_RELEASE_PUBLIC_KEY:publicJwk.x})) console.log(key+'='+value)" >> "${GITHUB_ENV}"
 
       - name: Verify source and platform contracts
+        shell: bash
         run: |
+          set -euo pipefail
           npm run release:versions:check
           npm run check
           cargo test --manifest-path src-tauri/Cargo.toml --locked
@@ -238,20 +240,21 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-stage/desktop release-stage/runtime
-          desktop_count=0
+          shopt -s nullglob
           if [[ "${{ matrix.runtime_target }}" == 'windows-x86_64' ]]; then
-            while IFS= read -r -d '' asset; do
-              cp "${asset}" release-stage/desktop/
-              desktop_count=$((desktop_count + 1))
-            done < <(find src-tauri/target/release/bundle/nsis -maxdepth 1 -type f \
-              \( -name '*_x64-setup.exe' -o -name '*_x64-setup.nsis.zip' -o -name '*_x64-setup.nsis.zip.sig' \) -print0)
-            test "${desktop_count}" -eq 3
+            windows_installers=(src-tauri/target/release/bundle/nsis/*_x64-setup.exe)
+            windows_updater_archives=(src-tauri/target/release/bundle/nsis/*_x64-setup.nsis.zip)
+            windows_updater_signatures=(src-tauri/target/release/bundle/nsis/*_x64-setup.nsis.zip.sig)
+            if [[ "${#windows_installers[@]}" -ne 1 || "${#windows_updater_archives[@]}" -ne 1 || "${#windows_updater_signatures[@]}" -ne 1 ]]; then
+              echo '::error::Expected exactly one Windows installer, updater archive, and updater signature.'
+              find src-tauri/target/release/bundle/nsis -maxdepth 1 -type f -print
+              exit 1
+            fi
+            cp "${windows_installers[0]}" "${windows_updater_archives[0]}" "${windows_updater_signatures[0]}" release-stage/desktop/
           else
-            while IFS= read -r -d '' asset; do
-              cp "${asset}" release-stage/desktop/
-              desktop_count=$((desktop_count + 1))
-            done < <(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -maxdepth 1 -type f -name '*_aarch64.dmg' -print0)
-            test "${desktop_count}" -eq 1
+            macos_disk_images=(src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*_aarch64.dmg)
+            test "${#macos_disk_images[@]}" -eq 1
+            cp "${macos_disk_images[0]}" release-stage/desktop/
           fi
           cp "runtime-build/${{ matrix.runtime_target }}/dsh-runtime-${{ matrix.runtime_target }}.${{ matrix.runtime_extension }}" release-stage/runtime/
           cp "runtime/manifests/runtime-${{ matrix.runtime_target }}.json" release-stage/runtime/
