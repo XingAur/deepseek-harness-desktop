@@ -241,10 +241,20 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          APP_BUNDLES=(src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app)
+          MACOS_DISK_IMAGES=(src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg)
+          if [[ "${#MACOS_DISK_IMAGES[@]}" -ne 1 ]]; then
+            echo '::error::Expected exactly one macOS disk image.'
+            find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -maxdepth 1 -print
+            exit 1
+          fi
+          MOUNT_POINT="${RUNNER_TEMP}/dsh-macos-app"
+          mkdir -p "${MOUNT_POINT}"
+          hdiutil attach -readonly -nobrowse -mountpoint "${MOUNT_POINT}" "${MACOS_DISK_IMAGES[0]}"
+          trap 'hdiutil detach "${MOUNT_POINT}"' EXIT
+          APP_BUNDLES=("${MOUNT_POINT}"/*.app)
           if [[ "${#APP_BUNDLES[@]}" -ne 1 ]]; then
-            echo '::error::Expected exactly one macOS application bundle.'
-            find src-tauri/target/aarch64-apple-darwin/release/bundle/macos -maxdepth 1 -print
+            echo '::error::Expected exactly one macOS application bundle inside the disk image.'
+            find "${MOUNT_POINT}" -maxdepth 1 -print
             exit 1
           fi
           APP_BUNDLE="${APP_BUNDLES[0]}"
@@ -257,6 +267,8 @@ jobs:
             echo '::error::The internal updater verifier must not be bundled as the macOS application entrypoint.'
             exit 1
           fi
+          hdiutil detach "${MOUNT_POINT}"
+          trap - EXIT
 
       - name: Stage release artifacts
         shell: bash

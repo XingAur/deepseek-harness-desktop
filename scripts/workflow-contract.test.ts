@@ -138,6 +138,10 @@ describe('automated upstream release workflows', () => {
     expect(workflow).toContain("'arm64'")
     expect(workflow).toContain('Contents/MacOS/verify_updater_signature')
     expect(workflow).toContain('--features updater-verifier-cli --bin verify_updater_signature')
+    expect(workflow).toContain('MACOS_DISK_IMAGES=(src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg)')
+    expect(workflow).toContain('hdiutil attach -readonly -nobrowse')
+    expect(workflow).toContain("trap 'hdiutil detach \"${MOUNT_POINT}\"' EXIT")
+    expect(workflow).toContain('APP_BUNDLES=("${MOUNT_POINT}"/*.app)')
 
     const entrypointVerification = workflow.slice(
       workflow.indexOf('      - name: Verify macOS application bundle entrypoint'),
@@ -145,5 +149,6 @@ describe('automated upstream release workflows', () => {
     )
     expect(entrypointVerification).toContain("if: runner.os == 'macOS'")
     expect(entrypointVerification).toContain('set -euo pipefail')
+    expect(entrypointVerification).not.toContain('bundle/macos/*.app')
   })
 })
