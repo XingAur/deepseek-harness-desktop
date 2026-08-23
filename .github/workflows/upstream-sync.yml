@@ -103,6 +103,22 @@ jobs:
           echo "previous_dsh_version=${PREVIOUS_DSH_VERSION}" >> "${GITHUB_OUTPUT}"
           echo "dsh_version=${DSH_VERSION}" >> "${GITHUB_OUTPUT}"
 
+      - name: Install Tauri Linux system dependencies
+        if: steps.prepare.outputs.action == 'upgrade'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
       - name: Verify prepared source before publishing refs
         if: steps.prepare.outputs.action == 'upgrade'
         run: |
