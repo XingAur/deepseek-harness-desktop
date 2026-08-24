@@ -202,7 +202,7 @@ jobs:
           node scripts/build-runtime.mjs \
             --target=darwin-aarch64 \
             --version="${RUNTIME_VERSION}" \
-            --url="file://${RUNNER_TEMP}/runtime-contract.tar.gz" \
+            --url="file://${RUNNER_TEMP}/dsh-runtime-darwin-aarch64.tar.gz" \
             --output="${RUNNER_TEMP}/runtime-contract"
           test -s "${RUNNER_TEMP}/runtime-contract/session-contract-report.json"
           node -e "const r=JSON.parse(require('fs').readFileSync(process.argv[1])); if(r.ok!==true) process.exit(1)" \

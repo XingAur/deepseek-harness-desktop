@@ -37,6 +37,8 @@ describe('automated upstream release workflows', () => {
     expect(supportedPlatformVerification).toContain('npm ci --legacy-peer-deps')
     expect(supportedPlatformVerification).toContain('node scripts/build-runtime.mjs')
     expect(supportedPlatformVerification).toContain('--target=darwin-aarch64')
+    expect(supportedPlatformVerification).toContain('dsh-runtime-darwin-aarch64.tar.gz')
+    expect(supportedPlatformVerification).not.toContain('runtime-contract.tar.gz')
     expect(supportedPlatformVerification).toContain('session-contract-report.json')
     const publishHeader = sync.slice(sync.indexOf('  publish_refs:'), sync.indexOf('    steps:', sync.indexOf('  publish_refs:')))
     expect(publishHeader).toContain('needs: [prepare, verify_supported_platform]')
