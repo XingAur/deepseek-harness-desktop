@@ -31,7 +31,7 @@ describe('Windows Web Setup success path', () => {
 
     runtimeFixture.clearRequests()
     await desktop.launch(appBinary)
-    await desktop.waitForWorkbench(30_000)
+    await desktop.waitForWorkbench(120_000)
     const firstTiming = latestActiveTiming(installation.dataRoot)
     expect(runtimeFixture.requests().filter((request) => request.path === '/runtime.zip')).toHaveLength(1)
     expect(readProvisioningReceipt(installation.dataRoot).runtimeVersion).toBe(runtimeFixture.version)

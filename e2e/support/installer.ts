@@ -26,7 +26,7 @@ export interface InstallationRecord {
   shortcuts: readonly string[]
   dataRoot: string
   provisioningReceipt: string
-  receipt?: ProvisioningReceipt
+  receipt?: ProvisioningReceipt | null
   desktopPid?: number
   runtimePid?: number
   runtimePort?: number
