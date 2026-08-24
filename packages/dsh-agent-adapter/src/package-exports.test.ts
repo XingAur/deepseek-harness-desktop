@@ -7,13 +7,18 @@ import { describe, expect, it } from 'vitest'
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const repositoryRoot = resolve(packageRoot, '..', '..')
-const npmExecutable = process.platform === 'win32' ? 'npm.cmd' : 'npm'
+const npmCliPath = process.platform === 'win32' && process.env.npm_execpath?.toLowerCase().endsWith('.js')
+  ? process.env.npm_execpath
+  : undefined
+const npmExecutable = npmCliPath ? process.execPath : process.platform === 'win32' ? 'npm.cmd' : 'npm'
+const npmPrefix = npmCliPath ? [npmCliPath] : []
+const npmShell = process.platform === 'win32' && !npmCliPath
 
 describe('@dsh/agent-adapter package exports', () => {
   it('lets a TypeScript consumer resolve every public export', () => {
     const consumerRoot = mkdtempSync(join(tmpdir(), 'dsh-agent-adapter-consumer-'))
     try {
-      execFileSync(npmExecutable, ['run', 'agent:build'], { cwd: repositoryRoot, stdio: 'pipe' })
+      execFileSync(npmExecutable, [...npmPrefix, 'run', 'agent:build'], { cwd: repositoryRoot, shell: npmShell, stdio: 'pipe' })
       const packageLink = join(consumerRoot, 'node_modules', '@dsh', 'agent-adapter')
       mkdirSync(dirname(packageLink), { recursive: true })
       symlinkSync(packageRoot, packageLink, 'dir')
