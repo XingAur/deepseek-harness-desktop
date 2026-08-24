@@ -31,7 +31,7 @@
 
 - Modify: `packages/dsh-plugin-desktop/tests/project-controller.spec.ts`
 
-- [ ] **Step 1：将“等待 binding”测试改为“首次缺失立即失败”**
+- [x] **Step 1：将“等待 binding”测试改为“首次缺失立即失败”**
 
 用下面的测试替换 `waits for the newly created session binding before queuing the project`：
 
@@ -54,7 +54,7 @@ it('fails immediately when create resolves without a synchronous session binding
 })
 ```
 
-- [ ] **Step 2：增加 connectWorkspace 不得重复创建 Session 的测试**
+- [x] **Step 2：增加 connectWorkspace 不得重复创建 Session 的测试**
 
 ```ts
 it('does not create a duplicate session when connectWorkspace violates the binding contract', async () => {
@@ -73,7 +73,7 @@ it('does not create a duplicate session when connectWorkspace violates the bindi
 })
 ```
 
-- [ ] **Step 3：锁定成功路径调用顺序**
+- [x] **Step 3：锁定成功路径调用顺序**
 
 在现有 confirm 成功测试中加入：
 
@@ -86,7 +86,7 @@ expect(sessions.session.prompt.mock.invocationCallOrder[0])
   .toBeLessThan(vi.mocked(sessions.open).mock.invocationCallOrder[0])
 ```
 
-- [ ] **Step 4：运行定向测试并确认红灯**
+- [x] **Step 4：运行定向测试并确认红灯**
 
 Run:
 
@@ -96,7 +96,7 @@ npm run test -w @dsh/desktop-plugin -- project-controller.spec.ts
 
 Expected: 至少两个新增场景失败；旧实现会二次读取 binding，并在 modify 中额外调用 `sessions.create()`。
 
-- [ ] **Step 5：提交失败测试**
+- [x] **Step 5：提交失败测试**
 
 ```powershell
 git add -- packages/dsh-plugin-desktop/tests/project-controller.spec.ts
@@ -110,7 +110,7 @@ git commit -m "test(session): 锁定同步绑定契约"
 
 - Modify: `packages/dsh-plugin-desktop/src/client/project-controller.ts`
 
-- [ ] **Step 1：增加严格 binding helper**
+- [x] **Step 1：增加严格 binding helper**
 
 在文件底部增加：
 
@@ -122,7 +122,7 @@ function requireSessionBinding(sessions: SessionsLike, sessionId: string) {
 }
 ```
 
-- [ ] **Step 2：修改 confirm 使用单次同步解析**
+- [x] **Step 2：修改 confirm 使用单次同步解析**
 
 将：
 
@@ -138,7 +138,7 @@ const binding = requireSessionBinding(sessions, sessionId)
 
 保持 `prompt()` 成功后再 `sessions.open(sessionId)`，使提示失败时不会导航到已回滚的 Workspace。
 
-- [ ] **Step 3：修改 modify 禁止重复创建**
+- [x] **Step 3：修改 modify 禁止重复创建**
 
 将 connect 后的 fallback 分支替换为：
 
@@ -149,11 +149,11 @@ const binding = requireSessionBinding(sessions, sessionId)
 
 删除 binding 缺失时的第二次 `sessions.create()`。
 
-- [ ] **Step 4：删除 waitForSessionBinding**
+- [x] **Step 4：删除 waitForSessionBinding**
 
 完整删除最多循环 100 次和 `setTimeout(0)` 的 helper，不保留异步轮询代码。
 
-- [ ] **Step 5：运行定向测试并确认绿灯**
+- [x] **Step 5：运行定向测试并确认绿灯**
 
 Run:
 
@@ -163,7 +163,7 @@ npm run test -w @dsh/desktop-plugin -- project-controller.spec.ts
 
 Expected: `project-controller.spec.ts` 全部通过。
 
-- [ ] **Step 6：运行插件类型检查和完整测试**
+- [x] **Step 6：运行插件类型检查和完整测试**
 
 Run:
 
@@ -174,7 +174,7 @@ npm run test -w @dsh/desktop-plugin
 
 Expected: 类型检查通过，插件全部测试通过。
 
-- [ ] **Step 7：提交最小实现**
+- [x] **Step 7：提交最小实现**
 
 ```powershell
 git add -- packages/dsh-plugin-desktop/src/client/project-controller.ts
@@ -188,7 +188,7 @@ git commit -m "fix(session): 使用同步会话绑定契约"
 
 - Modify: `doc/plans/2026-08-24-session-binding-contract.md`
 
-- [ ] **Step 1：执行仓库相关门禁**
+- [ ] **Step 1：执行仓库相关门禁（本机 symlink 权限阻塞）**
 
 Run:
 
@@ -199,11 +199,11 @@ git diff --check
 
 Expected: 根级测试、插件测试、Web 构建和插件构建全部通过；工作树不存在格式错误。
 
-- [ ] **Step 2：在本计划中勾选已完成步骤并记录测试结果**
+- [x] **Step 2：在本计划中勾选已完成步骤并记录测试结果**
 
 在文末增加实际测试命令、通过数量和已知限制。不得写“测试通过”而不记录具体命令。
 
-- [ ] **Step 3：提交计划进度**
+- [x] **Step 3：提交计划进度**
 
 ```powershell
 git add -- doc/plans/2026-08-24-session-binding-contract.md
@@ -221,3 +221,56 @@ git commit -m "docs(session): 记录同步绑定验证结果"
 - 两个 Session 之间切换时各自消息无需刷新；
 - 应用重启后 Session 仍可见；
 - 固定 Runtime 更新后重复执行相同 Contract 场景。
+
+## 实际验证结果
+
+### 红灯
+
+```powershell
+npm run test -w @dsh/desktop-plugin -- project-controller.spec.ts
+```
+
+- 旧实现：2 个新增用例失败，另外 6 个通过。
+- confirm 在第一次 binding 缺失后继续轮询并错误成功。
+- modify 在 binding 持续缺失时共读取 101 次，并进入重复 Session 创建路径。
+
+### 绿灯
+
+```powershell
+npm run test -w @dsh/desktop-plugin -- project-controller.spec.ts
+npm run typecheck -w @dsh/desktop-plugin
+npm run test -w @dsh/desktop-plugin
+```
+
+- 定向测试：1 文件 / 8 项通过。
+- 插件类型检查通过。
+- 插件完整测试：15 文件 / 70 项通过。
+
+### 根级门禁与本机限制
+
+```powershell
+npm run check
+```
+
+- 根测试共 184 项，其中 181 项通过。
+- `scripts/materialize-runtime-links.test.ts` 和 `scripts/runtime-release-manifest.test.ts` 的 3 个用例在创建 Windows 文件符号链接时因本机缺少权限返回 `EPERM`，未执行到产品断言。
+- 该失败发生在测试夹具创建阶段，与本次 Session 改动文件无关，因此不能记录为功能回归，也不能声称完整门禁通过。
+
+补充执行：
+
+```powershell
+npx vitest run --exclude scripts/materialize-runtime-links.test.ts --exclude scripts/runtime-release-manifest.test.ts
+npm run build:web
+npm run plugin:build
+git diff --check
+```
+
+- 其余根测试：29 文件 / 180 项通过。
+- Web 构建通过。
+- Desktop 插件发布构建通过。
+- diff 格式检查通过。
+
+提交记录：
+
+- `9b3afc6 test(session): 锁定同步绑定契约`
+- `3915b50 fix(session): 使用同步会话绑定契约`
