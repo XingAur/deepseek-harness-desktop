@@ -417,6 +417,6 @@ git push origin main
 - 原始失败证据：新会话异步创建期间，旧输入框仍可发送，消息进入旧 Session；新空白 Session 随后被选中，造成视觉上的“消失”。
 - 最终实现：同步退出旧 Session，保留官方 Workspace 选择规则，并以事件签名变化驱动 Workspace/Session 基线协调。
 - 安装包验证：`npm run e2e:installer` 2/2 通过；第二会话实时显示，两会话无刷新往返，重启后再次往返通过。
-- 时延样本：首次 Generation 63,872 ms，热启动 6,599 ms；最终通过运行为 62,805 ms / 7,618 ms。
+- 最终通过运行的时延样本：首次 Generation 63,872 ms，热启动 6,599 ms。
 - 安装包：`e2e-artifacts/DeepSeek-Harness-Desktop-E2E-Web-Setup-x64.exe`。
 - 仓库检查：插件 89 项、根测试中不依赖符号链接的 294 项、Web/插件/Agent 构建通过；本机因 Windows `symlink` 权限缺失保留 11 项 `EPERM` 环境失败。
