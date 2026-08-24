@@ -162,10 +162,25 @@ describe('product copy', () => {
     expect(launcher).toContain("request.url === '/__desktop/control/health'")
   })
 
-  it('materializes Runtime links before creating the archive', () => {
+  it('runs the Session contract gate after assembly and before creating release artifacts', () => {
     const source = readFileSync('scripts/build-runtime.mjs', 'utf8')
     expect(source).toContain("import { materializeRuntimeLinks } from './materialize-runtime-links.mjs'")
     expect(source).toContain('materializeRuntimeLinks(stage, output)')
+    expect(source).toContain("'scripts/run-runtime-session-contract.mjs'")
+
+    const inspect = source.indexOf('inspectAssembledRuntimeCapabilities(appDir')
+    const launcher = source.indexOf('writeRuntimeLauncher(appDir')
+    const links = source.indexOf('materializeRuntimeLinks(stage, output)')
+    const contract = source.indexOf("'scripts/run-runtime-session-contract.mjs'")
+    const archive = source.indexOf('const archive = join(output')
+    const manifest = source.indexOf('writeUnsignedRuntimeManifest({')
+
+    expect(inspect).toBeGreaterThan(-1)
+    expect(inspect).toBeLessThan(launcher)
+    expect(launcher).toBeLessThan(links)
+    expect(links).toBeLessThan(contract)
+    expect(contract).toBeLessThan(archive)
+    expect(archive).toBeLessThan(manifest)
   })
 
   it('ships and attaches the managed Runtime WebSocket event proxy', () => {

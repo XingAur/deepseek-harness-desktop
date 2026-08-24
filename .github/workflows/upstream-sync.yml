@@ -170,6 +170,21 @@ jobs:
           cp prepared-release/src-tauri/Cargo.toml src-tauri/Cargo.toml
           cp prepared-release/src-tauri/Cargo.lock src-tauri/Cargo.lock
 
+      - name: Resolve managed Node version
+        id: versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const v=JSON.parse(require('fs').readFileSync('release/versions.json')); console.log('node_version='+v.nodeVersion)" >> "${GITHUB_OUTPUT}"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.versions.outputs.node_version }}
+          cache: npm
+
+      - name: Install prepared JavaScript dependencies
+        run: npm ci --legacy-peer-deps
+
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
@@ -178,6 +193,20 @@ jobs:
 
       - name: Verify prepared Rust source on a supported platform
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+
+      - name: Build and verify the prepared Runtime Session contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUNTIME_VERSION="$(node -p "JSON.parse(require('fs').readFileSync('release/versions.json')).runtimeVersion")"
+          node scripts/build-runtime.mjs \
+            --target=darwin-aarch64 \
+            --version="${RUNTIME_VERSION}" \
+            --url="file://${RUNNER_TEMP}/runtime-contract.tar.gz" \
+            --output="${RUNNER_TEMP}/runtime-contract"
+          test -s "${RUNNER_TEMP}/runtime-contract/session-contract-report.json"
+          node -e "const r=JSON.parse(require('fs').readFileSync(process.argv[1])); if(r.ok!==true) process.exit(1)" \
+            "${RUNNER_TEMP}/runtime-contract/session-contract-report.json"
 
   publish_refs:
     needs: [prepare, verify_supported_platform]

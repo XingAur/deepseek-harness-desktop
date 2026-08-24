@@ -82,6 +82,12 @@ writeFileSync(join(appDir, 'runtime-capabilities.json'), `${JSON.stringify(runti
 writeRuntimeLauncher(appDir, { dshVersion: DSH_VERSION, desktopPluginVersion, desktopPluginSha256, runtimeVersion: args.version || '0.1.0' })
 writePnpmShim(stage, target)
 materializeRuntimeLinks(stage, output)
+run(process.execPath, [
+  resolve('scripts/run-runtime-session-contract.mjs'),
+  `--runtime-root=${stage}`,
+  `--runtime-version=${args.version || '0.1.0'}`,
+  `--report=${join(output, 'session-contract-report.json')}`,
+])
 
 const archive = join(output, target === 'windows-x86_64' ? `dsh-runtime-${target}.zip` : `dsh-runtime-${target}.tar.gz`)
 if (target === 'windows-x86_64') run(tarExecutable, ['-a', '-cf', archive, '.'], { cwd: stage })
