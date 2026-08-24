@@ -99,24 +99,42 @@ struct OwnedBundle {
     owner_token: String,
 }
 
+#[cfg(unix)]
 fn metadata_identity(metadata: &fs::Metadata) -> FileIdentity {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        FileIdentity {
-            device: metadata.dev(),
-            inode: metadata.ino(),
-            owner: metadata.uid(),
-        }
+    use std::os::unix::fs::MetadataExt;
+    FileIdentity {
+        device: metadata.dev(),
+        inode: metadata.ino(),
+        owner: metadata.uid(),
     }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        FileIdentity {
-            volume: metadata.volume_serial_number(),
-            index: metadata.file_index(),
-        }
+}
+
+#[cfg(windows)]
+fn file_identity(file: &File) -> std::io::Result<FileIdentity> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+    };
+
+    let mut information: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    let result = unsafe {
+        GetFileInformationByHandle(file.as_raw_handle().cast(), &mut information)
+    };
+    if result == 0 {
+        return Err(std::io::Error::last_os_error());
     }
+    Ok(FileIdentity {
+        volume: Some(information.dwVolumeSerialNumber),
+        index: Some(
+            (u64::from(information.nFileIndexHigh) << 32)
+                | u64::from(information.nFileIndexLow),
+        ),
+    })
+}
+
+#[cfg(unix)]
+fn file_identity(file: &File) -> std::io::Result<FileIdentity> {
+    Ok(metadata_identity(&file.metadata()?))
 }
 
 fn path_identity(path: &Path) -> std::io::Result<FileIdentity> {
@@ -133,8 +151,28 @@ fn path_identity(path: &Path) -> std::io::Result<FileIdentity> {
         {
             return Err(std::io::Error::other("untrusted bundle reparse point"));
         }
+
+        use std::os::windows::fs::OpenOptionsExt;
+        let mut options = OpenOptions::new();
+        options.read(true).custom_flags(
+            windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS
+                | windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT,
+        );
+        let file = options.open(path)?;
+        let opened_metadata = file.metadata()?;
+        if !opened_metadata.is_dir()
+            || opened_metadata.file_attributes()
+                & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+                != 0
+        {
+            return Err(std::io::Error::other("untrusted bundle reparse point"));
+        }
+        return file_identity(&file);
     }
-    Ok(metadata_identity(&metadata))
+    #[cfg(unix)]
+    {
+        Ok(metadata_identity(&metadata))
+    }
 }
 
 fn open_trusted_directory(path: &Path) -> std::io::Result<TrustedDirectory> {
@@ -155,7 +193,7 @@ fn open_trusted_directory(path: &Path) -> std::io::Result<TrustedDirectory> {
         );
     }
     let handle = options.open(path)?;
-    let identity = metadata_identity(&handle.metadata()?);
+    let identity = file_identity(&handle)?;
     if identity != expected {
         return Err(std::io::Error::other("backup directory identity changed"));
     }
@@ -167,7 +205,7 @@ fn open_trusted_directory(path: &Path) -> std::io::Result<TrustedDirectory> {
 }
 
 fn ensure_trusted_directory(directory: &TrustedDirectory) -> std::io::Result<()> {
-    if metadata_identity(&directory.handle.metadata()?) != directory.identity
+    if file_identity(&directory.handle)? != directory.identity
         || path_identity(&directory.path)? != directory.identity
     {
         return Err(std::io::Error::other("backup directory identity changed"));
@@ -297,7 +335,7 @@ fn atomic_publish_bundle(
             FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_WRITE_THROUGH,
         );
     let source = source_options.open(from)?;
-    let source_identity = metadata_identity(&source.metadata()?);
+    let source_identity = file_identity(&source)?;
     if path_identity(from)? != source_identity {
         return Err(std::io::Error::other("temporary bundle identity changed"));
     }
@@ -992,12 +1030,12 @@ struct FileSnapshot {
     changed_at: Option<u64>,
 }
 
-fn file_snapshot(metadata: &fs::Metadata) -> FileSnapshot {
+fn file_snapshot_from_metadata(metadata: &fs::Metadata, identity: FileIdentity) -> FileSnapshot {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
         FileSnapshot {
-            identity: metadata_identity(metadata),
+            identity,
             byte_length: metadata.len(),
             mode: metadata.mode(),
             links: metadata.nlink(),
@@ -1012,15 +1050,20 @@ fn file_snapshot(metadata: &fs::Metadata) -> FileSnapshot {
     {
         use std::os::windows::fs::MetadataExt;
         FileSnapshot {
-            identity: metadata_identity(metadata),
+            identity,
             byte_length: metadata.file_size(),
             attributes: metadata.file_attributes(),
             created_at: metadata.creation_time(),
             modified_at: metadata.last_write_time(),
-            links: metadata.number_of_links(),
-            changed_at: metadata.change_time(),
+            links: None,
+            changed_at: None,
         }
     }
+}
+
+fn file_snapshot(file: &File) -> std::io::Result<FileSnapshot> {
+    let metadata = file.metadata()?;
+    Ok(file_snapshot_from_metadata(&metadata, file_identity(file)?))
 }
 
 fn path_file_snapshot(path: &Path) -> std::io::Result<FileSnapshot> {
@@ -1040,7 +1083,39 @@ fn path_file_snapshot(path: &Path) -> std::io::Result<FileSnapshot> {
             ));
         }
     }
-    Ok(file_snapshot(&metadata))
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.custom_flags(
+            windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT
+                | windows_sys::Win32::Storage::FileSystem::FILE_FLAG_SEQUENTIAL_SCAN,
+        );
+    }
+    let file = options.open(path)?;
+    let opened_metadata = file.metadata()?;
+    if !opened_metadata.is_file() {
+        return Err(std::io::Error::other("untrusted recovery source path"));
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        if opened_metadata.file_attributes()
+            & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+            != 0
+        {
+            return Err(std::io::Error::other(
+                "untrusted recovery source reparse point",
+            ));
+        }
+    }
+    file_snapshot(&file)
 }
 
 fn open_recovery_source(path: &Path) -> std::io::Result<(File, FileSnapshot)> {
@@ -1077,7 +1152,7 @@ fn open_recovery_source(path: &Path) -> std::io::Result<(File, FileSnapshot)> {
             ));
         }
     }
-    let actual = file_snapshot(&metadata);
+    let actual = file_snapshot(&file)?;
     if actual != expected {
         return Err(std::io::Error::other("recovery source identity changed"));
     }
@@ -1117,7 +1192,7 @@ impl VerificationCopy {
                 .custom_flags(FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_OPEN_REPARSE_POINT);
         }
         let file = options.open(&path)?;
-        let identity = metadata_identity(&file.metadata()?);
+        let identity = file_identity(&file)?;
         ensure_trusted_directory(parent)?;
         Ok(Self {
             path,
@@ -1190,8 +1265,7 @@ impl VerificationCopy {
         let handle_matches = self
             .file
             .as_ref()
-            .and_then(|file| file.metadata().ok())
-            .is_some_and(|metadata| metadata_identity(&metadata) == self.identity);
+            .is_some_and(|file| file_identity(file).is_ok_and(|identity| identity == self.identity));
         if !handle_matches {
             return false;
         }
@@ -1255,7 +1329,7 @@ fn delete_windows_verification(path: &Path, identity: &FileIdentity) -> std::io:
         .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
         .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
     let file = options.open(path)?;
-    if metadata_identity(&file.metadata()?) != *identity
+    if file_identity(&file)? != *identity
         || path_file_snapshot(path)?.identity != *identity
     {
         return Err(std::io::Error::other("verification copy identity changed"));
@@ -1379,7 +1453,7 @@ where
     sidecar_file
         .read_to_end(&mut sidecar_bytes)
         .map_err(|_| fail())?;
-    if file_snapshot(&sidecar_file.metadata().map_err(|_| fail())?) != sidecar_before
+    if file_snapshot(&sidecar_file).map_err(|_| fail())? != sidecar_before
         || path_file_snapshot(metadata_path).map_err(|_| fail())? != sidecar_before
     {
         return Err(fail());
@@ -1423,7 +1497,7 @@ where
         return Err(fail());
     }
 
-    let source_after = file_snapshot(&source.metadata().map_err(|_| fail())?);
+    let source_after = file_snapshot(&source).map_err(|_| fail())?;
     let source_path_after = path_file_snapshot(backup_path).map_err(|_| fail())?;
     if source_after != source_before
         || source_path_after != source_before
