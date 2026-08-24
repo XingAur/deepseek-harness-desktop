@@ -66,6 +66,17 @@ Profile 是一套相互隔离的工作环境。不同 Profile 拥有各自的工
 
 切换 Profile 使用 pending / last-known-good 机制：新环境完全就绪后才正式生效；如果启动失败或上次切换被中断，应用会自动恢复到最后一次确认可用的环境。
 
+### 模型、Agent 与扩展（预览）
+
+工作台设置中的“模型与 Agent”中心提供统一入口：
+
+- Provider 凭证只通过 macOS Keychain 或 Windows Credential Manager 保存，数据库只保存凭证 ID 和状态；API Provider 支持 DeepSeek、OpenAI 兼容接口和 Anthropic 风格流式协议的适配边界；
+- Agents 支持 Codex、Claude 的会话协议、任务提示、审批、事件时间线、取消和待复核状态。当前仓库不携带官方 Codex/Claude SDK，也不会复制已有登录凭证；真实账户接入需要宿主注入对应官方客户端或受管 CLI；
+- 权限模式由用户选择“请求批准”“智能批准”或“完全访问权限”，完全访问会显示风险提示；应用重启后不会自动重放结果未知的外部操作；
+- Plugins、Skills、MCP 使用清单、完整性、来源、能力和审核边界；MCP 支持受限的 stdio、HTTPS、SSE 传输包装器和 OAuth 回调校验，但扩展远程安装和真实 MCP 服务接入仍需固定来源与宿主配置。
+
+因此，首次接入时请以界面显示的 Provider/CLI 状态和 Diagnostics 为准；看到“预览”“未配置”“待复核”时，不代表真实模型调用已经可用。
+
 ### 系统托盘
 
 关闭窗口时应用默认驻留系统托盘。托盘菜单提供：

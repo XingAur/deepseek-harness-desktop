@@ -9,10 +9,12 @@ import type { DesktopBridgeLike } from './desktop-bridge'
 import { ProfileSettingsSection } from './ProfileSettingsSection'
 import { LocalProjectsFooterAction } from './LocalProjectsFooterAction'
 import { LocalProjectsState } from './local-projects-state'
+import { ModelAgentCenter } from './model-agent/ModelAgentCenter'
 
 export interface AdvancedShellOptions {
   bridge?: DesktopBridgeLike
   parentOrigin?: string
+  context?: { generationId: string; sessionId: string }
 }
 
 export function applyAdvancedShell(
@@ -20,7 +22,7 @@ export function applyAdvancedShell(
   platform: DesktopPlatform,
   options: AdvancedShellOptions = {},
 ): void {
-  const bridge = options.bridge ?? desktopBridgeForWindow(options.parentOrigin)
+  const bridge = options.bridge ?? desktopBridgeForWindow(options.parentOrigin, options.context)
   const layout = new DesktopLayoutState()
   const localProjects = new LocalProjectsState()
   ctx.effect(() => {
@@ -44,6 +46,13 @@ export function applyAdvancedShell(
     label: 'Profiles',
     inject: () => ({ bridge }),
   }, ProfileSettingsSection))
+  ctx.slots.inject?.('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: 'dsh-desktop-model-agent',
+    order: 50,
+    label: '模型与 Agent',
+    inject: () => ({ bridge, workspaceId: currentWorkspaceId(ctx) }),
+  }, ModelAgentCenter))
   ctx.slots.inject?.('sidebar.footer.action', () => ctx.slots.register({
     name: 'sidebar.footer.action',
     id: 'dsh-desktop-local-projects',
@@ -66,10 +75,16 @@ export function applyAdvancedShell(
   }, 'desktop: layout service + advanced root slot')
 }
 
-function desktopBridgeForWindow(targetOrigin?: string): DesktopBridgeLike {
-  if (window.parent !== window) return createDesktopBridge({ targetOrigin })
+function currentWorkspaceId(ctx: ClientContextLike): string | undefined {
+  const snapshot = ctx.workspaces?.list.getSnapshot()
+  return snapshot?.recentWorkspaceId ?? snapshot?.items[0]?.workspaceId
+}
+
+function desktopBridgeForWindow(targetOrigin?: string, context?: { generationId: string; sessionId: string }): DesktopBridgeLike {
+  if (window.parent !== window) return createDesktopBridge({ targetOrigin, context })
   return {
     request: () => Promise.reject(new Error('桌面桥仅在受管工作台中可用')),
+    requestV2: () => Promise.reject(new Error('桌面桥仅在受管工作台中可用')),
     dispose: () => undefined,
   }
 }

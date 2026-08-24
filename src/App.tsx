@@ -65,10 +65,12 @@ function formatUpdateSize(bytes: number | null) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-function workbenchUrl(rendererUrl: string): string {
+function workbenchUrl(rendererUrl: string, generationId: string, sessionId: string): string {
   try {
     const url = new URL(rendererUrl)
     url.searchParams.set('dsh-desktop-parent-origin', window.location.origin)
+    url.searchParams.set('dsh-desktop-generation-id', generationId)
+    url.searchParams.set('dsh-desktop-session-id', sessionId)
     return url.toString()
   } catch {
     return rendererUrl
@@ -177,6 +179,7 @@ export function App({ runtime, windowControls }: AppProps) {
   const [installOnExit, setInstallOnExit] = useState(false)
   const [updateDiagnosticPath, setUpdateDiagnosticPath] = useState<string | null>(null)
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const [desktopSessionId, setDesktopSessionId] = useState<string | null>(null)
   const [activeApp, setActiveApp] = useState<{ workspaceId: string; origin: string; title: string } | null>(null)
   const startupUpdate = useRef<{
     runtime: RuntimeClient
@@ -275,14 +278,20 @@ export function App({ runtime, windowControls }: AppProps) {
 
   useEffect(() => {
     // Runtime 离开就绪态（失败/重启）后，本地应用视图不再有效；避免陈旧状态跨 generation 存留。
-    if (state.rendererUrl === null) setActiveApp(null)
-  }, [state.rendererUrl])
+    if (state.rendererUrl === null || state.generationId === null) {
+      setActiveApp(null)
+      setDesktopSessionId(null)
+      return
+    }
+    setDesktopSessionId(crypto.randomUUID())
+  }, [state.generationId, state.rendererUrl])
 
   useEffect(() => {
-    if (state.generationId === null || state.rendererUrl === null) return
+    if (state.generationId === null || state.rendererUrl === null || desktopSessionId === null) return
     const active = {
       generationId: state.generationId,
       origin: new URL(state.rendererUrl).origin,
+      sessionId: desktopSessionId,
     }
     const bridge = createWorkbenchBridge({
       frame: () => iframeRef.current,
@@ -291,8 +300,20 @@ export function App({ runtime, windowControls }: AppProps) {
     })
     const onMessage = (event: MessageEvent) => { void bridge.onMessage(event) }
     window.addEventListener('message', onMessage)
-    return () => window.removeEventListener('message', onMessage)
-  }, [state.generationId, state.rendererUrl])
+    let disposed = false
+    let unsubscribe: (() => void) | undefined
+    void runtime.subscribeAgentEvents((event) => {
+      if (!disposed) bridge.onAgentEvent(event)
+    }).then((off) => {
+      if (disposed) off()
+      else unsubscribe = off
+    }).catch(() => { /* Agent 事件监听失败不阻塞现有工作台。 */ })
+    return () => {
+      disposed = true
+      unsubscribe?.()
+      window.removeEventListener('message', onMessage)
+    }
+  }, [desktopSessionId, runtime, state.generationId, state.rendererUrl])
 
   const percent = useMemo(() => {
     const { progress } = state
@@ -404,7 +425,9 @@ export function App({ runtime, windowControls }: AppProps) {
               ref={iframeRef}
               className="workbenchFrame"
               title="DeepSeek Harness 工作台"
-              src={workbenchUrl(state.rendererUrl)}
+              src={state.generationId !== null && desktopSessionId !== null
+                ? workbenchUrl(state.rendererUrl, state.generationId, desktopSessionId)
+                : state.rendererUrl}
               data-hidden={activeApp !== null || undefined}
               allow="clipboard-write"
             />

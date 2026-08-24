@@ -18,6 +18,7 @@ export interface MockWorkerOptions {
 
 export async function runMockWorker(io: MockWorkerIo, { maximumUniqueSessions = MAX_UNIQUE_SESSIONS_PER_TRANSPORT }: MockWorkerOptions = {}): Promise<void> {
   let handshaken = false
+  let initialized = false
   const outputSequences = new Map<string, number>()
   const inputSequences = createSessionSequenceGuard()
   const terminatedSessions = new Set<string>()
@@ -78,6 +79,19 @@ export async function runMockWorker(io: MockWorkerIo, { maximumUniqueSessions = 
         writeError(io.stdout, outputSequences, frame, 'UNSUPPORTED_ADAPTER', 'Mock worker only supports adapterKind mock')
       } else {
         handshaken = true
+        writeOk(io.stdout, outputSequences, frame)
+      }
+      continue
+    }
+    if (frame.type === 'adapter.init') {
+      if (!handshaken) {
+        writeError(io.stdout, outputSequences, frame, 'HANDSHAKE_REQUIRED', 'Successful handshake is required before adapter.init')
+      } else if (initialized) {
+        writeError(io.stdout, outputSequences, frame, 'ALREADY_INITIALIZED', 'Adapter initialization is one-time per worker')
+      } else {
+        // The secret is intentionally used only for this frame and is never echoed or retained.
+        frame.payload.secret = ''
+        initialized = true
         writeOk(io.stdout, outputSequences, frame)
       }
       continue

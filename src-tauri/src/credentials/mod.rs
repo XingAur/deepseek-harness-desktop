@@ -269,15 +269,22 @@ mod tests {
     fn renderer_commands_do_not_expose_secret_resolution() {
         assert!(!crate::RENDERER_COMMAND_NAMES.is_empty());
         for command in crate::RENDERER_COMMAND_NAMES {
-            let leaf = command.rsplit("::").next().unwrap();
+            let leaf = command.rsplit("::").next().unwrap().trim();
+            if leaf.contains("credential") {
+                assert!(matches!(
+                    leaf,
+                    "agent_credential_put"
+                        | "agent_credential_delete"
+                        | "agent_credential_status"
+                        | "agent_credential_test"
+                ));
+            }
             assert!(!leaf.contains("secret"));
-            assert!(!leaf.contains("credential"));
             for forbidden_prefix in ["resolve", "get", "fetch", "read"] {
                 assert!(!leaf.starts_with(forbidden_prefix));
             }
         }
         let commands = include_str!("../commands.rs");
-        assert!(!commands.contains("SecretValue"));
-        assert!(!commands.contains("CredentialVault"));
+        assert!(!commands.contains("agent_credential_resolve"));
     }
 }

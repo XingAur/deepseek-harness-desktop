@@ -1,6 +1,6 @@
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 3;
+pub const CURRENT_SCHEMA_VERSION: i64 = 7;
 
 const V1_SCHEMA: &str = r#"
 CREATE TABLE agents (
@@ -174,6 +174,17 @@ pub fn validate_current_schema(connection: &Connection) -> rusqlite::Result<()> 
             ],
         ),
         (
+            "worker_sessions",
+            &[
+                "task_id",
+                "worker_session_id",
+                "desktop_session_id",
+                "adapter_kind",
+                "generation_id",
+                "updated_at",
+            ],
+        ),
+        (
             "audit_summaries",
             &[
                 "audit_id",
@@ -186,6 +197,20 @@ pub fn validate_current_schema(connection: &Connection) -> rusqlite::Result<()> 
                 "canonical_scope",
                 "error_code",
             ],
+        ),
+        (
+            "tasks",
+            &[
+                "task_id",
+                "agent_id",
+                "workspace_path",
+                "workspace_id",
+                "prompt",
+            ],
+        ),
+        (
+            "event_checkpoints",
+            &["task_id", "generation_id", "desktop_session_id", "last_sequence", "last_event_kind"],
         ),
     ];
     for (table, columns) in REQUIRED_COLUMNS {
@@ -221,7 +246,7 @@ pub fn migrate_to_current_in_transaction(transaction: &Transaction<'_>) -> rusql
     let version = user_version(transaction)?;
     match version {
         0 => transaction.execute_batch(V1_SCHEMA)?,
-        1 | 2 => {}
+        1 | 2 | 3 | 4 | 5 | 6 => {}
         CURRENT_SCHEMA_VERSION => return Ok(()),
         _ => return Err(rusqlite::Error::InvalidQuery),
     }
@@ -230,6 +255,18 @@ pub fn migrate_to_current_in_transaction(transaction: &Transaction<'_>) -> rusql
     }
     if version <= 2 {
         transaction.execute_batch(V3_SCHEMA)?;
+    }
+    if version <= 3 {
+        transaction.execute_batch(V4_SCHEMA)?;
+    }
+    if version <= 4 {
+        transaction.execute_batch(V5_SCHEMA)?;
+    }
+    if version <= 5 {
+        transaction.execute_batch(V6_SCHEMA)?;
+    }
+    if version <= 6 {
+        transaction.execute_batch(V7_SCHEMA)?;
     }
     transaction.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION)?;
     Ok(())
@@ -348,6 +385,38 @@ SET generation_id = 'legacy:' || grant_id,
     expires_at = '1970-01-01T00:00:00Z';
 "#;
 
+const V4_SCHEMA: &str = r#"
+ALTER TABLE tasks ADD COLUMN prompt TEXT NOT NULL DEFAULT '';
+"#;
+
+const V5_SCHEMA: &str = r#"
+ALTER TABLE tasks ADD COLUMN workspace_id TEXT NOT NULL DEFAULT '';
+"#;
+
+const V6_SCHEMA: &str = r#"
+CREATE TABLE worker_sessions_v6 (
+    task_id TEXT PRIMARY KEY,
+    worker_session_id TEXT NOT NULL,
+    desktop_session_id TEXT NOT NULL,
+    adapter_kind TEXT NOT NULL,
+    generation_id TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
+);
+INSERT INTO worker_sessions_v6 (
+    task_id, worker_session_id, desktop_session_id, adapter_kind, generation_id, updated_at
+)
+SELECT task_id, worker_session_id, worker_session_id, adapter_kind, generation_id, updated_at
+FROM worker_sessions;
+DROP TABLE worker_sessions;
+ALTER TABLE worker_sessions_v6 RENAME TO worker_sessions;
+"#;
+
+const V7_SCHEMA: &str = r#"
+ALTER TABLE event_checkpoints ADD COLUMN generation_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE event_checkpoints ADD COLUMN desktop_session_id TEXT NOT NULL DEFAULT '';
+"#;
+
 #[cfg(test)]
 mod tests {
     use rusqlite::Connection;
@@ -400,6 +469,30 @@ mod tests {
 
         assert_eq!(user_version(&connection).unwrap(), CURRENT_SCHEMA_VERSION);
         validate_current_schema(&connection).unwrap();
+        assert_eq!(
+            connection
+                .query_row("SELECT prompt FROM tasks WHERE task_id = 'task-a'", [], |row| row
+                    .get::<_, String>(0))
+                .unwrap(),
+            ""
+        );
+        assert_eq!(
+            connection
+                .query_row("SELECT workspace_id FROM tasks WHERE task_id = 'task-a'", [], |row| row
+                    .get::<_, String>(0))
+                .unwrap(),
+            ""
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT desktop_session_id FROM worker_sessions WHERE task_id = 'task-a'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+            "worker-a"
+        );
         let mut statement = connection
             .prepare(
                 "SELECT request_id, generation_id, status, result_category FROM approvals

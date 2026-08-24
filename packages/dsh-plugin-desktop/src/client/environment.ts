@@ -4,6 +4,8 @@ export interface DesktopEnvironment {
   mode: 'advanced'
   platform: DesktopPlatform
   parentOrigin?: string
+  generationId?: string
+  sessionId?: string
 }
 
 export function parseDesktopEnvironment(search: string): DesktopEnvironment | null {
@@ -15,7 +17,13 @@ export function parseDesktopEnvironment(search: string): DesktopEnvironment | nu
     mode: 'advanced',
     platform,
     parentOrigin: parseParentOrigin(params.get('dsh-desktop-parent-origin')),
+    generationId: parseIdentifier(params.get('dsh-desktop-generation-id')),
+    sessionId: parseIdentifier(params.get('dsh-desktop-session-id')),
   }
+}
+
+function parseIdentifier(value: string | null): string | undefined {
+  return value !== null && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value) ? value : undefined
 }
 
 function parseParentOrigin(value: string | null): string | undefined {

@@ -1,3 +1,5 @@
+import type { AgentEventEnvelope } from './agent-events'
+
 export type RuntimePhase =
   | 'checking'
   | 'fetching-manifest'
@@ -189,4 +191,5 @@ export interface RuntimeClient {
   subscribeDesktopEvents(listener: (event: DesktopEvent) => void): Promise<() => void>
   subscribeAppUpdates(listener: (event: AppUpdateEvent) => void): Promise<() => void>
   subscribeLocalAppEvents(listener: (event: LocalAppEvent) => void): Promise<() => void>
+  subscribeAgentEvents(listener: (event: AgentEventEnvelope) => void): Promise<() => void>
 }

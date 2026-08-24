@@ -6,13 +6,14 @@ const identifier = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 const permissionProfiles = ['request-approval', 'smart-approval', 'full-access'] as const
 const extensionTypes = ['plugin', 'skill', 'mcp'] as const
 const adapterKinds = ['mock', 'codex-sdk', 'codex-app-server-preview', 'claude-agent-sdk', 'claude-cli-dev'] as const
-const requestTypes = ['handshake', 'session.start', 'session.cancel', 'approval.resolve'] as const
+const requestTypes = ['handshake', 'adapter.init', 'session.start', 'session.cancel', 'approval.resolve'] as const
 const responseTypes = ['response.ok', 'response.error'] as const
 const eventTypes = [
   'session.started', 'session.resumed', 'session.completed', 'session.failed', 'message.delta', 'message.completed',
   'progress.updated', 'tool.started', 'tool.output', 'tool.completed', 'command.started', 'command.output',
   'command.completed', 'file.changed', 'file.diff.available', 'approval.requested', 'approval.resolved',
   'extension.called', 'usage.updated', 'worker.interrupted', 'worker.recoverable',
+  'worker.heartbeat',
 ] as const
 const frameKeys = ['payload', 'protocolVersion', 'requestId', 'sequence', 'sessionId', 'type']
 
@@ -62,7 +63,8 @@ interface FrameBase<Type extends string, Payload> {
 
 export type EmptyPayload = { [key: string]: never }
 export interface HandshakePayload { adapterKind: AdapterKind }
-export interface SessionStartPayload { permission: PermissionProfile }
+export interface AdapterInitPayload { credentialId: string; secret: string }
+export interface SessionStartPayload { permission: PermissionProfile; prompt?: string }
 export interface ApprovalResolvePayload { approved: boolean }
 export interface ResponseOkPayload { accepted: boolean }
 export interface ResponseErrorPayload { code: string; message: string }
@@ -70,10 +72,11 @@ export interface TextPayload { text: string }
 export interface ContentReferencePayload { contentRef: OpaqueContentReference }
 
 export type HandshakeRequest = FrameBase<'handshake', HandshakePayload>
+export type AdapterInitRequest = FrameBase<'adapter.init', AdapterInitPayload>
 export type SessionStartRequest = FrameBase<'session.start', SessionStartPayload>
 export type SessionCancelRequest = FrameBase<'session.cancel', EmptyPayload>
 export type ApprovalResolveRequest = FrameBase<'approval.resolve', ApprovalResolvePayload>
-export type AdapterRequest = HandshakeRequest | SessionStartRequest | SessionCancelRequest | ApprovalResolveRequest
+export type AdapterRequest = HandshakeRequest | AdapterInitRequest | SessionStartRequest | SessionCancelRequest | ApprovalResolveRequest
 
 export type ResponseOk = FrameBase<'response.ok', ResponseOkPayload>
 export type ResponseError = FrameBase<'response.error', ResponseErrorPayload>
@@ -158,8 +161,15 @@ function validatePayload(type: string, value: unknown): void {
     return
   }
   if (type === 'session.start') {
-    assertExactKeys(payload, ['permission'], type)
+    assertExactKeys(payload, Object.hasOwn(payload, 'prompt') ? ['permission', 'prompt'] : ['permission'], type)
     if (typeof payload.permission !== 'string' || !permissionProfiles.includes(payload.permission as PermissionProfile)) throw new Error('session.start payload permission is unsupported')
+    if (Object.hasOwn(payload, 'prompt') && (typeof payload.prompt !== 'string' || payload.prompt.trim() === '' || payload.prompt.length > 16 * 1024)) throw new Error('session.start payload prompt is invalid')
+    return
+  }
+  if (type === 'adapter.init') {
+    assertExactKeys(payload, ['credentialId', 'secret'], type)
+    assertIdentifier(payload.credentialId, 'credentialId')
+    if (typeof payload.secret !== 'string' || payload.secret.length === 0) throw new Error('adapter.init payload secret must be non-empty')
     return
   }
   if (type === 'approval.resolve') {

@@ -217,6 +217,48 @@ impl PermissionBroker {
         Ok(records)
     }
 
+    /// Read pending approvals for the explicit recovery screen only. This method
+    /// never changes grant eligibility or executes a capability.
+    pub fn pending_for_recovery(
+        &self,
+        task_id: Uuid,
+        generation_id: &str,
+    ) -> Result<Vec<ApprovalRecord>, BrokerError> {
+        let connection = self.store.reader()?;
+        let active_generation: Option<String> = connection
+            .query_row(
+                "SELECT worker_sessions.generation_id FROM worker_sessions
+                 WHERE worker_sessions.task_id = ?1
+                   AND worker_sessions.generation_id = ?2
+                   AND EXISTS (
+                       SELECT 1 FROM tasks
+                       WHERE tasks.task_id = worker_sessions.task_id
+                         AND tasks.status IN ('active', 'running', 'waiting-approval')
+                   )",
+                rusqlite::params![task_id.to_string(), generation_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if active_generation.is_none() {
+            return Err(BrokerError::StaleGeneration);
+        }
+        let mut statement = connection.prepare(
+            "SELECT approval_id, request_id, task_id, generation_id, capability_kind,
+                    canonical_scope, risk_class, policy_version, status, requested_at,
+                    resolved_at, decision, result_category, error_code, expires_at
+             FROM approvals
+             WHERE task_id = ?1 AND generation_id = ?2 AND status = 'pending'
+             ORDER BY requested_at, approval_id",
+        )?;
+        let records = statement
+            .query_map(
+                rusqlite::params![task_id.to_string(), generation_id],
+                |row| decode_record(row),
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(records)
+    }
+
     pub fn by_request_id(
         &self,
         task_id: Uuid,
@@ -497,6 +539,72 @@ impl PermissionBroker {
         })
     }
 
+    pub fn mark_approval_delivery_failed(
+        &self,
+        approval_id: Uuid,
+        task_id: Uuid,
+        failed_at: DateTime<Utc>,
+    ) -> Result<(), BrokerError> {
+        let mut writer = self.store.writer()?;
+        let transaction = writer.connection_mut().unchecked_transaction()?;
+        let record = load_record(&transaction, approval_id)?;
+        if record.request.task_id != task_id {
+            return Err(BrokerError::StaleGeneration);
+        }
+        if !matches!(
+            record.status,
+            ApprovalStatus::ApprovedOnce
+                | ApprovalStatus::ApprovedForTask
+                | ApprovalStatus::Denied
+        ) {
+            return Err(BrokerError::AlreadyResolved);
+        }
+        let failed_at = failed_at.to_rfc3339();
+        let changed = transaction.execute(
+            "UPDATE approvals
+             SET status = 'cancelled', decision = NULL, resolved_at = ?1,
+                 result_category = 'worker-not-notified', error_code = 'worker-not-notified'
+             WHERE approval_id = ?2 AND task_id = ?3
+               AND status IN ('approved-once', 'approved-for-task', 'denied')",
+            rusqlite::params![failed_at, approval_id.to_string(), task_id.to_string()],
+        )?;
+        if changed != 1 {
+            return Err(BrokerError::AlreadyResolved);
+        }
+        transaction.execute(
+            "UPDATE task_grants SET expires_at = ?1
+             WHERE task_id = ?2 AND (expires_at IS NULL OR expires_at > ?1)",
+            rusqlite::params![failed_at, task_id.to_string()],
+        )?;
+        transaction.execute(
+            "UPDATE tasks SET status = 'needs-review', updated_at = ?1
+             WHERE task_id = ?2
+               AND status IN ('active', 'running', 'paused', 'waiting-approval')",
+            rusqlite::params![failed_at, task_id.to_string()],
+        )?;
+        transaction.execute(
+            "INSERT INTO audit_summaries (
+                audit_id, task_id, request_id, generation_id, event_kind,
+                capability_kind, canonical_scope, risk_class, policy_version,
+                decision, result_category, error_code, occurred_at
+             ) VALUES (?1, ?2, ?3, ?4, 'approval-delivery-failed', ?5, ?6, ?7, ?8,
+                       NULL, 'worker-not-notified', 'worker-not-notified', ?9)",
+            rusqlite::params![
+                Uuid::new_v4().to_string(),
+                task_id.to_string(),
+                record.request.request_id.to_string(),
+                record.request.generation_id,
+                encode_kind(record.request.capability_kind),
+                redact_scope(&record.request.canonical_scope),
+                encode_risk(record.request.risk_class),
+                record.request.policy_version,
+                failed_at,
+            ],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
     pub fn consume_once(
         &self,
         approval_id: Uuid,
@@ -591,7 +699,11 @@ impl PermissionBroker {
     ) -> Result<(), BrokerError> {
         let mut writer = self.store.writer()?;
         let transaction = writer.connection_mut().unchecked_transaction()?;
-        ensure_task_active(&transaction, task_id)?;
+        if task_status == "cancelled" {
+            ensure_task_cancellable(&transaction, task_id)?;
+        } else {
+            ensure_task_active(&transaction, task_id)?;
+        }
         ensure_task_generation(&transaction, task_id, generation_id)?;
         transaction.execute(
             "UPDATE approvals SET status = 'cancelled', result_category = ?1, resolved_at = ?2
@@ -608,7 +720,7 @@ impl PermissionBroker {
         )?;
         transaction.execute(
             "UPDATE tasks SET status = ?1, updated_at = ?2
-             WHERE task_id = ?3 AND status IN ('active', 'running')",
+             WHERE task_id = ?3 AND status IN ('active', 'running', 'paused', 'waiting-approval', 'needs-review')",
             rusqlite::params![task_status, finished_at.to_rfc3339(), task_id.to_string()],
         )?;
         transaction.execute(
@@ -889,6 +1001,14 @@ impl AgentService {
         self.broker.pending(task_id, generation_id)
     }
 
+    pub fn pending_for_recovery(
+        &self,
+        task_id: Uuid,
+        generation_id: &str,
+    ) -> Result<Vec<ApprovalRecord>, BrokerError> {
+        self.broker.pending_for_recovery(task_id, generation_id)
+    }
+
     pub fn resolve(
         &self,
         approval_id: Uuid,
@@ -899,6 +1019,16 @@ impl AgentService {
     ) -> Result<ApprovalRecord, BrokerError> {
         self.broker
             .resolve(approval_id, task_id, generation_id, decision, resolved_at)
+    }
+
+    pub fn mark_approval_delivery_failed(
+        &self,
+        approval_id: Uuid,
+        task_id: Uuid,
+        failed_at: DateTime<Utc>,
+    ) -> Result<(), BrokerError> {
+        self.broker
+            .mark_approval_delivery_failed(approval_id, task_id, failed_at)
     }
 
     pub fn cancel_task(
@@ -996,6 +1126,25 @@ fn ensure_task_active(
     }
 }
 
+fn ensure_task_cancellable(
+    transaction: &rusqlite::Transaction<'_>,
+    task_id: Uuid,
+) -> Result<(), BrokerError> {
+    let cancellable: Option<String> = transaction
+        .query_row(
+            "SELECT status FROM tasks WHERE task_id = ?1
+             AND status IN ('active', 'running', 'paused', 'waiting-approval', 'needs-review')",
+            [task_id.to_string()],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if cancellable.is_some() {
+        Ok(())
+    } else {
+        Err(BrokerError::TaskInactive)
+    }
+}
+
 fn ensure_task_generation(
     transaction: &rusqlite::Transaction<'_>,
     task_id: Uuid,
@@ -1004,8 +1153,7 @@ fn ensure_task_generation(
     let generation: Option<String> = transaction
         .query_row(
             "SELECT worker_sessions.generation_id FROM worker_sessions
-             WHERE task_id = ?1 AND worker_sessions.generation_id = ?2
-               AND EXISTS (SELECT 1 FROM tasks WHERE task_id = ?1 AND status IN ('active', 'running'))",
+             WHERE task_id = ?1 AND worker_sessions.generation_id = ?2",
             rusqlite::params![task_id.to_string(), generation_id],
             |row| row.get(0),
         )
@@ -1325,9 +1473,9 @@ mod tests {
         writer
             .connection()
             .execute(
-                "INSERT INTO worker_sessions (task_id, worker_session_id, adapter_kind, generation_id, updated_at)
-                 VALUES (?1, ?2, 'mock', ?3, ?4)",
-                rusqlite::params![task_id.to_string(), Uuid::new_v4().to_string(), generation_id, now],
+                "INSERT INTO worker_sessions (task_id, worker_session_id, desktop_session_id, adapter_kind, generation_id, updated_at)
+                 VALUES (?1, ?2, ?2, 'mock', ?3, ?4)",
+                rusqlite::params![task_id.to_string(), "session-a", generation_id, now],
             )
             .unwrap();
         (root, store, task_id, generation_id)
@@ -1385,7 +1533,7 @@ mod tests {
 
     #[test]
     fn pending_approvals_require_the_active_task_generation() {
-        let (_root, store, task_id, generation_id) = fixture();
+        let (_root, store, task_id, _generation_id) = fixture();
         let broker = PermissionBroker::new(store);
         assert!(matches!(
             broker.pending(task_id, "stale-generation"),
@@ -2172,6 +2320,207 @@ mod tests {
             )
             .unwrap();
         assert_eq!(cancellation_audit, "task-cancelled");
+    }
+
+    #[test]
+    fn waiting_approval_task_can_be_cancelled_without_resuming_execution() {
+        let (_root, store, task_id, generation_id) = fixture();
+        let broker = PermissionBroker::new(store);
+        let writer = broker.store.writer().unwrap();
+        writer
+            .connection()
+            .execute(
+                "UPDATE tasks SET status = 'waiting-approval' WHERE task_id = ?1",
+                [task_id.to_string()],
+            )
+            .unwrap();
+        drop(writer);
+
+        broker
+            .cancel_task(task_id, &generation_id, Utc::now())
+            .unwrap();
+
+        let connection = broker.store.reader().unwrap();
+        let status: String = connection
+            .query_row(
+                "SELECT status FROM tasks WHERE task_id = ?1",
+                [task_id.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(status, "cancelled");
+    }
+
+    #[test]
+    fn pending_approvals_remain_readable_after_restart_recovery() {
+        let (_root, store, task_id, generation_id) = fixture();
+        let broker = PermissionBroker::new(store.clone());
+        let created = broker
+            .request(&capability(), request(task_id, &generation_id))
+            .unwrap();
+        let writer = broker.store.writer().unwrap();
+        writer
+            .connection()
+            .execute(
+                "UPDATE tasks SET status = 'waiting-approval' WHERE task_id = ?1",
+                [task_id.to_string()],
+            )
+            .unwrap();
+        drop(writer);
+
+        let restarted = PermissionBroker::new(store);
+        let pending = restarted
+            .pending_for_recovery(task_id, &generation_id)
+            .unwrap();
+        assert_eq!(pending, vec![created]);
+    }
+
+    #[test]
+    fn needs_review_task_can_be_cancelled_after_explicit_recovery() {
+        let (_root, store, task_id, generation_id) = fixture();
+        let broker = PermissionBroker::new(store);
+        let writer = broker.store.writer().unwrap();
+        writer
+            .connection()
+            .execute(
+                "UPDATE tasks SET status = 'needs-review' WHERE task_id = ?1",
+                [task_id.to_string()],
+            )
+            .unwrap();
+        drop(writer);
+
+        broker
+            .cancel_task(task_id, &generation_id, Utc::now())
+            .unwrap();
+
+        let connection = broker.store.reader().unwrap();
+        let status: String = connection
+            .query_row(
+                "SELECT status FROM tasks WHERE task_id = ?1",
+                [task_id.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(status, "cancelled");
+    }
+
+    #[test]
+    fn approval_delivery_failure_revokes_decision_and_requires_review() {
+        let (_root, store, task_id, generation_id) = fixture();
+        let broker = PermissionBroker::new(store);
+        let created = broker
+            .request(&capability(), request(task_id, &generation_id))
+            .unwrap();
+        broker
+            .resolve(
+                created.approval_id,
+                task_id,
+                &generation_id,
+                ApprovalDecision::AllowForTask,
+                Utc::now(),
+            )
+            .unwrap();
+
+        broker
+            .mark_approval_delivery_failed(
+                created.approval_id,
+                task_id,
+                Utc::now(),
+            )
+            .unwrap();
+
+        let connection = broker.store.reader().unwrap();
+        let (approval_status, decision, result_category, error_code, grant_expiry): (
+            String,
+            Option<String>,
+            String,
+            Option<String>,
+            Option<String>,
+        ) = connection
+            .query_row(
+                "SELECT approvals.status, approvals.decision, approvals.result_category,
+                        approvals.error_code, task_grants.expires_at
+                 FROM approvals JOIN task_grants ON task_grants.task_id = approvals.task_id
+                 WHERE approvals.approval_id = ?1",
+                [created.approval_id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            )
+            .unwrap();
+        assert_eq!(approval_status, "cancelled");
+        assert_eq!(decision, None);
+        assert_eq!(result_category, "worker-not-notified");
+        assert_eq!(error_code.as_deref(), Some("worker-not-notified"));
+        assert!(grant_expiry.is_some());
+
+        let task_status: String = connection
+            .query_row(
+                "SELECT status FROM tasks WHERE task_id = ?1",
+                [task_id.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(task_status, "needs-review");
+
+        let audit_event: String = connection
+            .query_row(
+                "SELECT event_kind FROM audit_summaries
+                 WHERE task_id = ?1 AND generation_id = ?2
+                 ORDER BY occurred_at DESC LIMIT 1",
+                rusqlite::params![task_id.to_string(), generation_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(audit_event, "approval-delivery-failed");
+    }
+
+    #[test]
+    fn approval_delivery_failure_compensates_after_task_recovery_changes_generation() {
+        let (_root, store, task_id, generation_id) = fixture();
+        let broker = PermissionBroker::new(store);
+        let created = broker
+            .request(&capability(), request(task_id, &generation_id))
+            .unwrap();
+        broker
+            .resolve(
+                created.approval_id,
+                task_id,
+                &generation_id,
+                ApprovalDecision::AllowForTask,
+                Utc::now(),
+            )
+            .unwrap();
+
+        let writer = broker.store.writer().unwrap();
+        writer
+            .connection()
+            .execute(
+                "UPDATE worker_sessions SET generation_id = 'generation-recovered' WHERE task_id = ?1",
+                [task_id.to_string()],
+            )
+            .unwrap();
+        drop(writer);
+
+        broker
+            .mark_approval_delivery_failed(created.approval_id, task_id, Utc::now())
+            .unwrap();
+
+        let connection = broker.store.reader().unwrap();
+        let approval_status: String = connection
+            .query_row(
+                "SELECT status FROM approvals WHERE approval_id = ?1",
+                [created.approval_id.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(approval_status, "cancelled");
+        let task_status: String = connection
+            .query_row(
+                "SELECT status FROM tasks WHERE task_id = ?1",
+                [task_id.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(task_status, "needs-review");
     }
 
     #[test]

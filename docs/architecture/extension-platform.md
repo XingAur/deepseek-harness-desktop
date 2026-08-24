@@ -2,7 +2,9 @@
 
 ## 状态与边界
 
-本文定义 DeepSeek Harness Desktop 未来接入 Codex、Claude、其他模型、Plugins、Skills 和 MCP 的稳定边界。本期没有实现 Codex 或 Claude 登录、真实 API Provider、CLI Worker、扩展市场和远程安装；当前可运行底座仍是受管 DeepSeek Harness Runtime。
+本文定义 DeepSeek Harness Desktop 接入 Codex、Claude、其他模型、Plugins、Skills 和 MCP 的稳定边界。当前版本已经落地模型/Agent 中心、系统安全存储凭证引用、Provider HTTP 适配器、Codex/Claude 的注入式 Agent 适配器、受管 Worker 协议、权限审批、扩展审核预览、MCP 客户端传输包装器和重启恢复状态机；真实账户、真实 CLI/SDK 进程接入仍需由宿主注入官方客户端或受管可执行文件后才能启用。
+
+当前明确不是完成态的部分（本期没有实现真实账户运行时）：仓库没有携带 Codex 或 Claude 官方 SDK 依赖，不自动读取用户已有登录态；桌面 Worker 默认只运行确定性的 mock 适配器；扩展安装仍要求固定来源与用户确认，尚未提供任意远程扩展市场；MCP OAuth 只生成受校验的回调和凭证写入口，不在测试中发起真实令牌交换。UI 会把这些能力标为预览或不可用，不把测试适配器伪装成真实 Provider。
 
 架构先约束能力、权限、数据和失败边界，再逐项实现，避免把第三方凭证、任意代码执行或不兼容插件直接放进可信桌面壳。
 

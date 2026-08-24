@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import { AGENT_TAURI_EVENT_NAME, isAgentEventEnvelope } from './agent-events'
 import type { AppUpdateEvent, AppUpdateReceipt, AppUpdateState, BootstrapReply, DesktopEvent, LocalAppEvent, MigrationStatus, RecoveryStatus, RuntimeClient, RuntimeEvent } from './runtime-contract'
 
 export const tauriRuntimeClient: RuntimeClient = {
@@ -30,5 +31,10 @@ export const tauriRuntimeClient: RuntimeClient = {
   },
   async subscribeLocalAppEvents(listener) {
     return listen<LocalAppEvent>('local-app-event', ({ payload }) => listener(payload))
+  },
+  async subscribeAgentEvents(listener) {
+    return listen<unknown>(AGENT_TAURI_EVENT_NAME, ({ payload }) => {
+      if (isAgentEventEnvelope(payload)) listener(payload)
+    })
   },
 }

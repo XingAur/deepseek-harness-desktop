@@ -34,6 +34,7 @@ function fakeRuntime() {
     subscribeDesktopEvents: vi.fn(async (next) => { desktopListener = next; return () => undefined }),
     subscribeAppUpdates: vi.fn(async (next) => { appUpdateListener = next; return () => undefined }),
     subscribeLocalAppEvents: vi.fn(async (next) => { localAppListener = next; return () => undefined }),
+    subscribeAgentEvents: vi.fn(async () => () => undefined),
   }
   return {
     runtime,

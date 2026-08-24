@@ -12,6 +12,7 @@ runtime-build/
 src-tauri/gen/
 src-tauri/tauri.release.conf.json
 packages/dsh-plugin-desktop/lib/
+packages/dsh-agent-adapter/lib/
 src-tauri/icons/android/
 src-tauri/icons/ios/
 src-tauri/icons/StoreLogo.png

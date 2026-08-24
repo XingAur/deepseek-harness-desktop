@@ -70,6 +70,7 @@ export function bridgeFixture(responses: Partial<Record<DesktopBridgeAction, unk
         : action === 'app.status'
           ? { projectsRoot: 'C:\\code', running: [], launchable: [] }
           : undefined)) as DesktopBridgeLike['request'],
+    requestV2: vi.fn(async () => undefined) as DesktopBridgeLike['requestV2'],
     dispose: vi.fn(),
   }
   return bridge

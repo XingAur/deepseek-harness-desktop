@@ -13,6 +13,12 @@ impl CredentialId {
         Self(Uuid::new_v4().to_string())
     }
 
+    pub fn from_string(value: String) -> Result<Self, String> {
+        Uuid::parse_str(&value)
+            .map(|_| Self(value))
+            .map_err(|_| "credential id is invalid".to_owned())
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
     }

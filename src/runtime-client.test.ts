@@ -63,4 +63,26 @@ describe('runtime client app updates', () => {
     })
     expect(tauri.listen).toHaveBeenCalledWith('local-app-event', expect.any(Function))
   })
+
+  it('subscribes to the fixed agent-event channel and rejects malformed envelopes', async () => {
+    let receive: ((event: { payload: unknown }) => void) | undefined
+    tauri.listen.mockImplementation(async (_name, listener) => {
+      receive = listener
+      return vi.fn()
+    })
+    const listener = vi.fn()
+    await tauriRuntimeClient.subscribeAgentEvents(listener)
+    receive?.({ payload: { channel: 'dsh-agent/v1', invalid: true } })
+    receive?.({ payload: {
+      channel: 'dsh-agent/v1',
+      generationId: 'generation-1',
+      taskId: 'task-1',
+      sessionId: 'session-1',
+      sequence: 1,
+      type: 'task.progress',
+      payload: { percent: 10 },
+    } })
+    expect(listener).toHaveBeenCalledTimes(1)
+    expect(tauri.listen).toHaveBeenCalledWith('agent-event', expect.any(Function))
+  })
 })

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createDesktopBridge, DESKTOP_BRIDGE_CHANNEL } from '../src/client/desktop-bridge'
+import { DESKTOP_BRIDGE_V2_CHANNEL } from '../src/client/bridge-contract'
 
 function fixture(timeoutMs = 100) {
   const listeners = new Set<(event: MessageEvent) => void>()
@@ -93,5 +94,38 @@ describe('desktop bridge client', () => {
       channel: DESKTOP_BRIDGE_CHANNEL, requestId: 'r-1', ok: true, result: 'C:\\code\\demo',
     } } as unknown as MessageEvent)
     await expect(pending).resolves.toBe('C:\\code\\demo')
+  })
+
+  it('correlates v2 replies by generation and session without crossing into v1 requests', async () => {
+    const { bridge, parent, emit } = fixture()
+    const pending = bridge.requestV2('task.create', {
+      generationId: 'generation-1',
+      sessionId: 'session-1',
+    }, { workspaceId: 'workspace-1', permission: 'request-approval' })
+    expect(parent.postMessage).toHaveBeenCalledWith({
+      channel: DESKTOP_BRIDGE_V2_CHANNEL,
+      requestId: 'r-1',
+      generationId: 'generation-1',
+      sessionId: 'session-1',
+      action: 'task.create',
+      payload: { workspaceId: 'workspace-1', permission: 'request-approval' },
+    }, 'tauri://localhost')
+    emit({ source: parent, origin: 'tauri://localhost', data: {
+      channel: DESKTOP_BRIDGE_V2_CHANNEL,
+      requestId: 'r-1',
+      generationId: 'generation-2',
+      sessionId: 'session-1',
+      ok: true,
+      result: { taskId: 'wrong' },
+    } } as unknown as MessageEvent)
+    emit({ source: parent, origin: 'tauri://localhost', data: {
+      channel: DESKTOP_BRIDGE_V2_CHANNEL,
+      requestId: 'r-1',
+      generationId: 'generation-1',
+      sessionId: 'session-1',
+      ok: true,
+      result: { taskId: 'task-1' },
+    } } as unknown as MessageEvent)
+    await expect(pending).resolves.toEqual({ taskId: 'task-1' })
   })
 })

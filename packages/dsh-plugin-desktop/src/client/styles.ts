@@ -45,6 +45,74 @@ export function installAdvancedStyles(): () => void {
     .dshDesktopProfileSettingsList p { overflow: hidden; margin: 0; color: var(--dsw-alias-label-secondary, #b7b7bf); text-overflow: ellipsis; white-space: nowrap; }
     .dshDesktopProfileSettingsList small { grid-column: 1 / 3; color: var(--dsw-alias-label-tertiary, #85858d); }
     .dshDesktopProfileSettingsActions { grid-column: 3; grid-row: 1 / 3; display: flex; gap: 6px; }
+    .dshModelAgentCenter { box-sizing: border-box; display: grid; gap: 18px; min-height: 100%; padding: 28px 34px 44px; color: var(--dsw-alias-label-primary, #ececf0); background: var(--dsw-alias-bg-base, #151517); }
+    .dshModelAgentCenterHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+    .dshModelAgentEyebrow { margin: 0 0 5px; color: #86a2ef; font-size: 10px; font-weight: 700; letter-spacing: .11em; }
+    .dshModelAgentCenter h2 { margin: 0; font-size: 22px; }
+    .dshModelAgentCenterHeader > div > p:last-child { margin: 7px 0 0; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 13px; }
+    .dshModelAgentCenterHeader > button, .dshModelAgentActions button, .dshModelAgentDialog footer button { min-height: 34px; padding: 0 12px; border: 1px solid var(--dsh-desktop-divider); border-radius: 8px; color: inherit; background: var(--dsw-alias-bg-layer-2, #29292e); cursor: pointer; }
+    .dshModelAgentCenter button:disabled { cursor: default; opacity: .48; }
+    .dshModelAgentTabs { display: flex; gap: 6px; padding-bottom: 8px; border-bottom: 1px solid var(--dsh-desktop-divider); }
+    .dshModelAgentTabs button { min-height: 32px; padding: 0 12px; border: 0; border-radius: 8px; color: var(--dsw-alias-label-tertiary, #85858d); background: transparent; cursor: pointer; }
+    .dshModelAgentTabs button[aria-selected="true"] { color: var(--dsw-alias-label-primary, #ececf0); background: color-mix(in srgb, #7196ff 15%, transparent); }
+    .dshModelAgentGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; align-content: start; }
+    .dshModelAgentCard { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--dsh-desktop-divider); border-radius: 14px; background: var(--dsw-alias-bg-layer-1, #1d1d20); }
+    .dshModelAgentCardHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+    .dshModelAgentCardHeader > div:first-child { display: flex; align-items: center; gap: 9px; min-width: 0; }
+    .dshModelAgentCardHeader h3 { overflow: hidden; margin: 0; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+    .dshModelAgentCardHeader small { display: block; margin-top: 3px; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 11px; }
+    .dshModelAgentProviderMark, .dshModelAgentAgentMark { display: grid; width: 30px; height: 30px; flex: 0 0 30px; place-items: center; border-radius: 9px; color: white; background: linear-gradient(135deg, #5578d1, #9368b4); font-weight: 700; }
+    .dshModelAgentAgentMark { background: linear-gradient(135deg, #4a927d, #5578d1); }
+    .dshModelAgentStatus { flex: 0 0 auto; padding: 4px 7px; border-radius: 999px; font-size: 10px; }
+    .dshModelAgentStatus-not-configured, .dshModelAgentStatus-missing-cli { color: #e7bd87; background: color-mix(in srgb, #bc7b37 15%, transparent); }
+    .dshModelAgentStatus-configured-unverified { color: #aebff4; background: color-mix(in srgb, #5b79cd 15%, transparent); }
+    .dshModelAgentStatus-invalid-credential, .dshModelAgentStatus-network-error, .dshModelAgentStatus-quota-exhausted, .dshModelAgentStatus-incompatible { color: #e8aaaa; background: color-mix(in srgb, #b75050 14%, transparent); }
+    .dshModelAgentStatus-available { color: #8fd2ae; background: color-mix(in srgb, #3f8064 16%, transparent); }
+    .dshModelAgentCardText, .dshModelAgentCardHint { margin: 0; color: var(--dsw-alias-label-secondary, #b7b7bf); font-size: 12px; line-height: 1.55; }
+    .dshModelAgentCardHint { color: #e8aaaa; }
+    .dshModelAgentCardMeta { display: flex; flex-wrap: wrap; gap: 7px 14px; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 11px; }
+    .dshModelAgentActions { display: flex; gap: 7px; }
+    .dshModelAgentActions button:hover, .dshModelAgentCenterHeader > button:hover { border-color: color-mix(in srgb, #7196ff 45%, var(--dsh-desktop-divider)); }
+    .dshModelAgentDetails { display: grid; gap: 7px; margin: 0; font-size: 12px; }
+    .dshModelAgentDetails > div { display: grid; grid-template-columns: 68px 1fr; gap: 10px; min-width: 0; }
+    .dshModelAgentDetails dt { color: var(--dsw-alias-label-tertiary, #85858d); }
+    .dshModelAgentDetails dd { overflow: hidden; margin: 0; text-overflow: ellipsis; white-space: nowrap; }
+    .dshModelAgentEmpty, .dshModelAgentMuted { color: var(--dsw-alias-label-tertiary, #85858d); }
+    .dshModelAgentEmpty { display: grid; gap: 6px; padding: 36px; border: 1px dashed var(--dsh-desktop-divider); border-radius: 14px; text-align: center; }
+    .dshModelAgentEmpty span { font-size: 12px; }
+    .dshModelAgentDiagnostics { display: grid; gap: 16px; }
+    .dshModelAgentSummary { display: flex; align-items: baseline; gap: 7px; padding: 14px 16px; border: 1px solid var(--dsh-desktop-divider); border-radius: 12px; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 12px; }
+    .dshModelAgentSummary strong { margin-left: 12px; color: var(--dsw-alias-label-primary, #ececf0); font-size: 20px; }
+    .dshModelAgentSummary strong:first-child { margin-left: 0; }
+    .dshModelAgentDiagnostics section { display: grid; gap: 7px; }
+    .dshModelAgentDiagnostics h3 { margin: 0 0 3px; font-size: 14px; }
+    .dshModelAgentDiagnosticRow { display: flex; justify-content: space-between; gap: 12px; padding: 9px 11px; border-radius: 8px; background: var(--dsw-alias-bg-layer-1, #1d1d20); font-size: 12px; }
+    .dshModelAgentDiagnosticRow > span:last-child { color: var(--dsw-alias-label-tertiary, #85858d); }
+    .dshModelAgentDialogBackdrop { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 24px; background: rgba(7,9,14,.52); backdrop-filter: blur(7px); }
+    .dshModelAgentDialog { display: grid; gap: 14px; width: min(430px, 100%); box-sizing: border-box; padding: 20px; border: 1px solid color-mix(in srgb, var(--dsh-desktop-divider) 75%, #8c99b8 25%); border-radius: 16px; background: var(--dsw-alias-bg-layer-1, #1d1d20); box-shadow: 0 28px 80px rgba(0,0,0,.38); }
+    .dshModelAgentDialog header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+    .dshModelAgentDialog h3 { margin: 0; font-size: 20px; }
+    .dshModelAgentDialog header button { border: 0; color: var(--dsw-alias-label-tertiary, #85858d); background: transparent; font-size: 24px; cursor: pointer; }
+    .dshModelAgentDialogHint { margin: 0; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 12px; line-height: 1.55; }
+    .dshModelAgentField { display: grid; gap: 6px; color: var(--dsw-alias-label-secondary, #b7b7bf); font-size: 12px; }
+    .dshModelAgentField input { box-sizing: border-box; width: 100%; min-height: 39px; padding: 0 10px; border: 1px solid var(--dsh-desktop-divider); border-radius: 8px; color: inherit; background: var(--dsw-alias-bg-layer-2, #29292e); }
+    .dshModelAgentDialog footer { display: flex; justify-content: flex-end; gap: 8px; }
+    .dshModelAgentDialog footer .dshModelAgentPrimary { border-color: transparent; color: white; background: #5877cf; }
+    .dshExtensionReviewFacts { display: grid; gap: 8px; margin: 0; }
+    .dshExtensionReviewFacts > div { display: grid; grid-template-columns: 88px 1fr; gap: 10px; min-width: 0; }
+    .dshExtensionReviewFacts dt { color: var(--dsw-alias-label-tertiary, #85858d); }
+    .dshExtensionReviewFacts dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+    .dshModelAgentWarning { padding: 10px 12px; border: 1px solid color-mix(in srgb, #d9a441 35%, var(--dsh-desktop-divider)); border-radius: 10px; color: #e5c783; background: color-mix(in srgb, #d9a441 9%, transparent); font-size: 12px; line-height: 1.5; }
+    .dshModelAgentError { margin-bottom: 12px; padding: 9px 11px; border-radius: 9px; color: #f0b0b0; background: color-mix(in srgb, #b94747 14%, transparent); font-size: 12px; }
+    .dshMcpServerDialog { width: min(560px, 100%); }
+    .dshMcpServerSection { display: grid; gap: 8px; }
+    .dshMcpServerSection > strong { font-size: 12px; }
+    .dshMcpServerSection ul { display: grid; gap: 6px; max-height: 150px; margin: 0; padding: 0; overflow: auto; list-style: none; }
+    .dshMcpServerSection li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 9px; border-radius: 8px; background: var(--dsw-alias-bg-layer-2, #29292e); font-size: 12px; }
+    .dshMcpServerSection li span { color: var(--dsw-alias-label-tertiary, #85858d); }
+    .dshMcpServerTags { display: flex; flex-wrap: wrap; gap: 6px; }
+    .dshMcpServerTags span { padding: 4px 8px; border-radius: 999px; color: #9ab2f5; background: color-mix(in srgb, #5b79cd 16%, transparent); font-size: 11px; }
+    .dshModelAgentError { padding: 9px 11px; border-radius: 8px; color: #e8aaaa; background: color-mix(in srgb, #b75050 12%, transparent); font-size: 12px; }
     .dshDesktopProjectGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
     .dshDesktopProjectCard { position: relative; border: 1px solid var(--dsh-desktop-divider); border-radius: 15px; background: var(--dsw-alias-bg-layer-1, #1d1d20); animation: dshDesktopProjectEnter 180ms ease-out both; transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease; }
     .dshDesktopProjectCard:hover { transform: translateY(-2px); border-color: color-mix(in srgb, #7795e8 32%, var(--dsh-desktop-divider)); box-shadow: 0 10px 28px color-mix(in srgb, #23386f 14%, transparent); }
@@ -158,10 +226,47 @@ export function installAdvancedStyles(): () => void {
     .dshDesktopProjectConfirm dd { margin: 0; overflow-wrap: anywhere; }
     @keyframes dshDesktopProjectEnter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes dshDesktopRecentPulse { 55%, 100% { box-shadow: 0 0 0 7px transparent; } }
+    .dshAgentWorkbench { display: grid; gap: 16px; margin-top: 22px; padding: 18px; border: 1px solid var(--dsh-desktop-divider); border-radius: 16px; background: var(--dsw-alias-bg-layer-1, #1d1d20); }
+    .dshAgentWorkbenchHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+    .dshAgentWorkbenchHeader h3, .dshAgentWorkbenchHeader p { margin: 0; }
+    .dshAgentWorkbenchHeader p:last-child { margin-top: 4px; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 12px; }
+    .dshAgentWorkbenchHeader button, .dshAgentWorkbenchActions button, .dshAgentWorkbenchApproval button, .dshAgentWorkbenchTimeline button { min-height: 30px; padding: 0 10px; border: 1px solid var(--dsh-desktop-divider); border-radius: 8px; color: inherit; background: var(--dsw-alias-bg-layer-2, #29292e); cursor: pointer; }
+    .dshAgentWorkbenchCreate { display: grid; grid-template-columns: minmax(120px, .5fr) minmax(150px, .6fr) minmax(260px, 1.8fr) auto; align-items: end; gap: 10px; }
+    .dshAgentWorkbenchCreate label { display: grid; gap: 5px; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 11px; }
+    .dshAgentWorkbenchCreate select, .dshAgentWorkbenchCreate textarea { box-sizing: border-box; min-height: 34px; padding: 7px 9px; border: 1px solid var(--dsh-desktop-divider); border-radius: 8px; color: inherit; background: var(--dsw-alias-bg-layer-2, #29292e); font: inherit; }
+    .dshAgentWorkbenchCreate textarea { min-height: 58px; resize: vertical; }
+    .dshAgentWorkbenchPrimary { min-height: 34px; padding: 0 13px; border: 0; border-radius: 8px; color: white; background: #5877cf; cursor: pointer; }
+    .dshAgentWorkbenchPrimary:disabled { cursor: default; opacity: .45; }
+    .dshAgentWorkbenchWarning, .dshAgentWorkbenchError { padding: 10px 12px; border-radius: 9px; font-size: 12px; }
+    .dshAgentWorkbenchWarning { color: #ead8a0; background: color-mix(in srgb, #826f2f 20%, transparent); }
+    .dshAgentWorkbenchError { color: #e8aaaa; background: color-mix(in srgb, #6d3636 18%, transparent); }
+    .dshAgentWorkbenchColumns { display: grid; grid-template-columns: minmax(180px, .65fr) minmax(320px, 1.35fr); gap: 14px; }
+    .dshAgentWorkbenchTaskList, .dshAgentWorkbenchDetail { min-width: 0; }
+    .dshAgentWorkbench h4, .dshAgentWorkbench h5 { margin: 0 0 9px; }
+    .dshAgentWorkbenchTaskList { display: grid; align-content: start; gap: 7px; }
+    .dshAgentWorkbenchTask { display: grid; gap: 3px; padding: 10px; border: 1px solid var(--dsh-desktop-divider); border-radius: 9px; color: inherit; background: transparent; cursor: pointer; text-align: left; }
+    .dshAgentWorkbenchTask.selected { border-color: #7196ff; background: color-mix(in srgb, #7196ff 9%, transparent); }
+    .dshAgentWorkbenchTask span, .dshAgentWorkbenchTask small, .dshAgentWorkbenchApproval span { color: var(--dsw-alias-label-tertiary, #85858d); font-size: 11px; }
+    .dshAgentWorkbenchDetail { display: grid; align-content: start; gap: 14px; }
+    .dshAgentWorkbenchActions, .dshAgentWorkbenchApproval > div:last-child { display: flex; flex-wrap: wrap; gap: 7px; }
+    .dshAgentWorkbenchApproval { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px; border: 1px solid color-mix(in srgb, #d4a945 55%, var(--dsh-desktop-divider)); border-radius: 9px; }
+    .dshAgentWorkbenchApproval > div:first-child { display: grid; gap: 3px; min-width: 0; }
+    .dshAgentWorkbenchTimeline { display: grid; gap: 7px; max-height: 240px; margin: 0; padding: 0 0 0 19px; overflow: auto; }
+    .dshAgentWorkbenchTimeline li { padding-left: 3px; color: var(--dsw-alias-label-secondary, #b7b7bf); font-size: 12px; }
+    .dshAgentWorkbenchTimeline li > span { color: #9ab2f5; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px; }
+    .dshAgentWorkbenchTimeline p { margin: 3px 0 0; overflow-wrap: anywhere; }
+    .dshAgentWorkbenchDiff { padding: 12px; border: 1px solid var(--dsh-desktop-divider); border-radius: 10px; background: var(--dsw-alias-bg-layer-2, #29292e); }
+    .dshAgentWorkbenchDiff > div { display: flex; align-items: center; justify-content: space-between; }
+    .dshAgentWorkbenchDiff pre { max-height: 260px; margin: 8px 0 0; overflow: auto; color: #cbd7ff; font: 11px/1.5 ui-monospace, SFMono-Regular, monospace; white-space: pre-wrap; }
     @media (max-width: 760px) {
       .dshDesktopProjectsPage { padding-inline: 20px; }
       .dshDesktopProfileEditor, .dshDesktopProfileSettingsList article { grid-template-columns: 1fr; }
       .dshDesktopProfileSettingsActions, .dshDesktopProfileSettingsList small { grid-column: 1; grid-row: auto; }
+      .dshModelAgentCenter { padding: 22px 20px 34px; }
+      .dshModelAgentCenterHeader { display: grid; }
+      .dshModelAgentTabs { overflow-x: auto; }
+      .dshAgentWorkbenchCreate, .dshAgentWorkbenchColumns { grid-template-columns: 1fr; }
+      .dshAgentWorkbenchApproval { align-items: flex-start; flex-direction: column; }
     }
     @media (prefers-reduced-motion: reduce) {
       .dshDesktopProjectCard, .dshDesktopProjectCard:hover, .dshDesktopProjectCard[data-recent="true"]::after, .dshDesktopProjectComposerSend[data-busy="true"] svg { animation: none !important; transform: none !important; transition-duration: .01ms !important; }

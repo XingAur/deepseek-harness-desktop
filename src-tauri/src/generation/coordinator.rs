@@ -50,6 +50,12 @@ impl TauriEventSink {
     pub fn new(app: AppHandle) -> Arc<Self> {
         Arc::new(Self { app })
     }
+
+    pub fn agent_event(&self, event: crate::agents::model::AgentEventEnvelope) {
+        let _ = self
+            .app
+            .emit(crate::agents::model::AGENT_TAURI_EVENT_NAME, event);
+    }
 }
 
 impl DesktopEventSink for TauriEventSink {

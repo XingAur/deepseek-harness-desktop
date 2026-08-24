@@ -83,6 +83,56 @@ describe('agent adapter protocol', () => {
     }))).toThrow(/payload.*unknown/i)
   })
 
+  it('accepts a bounded session prompt while preserving legacy prompt-less frames', () => {
+    expect(() => decodeProtocolFrame(JSON.stringify({
+      ...request,
+      type: 'session.start',
+      payload: { permission: 'request-approval', prompt: '检查项目' },
+    }))).not.toThrow()
+    expect(() => decodeProtocolFrame(JSON.stringify({
+      ...request,
+      type: 'session.start',
+      payload: { permission: 'request-approval', prompt: 'x'.repeat(16 * 1024 + 1) },
+    }))).toThrow(/prompt/i)
+  })
+
+  it('validates a private one-time adapter initialization frame without echoing its secret', () => {
+    const frame = {
+      ...request,
+      requestId: 'init-request',
+      type: 'adapter.init',
+      payload: { credentialId: 'credential-1', secret: 'private-secret' },
+    } as const
+
+    expect(() => encodeProtocolFrame(frame)).not.toThrow()
+    expect(() => decodeProtocolFrame(JSON.stringify({ ...frame, payload: { ...frame.payload, unexpected: true } }))).toThrow(/payload.*unknown/i)
+  })
+
+  it('accepts private initialization once and never returns the secret in a response', async () => {
+    const input = new PassThrough()
+    const stdout = new PassThrough()
+    const stderr = new PassThrough()
+    const output: string[] = []
+    stdout.setEncoding('utf8')
+    stdout.on('data', (chunk: string) => output.push(chunk))
+    const worker = runMockWorker({ input, stdout, stderr })
+    const init = {
+      ...request,
+      requestId: 'init-request',
+      sessionId: 'private-session',
+      sequence: 0,
+      type: 'adapter.init',
+      payload: { credentialId: 'credential-1', secret: 'private-secret' },
+    } as const
+    input.end([request, init, { ...init, requestId: 'init-again', sequence: 1 }].map((frame) => JSON.stringify(frame)).join('\n') + '\n')
+    await worker
+
+    const frames = output.flatMap((chunk) => chunk.split('\n').filter(Boolean)).map((line) => decodeProtocolFrame(line))
+    expect(frames.find((frame) => frame.requestId === 'init-request')).toMatchObject({ type: 'response.ok' })
+    expect(frames.find((frame) => frame.requestId === 'init-again')).toMatchObject({ type: 'response.error', payload: { code: 'ALREADY_INITIALIZED' } })
+    expect(output.join('')).not.toContain('private-secret')
+  })
+
   it('requires a handshake before starting a mock session and emits ordered JSONL events', async () => {
     const input = new PassThrough()
     const stdout = new PassThrough()

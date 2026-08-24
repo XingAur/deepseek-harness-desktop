@@ -1,5 +1,6 @@
 mod agent;
 mod agent_store;
+mod agents;
 pub mod app_mode;
 mod app_update;
 mod apps;
@@ -7,8 +8,10 @@ mod commands;
 mod credentials;
 mod data_cleanup;
 mod desktop;
+mod extensions;
 mod generation;
 mod migration;
+mod mcp;
 mod navigation;
 mod platform;
 mod profile;
@@ -23,8 +26,9 @@ mod window;
 
 use std::sync::{Arc, atomic::AtomicBool};
 
-use agent_store::{AgentStore, model::RecoveryState};
 use agent::service::AgentService;
+use agent_store::{AgentStore, model::RecoveryState};
+use agents::runtime::AgentRuntime;
 use credentials::vault::{CredentialVault, NativeCredentialVault};
 use desktop::DesktopCoordinator;
 use generation::coordinator::{GenerationCoordinator, ProcessRuntimeLauncher, TauriEventSink};
@@ -71,8 +75,28 @@ macro_rules! renderer_commands {
             commands::defer_app_update,
             commands::open_app_update_download,
             commands::take_app_update_receipt,
+            commands::agent_capability_inventory,
+            commands::agent_provider_metadata,
+            commands::agent_credential_put,
+            commands::agent_credential_delete,
+            commands::agent_credential_status,
+            commands::agent_credential_test,
+            commands::agent_cli_path_select,
+            commands::agent_cli_path_status,
+            commands::agent_task_create,
+            commands::agent_task_list,
+            commands::agent_task_recover,
+            commands::agent_task_start,
+            commands::agent_task_cancel,
+            commands::agent_task_resume,
             commands::agent_pending_approvals,
             commands::agent_resolve_approval,
+            commands::agent_content_reference_read,
+            commands::agent_extension_inventory,
+            commands::agent_extension_install,
+            commands::agent_extension_enable,
+            commands::agent_extension_disable,
+            commands::agent_extension_uninstall,
             commands::orderly_quit,
             commands::hide_window,
             commands::minimize_window,
@@ -348,10 +372,26 @@ fn run_desktop() {
                 DesktopFoundation::resolve(app.handle())
                     .map_err(|cause| Box::<dyn std::error::Error>::from(cause))?,
             );
+            let sink = TauriEventSink::new(app.handle().clone());
+            let agent_worker_root = app
+                .path()
+                .resource_dir()
+                .map_err(|cause| Box::<dyn std::error::Error>::from(cause))?
+                .join("agent-adapter");
+            let agent_runtime = AgentRuntime::new(
+                foundation.agent_store.clone(),
+                foundation.paths.clone(),
+                agent_worker_root,
+                Arc::clone(&sink),
+            );
+            app.manage(Arc::clone(&agent_runtime));
+            let startup_runtime = Arc::clone(&agent_runtime);
+            tauri::async_runtime::spawn(async move {
+                let _ = startup_runtime.reconcile_startup().await;
+            });
             let runtime_services = if foundation.runtime_allowed().is_ok() {
                 let runtime_paths = RuntimePaths::from_app_paths(&foundation.paths)
                     .map_err(|cause| Box::<dyn std::error::Error>::from(cause))?;
-                let sink = TauriEventSink::new(app.handle().clone());
                 let launcher = ProcessRuntimeLauncher::new(runtime_paths.clone(), sink.clone())
                     .map_err(|cause| Box::<dyn std::error::Error>::from(cause))?;
                 // 本地应用启动器：与运行时共享 RuntimePaths，生命周期事件广播给壳层。

@@ -5,6 +5,9 @@
   "type": "module",
   "main": "lib/protocol.js",
   "types": "lib/types/protocol.d.ts",
+  "bin": {
+    "dsh-agent-worker": "lib/agent-worker.js"
+  },
   "exports": {
     ".": {
       "types": "./lib/types/protocol.d.ts",
@@ -13,6 +16,18 @@
     "./worker": {
       "types": "./lib/types/worker.d.ts",
       "default": "./lib/worker.js"
+    },
+    "./adapters": {
+      "types": "./lib/types/adapters/index.d.ts",
+      "default": "./lib/adapters.js"
+    },
+    "./mcp": {
+      "types": "./lib/types/mcp/client.d.ts",
+      "default": "./lib/mcp.js"
+    },
+    "./mcp/oauth": {
+      "types": "./lib/types/mcp/oauth.d.ts",
+      "default": "./lib/mcp-oauth.js"
     }
   },
   "files": ["lib/**"],

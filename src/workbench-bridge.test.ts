@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DESKTOP_BRIDGE_CHANNEL } from './bridge-contract'
+import { DESKTOP_BRIDGE_CHANNEL, DESKTOP_BRIDGE_V2_CHANNEL } from './bridge-contract'
+import { AGENT_EVENT_CHANNEL } from './agent-events'
 import { createWorkbenchBridge } from './workbench-bridge'
 
 describe('workbench bridge', () => {
@@ -214,6 +215,107 @@ describe('workbench bridge', () => {
       requestId: 'r-stop',
       ok: false,
       error: expect.objectContaining({ code: expect.any(String), message: expect.any(String) }),
+    }), 'http://127.0.0.1:39000')
+  })
+
+  it('accepts only the active generation and session for v2 task requests', async () => {
+    const invoke = vi.fn().mockResolvedValue({ taskId: 'task-1' })
+    const postMessage = vi.fn()
+    const contentWindow = { postMessage } as unknown as Window
+    const bridge = createWorkbenchBridge({
+      frame: () => ({ contentWindow }) as HTMLIFrameElement,
+      active: () => ({
+        generationId: 'generation-1',
+        sessionId: 'session-1',
+        origin: 'http://127.0.0.1:39000',
+      }),
+      invoke,
+    })
+    await bridge.onMessage({
+      source: contentWindow,
+      origin: 'http://127.0.0.1:39000',
+      data: {
+        channel: DESKTOP_BRIDGE_V2_CHANNEL,
+        requestId: 'request-1',
+        generationId: 'generation-stale',
+        sessionId: 'session-1',
+        action: 'task.create',
+        payload: { workspaceId: 'workspace-1', prompt: '检查项目', permission: 'request-approval' },
+      },
+    } as MessageEvent)
+    await bridge.onMessage({
+      source: contentWindow,
+      origin: 'http://127.0.0.1:39000',
+      data: {
+        channel: DESKTOP_BRIDGE_V2_CHANNEL,
+        requestId: 'request-2',
+        generationId: 'generation-1',
+        sessionId: 'session-2',
+        action: 'task.create',
+        payload: { workspaceId: 'workspace-1', prompt: '检查项目', permission: 'request-approval' },
+      },
+    } as MessageEvent)
+    await bridge.onMessage({
+      source: contentWindow,
+      origin: 'http://127.0.0.1:39000',
+      data: {
+        channel: DESKTOP_BRIDGE_V2_CHANNEL,
+        requestId: 'request-3',
+        generationId: 'generation-1',
+        sessionId: 'session-1',
+        action: 'task.create',
+        payload: { workspaceId: 'workspace-1', prompt: '检查项目', permission: 'request-approval' },
+      },
+    } as MessageEvent)
+    expect(invoke).toHaveBeenCalledTimes(1)
+    expect(invoke).toHaveBeenCalledWith('agent_task_create', {
+      generationId: 'generation-1',
+      sessionId: 'session-1',
+      workspaceId: 'workspace-1',
+      prompt: '检查项目',
+      permission: 'request-approval',
+    })
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      channel: DESKTOP_BRIDGE_V2_CHANNEL,
+      requestId: 'request-3',
+      ok: true,
+    }), 'http://127.0.0.1:39000')
+  })
+
+  it('forwards validated agent events only to the active iframe session', () => {
+    const postMessage = vi.fn()
+    const contentWindow = { postMessage } as unknown as Window
+    const bridge = createWorkbenchBridge({
+      frame: () => ({ contentWindow }) as HTMLIFrameElement,
+      active: () => ({
+        generationId: 'generation-1',
+        sessionId: 'session-1',
+        origin: 'http://127.0.0.1:39000',
+      }),
+      invoke: vi.fn(),
+    })
+    bridge.onAgentEvent({
+      channel: AGENT_EVENT_CHANNEL,
+      generationId: 'generation-1',
+      taskId: 'task-1',
+      sessionId: 'session-1',
+      sequence: 1,
+      type: 'task.progress',
+      payload: { percent: 20 },
+    })
+    bridge.onAgentEvent({
+      channel: AGENT_EVENT_CHANNEL,
+      generationId: 'generation-stale',
+      taskId: 'task-1',
+      sessionId: 'session-1',
+      sequence: 2,
+      type: 'task.progress',
+      payload: { percent: 40 },
+    })
+    expect(postMessage).toHaveBeenCalledTimes(1)
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      taskId: 'task-1',
+      sequence: 1,
     }), 'http://127.0.0.1:39000')
   })
 })

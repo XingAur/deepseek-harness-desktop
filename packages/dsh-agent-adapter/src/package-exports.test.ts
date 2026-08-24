@@ -26,6 +26,9 @@ describe('@dsh/agent-adapter package exports', () => {
       writeFileSync(join(consumerRoot, 'index.ts'), [
         "import { PROTOCOL_VERSION, type AdapterRequest, type AgentAdapterProtocolVersion, type AgentEvent, type ProtocolFrame } from '@dsh/agent-adapter'",
         "import { runMockWorker, type MockWorkerIo } from '@dsh/agent-adapter/worker'",
+        "import { createCodexSdkAdapter, type AgentStartRequest } from '@dsh/agent-adapter/adapters'",
+        "import { McpClient, MCP_PROTOCOL_VERSION } from '@dsh/agent-adapter/mcp'",
+        "import { buildAuthorizationUrl } from '@dsh/agent-adapter/mcp/oauth'",
         'const version: AgentAdapterProtocolVersion = PROTOCOL_VERSION',
         'const frame = null as unknown as ProtocolFrame',
         'const request = null as unknown as AdapterRequest',
@@ -35,7 +38,9 @@ describe('@dsh/agent-adapter package exports', () => {
         '// @ts-expect-error handshake payload does not accept a permission field',
         "const invalidRequest: AdapterRequest = { protocolVersion: PROTOCOL_VERSION, requestId: 'request', sessionId: 'session', sequence: 0, type: 'handshake', payload: { permission: 'request-approval' } }",
         'const io = null as unknown as MockWorkerIo',
-        'void version; void frame; void invalidRequest; void runMockWorker(io)',
+        'const adapter = createCodexSdkAdapter({ client: null as never, mapping: new Map() })',
+        'const start: AgentStartRequest = { sessionId: "session", prompt: "hello", permission: "request-approval" }',
+        'void version; void frame; void invalidRequest; void runMockWorker(io); void adapter; void start; void McpClient; void MCP_PROTOCOL_VERSION; void buildAuthorizationUrl',
       ].join('\n'))
 
       const typecheck = spawnSync(process.execPath, [join(repositoryRoot, 'node_modules', 'typescript', 'bin', 'tsc'), '-p', join(consumerRoot, 'tsconfig.json')], { cwd: consumerRoot, encoding: 'utf8' })

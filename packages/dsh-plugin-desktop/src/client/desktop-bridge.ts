@@ -1,3 +1,9 @@
+import {
+  DESKTOP_BRIDGE_V2_CHANNEL,
+  isVersionedBridgeResponse,
+  type VersionedBridgeAction,
+} from './bridge-contract'
+
 export const DESKTOP_BRIDGE_CHANNEL = 'dsh-desktop/v1' as const
 
 export type DesktopBridgeAction =
@@ -40,12 +46,18 @@ export interface DesktopBridgeOptions {
   host?: BridgeWindow
   parent?: ParentWindow
   targetOrigin?: string
+  context?: { generationId: string; sessionId: string }
   timeoutMs?: number
   createRequestId?: () => string
 }
 
 export interface DesktopBridgeLike {
   request<T = unknown>(action: DesktopBridgeAction, payload?: Record<string, unknown>): Promise<T>
+  requestV2<T = unknown>(
+    action: VersionedBridgeAction,
+    context?: { generationId: string; sessionId: string },
+    payload?: Record<string, unknown>,
+  ): Promise<T>
   dispose(): void
 }
 
@@ -59,17 +71,33 @@ export function createDesktopBridge(options: DesktopBridgeOptions = {}): Desktop
     resolve(value: unknown): void
     reject(cause: Error): void
     timer: ReturnType<typeof setTimeout>
+    channel: string
+    generationId?: string
+    sessionId?: string
   }>()
   let disposed = false
 
   const onMessage = (event: MessageEvent) => {
-    if (targetOrigin === null || event.source !== parent || event.origin !== targetOrigin || !isResponse(event.data)) return
-    const request = pending.get(event.data.requestId)
+    if (targetOrigin === null || event.source !== parent || event.origin !== targetOrigin) return
+    const responseV2 = isVersionedBridgeResponse(event.data) ? event.data : null
+    const responseV1 = responseV2 === null && isResponse(event.data) ? event.data : null
+    if (responseV2 === null && responseV1 === null) return
+    const requestId = responseV2?.requestId ?? responseV1?.requestId
+    const request = requestId === undefined ? undefined : pending.get(requestId)
     if (request === undefined) return
+    if (responseV2 !== null) {
+      if (request.channel !== DESKTOP_BRIDGE_V2_CHANNEL
+        || request.generationId !== responseV2.generationId
+        || request.sessionId !== responseV2.sessionId) return
+    } else if (request.channel === DESKTOP_BRIDGE_V2_CHANNEL) {
+      return
+    }
+    const response = responseV2 ?? responseV1
+    if (response === null) return
     clearTimeout(request.timer)
-    pending.delete(event.data.requestId)
-    if (event.data.ok) request.resolve(event.data.result)
-    else request.reject(new Error(event.data.error?.message ?? '桌面请求失败'))
+    pending.delete(requestId as string)
+    if (response.ok) request.resolve(response.result)
+    else request.reject(new Error(response.error?.message ?? '桌面请求失败'))
   }
   host.addEventListener('message', onMessage)
 
@@ -87,10 +115,43 @@ export function createDesktopBridge(options: DesktopBridgeOptions = {}): Desktop
           resolve: (value) => resolve(value as T),
           reject,
           timer,
+          channel: DESKTOP_BRIDGE_CHANNEL,
         })
         parent.postMessage({
           channel: DESKTOP_BRIDGE_CHANNEL,
           requestId,
+          action,
+          payload,
+        }, targetOrigin)
+      })
+    },
+    requestV2<T = unknown>(
+      action: VersionedBridgeAction,
+      context: { generationId: string; sessionId: string } = options.context ?? { generationId: '', sessionId: '' },
+      payload: Record<string, unknown> = {},
+    ): Promise<T> {
+      if (disposed) return Promise.reject(new Error('桌面桥已关闭'))
+      if (targetOrigin === null) return Promise.reject(new Error('无法确定桌面壳层来源'))
+      if (context.generationId === '' || context.sessionId === '') return Promise.reject(new Error('桌面会话上下文不可用'))
+      const requestId = createRequestId()
+      return new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          pending.delete(requestId)
+          reject(new Error('桌面请求超时'))
+        }, timeoutMs)
+        pending.set(requestId, {
+          resolve: (value) => resolve(value as T),
+          reject,
+          timer,
+          channel: DESKTOP_BRIDGE_V2_CHANNEL,
+          generationId: context.generationId,
+          sessionId: context.sessionId,
+        })
+        parent.postMessage({
+          channel: DESKTOP_BRIDGE_V2_CHANNEL,
+          requestId,
+          generationId: context.generationId,
+          sessionId: context.sessionId,
           action,
           payload,
         }, targetOrigin)

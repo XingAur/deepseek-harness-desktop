@@ -54,6 +54,73 @@ pub fn shutdown_managed_runtimes(
     )
 }
 
+/// Terminates a Worker process group. Workers are always spawned into their own
+/// group so cancellation cannot leave a CLI child behind.
+pub(crate) fn terminate_worker_process_tree(pid: u32) -> Result<(), RuntimeFailure> {
+    #[cfg(unix)]
+    {
+        let process_group = -(pid as i32);
+        let result = unsafe { libc::kill(process_group, libc::SIGTERM) };
+        if result != 0 {
+            let error = std::io::Error::last_os_error();
+            if error.raw_os_error() != Some(libc::ESRCH) {
+                return Err(RuntimeFailure::new(
+                    RuntimeFailureCode::Process,
+                    "终止 Agent Worker 进程组失败",
+                ));
+            }
+        }
+        return Ok(());
+    }
+    #[cfg(windows)]
+    {
+        let status = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .status()
+            .map_err(|_| {
+                RuntimeFailure::new(RuntimeFailureCode::Process, "终止 Agent Worker 进程树失败")
+            })?;
+        if !status.success() {
+            return Err(RuntimeFailure::new(
+                RuntimeFailureCode::Process,
+                "终止 Agent Worker 进程树失败",
+            ));
+        }
+        return Ok(());
+    }
+    #[allow(unreachable_code)]
+    Err(RuntimeFailure::new(
+        RuntimeFailureCode::Process,
+        "当前平台不支持终止 Agent Worker",
+    ))
+}
+
+pub(crate) fn force_terminate_worker_process_tree(pid: u32) -> Result<(), RuntimeFailure> {
+    #[cfg(unix)]
+    {
+        let result = unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
+        if result != 0 {
+            let error = std::io::Error::last_os_error();
+            if error.raw_os_error() != Some(libc::ESRCH) {
+                return Err(RuntimeFailure::new(
+                    RuntimeFailureCode::Process,
+                    "强制终止 Agent Worker 进程组失败",
+                ));
+            }
+        }
+        return Ok(());
+    }
+    #[cfg(windows)]
+    {
+        return terminate_worker_process_tree(pid);
+    }
+    #[allow(unreachable_code)]
+    Err(RuntimeFailure::new(
+        RuntimeFailureCode::Process,
+        "当前平台不支持强制终止 Agent Worker",
+    ))
+}
+
 fn shutdown_with_policy(
     adapter: &dyn PlatformAdapter,
     runtime_root: &Path,
