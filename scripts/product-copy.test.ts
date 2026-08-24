@@ -406,6 +406,7 @@ describe('product copy', () => {
     expect(lib).toContain('#[cfg(feature = "e2e")]')
     expect(lib).toContain('tauri_plugin_wdio::init()')
     expect(e2eConfig).toContain('npm run build:web:e2e')
+    expect(e2eConfig).toContain('npm run agent:build')
     expect(main).toContain("import.meta.env.MODE === 'e2e'")
     expect(main).toContain("import('@wdio/tauri-plugin')")
     expect(packageJson).toContain('"build:web:e2e"')

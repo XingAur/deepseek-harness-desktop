@@ -3,7 +3,7 @@
   "productName": "DeepSeek Harness Desktop E2E",
   "identifier": "ai.deepseek.harness.desktop.e2e",
   "build": {
-    "beforeBuildCommand": "npm run build:web:e2e"
+    "beforeBuildCommand": "npm run build:web:e2e && npm run agent:build"
   },
   "app": {
     "withGlobalTauri": true,
