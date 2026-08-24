@@ -328,15 +328,12 @@ fn atomic_publish_bundle(
     if result == 0 {
         return Err(std::io::Error::last_os_error());
     }
-    Ok(
-        if ensure_trusted_directory(parent).is_ok()
-            && path_identity(to).is_ok_and(|identity| identity == source_identity)
-        {
-            BundlePublication::Verified
-        } else {
-            BundlePublication::DurabilityUncertain
-        },
-    )
+    // Windows has no supported directory-entry flush boundary here. The
+    // published bundle remains available for the caller's identity-bound
+    // locate and revalidation path, but must never be reported as durable.
+    let _published_identity_is_current = ensure_trusted_directory(parent).is_ok()
+        && path_identity(to).is_ok_and(|identity| identity == source_identity);
+    Ok(BundlePublication::DurabilityUncertain)
 }
 
 fn owned_bundle(path: PathBuf, owner_token: String) -> std::io::Result<OwnedBundle> {
@@ -1726,6 +1723,7 @@ mod tests {
             .expect("Windows publication implementation");
         assert!(windows_publish.contains("path_identity(to).is_ok_and"));
         assert!(windows_publish.contains("BundlePublication::DurabilityUncertain"));
+        assert!(!windows_publish.contains("BundlePublication::Verified"));
         assert!(!windows_publish.contains("source.sync_all()"));
         assert!(!windows_publish.contains("parent.handle.sync_all()"));
 
@@ -1748,17 +1746,19 @@ mod tests {
         fixture.execute_batch(V0_FIXTURE).unwrap();
         drop(fixture);
 
-        let store = AgentStore::open(&paths).unwrap();
-        let metadata = store
-            .migration_backup()
-            .expect("Windows migration must publish a backup")
+        let error = AgentStore::open(&paths).unwrap_err();
+        assert_eq!(error.code(), "agent_store_backup_durability_uncertain");
+        let recovery = error.recovery().unwrap();
+        let metadata = recovery
+            .backup
+            .as_ref()
+            .expect("Windows must retain the published backup evidence")
             .clone();
-        let recovery = crate::agent_store::model::RecoveryState {
-            source_path: paths.agent_database.clone(),
-            backup: Some(metadata.clone()),
-        };
 
-        assert_eq!(user_version(&store.reader().unwrap()), 1);
+        assert_eq!(
+            user_version(&Connection::open(&paths.agent_database).unwrap()),
+            0
+        );
         assert_eq!(
             super::validate_recovery_state(&paths, &recovery).unwrap(),
             metadata
@@ -1773,8 +1773,9 @@ mod tests {
         let fixture = Connection::open(&paths.agent_database).unwrap();
         fixture.execute_batch(V0_FIXTURE).unwrap();
         drop(fixture);
-        let store = AgentStore::open(&paths).unwrap();
-        let metadata = store.migration_backup().unwrap().clone();
+        let error = AgentStore::open(&paths).unwrap_err();
+        assert_eq!(error.code(), "agent_store_backup_durability_uncertain");
+        let metadata = error.recovery().unwrap().backup.as_ref().unwrap().clone();
         let recovery = crate::agent_store::model::RecoveryState {
             source_path: paths.agent_database.clone(),
             backup: Some(metadata.clone()),

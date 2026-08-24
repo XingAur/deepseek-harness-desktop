@@ -108,6 +108,15 @@ git diff --check
   passed; no output
 ```
 
+## Review round 4 独立终审 Important 修正
+
+- 终审确认 Windows `sync_directory` 只能重新打开并校验目录，不能证明 rename 后 directory entry 已持久化；此前 Windows `atomic_publish_bundle` 在身份回验后仍返回 `BundlePublication::Verified`。
+- 按 TDD 先将平台契约测试收紧为禁止 Windows publication implementation 出现 `BundlePublication::Verified`。该测试首次运行真实失败于 `mod.rs:1729`，随后才修改生产代码。
+- Windows rename 仍使用固定 source handle、`FILE_FLAG_WRITE_THROUGH`、`SetFileInformationByHandle(FileRenameInfo)` 和 no-replace 语义；仅将发布结果固定为 `BundlePublication::DurabilityUncertain`，并保留 post-rename identity 检查。后续既有 owner-token bounded locate、sidecar/backup identity revalidation 会保留并重新校验已发布 evidence，无法定位时仍返回 `agent_store_backup_evidence_lost`。
+- `#[cfg(windows)]` V0 migration 测试保留为真实旧库场景：确认 Windows 在无法证明 directory-entry durability 时安全阻断迁移并返回 `agent_store_backup_durability_uncertain`，且 backup evidence 可通过 recovery validation 重验；verification handle replacement 测试继续覆盖同一 evidence。
+
+本次终审修正后的 focused agent_store 结果：`36 passed; 0 failed; 161 filtered out`。本机为 macOS，未执行 Windows target；完整 Rust/npm 验证由主控执行。
+
 ## 残余风险与边界
 
 - 按安全约束未对真实 macOS Keychain 或 Windows Credential Manager 执行读写删除；macOS 使用构造的 typed platform error，Windows 使用纯 classifier mock。
@@ -340,3 +349,20 @@ rustfmt --edition 2024 --check --config skip_children=true <本轮变更 Rust �
 git diff --check
   passed; no output
 ```
+
+## Review round 4 修正后的主控全量验证
+
+在 Windows durability 修正后，沙箱外重新执行了完整回归：
+
+```text
+cargo test --manifest-path src-tauri/Cargo.toml --locked
+  197 passed; 0 failed
+
+npm run check
+  root Vitest: 246 passed
+  desktop plugin: 69 passed
+  agent adapter: 25 passed
+  build:web、plugin:build、agent:build 全部通过
+```
+
+本机为 macOS Apple Silicon；Windows `#[cfg(windows)]` 测试已加入并由 Windows CI 执行，本机未声称运行 Windows target。完整审查结论：Windows 无法证明 directory-entry durability 时返回 `agent_store_backup_durability_uncertain`，保留并重验已发布证据；stale metadata 和 verification-copy inode/path race 无新增问题。
