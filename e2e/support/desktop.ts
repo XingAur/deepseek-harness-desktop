@@ -26,7 +26,7 @@ export interface DesktopHarness {
   requestLog(): Promise<readonly FixtureRequest[]>
   waitForWorkbenchText(text: string, timeoutMs?: number): Promise<void>
   createProfile(input: { name: string; dataRoot: string }): Promise<string>
-  createProject(input: { idea: string; path: string; permission: 'workspace-write' | 'read-only' }): Promise<void>
+  createProject(input: { idea: string }): Promise<void>
   selectProject(title: string): Promise<void>
   openProject(title: string): Promise<void>
   launchLocalApp(title: string): Promise<void>
@@ -142,23 +142,19 @@ export class PackagedDesktopHarness implements DesktopHarness {
     return input.name
   }
 
-  async createProject(input: { idea: string; path: string; permission: 'workspace-write' | 'read-only' }): Promise<void> {
+  async createProject(input: { idea: string }): Promise<void> {
     await this.withWorkbenchTarget(async (page) => {
       const submitBuild = async () => {
         await this.openLocalProjects(page)
         await page.setValue('textarea[aria-label="项目需求"]', input.idea)
-        await page.setValue('input[aria-label="项目路径"]', input.path)
-        await page.setValue('select[aria-label="构建权限模式"]', input.permission)
-        if (!existsSync(input.path)) {
-          await page.click('input[type="checkbox"]')
-        }
         await page.clickText('检查并预览')
         await page.clickText('确认并开始构建')
       }
 
       await submitBuild()
       const continueButton = buttonTextExpression('继续')
-      await page.waitFor(`(${continueButton}) !== null || document.body?.innerText.includes('E2E_PONG') === true`, {
+      const replyVisible = conversationContainsExpression('E2E_PONG')
+      await page.waitFor(`(${continueButton}) !== null || (${replyVisible})`, {
         timeoutMs: 30_000,
         message: '本地项目未进入首次会话',
       })
@@ -168,7 +164,7 @@ export class PackagedDesktopHarness implements DesktopHarness {
         // 此时目录可能已创建，但项目还没有注册或启动会话。
         await submitBuild()
       }
-      await page.waitFor(`document.body?.innerText.includes('E2E_PONG') === true`, {
+      await page.waitFor(replyVisible, {
         timeoutMs: 60_000,
         message: '本地项目会话没有收到确定性模型回复',
       })
@@ -570,6 +566,10 @@ interface CdpEvent {
 
 function buttonTextExpression(text: string): string {
   return `Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.trim() === ${JSON.stringify(text)}) ?? null`
+}
+
+function conversationContainsExpression(text: string): string {
+  return `document.querySelector('[data-slot="conversation.session"]')?.textContent?.includes(${JSON.stringify(text)}) === true`
 }
 
 function projectArticleExpression(title: string): string {
