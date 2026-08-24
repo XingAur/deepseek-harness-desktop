@@ -6,6 +6,7 @@ import {
   RuntimeSessionContractError,
   runRuntimeSessionContract,
 } from './runtime-session-contract.mjs'
+import type { RuntimeSessionContractDriver } from './runtime-session-contract.mjs'
 import {
   parseRuntimeSessionContractArgs,
   resolveCandidateRuntimeLayout,
@@ -14,25 +15,29 @@ import {
 
 function createRecordingDriver() {
   const calls: string[] = []
-  const record = <T>(name: string, value?: T) => vi.fn(async () => {
+  const recordVoid = (name: string) => vi.fn(async (): Promise<void> => {
     calls.push(name)
-    return value as T
+  })
+  const recordValue = <T>(name: string, value: T) => vi.fn(async (): Promise<T> => {
+    calls.push(name)
+    return value
   })
 
+  const driver: RuntimeSessionContractDriver = {
+    start: recordVoid('runtime-start'),
+    ready: recordVoid('runtime-ready'),
+    createWorkspace: recordValue('workspace-create', 'w-1'),
+    createSession: recordValue('session-create', 's-1'),
+    requireBinding: recordVoid('session-binding'),
+    prompt: recordVoid('session-prompt'),
+    open: recordVoid('session-open'),
+    waitForEvents: recordVoid('session-event'),
+    closeSession: recordVoid('session-close'),
+    cleanup: recordVoid('cleanup'),
+  }
   return {
     calls,
-    driver: {
-      start: record('runtime-start'),
-      ready: record('runtime-ready'),
-      createWorkspace: record('workspace-create', 'w-1'),
-      createSession: record('session-create', 's-1'),
-      requireBinding: record('session-binding'),
-      prompt: record('session-prompt'),
-      open: record('session-open'),
-      waitForEvents: record('session-event'),
-      closeSession: record('session-close'),
-      cleanup: record('cleanup'),
-    },
+    driver,
   }
 }
 

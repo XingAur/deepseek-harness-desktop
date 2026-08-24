@@ -6,6 +6,7 @@ import {
   createCandidateSessionOperations,
   resolveCandidateClientPaths,
 } from './runtime-session-contract-client.mjs'
+import type { CandidateSessionFace } from './runtime-session-contract-client.mjs'
 
 const CLIENT_PACKAGES = [
   ['@deepseek-ai/cordis', 'lib/index.js'],
@@ -27,7 +28,7 @@ function candidateFixture() {
   return { root, appDirectory }
 }
 
-function sessionFixture(bindingValue: unknown = undefined) {
+function sessionFixture(bindingValue: { sessionId: string; session: CandidateSessionFace } | undefined = undefined) {
   return {
     list: { getSnapshot: vi.fn(), subscribe: vi.fn() },
     binding: vi.fn(() => bindingValue),
@@ -97,7 +98,7 @@ describe('createCandidateSessionOperations', () => {
     let snapshot: unknown = { turns: [] }
     const listeners = new Set<() => void>()
     const session = {
-      prompt: vi.fn(async () => ({ ok: true, value: { accepted: true } })),
+      prompt: vi.fn(async () => ({ ok: true, value: { accepted: true as const } })),
       getSnapshot: vi.fn(() => snapshot),
       subscribe: vi.fn((listener: () => void) => {
         listeners.add(listener)
@@ -149,7 +150,7 @@ describe('createCandidateSessionOperations', () => {
 
   it('classifies a missing reply event without exposing snapshot content', async () => {
     const session = {
-      prompt: vi.fn(async () => ({ ok: true, value: { accepted: true } })),
+      prompt: vi.fn(async () => ({ ok: true, value: { accepted: true as const } })),
       getSnapshot: vi.fn(() => ({ text: 'SESSION_CONTRACT_PROMPT private content' })),
       subscribe: vi.fn(() => () => undefined),
     }
