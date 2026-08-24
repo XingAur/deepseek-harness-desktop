@@ -28,6 +28,7 @@ export function workspaceFixture(items: WorkspaceView[] = []) {
       subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener) },
     },
     startSession: vi.fn(),
+    refresh: vi.fn(async () => undefined),
     create: vi.fn(async ({ path }) => ({
       workspaceId: 'w-new', path, title: path.split(/[\\/]/).at(-1) ?? path,
       sessionIds: [], createdAt: '2026-08-19T00:00:00Z', updatedAt: '2026-08-19T00:00:00Z',
@@ -46,27 +47,36 @@ export function workspaceFixture(items: WorkspaceView[] = []) {
 }
 
 export function sessionFixture(current?: string) {
-  let snapshot: SessionListStateLike = { current }
+  let snapshot: SessionListStateLike = { ids: current === undefined ? [] : [current], byId: {}, current }
   const listeners = new Set<() => void>()
   const prompt = vi.fn<SessionFaceLike['prompt']>(async () => ({ ok: true, value: { accepted: true as const } }))
   const session = {
     prompt,
   }
-  const sessions: SessionsLike & { session: typeof session; setCurrent(current?: string): void } = {
+  const sessions: SessionsLike & {
+    session: typeof session
+    setCurrent(current?: string): void
+    setList(next: Partial<SessionListStateLike>): void
+  } = {
     list: {
       getSnapshot: () => snapshot,
       subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener) },
     },
     clear: vi.fn(() => {
-      snapshot = {}
+      snapshot = { ...snapshot, current: undefined }
       listeners.forEach((listener) => listener())
     }),
+    refresh: vi.fn(async () => undefined),
     create: vi.fn(async () => 's-1'),
     open: vi.fn(),
     binding: vi.fn((id) => id === 's-1' ? { sessionId: id, session } : undefined),
     session,
     setCurrent(current) {
-      snapshot = { current }
+      snapshot = { ...snapshot, current }
+      listeners.forEach((listener) => listener())
+    },
+    setList(next) {
+      snapshot = { ...snapshot, ...next }
       listeners.forEach((listener) => listener())
     },
   }

@@ -29,13 +29,14 @@ describe('new session transition', () => {
     expect(resolveNewSessionWorkspace(snapshot, 'missing')).toBe('w-recent')
   })
 
-  it('clears the old session before starting the resolved workspace and restores on dispose', () => {
+  it('clears the old session before starting the resolved workspace and restores on dispose', async () => {
     const order: string[] = []
     const workspaces = workspaceFixture([recentWorkspace, currentWorkspace])
     const sessions = sessionFixture('s-current')
     const original = workspaces.startSession
     vi.mocked(workspaces.startSession).mockImplementation((workspaceId) => {
       order.push(`start:${workspaceId ?? 'none'}`)
+      sessions.setCurrent('s-new')
     })
     vi.mocked(sessions.clear).mockImplementation(() => { order.push('clear') })
 
@@ -43,8 +44,35 @@ describe('new session transition', () => {
     workspaces.startSession()
 
     expect(order).toEqual(['clear', 'start:w-current'])
+    await vi.waitFor(() => {
+      expect(workspaces.refresh).toHaveBeenCalledOnce()
+      expect(sessions.refresh).toHaveBeenCalledOnce()
+    })
     dispose()
     expect(workspaces.startSession).toBe(original)
+  })
+
+  it('refreshes the promoted session only when its projection changes', async () => {
+    const workspaces = workspaceFixture([recentWorkspace])
+    const sessions = sessionFixture('s-current')
+    vi.mocked(workspaces.startSession).mockImplementation(() => {
+      sessions.setCurrent('s-new')
+    })
+    const dispose = installNewSessionTransition(workspaces, sessions)
+
+    workspaces.startSession()
+    await vi.waitFor(() => expect(sessions.refresh).toHaveBeenCalledOnce())
+    sessions.setList({
+      ids: ['s-new', 's-current'],
+      byId: { 's-new': { blank: true, running: true, updatedAt: 1 } },
+      current: 's-new',
+    })
+    await vi.waitFor(() => expect(sessions.refresh).toHaveBeenCalledTimes(2))
+    sessions.setList({ current: 's-new' })
+    await new Promise((resolveWait) => setTimeout(resolveWait, 20))
+    expect(sessions.refresh).toHaveBeenCalledTimes(2)
+
+    dispose()
   })
 
   it('shares one wrapper across repeated installations', () => {

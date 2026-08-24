@@ -67,12 +67,20 @@ export interface WorkspaceListState {
 }
 
 export interface SessionListStateLike {
+  ids: readonly string[]
+  byId: Record<string, {
+    blank?: boolean
+    running?: boolean
+    updatedAt?: number
+    title?: string
+  }>
   current?: string
 }
 
 export interface WorkspacesLike {
   readonly list: ObservableSnapshot<WorkspaceListState>
   startSession(workspaceId?: string): void
+  refresh(): Promise<void>
   create(input: { path: string }): Promise<WorkspaceView>
   createDirectory(path: string, name: string): Promise<string>
   rename(workspaceId: string, title: string): Promise<void>
@@ -92,6 +100,7 @@ export interface SessionFaceLike {
 export interface SessionsLike {
   readonly list: ObservableSnapshot<SessionListStateLike>
   clear(): void
+  refresh(): Promise<void>
   create(opts?: { workspaceId?: string; cwd?: string; sessionId?: string }): Promise<string>
   open(id: string): void
   binding(id: string): { sessionId: string; session: SessionFaceLike } | undefined
