@@ -5,7 +5,7 @@
 <h1 align="center">DeepSeek Harness Desktop</h1>
 
 <p align="center">
-  让普通用户无需命令行，即可在 Windows 和 Apple Silicon Mac 上使用 DeepSeek Harness。
+  让普通用户无需命令行，即可在 Windows 和 Apple Silicon Mac 上使用 DeepSeek Harness：描述想法、构建项目、直接运行做出来的应用。
 </p>
 
 > [!IMPORTANT]
@@ -17,6 +17,8 @@ DeepSeek Harness Desktop 把官方 DeepSeek Harness Web 工作台放进原生桌
 
 - 自动准备并启动受管 Runtime（Node.js 24 + pnpm + 官方 DeepSeek Harness），无需预装任何依赖。
 - 在原生窗口中呈现桌面版工作台布局：官方侧栏、会话区、详情面板三栏结构，侧栏与详情宽度可调，并带“本地项目”快捷入口。
+- 用对话描述想做的项目，由真实 DeepSeek Harness 会话完成构建。
+- 一键运行构建出来的本地应用：应用在本机安全运行、数据保存在项目目录里，随时返回工作台继续改进。
 - 使用当前 Profile 的官方 Workspace 数据展示“本地项目”，不维护第二份容易失真的项目数据库。
 - 通过 Profile 隔离不同的工作环境，支持创建、复制、编辑、删除和切换。
 - 支持浅色、深色和跟随系统主题，桌面标题栏与工作台保持一致。
@@ -53,10 +55,22 @@ macOS 包未使用 Apple Developer ID 签名、未经过 Apple 公证，因为�
 应用启动后直接进入官方工作台的桌面布局。侧栏中的“本地项目”来自当前 Profile 的 Workspace 列表：
 
 - 单击卡片选中项目，并可在下方对话框快捷修改；
-- 双击卡片启动项目；
-- 右键可以修改名称、选择内置颜色或渐变封面、置顶或删除项目；
+- 双击卡片启动项目：可运行的项目直接启动本地应用，其余项目打开会话继续构建；
+- 卡片上的徽标说明项目状态：“可运行”表示已带有可启动的应用，“运行中”表示应用正在后台运行；
+- 右键菜单提供打开会话继续开发、停止应用、修改名称、选择内置颜色或渐变封面、置顶和删除项目；
 - 删除操作必须二次确认，并由用户选择只移除记录，还是把已登记的项目目录移到 Windows 回收站；
-- 列表为空时，只需描述想做的项目；桌面端会在“文档\DeepSeek Harness\Projects”中自动创建安全且不重名的目录，并在后台使用当前 Profile 和工作区可写权限，再通过真实 DeepSeek Harness 会话开始构建。
+- 列表为空时，只需描述想做的项目；桌面端会在“文档\DeepSeek Harness\Projects”中自动创建安全且不重名的目录，并在后台使用当前 Profile 和工作区可写权限，再通过真实 DeepSeek Harness 会话开始构建；
+- 已经存在于其他位置的项目，可以通过“收录已有项目”加入本地项目列表；收录只是登记标记，不会复制或移动项目文件。
+
+### 运行本地应用
+
+由 DeepSeek Harness 构建完成的项目，可以在应用内直接运行：
+
+- 双击带“可运行”徽标的项目，应用会在本机回环地址启动，并通过健康检查确认真正可用；
+- 运行的应用嵌入主窗口，顶部提示条显示“正在运行：<项目名>”，并提供“返回工作台”和“停止应用”；
+- 返回工作台后应用继续在后台运行，工作台会话不受影响，随时可以再切回去；
+- 应用的数据保存在项目自己的目录中，重启应用或电脑后数据仍在；
+- 同一项目同时只保留一个运行实例，重复双击会直接回到已运行的实例。
 
 ### Profile
 
@@ -102,7 +116,8 @@ GitHub Actions 每天 10:30（中国标准时间）检查 npm 上游 `@deepseek-
 - 默认卸载只移除应用，保留 Profile、Workspace 和会话数据；卸载过程不阻塞等待大文件删除。
 - 如果卸载时选择删除本地数据，卸载器会先把固定数据目录原子移动到待清理位置，再由后台清理程序释放磁盘空间。
 - Runtime 清单使用 Ed25519 签名，下载制品使用 SHA-256 校验；新版本通过完整健康检查后才提交，失败会回滚。
-- 工作台只监听随机的 `127.0.0.1` 端口。
+- 工作台和本地应用都只监听随机的 `127.0.0.1` 端口，不从局域网或互联网访问。
+- 本地应用只能用受管 Runtime 内的 Node.js/pnpm 以固定参数启动，不允许任意命令；应用目录和清单经过校验，防止路径逃逸；同时运行的应用数量有上限。
 - 嵌入的工作台页面不持有不受限制的 Tauri IPC；本机操作只能经过类型化、动作白名单化的桥接接口。
 - 顶层导航只允许受管本地页面；外部 HTTPS 地址验证后交给系统浏览器，其余协议默认拒绝。
 - 诊断导出会清理常见令牌、认证头和敏感环境变量。
@@ -132,6 +147,13 @@ GitHub Actions 每天 10:30（中国标准时间）检查 npm 上游 `@deepseek-
 </details>
 
 <details>
+<summary><strong>双击项目没有启动应用？</strong></summary>
+
+只有构建完成并带有应用清单的项目才会显示“可运行”徽标并直接启动应用；其余项目双击后会打开会话继续构建。如果启动过程中健康检查没有通过，界面会提示失败并保留项目状态，可返回会话让 DeepSeek Harness 继续修复，或导出诊断反馈问题。
+
+</details>
+
+<details>
 <summary><strong>为什么现在会提示网络不可用？</strong></summary>
 
 正常的首次启动会使用安装包内置 Runtime，不需要联网。只有内置或本地 Runtime 损坏、版本需要升级，或者用户主动修复时，应用才会访问不可变 Runtime Release；如果网络受限、下载地址不可达或 Release 资产不完整，就会提示网络不可用且保留当前数据和可用版本。
@@ -149,11 +171,14 @@ GitHub Actions 每天 10:30（中国标准时间）检查 npm 上游 `@deepseek-
 
 ```text
 Tauri 2 可信桌面壳（React 启动页 + 自定义标题栏）
-  └─ Rust Runtime Manager
-      ├─ 签名验证 / 下载 / 激活 / 回滚 / 诊断
-      ├─ Generation 与 Profile 生命周期
-      └─ Managed Node 24 + DeepSeek Harness + Desktop 插件
-          └─ 127.0.0.1:<随机端口> 官方工作台 UI（桌面布局）
+  ├─ Rust Runtime Manager
+  │    ├─ 签名验证 / 下载 / 激活 / 回滚 / 诊断
+  │    ├─ Generation 与 Profile 生命周期
+  │    └─ Managed Node 24 + DeepSeek Harness + Desktop 插件
+  │        └─ 127.0.0.1:<随机端口> 官方工作台 UI（桌面布局）
+  └─ 本地应用启动器
+       ├─ 应用清单校验 / 健康检查 / 生命周期管理
+       └─ 127.0.0.1:<随机端口> 项目构建出的本地应用
 ```
 
 桌面壳只负责原生窗口、受管 Runtime 和安全边界。Agent、会话、工具、模型与 Web UI 仍由 DeepSeek Harness 提供；桌面布局、本地项目入口和 Profile 界面通过普通 DeepSeek Harness 插件组合进去。
@@ -227,7 +252,7 @@ Runtime 与 Desktop Release 都先停留在草稿状态并校验精确资产集�
 
 当前仓库已实现并在本地验证发布状态机和构建契约；GitHub 托管 Windows/macOS runner、真实 Release 中断恢复、Windows 已安装旧版本升级以及 Apple Silicon 实机 Gatekeeper/DMG 覆盖仍需要推送后在真实环境完成验收，不能仅凭本地测试视为已验证。
 
-未来接入 Codex、Claude、其他模型、Plugins、Skills 和 MCP 的职责及安全边界见 [扩展平台架构](docs/architecture/extension-platform.md)。该文档是本期交付的架构基础，不代表这些 Provider 已经实现。
+未来接入 Codex、Claude、其他模型、Plugins、Skills 和 MCP 的职责及安全边界见 [扩展平台架构](docs/architecture/extension-platform.md)。该文档是架构基础，不代表这些 Provider 已经实现。
 
 ### Windows 构建
 
@@ -249,11 +274,13 @@ src-tauri/target/release/bundle/nsis/DeepSeek-Harness-v<desktop-version>-Windows
 
 ```text
 src/                           Tauri 启动、恢复和诊断 React UI
-src-tauri/                     Rust Runtime Manager、原生窗口与安全边界
+src-tauri/                     Rust Runtime Manager、原生窗口、安全边界与本地应用启动器
 packages/dsh-plugin-desktop/   桌面布局、本地项目和 Profile 界面插件
 runtime/                       Runtime 格式与签名清单说明
+release/                       统一版本源
 scripts/                       构建、签名、验证和端到端测试工具
 e2e/                           真实安装包与工作台测试
+docs/architecture/             扩展平台等架构文档
 ```
 
 ## 独立项目与商标说明
