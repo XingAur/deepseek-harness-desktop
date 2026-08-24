@@ -1,8 +1,34 @@
 import { describe, expect, it, vi } from 'vitest'
 import { applyAdvancedShell } from '../src/client/advanced-shell'
 import type { ClientContextLike } from '../src/client/contracts'
+import { sessionFixture, workspaceFixture } from './fixtures'
 
 describe('advanced shell', () => {
+  it('installs and disposes the new-session transition with the shell generation', () => {
+    const workspaces = workspaceFixture()
+    const sessions = sessionFixture()
+    const original = workspaces.startSession
+    let disposeTransition: (() => void) | undefined
+    const context = {
+      effect: (setup: () => void | (() => void), label: string) => {
+        const dispose = setup()
+        if (label === 'desktop: new session transition' && typeof dispose === 'function') {
+          disposeTransition = dispose
+        }
+      },
+      reflect: { provide: vi.fn(() => () => undefined) },
+      slots: { register: vi.fn(() => () => undefined) },
+      workspaces,
+      sessions,
+    } as unknown as ClientContextLike
+
+    applyAdvancedShell(context, 'win32')
+
+    expect(workspaces.startSession).not.toBe(original)
+    disposeTransition?.()
+    expect(workspaces.startSession).toBe(original)
+  })
+
   it('registers the profile manager through the official settings section and disposes it', () => {
     const disposeSection = vi.fn()
     const register = vi.fn((definition) => definition.name === 'settings.section' ? disposeSection : () => undefined)

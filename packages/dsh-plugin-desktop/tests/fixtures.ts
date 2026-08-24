@@ -3,8 +3,8 @@ import { render } from '@testing-library/react'
 import { vi } from 'vitest'
 import { AdvancedFrame } from '../src/client/AdvancedFrame'
 import type {
-  AdvancedFrameProps, ClientContextLike, SessionFaceLike, SessionsLike, WorkspaceListState,
-  WorkspacesLike, WorkspaceView,
+  AdvancedFrameProps, ClientContextLike, SessionFaceLike, SessionListStateLike, SessionsLike,
+  WorkspaceListState, WorkspacesLike, WorkspaceView,
 } from '../src/client/contracts'
 import type { DesktopBridgeAction, DesktopBridgeLike } from '../src/client/desktop-bridge'
 import { DesktopLayoutState } from '../src/client/layout-state'
@@ -27,6 +27,7 @@ export function workspaceFixture(items: WorkspaceView[] = []) {
       getSnapshot: () => snapshot,
       subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener) },
     },
+    startSession: vi.fn(),
     create: vi.fn(async ({ path }) => ({
       workspaceId: 'w-new', path, title: path.split(/[\\/]/).at(-1) ?? path,
       sessionIds: [], createdAt: '2026-08-19T00:00:00Z', updatedAt: '2026-08-19T00:00:00Z',
@@ -44,16 +45,30 @@ export function workspaceFixture(items: WorkspaceView[] = []) {
   return workspaces
 }
 
-export function sessionFixture() {
+export function sessionFixture(current?: string) {
+  let snapshot: SessionListStateLike = { current }
+  const listeners = new Set<() => void>()
   const prompt = vi.fn<SessionFaceLike['prompt']>(async () => ({ ok: true, value: { accepted: true as const } }))
   const session = {
     prompt,
   }
-  const sessions: SessionsLike & { session: typeof session } = {
+  const sessions: SessionsLike & { session: typeof session; setCurrent(current?: string): void } = {
+    list: {
+      getSnapshot: () => snapshot,
+      subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener) },
+    },
+    clear: vi.fn(() => {
+      snapshot = {}
+      listeners.forEach((listener) => listener())
+    }),
     create: vi.fn(async () => 's-1'),
     open: vi.fn(),
     binding: vi.fn((id) => id === 's-1' ? { sessionId: id, session } : undefined),
     session,
+    setCurrent(current) {
+      snapshot = { current }
+      listeners.forEach((listener) => listener())
+    },
   }
   return sessions
 }

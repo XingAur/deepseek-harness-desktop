@@ -10,6 +10,7 @@ import { ProfileSettingsSection } from './ProfileSettingsSection'
 import { LocalProjectsFooterAction } from './LocalProjectsFooterAction'
 import { LocalProjectsState } from './local-projects-state'
 import { ModelAgentCenter } from './model-agent/ModelAgentCenter'
+import { installNewSessionTransition } from './new-session-transition'
 
 export interface AdvancedShellOptions {
   bridge?: DesktopBridgeLike
@@ -25,6 +26,10 @@ export function applyAdvancedShell(
   const bridge = options.bridge ?? desktopBridgeForWindow(options.parentOrigin, options.context)
   const layout = new DesktopLayoutState()
   const localProjects = new LocalProjectsState()
+  ctx.effect(
+    () => installNewSessionTransition(ctx.workspaces, ctx.sessions),
+    'desktop: new session transition',
+  )
   ctx.effect(() => {
     document.body.dataset.dshDesktopMode = 'advanced'
     document.body.dataset.dshDesktopPlatform = platform
