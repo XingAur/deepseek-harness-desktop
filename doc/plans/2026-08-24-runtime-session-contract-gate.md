@@ -45,7 +45,7 @@
 - Create: `scripts/runtime-session-contract.d.mts`
 - Create: `scripts/runtime-session-contract.test.ts`
 
-- [ ] **Step 1：先写调用顺序与成功报告失败测试**
+- [x] **Step 1：先写调用顺序与成功报告失败测试**
 
 测试构造记录调用的驱动，并断言：
 
@@ -82,7 +82,7 @@ export interface RuntimeSessionContractDriver {
 }
 ```
 
-- [ ] **Step 2：写失败分类与清理测试**
+- [x] **Step 2：写失败分类与清理测试**
 
 覆盖以下用例：
 
@@ -104,7 +104,7 @@ it.each([
 
 同时断言业务失败后仍调用一次 `cleanup`；业务失败和清理失败同时出现时，`failedStage` 保留业务阶段，`cleanupFailure` 记录清理错误。
 
-- [ ] **Step 3：运行测试确认红灯**
+- [x] **Step 3：运行测试确认红灯**
 
 Run:
 
@@ -114,7 +114,7 @@ npx vitest run scripts/runtime-session-contract.test.ts
 
 Expected: FAIL，原因是执行器模块尚不存在。
 
-- [ ] **Step 4：实现最小阶段执行器**
+- [x] **Step 4：实现最小阶段执行器**
 
 导出固定集合：
 
@@ -139,7 +139,7 @@ export const FAILURE_CATEGORIES = Object.freeze([
 4. 通过带 `category` 的 `RuntimeSessionContractError` 归一化失败；
 5. 不把原始 prompt、回复或完整路径放入报告。
 
-- [ ] **Step 5：运行定向测试并提交**
+- [x] **Step 5：运行定向测试并提交**
 
 Run:
 
@@ -167,7 +167,7 @@ git push origin main
 - Create: `scripts/runtime-session-contract-client.d.mts`
 - Create: `scripts/runtime-session-contract-client.test.ts`
 
-- [ ] **Step 1：写候选根目录与 bundle 安全测试**
+- [x] **Step 1：写候选根目录与 bundle 安全测试**
 
 测试必须断言：
 
@@ -178,7 +178,7 @@ git push origin main
 
 使用临时目录写最小 `package.json` 与 `lib/client.js` 注册文件，不启动网络。
 
-- [ ] **Step 2：写同步 binding 失败测试**
+- [x] **Step 2：写同步 binding 失败测试**
 
 注入最小客户端服务：`createSession()` 返回 `s-1`，`binding('s-1')` 返回 `undefined`。断言：
 
@@ -191,7 +191,7 @@ expect(binding).toHaveBeenCalledTimes(1)
 
 不得使用 setTimeout、notifier 或第二次 Session create。
 
-- [ ] **Step 3：运行测试确认红灯**
+- [x] **Step 3：运行测试确认红灯**
 
 Run:
 
@@ -201,7 +201,7 @@ npx vitest run scripts/runtime-session-contract-client.test.ts
 
 Expected: FAIL，原因是候选客户端驱动尚不存在。
 
-- [ ] **Step 4：实现候选 bundle materializer**
+- [x] **Step 4：实现候选 bundle materializer**
 
 `loadCandidateClientModules(appDirectory)` 按以下规则执行：
 
@@ -222,7 +222,7 @@ cordis
 → dsh-client-runtime/client
 ```
 
-- [ ] **Step 5：实现真实 Session/Workspace 服务装配**
+- [x] **Step 5：实现真实 Session/Workspace 服务装配**
 
 `createCandidateSessionDriver(options)` 必须：
 
@@ -250,9 +250,9 @@ await binding.session.prompt([{ type: 'text', text: promptMarker }], 'queue')
 sessions.open(sessionId)
 ```
 
-事件等待订阅 `binding.session` 的 snapshot，只在内存中判断 snapshot 是否同时包含 prompt marker 与 `SESSION_CONTRACT_PONG`，报告中不保存正文。
+事件等待订阅 `binding.session`，并通过候选 Runtime 公开的 Conversation Event/View Registry 建立无 UI 契约投影；只在内存中判断投影是否同时包含 prompt marker 与确定性回复，报告中不保存正文。
 
-- [ ] **Step 6：实现关闭与清理**
+- [x] **Step 6：实现关闭与清理**
 
 清理顺序：
 
@@ -266,7 +266,7 @@ sessions.clear
 
 每个动作幂等，部分初始化失败时也能执行。
 
-- [ ] **Step 7：运行定向测试并提交**
+- [x] **Step 7：运行定向测试并提交**
 
 Run:
 
@@ -292,7 +292,7 @@ git push origin main
 - Modify: `package.json`
 - Test: `scripts/runtime-session-contract.test.ts`
 
-- [ ] **Step 1：写 CLI 参数与脱敏报告测试**
+- [x] **Step 1：写 CLI 参数与脱敏报告测试**
 
 入口参数固定为：
 
@@ -304,7 +304,7 @@ git push origin main
 
 测试断言缺少参数时退出失败；报告不得包含 `SESSION_CONTRACT_PROMPT`、`SESSION_CONTRACT_PONG`、API Key 或临时绝对路径。
 
-- [ ] **Step 2：实现 loopback 端口和临时目录准备**
+- [x] **Step 2：实现 loopback 端口和临时目录准备**
 
 使用 `mkdtemp` 创建：
 
@@ -316,9 +316,9 @@ contract-root/
 
 使用 `node:net` 在 `127.0.0.1` 上保留端口后立即释放；Runtime 和模型服务都只监听 loopback。
 
-- [ ] **Step 3：启动确定性模型和候选 Runtime**
+- [x] **Step 3：启动确定性模型和候选 Runtime**
 
-复用 `startFakeModelProvider({ family: 'openai', text: 'SESSION_CONTRACT_PONG' })`，以候选 Node 启动：
+复用 `startFakeDeepSeek({ text: 'SESSION_CONTRACT_PONG' })`，以候选 Node 启动：
 
 ```text
 <candidate-node> app/launcher.mjs --port <port> --no-open
@@ -330,6 +330,7 @@ contract-root/
 DSH_HOME=<临时 dsh-home>
 DSH_DESKTOP_PROFILE_ID=contract
 DSH_DESKTOP_PROFILE_REVISION=1
+DSH_E2E_MODEL_ENDPOINT=<loopback fixture chat completions URL>
 DEEPSEEK_BASE_URL=<loopback fixture URL>
 DEEPSEEK_API_KEY=sk-session-contract-fixture
 NODE_EXTRA_CA_CERTS=<临时 CA 文件>
@@ -337,7 +338,7 @@ NODE_EXTRA_CA_CERTS=<临时 CA 文件>
 
 Windows 使用 `windowsHide: true`，避免弹出 CMD 窗口。
 
-- [ ] **Step 4：运行执行器并写 JSON 报告**
+- [x] **Step 4：运行执行器并写 JSON 报告**
 
 报告 schema 固定为：
 
@@ -354,11 +355,11 @@ Windows 使用 `windowsHide: true`，避免弹出 CMD 窗口。
 
 失败报告增加 `failedStage`、`category` 和可选 `processExitCode`，不写原始异常堆栈。失败时 `process.exitCode = 1`。
 
-- [ ] **Step 5：实现进程树和临时目录清理**
+- [x] **Step 5：实现进程树和临时目录清理**
 
 正常与异常路径都先终止候选 Runtime；Windows 使用已有受控进程清理方式或 `taskkill /PID <pid> /T /F` 的精确 PID，其他平台向进程组发送终止信号。确认进程退出后才删除本次创建的唯一临时目录。
 
-- [ ] **Step 6：增加 npm 命令并提交**
+- [x] **Step 6：增加 npm 命令并提交**
 
 `package.json` 增加：
 
@@ -391,7 +392,7 @@ git push origin main
 - Modify: `scripts/workflow-contract.test.ts`
 - Test: `scripts/workflow-contract.test.ts`
 
-- [ ] **Step 1：写构建顺序失败测试**
+- [x] **Step 1：写构建顺序失败测试**
 
 在 `scripts/product-copy.test.ts` 中断言：
 
@@ -405,7 +406,7 @@ inspectAssembledRuntimeCapabilities
 
 并断言门禁失败时不会调用 `writeUnsignedRuntimeManifest`。
 
-- [ ] **Step 2：写工作流失败测试**
+- [x] **Step 2：写工作流失败测试**
 
 `workflow-contract.test.ts` 断言：
 
@@ -413,7 +414,7 @@ inspectAssembledRuntimeCapabilities
 - `upstream-sync.yml` 的 `verify_supported_platform` 在 `publish_refs` 之前运行候选构建；
 - `publish_refs.needs` 包含候选 Runtime 验证 job。
 
-- [ ] **Step 3：运行测试确认红灯**
+- [x] **Step 3：运行测试确认红灯**
 
 Run:
 
@@ -423,7 +424,7 @@ npx vitest run scripts/workflow-contract.test.ts scripts/product-copy.test.ts
 
 Expected: FAIL，构建脚本和上游同步尚未声明 Session 契约门禁。
 
-- [ ] **Step 4：在归档前执行门禁**
+- [x] **Step 4：在归档前执行门禁**
 
 `build-runtime.mjs` 在 `materializeRuntimeLinks(stage, output)` 后调用 CLI，报告写入：
 
@@ -433,7 +434,7 @@ Expected: FAIL，构建脚本和上游同步尚未声明 Session 契约门禁。
 
 只有命令成功后才生成 Runtime archive 和 unsigned manifest。报告不进入 Runtime ZIP，只作为工作流验证证据。
 
-- [ ] **Step 5：在创建升级 tag 前构建支持平台候选**
+- [x] **Step 5：在创建升级 tag 前构建支持平台候选**
 
 `upstream-sync.yml` 的 `verify_supported_platform` 增加 Node 安装、`npm ci --legacy-peer-deps` 和：
 
@@ -441,14 +442,14 @@ Expected: FAIL，构建脚本和上游同步尚未声明 Session 契约门禁。
 node scripts/build-runtime.mjs \
   --target=darwin-aarch64 \
   --version="$(node -p "JSON.parse(require('fs').readFileSync('release/versions.json')).runtimeVersion")" \
-  --url="file://${RUNNER_TEMP}/runtime-contract.tar.gz" \
+  --url="file://${RUNNER_TEMP}/dsh-runtime-darwin-aarch64.tar.gz" \
   --output="${RUNNER_TEMP}/runtime-contract"
 test -s "${RUNNER_TEMP}/runtime-contract/session-contract-report.json"
 ```
 
 该 job 成功后 `publish_refs` 才能创建版本 tag。
 
-- [ ] **Step 6：运行门禁测试并提交**
+- [x] **Step 6：运行门禁测试并提交**
 
 Run:
 
@@ -473,12 +474,12 @@ git push origin main
 - Modify: `doc/README.md`
 - Modify: `doc/plans/2026-08-24-runtime-session-contract-gate.md`
 
-- [ ] **Step 1：构建本机候选 Runtime**
+- [x] **Step 1：构建本机候选 Runtime**
 
 Run:
 
 ```powershell
-node scripts/build-runtime.mjs --target=windows-x86_64 --version=0.1.3-preview --url=file:///E:/code/deepseek-harness/e2e-artifacts/runtime-contract.zip --output=e2e-artifacts/runtime-contract-build
+node scripts/build-runtime.mjs --target=windows-x86_64 --version=0.1.10-preview --url=file:///<repo>/e2e-artifacts/dsh-runtime-windows-x86_64.zip --output=e2e-artifacts/runtime-contract-build
 ```
 
 Expected:
@@ -487,7 +488,7 @@ Expected:
 - Runtime ZIP 和 unsigned manifest 只在门禁成功后出现；
 - 事件阶段观察到确定性回复但报告不包含回复正文。
 
-- [ ] **Step 2：运行阶段工程门禁**
+- [x] **Step 2：运行阶段工程门禁**
 
 Run:
 
@@ -501,7 +502,7 @@ git diff --check
 
 若 `npm run check` 仅在 Windows symlink fixture 创建阶段因 `EPERM` 失败，记录具体文件和通过数量；不能把环境限制写成产品回归，也不能声称完整门禁通过。
 
-- [ ] **Step 3：更新 P0.1 状态**
+- [x] **Step 3：更新 P0.1 状态**
 
 在 `doc/README.md` 中：
 
@@ -509,11 +510,11 @@ git diff --check
 - 保留“安装版连续 30 轮”作为人工/发布验收项；
 - 将“下一步从这里开始”推进到 P0.2 Windows 完整安装生命周期 E2E 的升级、数据保留和卸载闭环。
 
-- [ ] **Step 4：记录真实验证证据**
+- [x] **Step 4：记录真实验证证据**
 
 在本文追加：实际命令、候选 Runtime 版本、各阶段耗时、报告路径、通过测试数量和环境限制。不得记录完整用户路径、模型正文、Key 或临时 DSH_HOME。
 
-- [ ] **Step 5：提交文档并推送**
+- [x] **Step 5：提交文档并推送**
 
 ```powershell
 git add -- doc/README.md doc/plans/2026-08-24-runtime-session-contract-gate.md
@@ -530,3 +531,53 @@ git push origin main
 - 不在本阶段改变 Rust active pointer、last-known-good 或应用内升级事务。
 - 不用 UI 选择器证明 Session 核心契约；安装包 E2E 仍负责用户界面与持久化。
 - 任一业务阶段失败后必须清理候选进程和本次唯一临时目录。
+
+## 实施与验证结果（2026-08-24）
+
+### 实现结果
+
+- 纯执行器、候选 Client Runtime 驱动、真实 CLI、构建接入和上游同步接入均已完成。
+- 候选客户端通过 Runtime 公开导出的 `ConversationEventRegistry` 与 `ConversationViewRegistry` 建立无 UI 的契约投影；没有读取私有 history 方法，也没有加载 React 页面插件。
+- `scripts/build-runtime.mjs` 在 Runtime links 物化后、ZIP 和 unsigned manifest 生成前执行门禁。
+- `.github/workflows/upstream-sync.yml` 在创建升级 tag 前于受支持的 macOS 平台构建候选 Runtime，并检查机器报告的 `ok` 值。
+- 报告保存在构建输出目录，不进入 Runtime ZIP。
+
+### 真实 Windows 候选
+
+验证版本：`0.1.10-preview`。
+
+构建命令使用仓库相对输出目录，并复用同版本候选依赖缓存：
+
+```powershell
+node scripts/build-runtime.mjs `
+  --target=windows-x86_64 `
+  --version=0.1.10-preview `
+  --url=file:///<repo>/e2e-artifacts/dsh-runtime-windows-x86_64.zip `
+  --output=e2e-artifacts/runtime-contract-build `
+  --dependency-cache=e2e-artifacts/runtime-build-windows-x86_64/stage/app/node_modules
+```
+
+结果：
+
+- `e2e-artifacts/runtime-contract-build/session-contract-report.json`：`ok: true`；
+- 总耗时 `9414 ms`；Runtime ready `8176 ms`；Workspace `45 ms`；Session create `367 ms`；同步 binding `2 ms`；prompt `46 ms`；open `2 ms`；事件投影 `160 ms`；cleanup `418 ms`；
+- 确定性模型请求已发生，但报告不包含 prompt、回复正文、Key、临时目录或异常堆栈；
+- Runtime ZIP 为 `111463572` 字节，检查确认不包含 Session 契约报告；
+- ZIP 与 unsigned manifest 均在契约通过后生成。
+
+### 工程门禁
+
+- Session、工作流与产品构建顺序：4 个测试文件、50 项测试通过；
+- Desktop 插件：23 个测试文件、89 项测试通过；
+- `npm run build:web` 通过；
+- `npm run plugin:build` 通过；
+- Rust 工程完成测试配置编译，但本机测试二进制启动返回 `STATUS_ENTRYPOINT_NOT_FOUND (0xc0000139)`，因此不计为 Rust 测试通过；该限制与本次 Node.js 契约脚本无直接关系，后续应在 GitHub macOS 支持平台 job 和干净 Windows 构建机复核。
+
+### 提交记录
+
+- `61b5609 feat(runtime): 增加 Session 契约执行器`
+- `ea9e73e feat(runtime): 连接候选 Session 客户端契约`
+- `1c5c30a feat(runtime): 增加候选 Session 契约命令`
+- `a707180 ci(runtime): 发布前验证 Session 契约`
+- `d2c09cd fix(runtime): 补齐 Session 契约类型声明`
+- `c361bb2 fix(ci): 修正 macOS Runtime 契约资产名`

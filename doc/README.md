@@ -32,7 +32,7 @@
 
 ## 二、当前版本与仓库入口
 
-- 当前桌面版本：`0.1.19`。
+- 当前桌面版本：`0.1.26`。
 - 主要前端：`src/`。
 - Tauri/Rust 桌面壳：`src-tauri/src/`。
 - Desktop 插件：`packages/dsh-plugin-desktop/`。
@@ -58,6 +58,7 @@
 - 本地应用启动器和受管静态服务。
 - 自动上游同步、不可变 Release 资产和双平台构建工作流。
 - 确定性模型夹具、单元测试、Rust 测试和部分安装包 E2E。
+- 候选 Runtime 的 Session 契约门禁；归档和发布前验证 Workspace、同步 binding、prompt-before-open 和官方事件投影。
 
 当前主要风险是：会话实时一致性、安装包完整闭环、Runtime 契约漂移和首次模型配置门槛。
 
@@ -107,7 +108,7 @@ P0 未完成前，不应投入移动端、插件目录或大规模多 Provider �
 - 标题由事件投影更新。
 - 两个会话反复切换时内容始终匹配。
 - 退出并重新启动后仍能恢复会话。
-- Runtime 更新后自动执行 Session Contract fixture。
+- Runtime 更新后自动执行 Session Contract fixture。（候选构建和上游同步发布前门禁已完成）
 
 出口条件：安装版连续完成 30 轮创建、回复和切换，不出现空白、重复会话和刷新依赖。
 
@@ -371,14 +372,15 @@ docs: 更新会话一致性开发进度
 
 ## 八、下一步从这里开始
 
-第一个开发子项目是 P0.1：
+P0.1 的候选 Runtime Session Contract fixture 已完成；安装版连续 30 轮仍是发布人工验收项。下一个开发子项目是 P0.2 Windows 完整安装生命周期 E2E：
 
-1. 核对固定 Runtime 的 SessionRuntime create/connect 同步 binding 契约。
-2. 为 `create/connect → binding → prompt → open` 写失败测试并提交。
-3. 删除 `waitForSessionBinding` 轮询，实现严格 binding 检查并提交。
-4. 增加标题、消息和双会话切换的确定性 E2E 并提交。
-5. 增加 Runtime 升级后的 Session Contract fixture 并提交。
-6. 运行插件、Web、Rust 和安装候选验证，记录结果。
+1. 构建当前 Windows NSIS 安装包，并准备隔离的 E2E 用户数据目录。
+2. 静默安装后首次启动，等待内置 Runtime 准备完成。
+3. 创建 Unicode 路径项目，创建两个会话并验证标题、回复和切换都无需刷新。
+4. 完全退出并重新启动，验证项目、会话和模型配置仍可恢复。
+5. 执行覆盖升级，验证用户数据、active Runtime 和 last-known-good 保留。
+6. 执行卸载，分别验证“保留用户数据”和“删除全部数据”两个勾选组合。
+7. 保存脱敏的机器报告；安装版连续 30 轮创建、回复和切换仍需在 Release Candidate 上单独验收。
 
 完成一个步骤并验证后再进入下一步，不把多个不相关功能压进同一提交。
 
