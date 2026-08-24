@@ -26,7 +26,7 @@
 **Files:**
 - Create: `packages/dsh-plugin-desktop/tests/new-session-transition.spec.ts`
 
-- [ ] **Step 1：写入目标 Workspace 解析测试**
+- [x] **Step 1：写入目标 Workspace 解析测试**
 
 ```ts
 import { describe, expect, it, vi } from 'vitest'
@@ -62,7 +62,7 @@ describe('new session transition', () => {
 })
 ```
 
-- [ ] **Step 2：写入同步清空和销毁恢复测试**
+- [x] **Step 2：写入同步清空和销毁恢复测试**
 
 ```ts
 it('clears the old session before starting the resolved workspace and restores on dispose', () => {
@@ -99,7 +99,7 @@ it('shares one wrapper across repeated installations', () => {
 })
 ```
 
-- [ ] **Step 3：运行测试，确认先红**
+- [x] **Step 3：运行测试，确认先红**
 
 Run:
 
@@ -109,7 +109,7 @@ npm run test -w @dsh/desktop-plugin -- new-session-transition.spec.ts
 
 Expected: FAIL，提示找不到 `../src/client/new-session-transition` 或导出不存在。
 
-- [ ] **Step 4：提交失败测试**
+- [x] **Step 4：提交失败测试**
 
 ```powershell
 git add -- packages/dsh-plugin-desktop/tests/new-session-transition.spec.ts
@@ -127,7 +127,7 @@ git push origin main
 - Modify: `packages/dsh-plugin-desktop/tests/advanced-shell.spec.ts`
 - Test: `packages/dsh-plugin-desktop/tests/new-session-transition.spec.ts`
 
-- [ ] **Step 1：补齐桌面插件最小契约**
+- [x] **Step 1：补齐桌面插件最小契约**
 
 在 `contracts.ts` 中增加：
 
@@ -149,7 +149,7 @@ export interface SessionsLike {
 }
 ```
 
-- [ ] **Step 2：实现目标解析和可恢复包装**
+- [x] **Step 2：实现目标解析和可恢复包装**
 
 创建 `new-session-transition.ts`：
 
@@ -220,7 +220,7 @@ function release(workspaces: WorkspacesLike, installation: Installation): void {
 }
 ```
 
-- [ ] **Step 3：更新测试夹具**
+- [x] **Step 3：更新测试夹具**
 
 `workspaceFixture` 增加：
 
@@ -253,7 +253,7 @@ export function sessionFixture(current?: string) {
 }
 ```
 
-- [ ] **Step 4：在 Advanced Shell 生命周期内安装守卫**
+- [x] **Step 4：在 Advanced Shell 生命周期内安装守卫**
 
 `advanced-shell.ts` 增加：
 
@@ -268,7 +268,7 @@ ctx.effect(
 
 `advanced-shell.spec.ts` 使用完整 Workspace/Session 夹具，并断言 Effect 清理后 `startSession` 恢复原方法。
 
-- [ ] **Step 5：运行聚焦测试和类型检查**
+- [x] **Step 5：运行聚焦测试和类型检查**
 
 Run:
 
@@ -279,7 +279,7 @@ npm run typecheck -w @dsh/desktop-plugin
 
 Expected: 两个测试文件全部 PASS，TypeScript 无错误。
 
-- [ ] **Step 6：运行插件完整测试**
+- [x] **Step 6：运行插件完整测试**
 
 Run:
 
@@ -290,7 +290,7 @@ npm run plugin:build
 
 Expected: 插件全部测试通过并生成 `packages/dsh-plugin-desktop/lib`。
 
-- [ ] **Step 7：提交实现**
+- [x] **Step 7：提交实现**
 
 ```powershell
 git add -- packages/dsh-plugin-desktop/src/client/new-session-transition.ts packages/dsh-plugin-desktop/src/client/contracts.ts packages/dsh-plugin-desktop/src/client/advanced-shell.ts packages/dsh-plugin-desktop/tests/fixtures.ts packages/dsh-plugin-desktop/tests/advanced-shell.spec.ts
@@ -304,7 +304,7 @@ git push origin main
 - Modify: `e2e/support/desktop.ts`
 - Test: `e2e/specs/provisioning-success.installer.e2e.ts`
 
-- [ ] **Step 1：保留真实会话交互和协议诊断**
+- [x] **Step 1：保留真实会话交互和协议诊断**
 
 `DesktopHarness` 保留以下能力：
 
@@ -323,7 +323,7 @@ assertSessionRoundTrip(markers: readonly string[]): Promise<void>
 
 CDP 诊断保留 `Network.webSocketFrameReceived` 中包含 `session/` 或 `host/session` 的帧，并在失败时输出最近 80 条。
 
-- [ ] **Step 2：构建包含最新插件的 Runtime 和 E2E 安装包**
+- [x] **Step 2：构建包含最新插件的 Runtime 和 E2E 安装包**
 
 Run:
 
@@ -337,7 +337,7 @@ Expected:
 - 生成 `e2e-artifacts/DeepSeek-Harness-Desktop-E2E-Web-Setup-x64.exe`；
 - Runtime 使用 `release/versions.json` 中的 `dshVersion`，不复用不匹配的依赖缓存。
 
-- [ ] **Step 3：运行真实安装包 E2E**
+- [x] **Step 3：运行真实安装包 E2E**
 
 Run:
 
@@ -353,7 +353,7 @@ Expected:
 - 两个会话无需刷新即可往返切换；
 - 重启后两个会话仍可见且正文正确。
 
-- [ ] **Step 4：运行仓库级检查**
+- [ ] **Step 4：运行仓库级检查（已执行，本机符号链接权限阻塞 11 项）**
 
 Run:
 
@@ -363,7 +363,7 @@ npm run check
 
 Expected: Web、桌面插件、Agent Adapter 的测试、构建和类型检查全部通过。
 
-- [ ] **Step 5：提交通过验证的 E2E 夹具**
+- [x] **Step 5：提交通过验证的 E2E 夹具**
 
 ```powershell
 git add -- e2e/support/desktop.ts
@@ -377,7 +377,7 @@ git push origin main
 - Modify: `doc/designs/2026-08-24-new-session-transition-race.md`
 - Modify: `doc/plans/2026-08-24-new-session-transition-race.md`
 
-- [ ] **Step 1：更新设计状态和计划勾选**
+- [x] **Step 1：更新设计状态和计划勾选**
 
 将设计文档状态改为：
 
@@ -392,7 +392,7 @@ git push origin main
 - 首次启动和热启动耗时；
 - Windows E2E 安装包路径。
 
-- [ ] **Step 2：检查文档完整性和格式**
+- [x] **Step 2：检查文档完整性和格式**
 
 Run:
 
@@ -404,10 +404,19 @@ git diff --check -- doc/designs/2026-08-24-new-session-transition-race.md doc/pl
 
 Expected: 两条命令均无错误输出。
 
-- [ ] **Step 3：提交实施记录**
+- [x] **Step 3：提交实施记录**
 
 ```powershell
 git add -- doc/designs/2026-08-24-new-session-transition-race.md doc/plans/2026-08-24-new-session-transition-race.md
 git commit -m "docs(session): 记录新建会话竞态验证结果"
 git push origin main
 ```
+
+## 实施记录
+
+- 原始失败证据：新会话异步创建期间，旧输入框仍可发送，消息进入旧 Session；新空白 Session 随后被选中，造成视觉上的“消失”。
+- 最终实现：同步退出旧 Session，保留官方 Workspace 选择规则，并以事件签名变化驱动 Workspace/Session 基线协调。
+- 安装包验证：`npm run e2e:installer` 2/2 通过；第二会话实时显示，两会话无刷新往返，重启后再次往返通过。
+- 时延样本：首次 Generation 63,872 ms，热启动 6,599 ms；最终通过运行为 62,805 ms / 7,618 ms。
+- 安装包：`e2e-artifacts/DeepSeek-Harness-Desktop-E2E-Web-Setup-x64.exe`。
+- 仓库检查：插件 89 项、根测试中不依赖符号链接的 294 项、Web/插件/Agent 构建通过；本机因 Windows `symlink` 权限缺失保留 11 项 `EPERM` 环境失败。

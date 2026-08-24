@@ -1,7 +1,7 @@
 # 新建会话同步过渡设计
 
 日期：2026-08-24
-状态：已确认，待实施
+状态：已实施并通过 Windows 打包端到端验证
 
 ## 1. 背景
 
@@ -54,6 +54,10 @@ Windows 打包端到端测试已经稳定复现“新建会话后消息暂时不
 - `WorkspacesLike.startSession(workspaceId?)`
 - `SessionsLike.list.getSnapshot().current`
 - `SessionsLike.clear()`
+- `WorkspacesLike.refresh()`
+- `SessionsLike.refresh()`
+
+真实安装包验证还发现：新 Session 的正文已能实时显示时，Workspace 归属和会话标题投影仍可能晚一个基线刷新。因此过渡守卫会监听新会话的空白、运行和标题签名，只在签名实际变化时同步官方 Workspace/Session 基线。这是有界的事件驱动协调，不是定时轮询，也不建立第二份会话数据。
 
 不会让 UI 直接消费 DSH 内部事件，也不会新增本地 Session Store。
 
@@ -66,6 +70,7 @@ Windows 打包端到端测试已经稳定复现“新建会话后消息暂时不
   → 官方 workspaces.startSession(目标 Workspace)
   → connectWorkspace 复用或创建空白 Session
   → sessions.open(新 Session)
+  → 新会话投影变化时同步 Workspace/Session 基线
   → 官方 Session Event 投影驱动标题、消息和回复
 ```
 
@@ -109,3 +114,12 @@ Windows 打包端到端测试已经稳定复现“新建会话后消息暂时不
 - 第二会话的 `session.prompt`、`user/message` 和 `assistant/message` 使用新 Session ID。
 - 左侧会话标题与右侧正文无需刷新即可出现。
 - 打包端到端测试在首次启动、热启动和应用重启后三个阶段全部通过。
+
+## 10. 实施与验证结果
+
+- 桌面插件测试：23 个测试文件、89 个用例通过。
+- Windows 安装包端到端测试：2/2 通过。
+- 会话链路：创建第二会话、发送消息、标题出现、两会话往返、退出重启后再次往返，全程未刷新页面。
+- 最后一次时延记录：首次 Generation 63,872 ms，热启动 6,599 ms；另一次通过运行为 62,805 ms / 7,618 ms。
+- 候选安装包：`e2e-artifacts/DeepSeek-Harness-Desktop-E2E-Web-Setup-x64.exe`。
+- 全仓 `npm run check` 已执行；本机未开启 Windows 符号链接权限，11 个依赖 `symlink` 的安全/包导出用例以 `EPERM` 结束。其余根测试 294 项、插件 89 项、Web/插件/Agent 构建均通过；未为规避本机权限而降低符号链接安全校验。
