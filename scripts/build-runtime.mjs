@@ -77,7 +77,7 @@ assertRuntimePeerDependencies(appDir)
 const runtimeCapabilities = inspectAssembledRuntimeCapabilities(appDir, {
   dshVersion: DSH_VERSION,
   desktopPluginVersion,
-}))
+})
 writeFileSync(join(appDir, 'runtime-capabilities.json'), `${JSON.stringify(runtimeCapabilities, null, 2)}\n`, 'utf8')
 writeRuntimeLauncher(appDir, { dshVersion: DSH_VERSION, desktopPluginVersion, desktopPluginSha256, runtimeVersion: args.version || '0.1.0' })
 writePnpmShim(stage, target)
