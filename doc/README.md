@@ -95,7 +95,7 @@ P0 未完成前，不应投入移动端、插件目录或大规模多 Provider �
 
 1. 左侧标题、右侧消息和运行状态统一来自官方 Session Store 与 `session/event` 投影。
 2. 删除 `packages/dsh-plugin-desktop/src/client/project-controller.ts` 中的 `waitForSessionBinding` 轮询。
-3. 新会话固定执行 `create/connect → binding → open → prompt`。
+3. 新会话固定执行 `create/connect → binding → prompt → open`；官方契约明确允许在打开页面前向新 Session machine 写入。
 4. 上游承诺 create/connect 完成后 binding 可同步获取；不满足时立即产生可诊断错误，不通过轮询隐藏契约破坏。
 5. 页面不得维护第二份会话正文权威状态。
 6. WebSocket 中断时显示重连状态；恢复后补齐事件，不创建重复会话。
@@ -374,7 +374,7 @@ docs: 更新会话一致性开发进度
 第一个开发子项目是 P0.1：
 
 1. 核对固定 Runtime 的 SessionRuntime create/connect 同步 binding 契约。
-2. 为 `create → binding → open → prompt` 写失败测试并提交。
+2. 为 `create/connect → binding → prompt → open` 写失败测试并提交。
 3. 删除 `waitForSessionBinding` 轮询，实现严格 binding 检查并提交。
 4. 增加标题、消息和双会话切换的确定性 E2E 并提交。
 5. 增加 Runtime 升级后的 Session Contract fixture 并提交。
