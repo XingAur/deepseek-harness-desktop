@@ -4,6 +4,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createE2EWorld, type E2EWorld } from '../support/world'
 
 let world: E2EWorld
+let appBinary: string
+
+const FIRST_SESSION_MARKER = 'E2E 第一会话 Ω'
+const SECOND_SESSION_MARKER = 'E2E 第二会话 二'
 
 beforeAll(async () => {
   world = await createE2EWorld()
@@ -14,25 +18,27 @@ afterAll(async () => {
 })
 
 describe('Windows Web Setup success path', () => {
-  it('installs a ready runtime and starts twice without Runtime update traffic', async () => {
+  it('installs the desktop shell, provisions Runtime on first start, and starts warm without update traffic', async () => {
     const { desktop, installer, runtimeFixture } = world
     const installation = await installer.installClean()
 
     expect(installation.exitCode).toBe(0)
-    expect(installation.receipt?.runtimeVersion).toBe(runtimeFixture.version)
-    expect(runtimeFixture.requests().filter((request) => request.path === '/runtime.zip')).toHaveLength(1)
+    expect(installation.receipt).toBeNull()
+    expect(runtimeFixture.requests().filter((request) => request.path === '/runtime.zip')).toHaveLength(0)
     expect(installation.appBinary).toBeTypeOf('string')
+    if (installation.appBinary === undefined) throw new Error('安装记录缺少应用路径')
+    appBinary = installation.appBinary
 
     runtimeFixture.clearRequests()
-    await desktop.launch(installation.appBinary)
+    await desktop.launch(appBinary)
     await desktop.waitForWorkbench(30_000)
     const firstTiming = latestActiveTiming(installation.dataRoot)
-    expect(runtimeFixture.requests().filter((request) => request.path === '/runtime.zip')).toHaveLength(0)
-    expectRequestsAfterActive(runtimeFixture.requests(), firstTiming.activeAt)
+    expect(runtimeFixture.requests().filter((request) => request.path === '/runtime.zip')).toHaveLength(1)
+    expect(readProvisioningReceipt(installation.dataRoot).runtimeVersion).toBe(runtimeFixture.version)
     await desktop.quit()
 
     runtimeFixture.clearRequests()
-    await desktop.launch(installation.appBinary)
+    await desktop.launch(appBinary)
     await desktop.waitForWorkbench(8_000)
     const warmTiming = latestActiveTiming(installation.dataRoot)
     expect(warmTiming.elapsedMs).toBeLessThanOrEqual(8_000)
@@ -45,20 +51,22 @@ describe('Windows Web Setup success path', () => {
     }) + '\n')
   })
 
-  it('creates a unicode project and receives the deterministic model reply', async () => {
+  it('creates two sessions, switches without refresh, and restores them after restart', async () => {
     const { desktop, modelFixture } = world
-    const projectPath = desktop.fixturePath('e2e-artifacts/测试 项目 Ω')
 
     await desktop.createProject({
-      idea: '请创建 README，并在完成后回复确认',
-      path: projectPath,
-      permission: 'workspace-write',
+      idea: `${FIRST_SESSION_MARKER}：请创建 README，并在完成后回复确认`,
     })
-
-    await desktop.waitForWorkbenchText('E2E_PONG')
+    await desktop.createConversation(`${SECOND_SESSION_MARKER}：请回复确认`)
+    await desktop.assertSessionRoundTrip([FIRST_SESSION_MARKER, SECOND_SESSION_MARKER])
     expect(modelFixture.requests()).toEqual(expect.arrayContaining([
       expect.objectContaining({ method: 'POST', path: '/chat/completions' }),
     ]))
+
+    await desktop.quit()
+    await desktop.launch(appBinary)
+    await desktop.waitForWorkbench(8_000)
+    await desktop.assertSessionRoundTrip([FIRST_SESSION_MARKER, SECOND_SESSION_MARKER])
   })
 })
 
@@ -66,6 +74,10 @@ interface TimelineEntry {
   generationId: string
   phase: string
   recordedAt: string
+}
+
+function readProvisioningReceipt(dataRoot: string): { runtimeVersion: string } {
+  return JSON.parse(readFileSync(join(dataRoot, 'state', 'provisioning.json'), 'utf8')) as { runtimeVersion: string }
 }
 
 function latestActiveTiming(dataRoot: string) {
