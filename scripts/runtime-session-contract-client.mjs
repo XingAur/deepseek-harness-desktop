@@ -13,6 +13,8 @@ const CANDIDATE_CLIENT_FILES = Object.freeze({
   runtime: ['@deepseek-ai/dsh-client-runtime', 'lib/client.js'],
 })
 
+const CONTRACT_CONVERSATION_TARGET = 'session-contract'
+
 let bundleNonce = 0
 
 export function resolveCandidateClientPaths(appDirectory) {
@@ -222,7 +224,8 @@ async function initializeCandidateClient(modules) {
   modules.typert.apply(ctx)
   modules.gateway.apply(ctx)
   const disposeRemotes = await modules.remotes.apply(ctx)
-  const sessions = new modules.runtime.SessionRuntime(ctx, ctx.connection.api, ctx.remote)
+  const conversation = createContractConversationProjection(ctx, modules.runtime)
+  const sessions = new modules.runtime.SessionRuntime(ctx, ctx.connection.api, ctx.remote, conversation)
   ctx.typert.contexts.registerClient('agent', { identity: (candidate) => sessions.scopeOf(candidate) })
   const workspaces = new modules.runtime.WorkspaceRuntime(ctx, ctx.connection.api, sessions)
   let resolveConnected
@@ -254,6 +257,54 @@ async function initializeCandidateClient(modules) {
     },
   })
   return { ctx, loop, disposeRemotes, sessions, workspaces, connected }
+}
+
+function createContractConversationProjection(ctx, runtime) {
+  const events = new runtime.ConversationEventRegistry(ctx)
+  const views = new runtime.ConversationViewRegistry(ctx)
+  events.register({
+    kind: CONTRACT_CONVERSATION_TARGET,
+    target: CONTRACT_CONVERSATION_TARGET,
+    match(event) {
+      return { id: String(event.seq), role: 'start' }
+    },
+    start(_context, match) {
+      return match.event
+    },
+    update(context) {
+      return context.state
+    },
+    buildViewNode(context) {
+      if (context.state === undefined) return null
+      return {
+        key: context.key,
+        kind: CONTRACT_CONVERSATION_TARGET,
+        id: context.id,
+        target: CONTRACT_CONVERSATION_TARGET,
+        data: context.state,
+      }
+    },
+  })
+  views.register({
+    target: CONTRACT_CONVERSATION_TARGET,
+    create() {
+      const nodes = new Map()
+      const snapshot = () => Object.freeze([...nodes.values()])
+      return {
+        empty: Object.freeze([]),
+        replace(input) {
+          nodes.clear()
+          for (const node of input.nodes) nodes.set(node.key, node.data)
+          return snapshot()
+        },
+        apply(input) {
+          for (const node of input.upserts) nodes.set(node.key, node.data)
+          return snapshot()
+        },
+      }
+    },
+  })
+  return { events, views }
 }
 
 async function cleanupCandidateClient({ ctx, loop, disposeRemotes, restoreGlobals, lifecycle }) {
@@ -324,10 +375,11 @@ function waitForSnapshotMarkers(session, promptMarker, replyMarker, timeoutMs) {
     }
     const inspect = () => {
       try {
-        const serialized = JSON.stringify(session.getSnapshot())
-        if (serialized.includes(promptMarker) && serialized.includes(replyMarker)) finish()
+        const snapshot = session.getSnapshot()
+        const contractEvents = snapshot?.views?.get?.(CONTRACT_CONVERSATION_TARGET) ?? snapshot
+        if (containsMarker(contractEvents, promptMarker) && containsMarker(contractEvents, replyMarker)) finish()
       } catch {
-        finish(new RuntimeSessionContractError('protocol-mismatch', 'Session snapshot 无法序列化'))
+        finish(new RuntimeSessionContractError('protocol-mismatch', 'Session 事件投影无法读取'))
       }
     }
     const timer = setTimeout(() => {
@@ -337,4 +389,28 @@ function waitForSnapshotMarkers(session, promptMarker, replyMarker, timeoutMs) {
     if (settled) unsubscribe()
     inspect()
   })
+}
+
+function containsMarker(value, marker) {
+  const visited = new Set()
+  const stack = [value]
+  while (stack.length > 0) {
+    const candidate = stack.pop()
+    if (typeof candidate === 'string') {
+      if (candidate.includes(marker)) return true
+      continue
+    }
+    if (candidate === null || typeof candidate !== 'object' || visited.has(candidate)) continue
+    visited.add(candidate)
+    if (candidate instanceof Map) {
+      for (const [key, item] of candidate) stack.push(key, item)
+      continue
+    }
+    if (candidate instanceof Set || Array.isArray(candidate)) {
+      for (const item of candidate) stack.push(item)
+      continue
+    }
+    for (const item of Object.values(candidate)) stack.push(item)
+  }
+  return false
 }

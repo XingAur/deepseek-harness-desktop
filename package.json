@@ -24,6 +24,7 @@
     "check": "npm run test && npm run plugin:test && npm run agent:test && npm run build:web && npm run plugin:build && npm run agent:build",
     "tauri": "tauri",
     "runtime:build": "node scripts/build-runtime.mjs",
+    "runtime:session-contract": "node scripts/run-runtime-session-contract.mjs",
     "runtime:capabilities": "node scripts/runtime-capabilities.mjs",
     "release:versions:check": "node scripts/release-versions.mjs --check",
     "release:prepare": "node scripts/prepare-upstream-release.mjs",

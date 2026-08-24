@@ -93,7 +93,7 @@ describe('createCandidateSessionOperations', () => {
     expect(workspaces.connectWorkspace).not.toHaveBeenCalled()
   })
 
-  it('uses prompt-before-open and observes both markers from the session snapshot', async () => {
+  it('uses prompt-before-open and observes both markers from the official event projection', async () => {
     let snapshot: unknown = { turns: [] }
     const listeners = new Set<() => void>()
     const session = {
@@ -124,7 +124,14 @@ describe('createCandidateSessionOperations', () => {
     await operations.prompt(sessionId)
     await operations.open(sessionId)
     const waiting = operations.waitForEvents(sessionId)
-    snapshot = { text: 'SESSION_CONTRACT_PROMPT SESSION_CONTRACT_PONG' }
+    snapshot = {
+      views: {
+        get: () => new Map([
+          ['prompt', { content: [{ text: 'SESSION_CONTRACT_PROMPT' }] }],
+          ['reply', { content: new Set(['SESSION_CONTRACT_PONG']) }],
+        ]),
+      },
+    }
     for (const listener of listeners) listener()
     await waiting
     await operations.closeSession(sessionId)

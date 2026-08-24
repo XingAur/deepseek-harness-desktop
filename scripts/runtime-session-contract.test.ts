@@ -1,8 +1,16 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import {
   RuntimeSessionContractError,
   runRuntimeSessionContract,
 } from './runtime-session-contract.mjs'
+import {
+  parseRuntimeSessionContractArgs,
+  resolveCandidateRuntimeLayout,
+  sanitizeRuntimeSessionContractReport,
+} from './run-runtime-session-contract.mjs'
 
 function createRecordingDriver() {
   const calls: string[] = []
@@ -140,5 +148,77 @@ describe('runRuntimeSessionContract', () => {
     })
     expect(JSON.stringify(result)).not.toContain('secret prompt')
     expect(JSON.stringify(result)).not.toContain('C:\\Users\\private')
+  })
+})
+
+describe('runtime session contract CLI', () => {
+  it('requires the candidate root, report path and Runtime version', () => {
+    expect(() => parseRuntimeSessionContractArgs([])).toThrow(/--runtime-root/)
+    expect(() => parseRuntimeSessionContractArgs(['--runtime-root=C:\\candidate'])).toThrow(/--report/)
+    expect(() => parseRuntimeSessionContractArgs([
+      '--runtime-root=C:\\candidate',
+      '--report=C:\\report.json',
+    ])).toThrow(/--runtime-version/)
+  })
+
+  it('resolves only the candidate Node and launcher entrypoints', () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-session-contract-runtime-'))
+    try {
+      mkdirSync(join(root, 'app'), { recursive: true })
+      if (process.platform !== 'win32') mkdirSync(join(root, 'bin'), { recursive: true })
+      writeFileSync(join(root, process.platform === 'win32' ? 'node.exe' : 'bin/node'), '', {
+        flag: 'w',
+      })
+      writeFileSync(join(root, 'app', 'launcher.mjs'), '')
+
+      const layout = resolveCandidateRuntimeLayout(root)
+
+      expect(layout.appDirectory).toBe(join(root, 'app'))
+      expect(layout.nodeExecutable.startsWith(root)).toBe(true)
+      expect(layout.launcher.startsWith(root)).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('removes raw errors, prompts, replies, keys and paths from the report', () => {
+    const report = sanitizeRuntimeSessionContractReport({
+      ok: false,
+      durationMs: 12,
+      failedStage: 'session-event',
+      category: 'event-missing',
+      stages: [{
+        stage: 'session-event',
+        ok: false,
+        durationMs: 10,
+        category: 'event-missing',
+        message: 'SESSION_CONTRACT_PROMPT SESSION_CONTRACT_PONG sk-secret C:\\Users\\private',
+      }],
+    }, {
+      runtimeVersion: '0.1.10-preview',
+      processExitCode: 7,
+    })
+
+    expect(report).toEqual({
+      schemaVersion: 1,
+      runtimeVersion: '0.1.10-preview',
+      platform: `${process.platform}-${process.arch}`,
+      ok: false,
+      durationMs: 12,
+      failedStage: 'session-event',
+      category: 'event-missing',
+      processExitCode: 7,
+      stages: [{
+        stage: 'session-event',
+        ok: false,
+        durationMs: 10,
+        category: 'event-missing',
+      }],
+    })
+    const serialized = JSON.stringify(report)
+    expect(serialized).not.toContain('SESSION_CONTRACT_PROMPT')
+    expect(serialized).not.toContain('SESSION_CONTRACT_PONG')
+    expect(serialized).not.toContain('sk-secret')
+    expect(serialized).not.toContain('C:\\Users\\private')
   })
 })
