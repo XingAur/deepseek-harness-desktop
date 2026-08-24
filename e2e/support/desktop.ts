@@ -27,6 +27,8 @@ export interface DesktopHarness {
   waitForWorkbenchText(text: string, timeoutMs?: number): Promise<void>
   createProfile(input: { name: string; dataRoot: string }): Promise<string>
   createProject(input: { idea: string }): Promise<void>
+  createConversation(prompt: string): Promise<void>
+  assertSessionRoundTrip(markers: readonly string[]): Promise<void>
   selectProject(title: string): Promise<void>
   openProject(title: string): Promise<void>
   launchLocalApp(title: string): Promise<void>
@@ -144,30 +146,71 @@ export class PackagedDesktopHarness implements DesktopHarness {
 
   async createProject(input: { idea: string }): Promise<void> {
     await this.withWorkbenchTarget(async (page) => {
-      const submitBuild = async () => {
+      await this.openLocalProjects(page)
+      const declarationContinue = visibleButtonTextExpression('继续')
+      if (await page.evaluate<boolean>(`(${declarationContinue}) !== null`)) {
+        await page.evaluate(`(() => { const button = ${declarationContinue}; button.click(); return true })()`)
+        await page.waitFor(`(${declarationContinue}) === null`, {
+          timeoutMs: 10_000,
+          message: '首次使用声明未关闭',
+        })
         await this.openLocalProjects(page)
-        await page.setValue('textarea[aria-label="项目需求"]', input.idea)
-        await page.clickText('检查并预览')
-        await page.clickText('确认并开始构建')
       }
 
-      await submitBuild()
-      const continueButton = buttonTextExpression('继续')
+      await page.setValue('textarea[aria-label="项目需求"]', input.idea)
+      await page.clickText('检查并预览')
+      await page.clickText('确认并开始构建')
       const replyVisible = conversationContainsExpression('E2E_PONG')
-      await page.waitFor(`(${continueButton}) !== null || (${replyVisible})`, {
-        timeoutMs: 30_000,
-        message: '本地项目未进入首次会话',
-      })
-      if (await page.evaluate<boolean>(`(${continueButton}) !== null`)) {
-        await page.clickText('继续')
-        // DSH 的首次使用声明会中断触发它的导航。接受声明后重新提交，
-        // 此时目录可能已创建，但项目还没有注册或启动会话。
-        await submitBuild()
-      }
       await page.waitFor(replyVisible, {
         timeoutMs: 60_000,
         message: '本地项目会话没有收到确定性模型回复',
       })
+    })
+  }
+
+  async createConversation(prompt: string): Promise<void> {
+    if (prompt.trim() === '') throw new Error('新会话消息不能为空')
+    await this.withWorkbenchTarget(async (page) => {
+      await page.click('button[aria-label="新建会话"]')
+      const composer = conversationComposerExpression()
+      await page.waitFor(`${composer} !== null`, {
+        timeoutMs: 30_000,
+        message: '新会话输入框未出现',
+      })
+      await page.setValueFromExpression(composer, prompt)
+      await page.waitFor(`document.querySelector('button[aria-label="发送消息"]')?.disabled === false`, {
+        timeoutMs: 10_000,
+        message: '新会话发送按钮未启用',
+      })
+      await page.click('button[aria-label="发送消息"]')
+      await page.waitFor(conversationContainsExpression(prompt), {
+        timeoutMs: 30_000,
+        message: `用户消息未实时显示：${prompt}`,
+      })
+      await page.waitFor(conversationContainsExpression('E2E_PONG'), {
+        timeoutMs: 60_000,
+        message: '新会话没有收到确定性模型回复',
+      })
+    })
+  }
+
+  async assertSessionRoundTrip(markers: readonly string[]): Promise<void> {
+    if (markers.length === 0 || markers.some((marker) => marker.trim() === '')) {
+      throw new Error('会话正文标记不能为空')
+    }
+    await this.withWorkbenchTarget(async (page) => {
+      await this.ensureSidebarExpanded(page)
+      const rows = sessionRowsExpression()
+      await page.waitFor(`(${rows}).length >= ${markers.length}`, {
+        timeoutMs: 30_000,
+        message: `会话列表少于 ${markers.length} 项`,
+      })
+      const sequence = markers.length > 1 ? [...markers, markers[0]] : [...markers]
+      for (const marker of sequence) {
+        if (!await this.openSessionContaining(page, marker)) {
+          throw new Error(`找不到包含正文标记的会话：${marker}`)
+        }
+      }
     })
   }
 
@@ -378,6 +421,46 @@ export class PackagedDesktopHarness implements DesktopHarness {
       await page.waitFor(pageOpen, { timeoutMs: 30_000, message: '本地项目页面未打开' })
     }
   }
+
+  private async ensureSidebarExpanded(page: CdpPage): Promise<void> {
+    const frame = '.dshDesktopFrame'
+    const openButton = 'button[aria-label="打开侧边栏"]'
+    await page.waitFor(`document.querySelector(${JSON.stringify(frame)}) !== null`, {
+      timeoutMs: 30_000,
+      message: '桌面插件根节点未挂载',
+    })
+    if (await page.evaluate<boolean>(`document.querySelector(${JSON.stringify(frame)})?.hasAttribute('data-sidebar-collapsed') === true`)) {
+      await page.waitFor(`document.querySelector(${JSON.stringify(openButton)}) !== null`, {
+        timeoutMs: 10_000,
+        message: '找不到打开侧边栏按钮',
+      })
+      await page.click(openButton)
+    }
+    await page.waitFor(`document.querySelector(${JSON.stringify(frame)})?.hasAttribute('data-sidebar-collapsed') === false`, {
+      timeoutMs: 10_000,
+      message: '工作台侧边栏未展开',
+    })
+  }
+
+  private async openSessionContaining(page: CdpPage, marker: string): Promise<boolean> {
+    const rows = sessionRowsExpression()
+    const initialCount = await page.evaluate<number>(`(${rows}).length`)
+    for (let attempt = 0; attempt < Math.max(3, initialCount * 3); attempt += 1) {
+      const clicked = await page.evaluate<boolean>(`(() => {
+        const candidates = ${rows};
+        const row = candidates[${attempt} % Math.max(1, candidates.length)];
+        if (!(row instanceof HTMLElement)) return false;
+        row.click();
+        return true;
+      })()`)
+      if (!clicked) {
+        await page.waitForValue(`(${rows}).length > 0`, 500)
+        continue
+      }
+      if (await page.waitForValue(conversationContainsExpression(marker), 3_000)) return true
+    }
+    return false
+  }
 }
 
 interface CdpTarget {
@@ -434,13 +517,18 @@ class CdpPage {
   }
 
   async waitFor(expression: string, options: { timeoutMs: number; message: string }): Promise<void> {
-    const deadline = Date.now() + options.timeoutMs
-    while (Date.now() < deadline) {
-      if (await this.evaluate<boolean>(`Boolean(${expression})`)) return
-      await new Promise((resolveWait) => setTimeout(resolveWait, 100))
-    }
+    if (await this.waitForValue(expression, options.timeoutMs)) return
     const visibleText = await this.evaluate<string>(`document.body?.innerText?.slice(0, 4000) ?? ''`)
     throw new Error(`${options.message}\n工作台当前内容：\n${visibleText}\n工作台诊断：\n${this.diagnostics.join('\n')}`)
+  }
+
+  async waitForValue(expression: string, timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      if (await this.evaluate<boolean>(`Boolean(${expression})`)) return true
+      await new Promise((resolveWait) => setTimeout(resolveWait, 100))
+    }
+    return false
   }
 
   async click(selector: string): Promise<void> {
@@ -467,15 +555,21 @@ class CdpPage {
       timeoutMs: 10_000,
       message: `找不到输入控件：${selector}`,
     })
+    await this.setValueFromExpression(`document.querySelector(${JSON.stringify(selector)})`, value)
+  }
+
+  async setValueFromExpression(expression: string, value: string): Promise<void> {
     await this.evaluate(`(() => {
-      const element = document.querySelector(${JSON.stringify(selector)});
+      const element = ${expression};
       if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement)) {
         throw new Error('Element does not accept a value');
       }
       const prototype = element instanceof HTMLInputElement
         ? HTMLInputElement.prototype
         : element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLSelectElement.prototype;
-      Object.getOwnPropertyDescriptor(prototype, 'value').set.call(element, ${JSON.stringify(value)});
+      const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+      if (setter === undefined) throw new Error('Element value setter is unavailable');
+      setter.call(element, ${JSON.stringify(value)});
       element.dispatchEvent(new Event('input', { bubbles: true }));
       element.dispatchEvent(new Event('change', { bubbles: true }));
       return true;
@@ -544,6 +638,14 @@ class CdpPage {
     if (event.method === 'Runtime.consoleAPICalled' && event.params?.type === 'error') {
       const values = event.params.args?.map((arg) => arg.value ?? arg.description).filter((value) => value !== undefined)
       if (values !== undefined) this.pushDiagnostic(`CONSOLE ${values.join(' ')}`)
+      return
+    }
+    if (event.method === 'Network.webSocketFrameReceived' || event.method === 'Network.webSocketFrameSent') {
+      const payload = event.params?.response?.payloadData
+      if (typeof payload === 'string' && (payload.includes('session/') || payload.includes('host/session'))) {
+        const direction = event.method === 'Network.webSocketFrameReceived' ? 'WS IN' : 'WS OUT'
+        this.pushDiagnostic(`${direction} ${payload.slice(0, 600)}`)
+      }
     }
   }
 
@@ -557,7 +659,7 @@ interface CdpEvent {
   method?: string
   params?: {
     request?: { url?: string }
-    response?: { url?: string; status?: number }
+    response?: { url?: string; status?: number; payloadData?: string }
     exceptionDetails?: { text?: string; exception?: { description?: string } }
     type?: string
     args?: Array<{ value?: unknown; description?: string }>
@@ -568,8 +670,20 @@ function buttonTextExpression(text: string): string {
   return `Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.trim() === ${JSON.stringify(text)}) ?? null`
 }
 
+function visibleButtonTextExpression(text: string): string {
+  return `Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.trim() === ${JSON.stringify(text)} && button.getClientRects().length > 0 && !button.disabled) ?? null`
+}
+
 function conversationContainsExpression(text: string): string {
   return `document.querySelector('[data-slot="conversation.session"]')?.textContent?.includes(${JSON.stringify(text)}) === true`
+}
+
+function conversationComposerExpression(): string {
+  return `Array.from(document.querySelectorAll('textarea')).find((textarea) => textarea.placeholder === '给智能体发消息' || textarea.placeholder === '描述你想要构建的内容') ?? null`
+}
+
+function sessionRowsExpression(): string {
+  return `Array.from(document.querySelectorAll('.dshDesktopUpstreamSidebar [role="treeitem"][aria-selected]'))`
 }
 
 function projectArticleExpression(title: string): string {
