@@ -3,24 +3,28 @@ use std::path::{Component, Path, PathBuf};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::runtime::RuntimeFailure;
-
 const MAX_HEADER_BYTES: usize = 8 * 1024;
 
-/// 在指定回环端口上托管目录；由调用方保留任务句柄以便终止。
-pub async fn serve_static(dir: PathBuf, port: u16) -> Result<(), RuntimeFailure> {
-    let listener = TcpListener::bind(("127.0.0.1", port))
-        .await
-        .map_err(|cause| RuntimeFailure::internal(format!("静态服务端口绑定失败：{cause}")))?;
+/// 在已绑定的监听器上托管目录。瞬时 accept 错误退避后继续服务；
+/// 连续失败才结束任务，由启动器看护移除注册并广播退出事件。
+pub async fn serve_static_on(listener: TcpListener, dir: PathBuf) {
+    let mut consecutive_errors = 0_u32;
     loop {
-        let (stream, _) = match listener.accept().await {
-            Ok(accepted) => accepted,
-            Err(_) => break,
-        };
-        let dir = dir.clone();
-        tokio::spawn(handle_connection(stream, dir));
+        match listener.accept().await {
+            Ok((stream, _)) => {
+                consecutive_errors = 0;
+                let dir = dir.clone();
+                tokio::spawn(handle_connection(stream, dir));
+            }
+            Err(_) => {
+                consecutive_errors += 1;
+                if consecutive_errors >= 64 {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        }
     }
-    Ok(())
 }
 
 async fn handle_connection(mut stream: TcpStream, dir: PathBuf) {
@@ -148,8 +152,9 @@ async fn write_simple(stream: &mut TcpStream, status: u16, reason: &str, body: &
 
 #[cfg(test)]
 mod tests {
-    use super::serve_static;
+    use super::serve_static_on;
     use crate::runtime::process::reserve_loopback_port;
+    use tokio::net::TcpListener;
 
     #[tokio::test]
     async fn serves_index_and_rejects_traversal() {
@@ -158,7 +163,8 @@ mod tests {
         std::fs::create_dir(dir.path().join("assets")).unwrap();
         std::fs::write(dir.path().join("assets").join("a.txt"), b"A").unwrap();
         let port = reserve_loopback_port().unwrap();
-        tokio::spawn(serve_static(dir.path().to_path_buf(), port));
+        let listener = TcpListener::bind(("127.0.0.1", port)).await.unwrap();
+        tokio::spawn(serve_static_on(listener, dir.path().to_path_buf()));
 
         let client = reqwest::Client::new();
         // tokio::spawn 到监听建立之间存在竞态，限时轮询直到服务可达。

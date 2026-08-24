@@ -12,11 +12,12 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
+use tokio::net::TcpListener;
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex as AsyncMutex;
 
 use crate::apps::manifest::{AppKind, AppManifest, read_manifest};
-use crate::apps::static_server::serve_static;
+use crate::apps::static_server::serve_static_on;
 use crate::profile::model::ProfileRecord;
 use crate::projects::recycle::{registered_workspace_records, resolve_registered_workspace};
 use crate::runtime::{
@@ -49,6 +50,13 @@ enum Supervision {
 
 enum Watcher {
     Process(Arc<AsyncMutex<Child>>),
+    Static(Arc<std::sync::atomic::AtomicBool>),
+}
+
+enum Registration {
+    Registered,
+    Lost(LaunchReply),
+    Rejected,
 }
 
 struct RunningApp {
@@ -200,19 +208,28 @@ impl AppLauncher {
             }
             AppKind::Static => {
                 let dir = project_dir.join(manifest.static_dir.clone().unwrap_or_default());
+                // 先绑定再交给后台任务：绑定失败立即报错，而不是让健康门控白等 60 秒。
+                let listener = TcpListener::bind(("127.0.0.1", port))
+                    .await
+                    .map_err(|cause| {
+                        RuntimeFailure::internal(format!("静态服务端口绑定失败：{cause}"))
+                    })?;
+                let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let finished = Arc::clone(&done);
                 let task = tokio::spawn(async move {
-                    let _ = serve_static(dir, port).await;
+                    serve_static_on(listener, dir).await;
+                    finished.store(true, std::sync::atomic::Ordering::SeqCst);
                 });
-                (Supervision::Static { task }, None)
+                (Supervision::Static { task }, Some(Watcher::Static(done)))
             }
         };
 
         // 2. 健康门禁：未就绪的应用绝不进入注册表，失败即回收新实例。
-        if let Err(cause) = wait_healthy(&origin, &manifest.health_path).await {
+        if let Err(cause) = wait_healthy(&origin, &manifest.health_path, watcher.as_ref()).await {
             let log = log_path.display().to_string();
             shutdown_supervision(&supervision).await;
             return Err(RuntimeFailure::internal(format!(
-                "本地应用启动超时或无响应：{cause}；日志：{log}"
+                "本地应用启动失败：{cause}；日志：{log}"
             )));
         }
 
@@ -223,33 +240,46 @@ impl AppLauncher {
             started_at: Utc::now(),
         };
         {
-            // 并发二次点击：保留先到者，回收新实例。判定与注册在同一锁内原子完成；
-            // 回收需要 await，必须放在锁作用域之外，避免非 Send 守卫跨越 await 点
-            //（Tauri 命令要求 future 为 Send）。
+            // 并发二次点击：保留先到者，回收新实例。判定、容量复核与注册在同一锁内
+            // 原子完成；回收需要 await，必须放在锁作用域之外，避免非 Send 守卫跨越
+            // await 点（Tauri 命令要求 future 为 Send）。
             let mut staged = Some(supervision);
-            let loser = {
+            let outcome = {
                 let mut running = self.running.lock().unwrap();
-                match running.get(workspace_id) {
-                    Some(existing) => Some(LaunchReply {
+                if let Some(existing) = running.get(workspace_id) {
+                    Registration::Lost(LaunchReply {
                         workspace_id: existing.info.workspace_id.clone(),
                         origin: existing.info.origin.clone(),
                         title: existing.info.title.clone(),
-                    }),
-                    None => {
-                        running.insert(
-                            workspace_id.to_owned(),
-                            RunningApp {
-                                info: info.clone(),
-                                supervision: staged.take().expect("注册分支必然持有待注册实例"),
-                            },
-                        );
-                        None
-                    }
+                    })
+                } else if running.len() >= MAX_CONCURRENT_APPS {
+                    // 早前检查与注册之间隔着健康门控窗口，此处原子复核防止超限注册。
+                    Registration::Rejected
+                } else {
+                    running.insert(
+                        workspace_id.to_owned(),
+                        RunningApp {
+                            info: info.clone(),
+                            supervision: staged.take().expect("注册分支必然持有待注册实例"),
+                        },
+                    );
+                    Registration::Registered
                 }
             };
-            if let (Some(reply), Some(supervision)) = (loser, staged) {
-                shutdown_supervision(&supervision).await;
-                return Ok(reply);
+            match outcome {
+                Registration::Lost(reply) => {
+                    let supervision = staged.expect("未注册分支必然持有待回收实例");
+                    shutdown_supervision(&supervision).await;
+                    return Ok(reply);
+                }
+                Registration::Rejected => {
+                    let supervision = staged.expect("未注册分支必然持有待回收实例");
+                    shutdown_supervision(&supervision).await;
+                    return Err(RuntimeFailure::internal(
+                        "同时运行的本地应用过多，请先停止部分应用",
+                    ));
+                }
+                Registration::Registered => {}
             }
         }
 
@@ -263,6 +293,9 @@ impl AppLauncher {
                     let exited = match &watcher {
                         Watcher::Process(child) => {
                             matches!(child.lock().await.try_wait(), Ok(Some(_)))
+                        }
+                        Watcher::Static(done) => {
+                            done.load(std::sync::atomic::Ordering::SeqCst)
                         }
                     };
                     if !exited {
@@ -302,14 +335,18 @@ impl AppLauncher {
         let mut failure: Option<String> = None;
         match &entry.supervision {
             Supervision::Process { pid, .. } => {
-                for _ in 0..2 {
-                    terminate_tree(*pid).await;
-                    tokio::time::sleep(Duration::from_millis(300)).await;
-                    if self.is_process_gone(*pid).await {
-                        failure = None;
-                        break;
+                if *pid == 0 {
+                    // 极端时序下拿不到 pid；无法定位进程，按已结束处理，避免 Unix kill(-0) 误伤自身进程组。
+                } else {
+                    for _ in 0..2 {
+                        terminate_tree(*pid).await;
+                        tokio::time::sleep(Duration::from_millis(300)).await;
+                        if self.is_process_gone(*pid).await {
+                            failure = None;
+                            break;
+                        }
+                        failure = Some(format!("进程 {pid} 未能终止"));
                     }
-                    failure = Some(format!("进程 {pid} 未能终止"));
                 }
             }
             Supervision::Static { task } => {
@@ -317,11 +354,12 @@ impl AppLauncher {
             }
         }
         if let Some(message) = failure {
-            // 终止失败：记录放回注册表，保持“运行中”可重试；watcher 会在进程真正退出后自行收尾。
-            self.running
-                .lock()
-                .unwrap()
-                .insert(workspace_id.to_owned(), entry);
+            // 终止失败：仅当并发 launch 未注册新实例时才放回，避免覆盖新条目；
+            // watcher 会在进程真正退出后自行收尾。
+            let mut running = self.running.lock().unwrap();
+            if !running.contains_key(workspace_id) {
+                running.insert(workspace_id.to_owned(), entry);
+            }
             return Err(RuntimeFailure::internal(message));
         }
         self.emit(LocalAppEvent {
@@ -366,7 +404,11 @@ impl AppLauncher {
 /// 终止一个受管实例（进程树或静态服务任务）。
 async fn shutdown_supervision(supervision: &Supervision) {
     match supervision {
-        Supervision::Process { pid, .. } => terminate_tree(*pid).await,
+        Supervision::Process { pid, .. } => {
+            if *pid != 0 {
+                terminate_tree(*pid).await;
+            }
+        }
         Supervision::Static { task } => task.abort(),
     }
 }
@@ -430,7 +472,16 @@ async fn spawn_web(
         .stderr(Stdio::piped());
     #[cfg(windows)]
     {
-        for key in ["SYSTEMROOT", "TEMP", "TMP", "APPDATA", "LOCALAPPDATA"] {
+        for key in [
+            "SYSTEMROOT",
+            "SYSTEMDRIVE",
+            "COMSPEC",
+            "USERPROFILE",
+            "TEMP",
+            "TMP",
+            "APPDATA",
+            "LOCALAPPDATA",
+        ] {
             if let Ok(value) = std::env::var(key) {
                 command.env(key, value);
             }
@@ -441,6 +492,9 @@ async fn spawn_web(
     {
         if let Ok(home) = std::env::var("HOME") {
             command.env("HOME", home);
+        }
+        if let Ok(user) = std::env::var("USER") {
+            command.env("USER", user);
         }
         command.process_group(0);
     }
@@ -469,7 +523,11 @@ fn active_runtime_dir(paths: &RuntimePaths) -> Result<PathBuf, RuntimeFailure> {
     Ok(paths.version_dir(&current.version))
 }
 
-async fn wait_healthy(origin: &str, health_path: &str) -> Result<(), String> {
+async fn wait_healthy(
+    origin: &str,
+    health_path: &str,
+    watch: Option<&Watcher>,
+) -> Result<(), String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_millis(1500))
         .build()
@@ -477,7 +535,20 @@ async fn wait_healthy(origin: &str, health_path: &str) -> Result<(), String> {
     let url = format!("{origin}{health_path}");
     let deadline = Instant::now() + HEALTH_TIMEOUT;
     while Instant::now() < deadline {
-        if client.get(&url).send().await.is_ok() {
+        // 进程型应用提前退出时立即失败，不陪跑满整个超时窗口。
+        if let Some(Watcher::Process(child)) = watch {
+            let exited = {
+                let mut child_guard = child.lock().await;
+                matches!(child_guard.try_wait(), Ok(Some(_)))
+            };
+            if exited {
+                return Err("应用进程提前退出".to_owned());
+            }
+        }
+        // 收到任何 <500 的响应即视为服务已就绪；5xx 说明服务起来了但仍在报错，继续等待。
+        if let Ok(response) = client.get(&url).send().await
+            && response.status().as_u16() < 500
+        {
             return Ok(());
         }
         tokio::time::sleep(Duration::from_millis(500)).await;

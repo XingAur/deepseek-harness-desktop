@@ -2,7 +2,9 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSy
 import { basename, isAbsolute, join, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
+import { loadReleaseVersions } from '../release-versions.mjs'
 import { createRuntimeSigningState, loadRuntimeSigningState } from './runtime-signing-state.mjs'
+import { findCompatibleRuntimeDependencyCache } from './runtime-dependency-cache.mjs'
 
 const artifacts = requiredAbsolute(process.argv[3] ?? resolve('e2e-artifacts'), 'artifact root', false)
 mkdirSync(artifacts, { recursive: true })
@@ -56,18 +58,24 @@ process.stdout.write(`${installer}\n`)
 async function buildCurrentRuntime(artifactsRoot) {
   const runtimeOutput = join(artifactsRoot, 'runtime-build-windows-x86_64')
   const runtimeArchive = join(runtimeOutput, 'dsh-runtime-windows-x86_64.zip')
-  const dependencyCache = resolve('runtime-build/windows-x86_64-preview/stage/app/node_modules')
-  if (!existsSync(dependencyCache)) {
-    throw new Error(`缺少 Runtime 依赖缓存：${dependencyCache}`)
-  }
-  await run(process.execPath, [
+  const versions = loadReleaseVersions()
+  const dependencyCache = findCompatibleRuntimeDependencyCache({
+    candidates: [
+      resolve('runtime-build/windows-x86_64/stage/app/node_modules'),
+      resolve('runtime-build/windows-x86_64-preview/stage/app/node_modules'),
+    ],
+    dshVersion: versions.dshVersion,
+    pnpmVersion: versions.pnpmVersion,
+  })
+  const args = [
     resolve('scripts/build-runtime.mjs'),
     '--target=windows-x86_64',
     `--version=${process.env.DSH_E2E_RUNTIME_VERSION ?? '0.1.0-preview'}`,
     `--url=${pathToFileURL(runtimeArchive).href}`,
     `--output=${runtimeOutput}`,
-    `--dependency-cache=${dependencyCache}`,
-  ], process.env)
+  ]
+  if (dependencyCache !== undefined) args.push(`--dependency-cache=${dependencyCache}`)
+  await run(process.execPath, args, process.env)
   return runtimeArchive
 }
 

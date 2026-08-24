@@ -31,7 +31,7 @@ export function createProjectController(
         const workspace = await workspaces.create({ path })
         workspaceId = workspace.workspaceId
         const sessionId = await sessions.create({ workspaceId, cwd: path })
-        const binding = await waitForSessionBinding(sessions, sessionId)
+        const binding = requireSessionBinding(sessions, sessionId)
         const reply = await binding.session.prompt([{ type: 'text', text: buildPrompt(draft) }], 'queue')
         if (!reply.ok) throw new Error(reply.error?.message ?? '项目构建请求未被接受')
         sessions.open(sessionId)
@@ -46,13 +46,8 @@ export function createProjectController(
     async modify(workspaceId, prompt) {
       const request = prompt.trim()
       if (request.length === 0) throw new Error('请先填写修改需求')
-      let sessionId = await workspaces.connectWorkspace(workspaceId)
-      let binding = sessions.binding(sessionId)
-      if (binding === undefined) {
-        sessionId = await sessions.create({ workspaceId })
-        binding = await waitForSessionBinding(sessions, sessionId)
-      }
-      if (binding === undefined) throw new Error('项目会话尚未准备好，请重试')
+      const sessionId = await workspaces.connectWorkspace(workspaceId)
+      const binding = requireSessionBinding(sessions, sessionId)
       const reply = await binding.session.prompt([{
         type: 'text',
         text: `请在当前本地项目中完成下面的修改。先检查现状，尽量保持现有结构和风格；需要额外权限时先询问。\n\n若本次修改影响启动命令、监听端口或数据目录，请同步更新项目根的 dsh-app.json（start 首项须为 node 或 pnpm）。\n\n修改需求：\n${request}`,
@@ -73,11 +68,8 @@ function buildPrompt(draft: ProjectDraft) {
   + '3. 业务数据一律写入 data/ 目录（本地文件或内嵌数据库），保证应用重启后数据保留。'
 }
 
-async function waitForSessionBinding(sessions: SessionsLike, sessionId: string) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    const binding = sessions.binding(sessionId)
-    if (binding !== undefined) return binding
-    await new Promise<void>((resolveReady) => setTimeout(resolveReady, 0))
-  }
-  throw new Error('项目会话尚未准备好，请重试')
+function requireSessionBinding(sessions: SessionsLike, sessionId: string) {
+  const binding = sessions.binding(sessionId)
+  if (binding === undefined) throw new Error('项目会话尚未准备好，请重试')
+  return binding
 }

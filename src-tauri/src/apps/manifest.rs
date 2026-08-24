@@ -74,8 +74,10 @@ pub fn parse_manifest(bytes: &[u8]) -> Result<AppManifest, RuntimeFailure> {
         return Err(invalid(format!("portEnv 不是合法环境变量名：{port_env}")));
     }
     let health_path = file.health_path.unwrap_or_else(|| "/".to_owned());
-    if !health_path.starts_with('/') || health_path.len() > 256 || health_path.contains('\0') {
-        return Err(invalid("healthPath 必须以 / 开头且不超过 256 字符".into()));
+    if !is_valid_health_path(&health_path) {
+        return Err(invalid(
+            "healthPath 必须以 / 开头、不超过 256 字符，且不含 #、空白或控制字符".into(),
+        ));
     }
     let data_dir = validate_relative_path(
         &file.data_dir.unwrap_or_else(|| "data".to_owned()),
@@ -127,6 +129,16 @@ fn validate_args(start: Vec<String>, kind: AppKind) -> Result<Vec<String>, Strin
         return Err(format!("start 首项仅允许 node/pnpm：{}", start[0]));
     }
     Ok(start)
+}
+
+fn is_valid_health_path(path: &str) -> bool {
+    // # 会被当作 URL 片段、空白与控制字符会让 URL 解析失败，
+    // 都会导致健康检查永远打不到目标路径。
+    path.starts_with('/')
+        && path.len() <= 256
+        && !path
+            .chars()
+            .any(|character| character == '#' || character.is_whitespace() || character.is_control())
 }
 
 fn is_valid_env_name(name: &str) -> bool {
@@ -212,6 +224,14 @@ mod tests {
         .is_err());
         assert!(parse_manifest(
             web_json("\"start\":[\"node\",\"a\"],\"healthPath\":\"health\"").as_bytes()
+        )
+        .is_err());
+        assert!(parse_manifest(
+            web_json("\"start\":[\"node\",\"a\"],\"healthPath\":\"/#frag\"").as_bytes()
+        )
+        .is_err());
+        assert!(parse_manifest(
+            web_json("\"start\":[\"node\",\"a\"],\"healthPath\":\"/he alth\"").as_bytes()
         )
         .is_err());
     }

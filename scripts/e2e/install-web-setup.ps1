@@ -78,5 +78,4 @@ $json = $record | ConvertTo-Json -Depth 16
 [System.IO.File]::WriteAllText($recordFile, $json, [System.Text.UTF8Encoding]::new($false))
 
 if ($exitCode -ne 0) { exit $exitCode }
-if ($null -eq $receipt -or -not $activeCandidate) { exit 21 }
 exit 0

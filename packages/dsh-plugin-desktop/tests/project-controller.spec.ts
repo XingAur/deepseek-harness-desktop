@@ -45,6 +45,12 @@ describe('project controller', () => {
       { type: 'text', text: expect.stringContaining('做一个记账应用') },
     ], 'queue')
     expect(sessions.open).toHaveBeenCalledWith('s-1')
+    expect(vi.mocked(sessions.create).mock.invocationCallOrder[0])
+      .toBeLessThan(vi.mocked(sessions.binding).mock.invocationCallOrder[0])
+    expect(vi.mocked(sessions.binding).mock.invocationCallOrder[0])
+      .toBeLessThan(sessions.session.prompt.mock.invocationCallOrder[0])
+    expect(sessions.session.prompt.mock.invocationCallOrder[0])
+      .toBeLessThan(vi.mocked(sessions.open).mock.invocationCallOrder[0])
   })
 
   it('keeps the created directory and rolls back only registration when prompt fails', async () => {
@@ -74,7 +80,7 @@ describe('project controller', () => {
     expect(workspaces.delete).toHaveBeenCalledWith('w-new')
   })
 
-  it('waits for the newly created session binding before queuing the project', async () => {
+  it('fails immediately when create resolves without a synchronous session binding', async () => {
     const workspaces = workspaceFixture()
     const sessions = sessionFixture()
     vi.mocked(sessions.binding)
@@ -83,11 +89,12 @@ describe('project controller', () => {
     const controller = createProjectController(workspaces, sessions, locationGateway())
     const draft = await controller.prepare({ idea: '构建工具', profileId: 'p-a' })
 
-    await controller.confirm(draft)
+    await expect(controller.confirm(draft)).rejects.toThrow('会话尚未准备好')
 
-    expect(sessions.binding).toHaveBeenCalledTimes(2)
-    expect(sessions.session.prompt).toHaveBeenCalled()
-    expect(workspaces.delete).not.toHaveBeenCalled()
+    expect(sessions.binding).toHaveBeenCalledTimes(1)
+    expect(sessions.session.prompt).not.toHaveBeenCalled()
+    expect(sessions.open).not.toHaveBeenCalled()
+    expect(workspaces.delete).toHaveBeenCalledWith('w-new')
   })
 
   it('queues a modification in the selected workspace without creating another workspace', async () => {
@@ -103,6 +110,21 @@ describe('project controller', () => {
       { type: 'text', text: expect.stringContaining('把首页改成两栏') },
     ], 'queue')
     expect(sessions.open).toHaveBeenCalledWith('s-1')
+  })
+
+  it('does not create a duplicate session when connectWorkspace violates the binding contract', async () => {
+    const workspaces = workspaceFixture()
+    const sessions = sessionFixture()
+    vi.mocked(sessions.binding).mockReturnValue(undefined)
+    const controller = createProjectController(workspaces, sessions, locationGateway())
+
+    await expect(controller.modify('w-1', '更新首页')).rejects.toThrow('会话尚未准备好')
+
+    expect(workspaces.connectWorkspace).toHaveBeenCalledWith('w-1')
+    expect(sessions.binding).toHaveBeenCalledTimes(1)
+    expect(sessions.create).not.toHaveBeenCalled()
+    expect(sessions.session.prompt).not.toHaveBeenCalled()
+    expect(sessions.open).not.toHaveBeenCalled()
   })
 
   it('rejects an empty modification before connecting the workspace', async () => {
