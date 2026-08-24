@@ -338,7 +338,10 @@ pub struct WorkerSession {
 #[cfg(windows)]
 #[derive(Debug)]
 struct WorkerJob {
-    handle: HANDLE,
+    // Win32 HANDLE is an opaque process-local value. Keep it as a pointer-sized
+    // integer so the worker session can safely cross Tokio task boundaries;
+    // convert it back only at the Win32 API boundary below.
+    handle: usize,
 }
 
 #[derive(Clone)]
@@ -470,12 +473,14 @@ impl WorkerJob {
             }
             return Err(SupervisorError::SpawnFailed);
         }
-        Ok(Self { handle })
+        Ok(Self {
+            handle: handle as usize,
+        })
     }
 
     fn terminate(&self) {
         unsafe {
-            let _ = TerminateJobObject(self.handle, 1);
+            let _ = TerminateJobObject(self.handle as HANDLE, 1);
         }
     }
 
@@ -523,9 +528,9 @@ impl WorkerJob {
 #[cfg(windows)]
 impl Drop for WorkerJob {
     fn drop(&mut self) {
-        if !self.handle.is_null() {
+        if self.handle != 0 {
             unsafe {
-                CloseHandle(self.handle);
+                CloseHandle(self.handle as HANDLE);
             }
         }
     }
@@ -1172,6 +1177,14 @@ mod tests {
         WorkerSupervisor, approval_resolution_frame, heartbeat_expired, map_worker_event,
         validate_response_ok,
     };
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_worker_job_handle_is_thread_safe_for_runtime_state() {
+        fn assert_send_sync<T: Send + Sync>() {}
+
+        assert_send_sync::<super::WorkerJob>();
+    }
 
     fn worker_fixture(root: &Path, name: &str, body: &str) -> PathBuf {
         #[cfg(unix)]
