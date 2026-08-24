@@ -5,10 +5,10 @@ use tauri::{AppHandle, State, WebviewWindow};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::{
-    DesktopFoundation, FoundationBootstrapState,
+    agent::service::{ApprovalDecision, ApprovalRecord},
     app_update::{
-        AppUpdateController,
         model::{AppUpdateFailure, AppUpdateReceipt, AppUpdateSource, AppUpdateState},
+        AppUpdateController,
     },
     apps::{AppLauncher, AppStatusReply, LaunchReply},
     desktop::DesktopCoordinator,
@@ -17,13 +17,129 @@ use crate::{
     },
     projects::{
         active_profile,
-        location::{ProjectLocationPreview, create_project_location, preview_project_location},
+        location::{create_project_location, preview_project_location, ProjectLocationPreview},
         metadata::{ProjectMetadataPatch, ProjectMetadataSnapshot},
         metadata_repository,
-        recycle::{ProtectedRoots, resolve_registered_workspace, validate_recycle_target},
+        recycle::{resolve_registered_workspace, validate_recycle_target, ProtectedRoots},
     },
     runtime::{BootstrapReply, RuntimeFailure},
+    DesktopFoundation, FoundationBootstrapState,
 };
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentPendingApprovalsInput {
+    task_id: uuid::Uuid,
+    generation_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentResolveApprovalInput {
+    approval_id: uuid::Uuid,
+    task_id: uuid::Uuid,
+    generation_id: String,
+    decision: ApprovalDecision,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentApprovalReply {
+    approval_id: uuid::Uuid,
+    request_id: uuid::Uuid,
+    task_id: uuid::Uuid,
+    generation_id: String,
+    capability_kind: crate::agent::model::CapabilityKind,
+    scope: String,
+    risk_class: crate::agent::model::RiskClass,
+    policy_version: String,
+    expires_at: String,
+    status: ApprovalStatusReply,
+    decision: Option<ApprovalDecision>,
+    result_category: Option<String>,
+    error_code: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ApprovalStatusReply {
+    Pending,
+    ApprovedOnce,
+    ApprovedForTask,
+    Denied,
+    Consumed,
+    Cancelled,
+}
+
+impl From<ApprovalRecord> for AgentApprovalReply {
+    fn from(record: ApprovalRecord) -> Self {
+        Self {
+            approval_id: record.approval_id,
+            request_id: record.request.request_id,
+            task_id: record.request.task_id,
+            generation_id: record.request.generation_id,
+            capability_kind: record.request.capability_kind,
+            scope: crate::agent::audit::redact_scope(&record.request.canonical_scope),
+            risk_class: record.request.risk_class,
+            policy_version: record.request.policy_version,
+            expires_at: record.request.expires_at.to_rfc3339(),
+            status: match record.status {
+                crate::agent::service::ApprovalStatus::Pending => ApprovalStatusReply::Pending,
+                crate::agent::service::ApprovalStatus::ApprovedOnce => {
+                    ApprovalStatusReply::ApprovedOnce
+                }
+                crate::agent::service::ApprovalStatus::ApprovedForTask => {
+                    ApprovalStatusReply::ApprovedForTask
+                }
+                crate::agent::service::ApprovalStatus::Denied => ApprovalStatusReply::Denied,
+                crate::agent::service::ApprovalStatus::Consumed => ApprovalStatusReply::Consumed,
+                crate::agent::service::ApprovalStatus::Cancelled => ApprovalStatusReply::Cancelled,
+            },
+            decision: record.decision,
+            result_category: record.result_category,
+            error_code: record
+                .error_code
+                .as_deref()
+                .map(crate::agent::audit::redact_error_code),
+        }
+    }
+}
+
+#[tauri::command]
+pub fn agent_pending_approvals(
+    foundation: State<'_, Arc<DesktopFoundation>>,
+    input: AgentPendingApprovalsInput,
+) -> Result<Vec<AgentApprovalReply>, String> {
+    let service = foundation
+        .agent_service
+        .as_ref()
+        .ok_or_else(|| "权限服务当前不可用".to_owned())?;
+    service
+        .pending(input.task_id, &input.generation_id)
+        .map(|records| records.into_iter().map(Into::into).collect())
+        .map_err(|_| "读取审批列表失败".to_owned())
+}
+
+#[tauri::command]
+pub fn agent_resolve_approval(
+    foundation: State<'_, Arc<DesktopFoundation>>,
+    input: AgentResolveApprovalInput,
+) -> Result<AgentApprovalReply, String> {
+    let service = foundation
+        .agent_service
+        .as_ref()
+        .ok_or_else(|| "权限服务当前不可用".to_owned())?;
+    service
+        .resolve(
+            input.approval_id,
+            input.task_id,
+            &input.generation_id,
+            input.decision,
+            chrono::Utc::now(),
+        )
+        .map(Into::into)
+        .map_err(|_| "审批已失效或无法处理".to_owned())
+}
 
 #[tauri::command]
 pub async fn check_app_update(

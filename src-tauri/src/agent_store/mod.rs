@@ -13,7 +13,7 @@ use std::{
 
 use chrono::Utc;
 use model::{AgentStoreError, BackupMetadata, RecoveryState};
-use rusqlite::{Connection, MAIN_DB, OpenFlags, TransactionBehavior};
+use rusqlite::{Connection, OpenFlags, TransactionBehavior, MAIN_DB};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -282,8 +282,8 @@ fn atomic_publish_bundle(
 ) -> std::io::Result<BundlePublication> {
     use std::os::windows::{ffi::OsStrExt, fs::OpenOptionsExt, io::AsRawHandle};
     use windows_sys::Win32::Storage::FileSystem::{
-        DELETE, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_FLAG_WRITE_THROUGH,
-        FILE_RENAME_INFO, FileRenameInfo, SYNCHRONIZE, SetFileInformationByHandle,
+        FileRenameInfo, SetFileInformationByHandle, DELETE, FILE_FLAG_BACKUP_SEMANTICS,
+        FILE_FLAG_OPEN_REPARSE_POINT, FILE_FLAG_WRITE_THROUGH, FILE_RENAME_INFO, SYNCHRONIZE,
     };
 
     ensure_trusted_directory(parent)?;
@@ -519,7 +519,9 @@ impl AgentStore {
                     | OpenFlags::SQLITE_OPEN_FULL_MUTEX,
             )
             .map_err(|_| AgentStoreError::recovery_required(paths.agent_database.clone(), None))?;
-            if migrations::migrate_to_v1(&mut connection).is_err() {
+            if migrations::migrate_to_current(&mut connection).is_err()
+                || migrations::validate_current_schema(&connection).is_err()
+            {
                 return Err(AgentStoreError::migration_failed(
                     paths.agent_database.clone(),
                     None,
@@ -543,6 +545,12 @@ impl AgentStore {
         let version = migrations::user_version(&probe)
             .map_err(|error| map_probe_error(&paths.agent_database, error))?;
         if version == migrations::CURRENT_SCHEMA_VERSION {
+            if migrations::validate_current_schema(&probe).is_err() {
+                return Err(AgentStoreError::recovery_required(
+                    paths.agent_database.clone(),
+                    None,
+                ));
+            }
             return Ok(Self::ready(paths, None));
         }
         if version < 0 || version > migrations::CURRENT_SCHEMA_VERSION {
@@ -589,12 +597,18 @@ impl AgentStore {
             backup_filesystem,
         )?);
         drop(snapshot);
-        if let Err(error) = migrations::migrate_to_v1_in_transaction(&transaction) {
+        if let Err(error) = migrations::migrate_to_current_in_transaction(&transaction) {
             return Err(if is_lock_error(&error) {
                 AgentStoreError::writer_active(paths.agent_database.clone(), backup)
             } else {
                 AgentStoreError::migration_failed(paths.agent_database.clone(), backup)
             });
+        }
+        if let Err(_error) = migrations::validate_current_schema(&transaction) {
+            return Err(AgentStoreError::migration_failed(
+                paths.agent_database.clone(),
+                backup,
+            ));
         }
         if let Err(error) = transaction.commit() {
             return Err(if is_lock_error(&error) {
@@ -668,6 +682,10 @@ pub struct AgentStoreWriter {
 impl AgentStoreWriter {
     pub fn connection(&self) -> &Connection {
         &self.connection
+    }
+
+    pub fn connection_mut(&mut self) -> &mut Connection {
+        &mut self.connection
     }
 }
 
@@ -1227,8 +1245,8 @@ impl Drop for VerificationCopy {
 fn delete_windows_verification(path: &Path, identity: &FileIdentity) -> std::io::Result<()> {
     use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
     use windows_sys::Win32::Storage::FileSystem::{
-        DELETE, FILE_DISPOSITION_INFO, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ,
-        FILE_SHARE_WRITE, FileDispositionInfo, SYNCHRONIZE, SetFileInformationByHandle,
+        FileDispositionInfo, SetFileInformationByHandle, DELETE, FILE_DISPOSITION_INFO,
+        FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ, FILE_SHARE_WRITE, SYNCHRONIZE,
     };
 
     let mut options = OpenOptions::new();
@@ -1431,7 +1449,7 @@ mod tests {
     use rusqlite::Connection;
     use sha2::{Digest, Sha256};
 
-    use super::{AgentStore, BackupFailurePoint, FaultingBackupFilesystem};
+    use super::{migrations, AgentStore, BackupFailurePoint, FaultingBackupFilesystem};
     use crate::storage::app_paths::AppPaths;
 
     const V0_FIXTURE: &str = include_str!("fixtures/v0.sql");
@@ -1548,7 +1566,10 @@ mod tests {
             paths.state.join("agent-platform.sqlite3")
         );
         assert_eq!(store.backup_dir(), paths.backups.join("agent-platform"));
-        assert_eq!(user_version(&connection), 1);
+        assert_eq!(
+            user_version(&connection),
+            migrations::CURRENT_SCHEMA_VERSION
+        );
         assert_eq!(
             connection
                 .query_row("PRAGMA foreign_keys", [], |row| row.get::<_, i64>(0))
@@ -1577,7 +1598,10 @@ mod tests {
 
         let reopened = AgentStore::open(&paths).unwrap();
 
-        assert_eq!(user_version(&reopened.reader().unwrap()), 1);
+        assert_eq!(
+            user_version(&reopened.reader().unwrap()),
+            migrations::CURRENT_SCHEMA_VERSION
+        );
         assert_eq!(fs::read(&paths.agent_database).unwrap(), before);
         assert!(reopened.migration_backup().is_none());
         assert!(!paths.agent_backups.exists());
@@ -1595,7 +1619,10 @@ mod tests {
         let backup = store.migration_backup().expect("migration backup");
         let connection = store.reader().unwrap();
 
-        assert_eq!(user_version(&connection), 1);
+        assert_eq!(
+            user_version(&connection),
+            migrations::CURRENT_SCHEMA_VERSION
+        );
         assert_eq!(
             connection
                 .query_row(
@@ -1932,12 +1959,10 @@ mod tests {
             let published = filesystem.published.into_inner().unwrap();
             if let Some(published) = published {
                 assert_eq!(error.code(), "agent_store_backup_durability_uncertain");
-                assert!(
-                    fs::symlink_metadata(&published)
-                        .unwrap()
-                        .file_type()
-                        .is_symlink()
-                );
+                assert!(fs::symlink_metadata(&published)
+                    .unwrap()
+                    .file_type()
+                    .is_symlink());
                 let diverted = fs::read_link(&published).unwrap();
                 assert!(diverted.join("agent-platform.sqlite3").is_file());
                 let recovery = error.recovery().unwrap();
@@ -2364,7 +2389,10 @@ mod tests {
         let store = AgentStore::open(&paths).unwrap();
 
         assert!(store.migration_backup().is_some());
-        assert_eq!(user_version(&store.reader().unwrap()), 1);
+        assert_eq!(
+            user_version(&store.reader().unwrap()),
+            migrations::CURRENT_SCHEMA_VERSION
+        );
     }
 
     #[cfg(target_os = "macos")]
@@ -2544,7 +2572,10 @@ mod tests {
         fs::set_permissions(&paths.agent_database, fs::Permissions::from_mode(0o444)).unwrap();
 
         let reopened = AgentStore::open(&paths).unwrap();
-        assert_eq!(user_version(&reopened.reader().unwrap()), 1);
+        assert_eq!(
+            user_version(&reopened.reader().unwrap()),
+            migrations::CURRENT_SCHEMA_VERSION
+        );
         assert_eq!(fs::read(&paths.agent_database).unwrap(), before);
         assert!(reopened.migration_backup().is_none());
 
@@ -2609,7 +2640,10 @@ mod tests {
 
         drop(writer);
         let migrated = AgentStore::open(&paths).unwrap();
-        assert_eq!(user_version(&migrated.reader().unwrap()), 1);
+        assert_eq!(
+            user_version(&migrated.reader().unwrap()),
+            migrations::CURRENT_SCHEMA_VERSION
+        );
         assert!(migrated.migration_backup().is_some());
     }
 
@@ -2722,7 +2756,7 @@ mod tests {
 
     #[test]
     fn production_migration_barrier_blocks_a_writer_after_bundle_publish_before_schema_change() {
-        use std::sync::{Arc, mpsc};
+        use std::sync::{mpsc, Arc};
 
         struct BarrierFilesystem {
             published: mpsc::Sender<()>,
@@ -2814,7 +2848,10 @@ mod tests {
                 .unwrap(),
             0
         );
-        assert_eq!(user_version(&store.reader().unwrap()), 1);
+        assert_eq!(
+            user_version(&store.reader().unwrap()),
+            migrations::CURRENT_SCHEMA_VERSION
+        );
     }
 
     #[test]
@@ -2848,7 +2885,7 @@ mod tests {
         let store = AgentStore::open(&paths).unwrap();
 
         let migrated = store.reader().unwrap();
-        assert_eq!(user_version(&migrated), 1);
+        assert_eq!(user_version(&migrated), migrations::CURRENT_SCHEMA_VERSION);
         assert_eq!(
             migrated
                 .query_row(
@@ -2894,7 +2931,10 @@ mod tests {
                 let store = Arc::clone(&store);
                 thread::spawn(move || {
                     let connection = store.reader().unwrap();
-                    assert_eq!(user_version(&connection), 1);
+                    assert_eq!(
+                        user_version(&connection),
+                        migrations::CURRENT_SCHEMA_VERSION
+                    );
                     assert_eq!(
                         connection
                             .query_row("SELECT COUNT(*) FROM tasks", [], |row| {

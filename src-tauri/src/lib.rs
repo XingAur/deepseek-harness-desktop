@@ -1,3 +1,4 @@
+mod agent;
 mod agent_store;
 pub mod app_mode;
 mod app_update;
@@ -23,6 +24,7 @@ mod window;
 use std::sync::{Arc, atomic::AtomicBool};
 
 use agent_store::{AgentStore, model::RecoveryState};
+use agent::service::AgentService;
 use credentials::vault::{CredentialVault, NativeCredentialVault};
 use desktop::DesktopCoordinator;
 use generation::coordinator::{GenerationCoordinator, ProcessRuntimeLauncher, TauriEventSink};
@@ -69,6 +71,8 @@ macro_rules! renderer_commands {
             commands::defer_app_update,
             commands::open_app_update_download,
             commands::take_app_update_receipt,
+            commands::agent_pending_approvals,
+            commands::agent_resolve_approval,
             commands::orderly_quit,
             commands::hide_window,
             commands::minimize_window,
@@ -143,6 +147,7 @@ pub struct DesktopFoundation {
     pub platform: Arc<dyn PlatformAdapter>,
     pub profiles: Arc<ProfileRepository>,
     pub agent_store: Option<Arc<AgentStore>>,
+    pub agent_service: Option<Arc<AgentService>>,
     pub(crate) credential_vault: Arc<dyn CredentialVault>,
     pub migration: Arc<MigrationService>,
     pub bootstrap_state: FoundationBootstrapState,
@@ -191,6 +196,7 @@ impl DesktopFoundation {
                         platform,
                         profiles,
                         agent_store: None,
+                        agent_service: None,
                         credential_vault,
                         migration,
                         bootstrap_state,
@@ -209,11 +215,15 @@ impl DesktopFoundation {
         } else {
             None
         };
+        let agent_service = agent_store
+            .as_ref()
+            .map(|store| Arc::new(AgentService::new(Arc::clone(store))));
         Ok(Self {
             paths,
             platform,
             profiles,
             agent_store,
+            agent_service,
             credential_vault,
             migration,
             bootstrap_state,
@@ -509,12 +519,13 @@ mod foundation_tests {
         .unwrap();
         assert_eq!(foundation.profiles.list().unwrap().len(), 1);
         assert!(foundation.paths.agent_database.exists());
+        assert!(foundation.agent_service.is_some());
         assert_eq!(
             rusqlite::Connection::open(&foundation.paths.agent_database)
                 .unwrap()
                 .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
                 .unwrap(),
-            1
+            crate::agent_store::migrations::CURRENT_SCHEMA_VERSION
         );
         let runtime_paths = RuntimePaths::from_app_paths(&foundation.paths).unwrap();
         assert_eq!(
