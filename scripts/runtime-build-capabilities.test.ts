@@ -9,6 +9,7 @@ import { inspectAssembledRuntimeCapabilities } from './runtime-build-capabilitie
 const dshVersion = '0.1.1-rc.2'
 const desktopPluginVersion = '0.3.2'
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const npmExecutable = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 
 function writePackage(appDirectory: string, name: string, manifest: Record<string, unknown>) {
   const directory = join(appDirectory, 'node_modules', ...name.split('/'))
@@ -95,10 +96,10 @@ describe('inspectAssembledRuntimeCapabilities', () => {
       rmSync(join(appDirectory, 'node_modules', '@dsh'), { recursive: true, force: true })
       writeFileSync(join(appDirectory, 'package.json'), JSON.stringify({ name: 'assembled-runtime-fixture', private: true }))
       const npmEnvironment = { ...process.env, npm_config_cache: join(packDirectory, 'npm-cache') }
-      execFileSync('npm', ['run', 'plugin:build'], { cwd: repositoryRoot, env: npmEnvironment, stdio: 'pipe' })
-      execFileSync('npm', ['pack', './packages/dsh-plugin-desktop', '--pack-destination', packDirectory], { cwd: repositoryRoot, env: npmEnvironment, stdio: 'pipe' })
+      execFileSync(npmExecutable, ['run', 'plugin:build'], { cwd: repositoryRoot, env: npmEnvironment, stdio: 'pipe' })
+      execFileSync(npmExecutable, ['pack', './packages/dsh-plugin-desktop', '--pack-destination', packDirectory], { cwd: repositoryRoot, env: npmEnvironment, stdio: 'pipe' })
       const tarball = join(packDirectory, 'dsh-desktop-plugin-0.3.2.tgz')
-      execFileSync('npm', ['install', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--legacy-peer-deps', tarball], { cwd: appDirectory, env: npmEnvironment, stdio: 'pipe' })
+      execFileSync(npmExecutable, ['install', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--legacy-peer-deps', tarball], { cwd: appDirectory, env: npmEnvironment, stdio: 'pipe' })
       writeUpstreamPackages(appDirectory)
 
       const report = inspectAssembledRuntimeCapabilities(appDirectory, { dshVersion, desktopPluginVersion })
