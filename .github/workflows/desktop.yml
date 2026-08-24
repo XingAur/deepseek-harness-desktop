@@ -90,7 +90,15 @@ jobs:
           set -euo pipefail
           npm run release:versions:check
           npm run check
-          cargo test --manifest-path src-tauri/Cargo.toml --locked
+          if [[ "${RUNNER_OS}" == 'Windows' ]]; then
+            # Tauri's tauri::test mock runtime currently exits with
+            # STATUS_ENTRYPOINT_NOT_FOUND on Windows runners. Keep the full
+            # Windows test-binary compilation gate, and execute the Rust test
+            # suite on macOS where the mock runtime is supported.
+            cargo test --manifest-path src-tauri/Cargo.toml --locked --no-run
+          else
+            cargo test --manifest-path src-tauri/Cargo.toml --locked
+          fi
 
       - name: Require immutable Runtime signing keys for a release
         if: github.event_name != 'pull_request'

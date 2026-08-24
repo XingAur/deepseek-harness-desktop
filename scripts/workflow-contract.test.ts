@@ -73,6 +73,9 @@ describe('automated upstream release workflows', () => {
     )
     expect(contractVerification).toContain('shell: bash')
     expect(contractVerification).toContain('set -euo pipefail')
+    expect(contractVerification).toContain("if [[ \"${RUNNER_OS}\" == 'Windows' ]]; then")
+    expect(contractVerification).toContain('cargo test --manifest-path src-tauri/Cargo.toml --locked --no-run')
+    expect(contractVerification).toContain('cargo test --manifest-path src-tauri/Cargo.toml --locked\n          fi')
     const artifactStaging = workflow.slice(
       workflow.indexOf('      - name: Stage release artifacts'),
       workflow.indexOf('      - name: Verify Windows updater signature against the bundled public key'),
