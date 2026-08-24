@@ -9,8 +9,9 @@ import { inspectAssembledRuntimeCapabilities } from './runtime-build-capabilitie
 const dshVersion = '0.1.1-rc.2'
 const desktopPluginVersion = '0.3.2'
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const npmCliPath = process.platform === 'win32' && process.env.npm_execpath?.toLowerCase().endsWith('.js')
-  ? process.env.npm_execpath
+const npmCliPath = process.platform === 'win32'
+  ? [process.env.npm_execpath, join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js')]
+    .find((candidate) => candidate ? candidate.toLowerCase().endsWith('.js') && existsSync(candidate) : false)
   : undefined
 const npmExecutable = npmCliPath ? process.execPath : process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const npmPrefix = npmCliPath ? [npmCliPath] : []

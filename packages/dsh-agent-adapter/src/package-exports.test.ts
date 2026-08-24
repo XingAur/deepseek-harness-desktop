@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -7,8 +7,9 @@ import { describe, expect, it } from 'vitest'
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const repositoryRoot = resolve(packageRoot, '..', '..')
-const npmCliPath = process.platform === 'win32' && process.env.npm_execpath?.toLowerCase().endsWith('.js')
-  ? process.env.npm_execpath
+const npmCliPath = process.platform === 'win32'
+  ? [process.env.npm_execpath, join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js')]
+    .find((candidate) => candidate ? candidate.toLowerCase().endsWith('.js') && existsSync(candidate) : false)
   : undefined
 const npmExecutable = npmCliPath ? process.execPath : process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const npmPrefix = npmCliPath ? [npmCliPath] : []
