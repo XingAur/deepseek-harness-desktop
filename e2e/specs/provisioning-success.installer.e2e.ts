@@ -2,15 +2,11 @@ import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { expectNoRecordedProcessOrPort, expectSentinelScopes } from '../support/assertions'
-import type { InstallationRecord } from '../support/installer'
 import { lifecycleRedactionRoots, stageSafeLifecycleArtifacts } from '../support/lifecycle-report'
-import { captureProjectPath } from '../support/lifecycle-state'
 import { createE2EWorld, type E2EWorld } from '../support/world'
 
 let world: E2EWorld
-let appBinary: string
 let latestDataRoot: string | undefined
-let recordedRuntimeIdentity: InstallationRecord | undefined
 
 const FIRST_SESSION_MARKER = 'E2E 第一会话 Ω'
 const SECOND_SESSION_MARKER = 'E2E 第二会话 二'
@@ -51,11 +47,10 @@ describe('Windows Web Setup success path', () => {
     expect(runtimeFixture.requests().filter((request) => request.path === '/runtime.zip')).toHaveLength(0)
     expect(installation.appBinary).toBeTypeOf('string')
     if (installation.appBinary === undefined) throw new Error('安装记录缺少应用路径')
-    appBinary = installation.appBinary
     latestDataRoot = installation.dataRoot
 
     runtimeFixture.clearRequests()
-    await desktop.launch(appBinary)
+    await desktop.launch(installation.appBinary)
     // 首次安装需要完成 Runtime 下载、校验、解压与健康检查；GitHub Windows runner
     // 在冷缓存下可能超过 120 秒，不能把仍在推进的首启误判为失败。
     await desktop.waitForWorkbench(180_000)
@@ -65,7 +60,7 @@ describe('Windows Web Setup success path', () => {
     await desktop.quit()
 
     runtimeFixture.clearRequests()
-    await desktop.launch(appBinary)
+    await desktop.launch(installation.appBinary)
     await desktop.waitForWorkbench(8_000)
     const warmTiming = latestActiveTiming(installation.dataRoot)
     expect(warmTiming.elapsedMs).toBeLessThanOrEqual(8_000)
@@ -80,15 +75,16 @@ describe('Windows Web Setup success path', () => {
   })
 
   it('creates two sessions, switches without refresh, and restores them after restart', async () => {
-    if (appBinary === undefined) throw new Error('安装记录缺少应用路径')
-    if (latestDataRoot === undefined) throw new Error('安装记录缺少数据目录')
-    const { desktop, modelFixture } = world
+    const { desktop, installer, modelFixture } = world
+    // 这条用例必须从空工作台开始。项目构建完成后会进入该项目的专用会话，
+    // 不再展示全局“新建会话”入口；复用上一条的状态会把 UI 差异误判为会话回归。
+    const installation = await installer.installClean()
+    if (installation.appBinary === undefined) throw new Error('安装记录缺少应用路径')
+    latestDataRoot = installation.dataRoot
 
-    await desktop.launch(appBinary)
-    await desktop.waitForWorkbench(8_000)
-    await desktop.createProject({
-      idea: `${FIRST_SESSION_MARKER}：请创建 README，并在完成后回复确认`,
-    })
+    await desktop.launch(installation.appBinary)
+    await desktop.waitForWorkbench(180_000)
+    await desktop.createConversation(`${FIRST_SESSION_MARKER}：请回复确认`)
     await desktop.createConversation(`${SECOND_SESSION_MARKER}：请回复确认`)
     await desktop.assertSessionRoundTrip([FIRST_SESSION_MARKER, SECOND_SESSION_MARKER])
     expect(modelFixture.requests()).toEqual(expect.arrayContaining([
@@ -96,7 +92,7 @@ describe('Windows Web Setup success path', () => {
     ]))
 
     await desktop.quit()
-    await desktop.launch(appBinary)
+    await desktop.launch(installation.appBinary)
     await desktop.waitForWorkbench(8_000)
     const requestCountBeforeContinuation = modelFixture.requests().filter(
       (request) => request.method === 'POST' && request.path === '/chat/completions',
@@ -108,17 +104,26 @@ describe('Windows Web Setup success path', () => {
     expect(continuationRequests.length).toBeGreaterThan(0)
     expect(continuationRequests.some((request) => request.body.includes(CONTINUATION_PROMPT))).toBe(true)
     await desktop.assertSessionRoundTrip([FIRST_SESSION_MARKER, SECOND_SESSION_MARKER, CONTINUATION_PROMPT])
-    recordedRuntimeIdentity = await installer.recordRuntimeIdentity({
+    const recordedRuntimeIdentity = await installer.recordRuntimeIdentity({
       runtimePid: await desktop.runtimePid(),
       runtimePort: await desktop.runtimePort(),
     })
+    expect(recordedRuntimeIdentity.runtimePid).toBeGreaterThan(0)
+    await desktop.quit()
   })
 
   it('默认卸载仅移除应用，并保留应用数据、项目与外部哨兵', async () => {
-    if (latestDataRoot === undefined) throw new Error('安装记录缺少数据目录')
     const { desktop, installer } = world
-    const projectPath = captureProjectPath(latestDataRoot)
-    const sentinels = await installer.writePreservationSentinels(projectPath)
+    const installation = await installer.installClean()
+    if (installation.appBinary === undefined) throw new Error('安装记录缺少应用路径')
+    latestDataRoot = installation.dataRoot
+    await desktop.launch(installation.appBinary)
+    await desktop.waitForWorkbench(180_000)
+    const sentinels = await installer.writePreservationSentinels()
+    const recordedRuntimeIdentity = await installer.recordRuntimeIdentity({
+      runtimePid: await desktop.runtimePid(),
+      runtimePort: await desktop.runtimePort(),
+    })
 
     await desktop.quit()
     await installer.uninstall('preserve-all')
