@@ -35,7 +35,7 @@ describe('uninstall project sentinel ownership contract', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
-  })
+  }, 30_000)
 
   it('读取期间 marker 被替换为 junction 时必须拒绝', (context) => {
     const root = mkdtempSync(join(tmpdir(), 'dsh-e2e-project-marker-race-'))

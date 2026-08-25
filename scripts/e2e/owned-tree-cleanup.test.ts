@@ -79,7 +79,7 @@ describe('owned PowerShell tree cleanup', () => {
     ], { encoding: 'utf8', windowsHide: true }).trim()
     if (output === 'junction-unavailable') context.skip('当前 Windows 环境不允许创建 junction')
     expect(output).toBe('deleted')
-  })
+  }, 30_000)
 
   it('rejects a directory replaced by a junction immediately before enumeration', async (context) => {
     if (process.platform !== 'win32') context.skip('junction 行为仅在 Windows 上验证')

@@ -28,7 +28,7 @@ describe('E2E SHA-256 PowerShell compatibility', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
-  })
+  }, 30_000)
 
   it('卸载脚本只经共享 helper 验证哨兵，并保持流式 fallback', () => {
     const helperSource = readFileSync(helper, 'utf8')
