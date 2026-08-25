@@ -97,7 +97,13 @@ export class PackagedDesktopHarness implements DesktopHarness {
   }
 
   async runtimePid(): Promise<number> {
-    const value = await this.requireSession().execute(() => document.body.dataset.runtimePid)
+    const session = this.requireSession()
+    await session.waitUntil(async () => {
+      const value = await session.execute(() => document.body.dataset.runtimePid)
+      const pid = Number(value)
+      return Number.isSafeInteger(pid) && pid > 0
+    }, { timeout: 30_000, timeoutMsg: '页面未暴露有效的测试 Runtime PID；活动 Runtime identity bridge 未就绪' })
+    const value = await session.execute(() => document.body.dataset.runtimePid)
     const pid = Number(value)
     if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error('页面未暴露有效的测试 Runtime PID')
     return pid

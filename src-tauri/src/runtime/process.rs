@@ -29,6 +29,10 @@ pub struct ManagedRuntime {
 }
 
 impl ManagedRuntime {
+    pub fn pid(&self) -> Option<u32> {
+        self.child.id()
+    }
+
     pub fn try_exit(&mut self) -> Result<Option<ExitStatus>, RuntimeFailure> {
         self.child.try_wait().map_err(|cause| {
             RuntimeFailure::new(

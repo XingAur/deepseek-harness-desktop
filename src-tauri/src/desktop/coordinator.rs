@@ -200,6 +200,10 @@ impl DesktopCoordinator {
         Err(failure)
     }
 
+    pub async fn active_runtime_pid(&self, generation_id: &str) -> Result<u32, RuntimeFailure> {
+        self.generations.active_runtime_pid(generation_id).await
+    }
+
     pub async fn shutdown(&self) -> Result<(), RuntimeFailure> {
         self.generations.shutdown().await
     }
@@ -259,6 +263,10 @@ mod tests {
     struct FakeProcess;
 
     impl GenerationProcess for FakeProcess {
+        fn pid<'a>(&'a self) -> Pin<Box<dyn Future<Output = Option<u32>> + Send + 'a>> {
+            Box::pin(async { Some(42_001) })
+        }
+
         fn terminate<'a>(
             &'a self,
         ) -> Pin<Box<dyn Future<Output = Result<(), RuntimeFailure>> + Send + 'a>> {

@@ -9,6 +9,7 @@ import type { WindowControls } from './window-client'
 import { MigrationPrompt } from './MigrationPrompt'
 import { invoke } from '@tauri-apps/api/core'
 import { createWorkbenchBridge } from './workbench-bridge'
+import { E2E_RUNTIME_IDENTITY_COMMAND, runtimePidFromE2eIdentity } from './e2e-runtime-identity'
 
 const phaseLabels: Record<RuntimePhase | GenerationPhase, string> = {
   checking: '检查环境',
@@ -284,6 +285,25 @@ export function App({ runtime, windowControls }: AppProps) {
       return
     }
     setDesktopSessionId(crypto.randomUUID())
+  }, [state.generationId, state.rendererUrl])
+
+  useEffect(() => {
+    if (import.meta.env.MODE !== 'e2e') return
+    const body = document.body
+    delete body.dataset.runtimePid
+    if (state.generationId === null || state.rendererUrl === null) return
+    let current = true
+    void invoke<unknown>(E2E_RUNTIME_IDENTITY_COMMAND, { generationId: state.generationId })
+      .then((identity) => {
+        const runtimePid = runtimePidFromE2eIdentity(identity)
+        if (!current || runtimePid === null) return
+        body.dataset.runtimePid = String(runtimePid)
+      })
+      .catch(() => {
+        // Packaged E2E harness polls for this value and fails closed if the
+        // active Runtime cannot prove its process identity.
+      })
+    return () => { current = false }
   }, [state.generationId, state.rendererUrl])
 
   useEffect(() => {

@@ -20,7 +20,9 @@ export function createInstallerSuiteCommand(mode, cwd = process.cwd(), env = pro
   const e2ePaths = resolveE2EPaths(cwd, env)
   const vitest = resolve(cwd, 'node_modules', 'vitest', 'vitest.mjs')
   const args = [vitest, 'run', '--config', 'vitest.e2e.config.ts']
-  if (mode === 'quick') args.push('e2e/specs/provisioning-success.installer.e2e.ts')
+  // These specs share the fixed LocalAppData root.  Keep each mode to its
+  // intended lifecycle rather than letting Vitest discover both suites.
+  args.push(mode === 'quick' ? 'e2e/specs/provisioning-success.installer.e2e.ts' : FULL_LIFECYCLE_SPEC)
   return {
     command: process.execPath,
     args,

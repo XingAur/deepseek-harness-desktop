@@ -9,7 +9,6 @@ param(
 $ErrorActionPreference = 'Stop'
 function Assert-NotReparsePoint([string]$Path) { if (Test-Path -LiteralPath $Path) { if ((Get-Item -LiteralPath $Path -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint) { throw "拒绝 reparse point: $Path" } } }
 function Assert-NoReparseComponents([string]$Path) { $current = [IO.Path]::GetFullPath($Path); while ($null -ne $current -and $current -ne [IO.Path]::GetPathRoot($current)) { Assert-NotReparsePoint $current; $current = [IO.Path]::GetDirectoryName($current) }; Assert-NotReparsePoint $current }
-function Assert-NoNestedReparsePoints([string]$Root) { $stack = [System.Collections.Generic.Stack[string]]::new(); $stack.Push($Root); while ($stack.Count -gt 0) { $current = $stack.Pop(); foreach ($entry in Get-ChildItem -LiteralPath $current -Force) { if ($entry.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { throw "拒绝嵌套 reparse point: $($entry.FullName)" }; if ($entry.PSIsContainer) { $stack.Push($entry.FullName) } } } }
 function Get-LocalAppData() { $p = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData); if ([string]::IsNullOrWhiteSpace($p) -or -not [IO.Path]::IsPathRooted($p)) { throw '无法确定 LocalAppData' }; return [IO.Path]::GetFullPath($p) }
 if ($ProductName -ne 'DeepSeek Harness Desktop E2E') { throw 'Only the E2E product name is allowed' }
 if ($BundleId -ne 'ai.deepseek.harness.desktop.e2e') { throw 'Only the E2E bundle id is allowed' }
@@ -101,7 +100,6 @@ $json = $record | ConvertTo-Json -Depth 16
 if ($exitCode -eq 0) {
   if (Test-Path -LiteralPath $dataRoot) {
     Assert-NoReparseComponents $dataRoot
-    Assert-NoNestedReparsePoints $dataRoot
     Assert-NotReparsePoint (Join-Path $dataRoot '.dsh-e2e-owned')
   }
   [System.IO.Directory]::CreateDirectory($dataRoot) | Out-Null

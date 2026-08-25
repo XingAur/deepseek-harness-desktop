@@ -4,9 +4,17 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. $PSScriptRoot\owned-tree-cleanup.ps1
 function Assert-NotReparsePoint([string]$Path) { if (Test-Path -LiteralPath $Path) { if ((Get-Item -LiteralPath $Path -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint) { throw "拒绝 reparse point: $Path" } } }
 function Assert-NoReparseComponents([string]$Path) { $current = [IO.Path]::GetFullPath($Path); while ($null -ne $current -and $current -ne [IO.Path]::GetPathRoot($current)) { Assert-NotReparsePoint $current; $current = [IO.Path]::GetDirectoryName($current) }; Assert-NotReparsePoint $current }
-function Assert-NoNestedReparsePoints([string]$Root) { $stack = [System.Collections.Generic.Stack[string]]::new(); $stack.Push($Root); while ($stack.Count -gt 0) { $current = $stack.Pop(); foreach ($entry in Get-ChildItem -LiteralPath $current -Force) { if ($entry.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { throw "拒绝嵌套 reparse point: $($entry.FullName)" }; if ($entry.PSIsContainer) { $stack.Push($entry.FullName) } } } }
+function Assert-OwnedDataRootMarker([string]$Marker) {
+  if (-not (Test-Path -LiteralPath $Marker -PathType Leaf)) { throw 'Existing data root lacks .dsh-e2e-owned; manual cleanup is required' }
+  $before = Get-Item -LiteralPath $Marker -Force
+  if ($before -isnot [System.IO.FileInfo] -or $before.PSIsContainer -or ($before.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) { throw 'Existing data root ownership marker is unsafe' }
+  $contents = [System.IO.File]::ReadAllText($Marker, [System.Text.UTF8Encoding]::new($false))
+  $after = Get-Item -LiteralPath $Marker -Force
+  if ($after -isnot [System.IO.FileInfo] -or $after.PSIsContainer -or ($after.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -or $contents -cne 'E2E-owned') { throw 'Existing data root ownership marker is invalid' }
+}
 function Get-LocalAppData() { $p = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData); if ([string]::IsNullOrWhiteSpace($p) -or -not [IO.Path]::IsPathRooted($p)) { throw '无法确定 LocalAppData' }; return [IO.Path]::GetFullPath($p) }
 if ($ProductName -ne 'DeepSeek Harness Desktop E2E') { throw 'Only the E2E product name is allowed' }
 if ($BundleId -ne 'ai.deepseek.harness.desktop.e2e') { throw 'Only the E2E bundle id is allowed' }
@@ -50,9 +58,6 @@ if (-not [string]::IsNullOrWhiteSpace($uninstallString)) {
 if (Test-Path -LiteralPath $dataRoot) {
   if ((Get-Item -LiteralPath $dataRoot -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint) { throw 'Existing data root is a reparse point' }
   $marker = Join-Path $dataRoot '.dsh-e2e-owned'
-  if (-not (Test-Path -LiteralPath $marker -PathType Leaf)) {
-    throw 'Existing data root lacks .dsh-e2e-owned; manual cleanup is required'
-  }
-  Assert-NoNestedReparsePoints $dataRoot
-  Remove-Item -LiteralPath $dataRoot -Recurse -Force
+  Assert-OwnedDataRootMarker $marker
+  Remove-OwnedTreeWithoutFollowingReparsePoints $dataRoot
 }

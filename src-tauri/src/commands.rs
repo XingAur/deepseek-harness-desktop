@@ -1770,6 +1770,24 @@ pub async fn bootstrap_runtime(
     state.inner().start().await
 }
 
+#[cfg(feature = "e2e")]
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct E2eRuntimeIdentityReply {
+    runtime_pid: u32,
+}
+
+#[cfg(feature = "e2e")]
+#[tauri::command]
+pub async fn e2e_runtime_identity(
+    state: State<'_, Arc<DesktopCoordinator>>,
+    generation_id: String,
+) -> Result<E2eRuntimeIdentityReply, RuntimeFailure> {
+    Ok(E2eRuntimeIdentityReply {
+        runtime_pid: state.active_runtime_pid(&generation_id).await?,
+    })
+}
+
 #[tauri::command]
 pub async fn cancel_runtime(
     state: State<'_, Arc<DesktopCoordinator>>,

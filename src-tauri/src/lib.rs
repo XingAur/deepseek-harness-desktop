@@ -110,12 +110,28 @@ macro_rules! renderer_commands {
     };
 }
 
+#[cfg(feature = "e2e")]
+macro_rules! renderer_command_names {
+    ($($command:path),* $(,)?) => {
+        &[$(stringify!($command)),*, stringify!(commands::e2e_runtime_identity)]
+    };
+}
+
+#[cfg(not(feature = "e2e"))]
 macro_rules! renderer_command_names {
     ($($command:path),* $(,)?) => {
         &[$(stringify!($command)),*]
     };
 }
 
+#[cfg(feature = "e2e")]
+macro_rules! renderer_handler {
+    ($($command:path),* $(,)?) => {
+        tauri::generate_handler![$($command),*, commands::e2e_runtime_identity]
+    };
+}
+
+#[cfg(not(feature = "e2e"))]
 macro_rules! renderer_handler {
     ($($command:path),* $(,)?) => {
         tauri::generate_handler![$($command),*]
@@ -123,6 +139,16 @@ macro_rules! renderer_handler {
 }
 
 pub(crate) const RENDERER_COMMAND_NAMES: &[&str] = renderer_commands!(renderer_command_names);
+
+#[cfg(test)]
+mod renderer_command_tests {
+    #[test]
+    fn e2e_runtime_identity_is_only_registered_for_e2e_builds() {
+        let registered = super::RENDERER_COMMAND_NAMES
+            .contains(&"commands::e2e_runtime_identity");
+        assert_eq!(registered, cfg!(feature = "e2e"));
+    }
+}
 
 #[derive(Clone, Debug)]
 pub enum FoundationBootstrapState {

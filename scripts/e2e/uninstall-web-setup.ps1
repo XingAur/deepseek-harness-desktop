@@ -6,14 +6,49 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. $PSScriptRoot\sha256.ps1
 function Assert-NotReparsePoint([string]$Path) { if (Test-Path -LiteralPath $Path) { if ((Get-Item -LiteralPath $Path -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint) { throw "拒绝 reparse point: $Path" } } }
 function Assert-NoReparseComponents([string]$Path) { $current = [IO.Path]::GetFullPath($Path); while ($null -ne $current -and $current -ne [IO.Path]::GetPathRoot($current)) { Assert-NotReparsePoint $current; $current = [IO.Path]::GetDirectoryName($current) }; Assert-NotReparsePoint $current }
+function Assert-ExactProjectMarker([System.IO.FileSystemInfo]$ProjectMarker) {
+  if ($ProjectMarker -isnot [System.IO.FileInfo] -or ($ProjectMarker.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -or $ProjectMarker.Length -ne 9) {
+    throw 'Project sentinel has an invalid ownership marker'
+  }
+}
+function Get-ProjectMarkerSignature([System.IO.FileInfo]$ProjectMarker) {
+  return "$($ProjectMarker.FullName)|$($ProjectMarker.Length)|$([int]$ProjectMarker.Attributes)|$($ProjectMarker.CreationTimeUtc.Ticks)|$($ProjectMarker.LastWriteTimeUtc.Ticks)"
+}
+function Read-E2EOwnedProjectMarker([string]$MarkerPath) {
+  return [System.IO.File]::ReadAllText($MarkerPath, [System.Text.Encoding]::UTF8)
+}
+function Assert-OwnedProjectMarker([string]$ProjectRoot) {
+  Assert-NoReparseComponents $ProjectRoot
+  $markerPath = Join-Path $ProjectRoot '.dsh-e2e-project-owned'
+  try {
+    $projectMarker = Get-Item -LiteralPath $markerPath -Force -ErrorAction Stop
+  } catch {
+    throw 'Project sentinel lacks ownership marker'
+  }
+  Assert-ExactProjectMarker $projectMarker
+  $beforeSignature = Get-ProjectMarkerSignature $projectMarker
+  if ((Read-E2EOwnedProjectMarker $markerPath) -cne 'E2E-owned') {
+    throw 'Project sentinel has an invalid ownership marker'
+  }
+  try {
+    $projectMarkerAfterRead = Get-Item -LiteralPath $markerPath -Force -ErrorAction Stop
+  } catch {
+    throw 'Project sentinel ownership marker changed while being read'
+  }
+  Assert-ExactProjectMarker $projectMarkerAfterRead
+  if ((Get-ProjectMarkerSignature $projectMarkerAfterRead) -cne $beforeSignature) {
+    throw 'Project sentinel ownership marker changed while being read'
+  }
+}
 function Get-LocalAppData() { $p = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData); if ([string]::IsNullOrWhiteSpace($p) -or -not [IO.Path]::IsPathRooted($p)) { throw '无法确定 LocalAppData' }; return [IO.Path]::GetFullPath($p) }
 if ($DeleteAppData -and $DeleteProjects) { throw 'DeleteAppData and DeleteProjects cannot be combined' }
 $recordFile = (Resolve-Path -LiteralPath $RecordPath).Path
 $sentinelsFile = (Resolve-Path -LiteralPath $SentinelsPath).Path
-$record = Get-Content -LiteralPath $recordFile -Raw | ConvertFrom-Json
-$sentinels = Get-Content -LiteralPath $sentinelsFile -Raw | ConvertFrom-Json
+$record = Get-Content -LiteralPath $recordFile -Raw -Encoding UTF8 | ConvertFrom-Json
+$sentinels = Get-Content -LiteralPath $sentinelsFile -Raw -Encoding UTF8 | ConvertFrom-Json
 $localAppData = (Get-LocalAppData).TrimEnd('\')
 $dataRoot = [System.IO.Path]::GetFullPath([string]$record.dataRoot)
 $e2eRootValue = if ([string]::IsNullOrWhiteSpace($env:DSH_E2E_ROOT)) { (Get-Location).Path } else { $env:DSH_E2E_ROOT }
@@ -51,9 +86,9 @@ foreach ($sentinel in $sentinels.entries) {
   if ($sentinel.scope -eq 'app-data' -and -not $sentinelPath.StartsWith($dataRoot.TrimEnd('\') + '\', [System.StringComparison]::OrdinalIgnoreCase)) { throw 'App-data sentinel escaped dataRoot' }
   if ($sentinel.scope -eq 'project' -and -not $sentinelPath.StartsWith(([System.IO.Path]::GetFullPath((Join-Path $e2eRoot 'projects-owned'))).TrimEnd('\') + '\', [System.StringComparison]::OrdinalIgnoreCase)) { throw 'Project sentinel escaped projects-owned' }
   if ($sentinel.scope -eq 'external' -and -not $sentinelPath.StartsWith(([System.IO.Path]::GetFullPath((Join-Path $artifactRoot 'preserved-external'))).TrimEnd('\') + '\', [System.StringComparison]::OrdinalIgnoreCase)) { throw 'External sentinel escaped artifacts' }
-  if ($sentinel.scope -eq 'project') { $projectRoot = [System.IO.Path]::GetDirectoryName($sentinelPath); $projectMarker = Join-Path $projectRoot '.dsh-e2e-project-owned'; if (-not (Test-Path -LiteralPath $projectMarker -PathType Leaf)) { throw 'Project sentinel lacks ownership marker' }; Assert-NoReparseComponents $projectRoot; Assert-NoReparseComponents $projectMarker; $projectRoots[$projectRoot] = $true }
+  if ($sentinel.scope -eq 'project') { $projectRoot = [System.IO.Path]::GetDirectoryName($sentinelPath); Assert-OwnedProjectMarker $projectRoot; $projectRoots[$projectRoot] = $true }
   if (-not (Test-Path -LiteralPath $sentinel.path -PathType Leaf)) { throw 'Preservation sentinel is missing before uninstall' }
-  if ((Get-FileHash -LiteralPath $sentinel.path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $sentinel.sha256) { throw 'Preservation sentinel changed before uninstall' }
+  if ((Get-E2ESha256 -LiteralPath $sentinel.path) -ne $sentinel.sha256) { throw 'Preservation sentinel changed before uninstall' }
 }
 foreach ($scope in @('app-data', 'project', 'external')) { if ([int]($scopeCounts[$scope]) -ne 1) { throw 'Preservation sentinel scopes must be unique' } }
 
@@ -90,7 +125,7 @@ if ($DeleteAppData) {
   foreach ($sentinel in $sentinels.entries) {
     $exists = Test-Path -LiteralPath $sentinel.path -PathType Leaf
     if ($sentinel.scope -eq 'app-data' -and $exists) { throw 'DeleteAppData did not remove app-data preservation data' }
-    if ($sentinel.scope -ne 'app-data' -and (-not $exists -or (Get-FileHash -LiteralPath $sentinel.path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $sentinel.sha256)) { throw 'DeleteAppData changed preserved project or external data' }
+    if ($sentinel.scope -ne 'app-data' -and (-not $exists -or (Get-E2ESha256 -LiteralPath $sentinel.path) -ne $sentinel.sha256)) { throw 'DeleteAppData changed preserved project or external data' }
   }
 } elseif ($DeleteProjects) {
   $deadline = (Get-Date).AddSeconds(60)
@@ -99,7 +134,7 @@ if ($DeleteAppData) {
     $exists = Test-Path -LiteralPath $sentinel.path -PathType Leaf
     if ($sentinel.scope -in @('project', 'app-data')) {
       if ($exists) { throw 'DeleteProjects did not remove owned preservation data' }
-    } elseif (-not $exists -or (Get-FileHash -LiteralPath $sentinel.path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $sentinel.sha256) {
+    } elseif (-not $exists -or (Get-E2ESha256 -LiteralPath $sentinel.path) -ne $sentinel.sha256) {
       throw 'DeleteProjects changed external preservation data'
     }
   }
@@ -108,6 +143,6 @@ if ($DeleteAppData) {
 } else {
   foreach ($sentinel in $sentinels.entries) {
     if (-not (Test-Path -LiteralPath $sentinel.path -PathType Leaf)) { throw 'Default uninstall removed preserved data' }
-    if ((Get-FileHash -LiteralPath $sentinel.path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $sentinel.sha256) { throw 'Default uninstall changed preserved data' }
+    if ((Get-E2ESha256 -LiteralPath $sentinel.path) -ne $sentinel.sha256) { throw 'Default uninstall changed preserved data' }
   }
 }

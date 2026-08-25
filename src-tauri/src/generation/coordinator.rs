@@ -69,6 +69,8 @@ impl DesktopEventSink for TauriEventSink {
 }
 
 pub trait GenerationProcess: Send + Sync {
+    fn pid<'a>(&'a self) -> Pin<Box<dyn Future<Output = Option<u32>> + Send + 'a>>;
+
     fn terminate<'a>(
         &'a self,
     ) -> Pin<Box<dyn Future<Output = Result<(), RuntimeFailure>> + Send + 'a>>;
@@ -97,6 +99,10 @@ impl ManagedGenerationProcess {
 }
 
 impl GenerationProcess for ManagedGenerationProcess {
+    fn pid<'a>(&'a self) -> Pin<Box<dyn Future<Output = Option<u32>> + Send + 'a>> {
+        Box::pin(async move { self.runtime.lock().await.pid() })
+    }
+
     fn terminate<'a>(
         &'a self,
     ) -> Pin<Box<dyn Future<Output = Result<(), RuntimeFailure>> + Send + 'a>> {
@@ -662,6 +668,39 @@ impl GenerationCoordinator {
             .is_some_and(|active| active.snapshot.generation_id == generation_id)
     }
 
+    pub async fn active_runtime_pid(&self, generation_id: &str) -> Result<u32, RuntimeFailure> {
+        let process = {
+            let state = self.state.lock().await;
+            state
+                .active
+                .as_ref()
+                .filter(|active| active.snapshot.generation_id == generation_id)
+                .map(|active| Arc::clone(&active.process))
+        }
+        .ok_or_else(|| RuntimeFailure::internal("E2E Runtime 尚未成为活动实例"))?;
+        let pid = process
+            .pid()
+            .await
+            .filter(|pid| *pid > 0)
+            .ok_or_else(|| RuntimeFailure::internal("E2E Runtime 进程标识不可用"))?;
+        let still_active = self
+            .state
+            .lock()
+            .await
+            .active
+            .as_ref()
+            .is_some_and(|active| {
+                active.snapshot.generation_id == generation_id
+                    && Arc::ptr_eq(&active.process, &process)
+            });
+        if !still_active {
+            return Err(RuntimeFailure::internal(
+                "E2E Runtime identity 在读取期间已被新的活动实例取代",
+            ));
+        }
+        Ok(pid)
+    }
+
     pub async fn current_operation(&self) -> Option<BootstrapReply> {
         let state = self.state.lock().await;
         state
@@ -1061,6 +1100,7 @@ mod tests {
     };
 
     use chrono::Utc;
+    use tokio::sync::Notify;
 
     use super::*;
     use crate::{profile::model::PermissionMode, runtime::model::RuntimeFailureCode};
@@ -1100,6 +1140,10 @@ mod tests {
     }
 
     impl GenerationProcess for FakeProcess {
+        fn pid<'a>(&'a self) -> Pin<Box<dyn Future<Output = Option<u32>> + Send + 'a>> {
+            Box::pin(async { Some(42_001) })
+        }
+
         fn terminate<'a>(
             &'a self,
         ) -> Pin<Box<dyn Future<Output = Result<(), RuntimeFailure>> + Send + 'a>> {
@@ -1226,6 +1270,120 @@ mod tests {
             .unwrap_err();
         assert_eq!(failure.code, RuntimeFailureCode::Process);
         assert_eq!(coordinator.active_id().await.as_deref(), Some("g-1"));
+    }
+
+    struct DelayedPidProcess {
+        read_started: Arc<Notify>,
+        allow_read: Arc<Notify>,
+    }
+
+    impl GenerationProcess for DelayedPidProcess {
+        fn pid<'a>(&'a self) -> Pin<Box<dyn Future<Output = Option<u32>> + Send + 'a>> {
+            Box::pin(async move {
+                self.read_started.notify_one();
+                self.allow_read.notified().await;
+                Some(42_002)
+            })
+        }
+
+        fn terminate<'a>(
+            &'a self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), RuntimeFailure>> + Send + 'a>> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn poll_exit<'a>(
+            &'a self,
+        ) -> Pin<
+            Box<
+                dyn Future<Output = Result<Option<(RuntimeFailure, Option<i32>)>, RuntimeFailure>>
+                    + Send
+                    + 'a,
+            >,
+        > {
+            Box::pin(async { Ok(None) })
+        }
+
+        fn log_file<'a>(&'a self) -> Pin<Box<dyn Future<Output = Option<String>> + Send + 'a>> {
+            Box::pin(async { None })
+        }
+    }
+
+    #[tokio::test]
+    async fn active_runtime_pid_only_exposes_the_active_generation() {
+        let temporary = tempfile::tempdir().unwrap();
+        let coordinator = GenerationCoordinator::new(
+            paths(temporary.path().to_path_buf()),
+            Arc::new(FakeLauncher::default()),
+            Arc::new(NoopSink),
+        )
+        .unwrap();
+        let token = coordinator.begin("g-1").await;
+        coordinator
+            .launch_candidate(
+                "g-1",
+                profile("E2E", temporary.path().join("e2e")),
+                false,
+                &token,
+            )
+            .await
+            .unwrap();
+
+        assert!(coordinator.active_runtime_pid("g-1").await.is_err());
+        coordinator.activate("g-1").await.unwrap();
+        assert_eq!(
+            coordinator.active_runtime_pid("g-1").await.unwrap(),
+            42_001
+        );
+        assert!(coordinator.active_runtime_pid("other-generation").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn active_runtime_pid_rejects_a_generation_replaced_while_pid_is_read() {
+        let temporary = tempfile::tempdir().unwrap();
+        let coordinator = GenerationCoordinator::new(
+            paths(temporary.path().to_path_buf()),
+            Arc::new(FakeLauncher::default()),
+            Arc::new(NoopSink),
+        )
+        .unwrap();
+        let token = coordinator.begin("g-1").await;
+        coordinator
+            .launch_candidate(
+                "g-1",
+                profile("E2E", temporary.path().join("e2e")),
+                false,
+                &token,
+            )
+            .await
+            .unwrap();
+        coordinator.activate("g-1").await.unwrap();
+
+        let read_started = Arc::new(Notify::new());
+        let allow_read = Arc::new(Notify::new());
+        {
+            let mut state = coordinator.state.lock().await;
+            state.active.as_mut().unwrap().process = Arc::new(DelayedPidProcess {
+                read_started: Arc::clone(&read_started),
+                allow_read: Arc::clone(&allow_read),
+            });
+        }
+
+        let wait_for_read = read_started.notified();
+        let reader = {
+            let coordinator = Arc::clone(&coordinator);
+            tokio::spawn(async move { coordinator.active_runtime_pid("g-1").await })
+        };
+        wait_for_read.await;
+        {
+            let mut state = coordinator.state.lock().await;
+            let active = state.active.as_mut().unwrap();
+            active.snapshot.generation_id = "g-2".to_string();
+            active.process = Arc::new(FakeProcess::default());
+        }
+        allow_read.notify_one();
+
+        assert!(reader.await.unwrap().is_err());
     }
 
     #[tokio::test]

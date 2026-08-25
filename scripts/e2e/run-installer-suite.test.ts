@@ -22,7 +22,7 @@ describe('installer suite runner', () => {
     expect(() => parseInstallerSuiteMode(['slow'])).toThrow('安装 E2E 套件模式仅支持 quick 或 full')
   })
 
-  it('quick 只运行 provisioning quick spec，full 保持完整 installer spec 集', () => {
+  it('quick 与 full 分别只运行各自隔离的 installer spec', () => {
     const quick = createInstallerSuiteCommand('quick', 'E:/repo')
     expect(quick.command).toBe(process.execPath)
     expect(quick.args).toEqual([
@@ -45,6 +45,7 @@ describe('installer suite runner', () => {
       'run',
       '--config',
       'vitest.e2e.config.ts',
+      'e2e/specs/upgrade-and-uninstall.installer.e2e.ts',
     ])
     expect(full.options.env.DSH_E2E_MODE).toBe('full')
     expect(full.options.env.DSH_E2E_ROOT).toBe(resolve('E:/repo', DEFAULT_E2E_ROOT_DIRECTORY))

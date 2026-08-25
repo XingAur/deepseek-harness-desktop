@@ -222,10 +222,7 @@ export class WindowsInstallerHarness implements InstallerHarness {
     }
     if (!existsSync(recordPath)) throw new Error('Web Setup did not produce an installation record')
     const record = JSON.parse(readFileSync(recordPath, 'utf8')) as InstallationRecord
-    if (expectFailure && !commandFailed && record.exitCode === 0) throw new Error('Web Setup unexpectedly succeeded')
-    if (!expectFailure && (commandFailed || record.exitCode !== 0)) {
-      throw new Error(`Web Setup failed with exit code ${record.exitCode}`)
-    }
+    assertWebSetupOutcome(expectFailure, commandFailed, record.exitCode)
     this.latest = record
     return record
   }
@@ -234,6 +231,19 @@ export class WindowsInstallerHarness implements InstallerHarness {
   private requireLatest(): InstallationRecord {
     if (this.latest === undefined) throw new Error('No installation record is available')
     return this.latest
+  }
+}
+
+export function assertWebSetupOutcome(expectFailure: boolean, commandFailed: boolean, installerExitCode: number): void {
+  if (expectFailure && !commandFailed && installerExitCode === 0) throw new Error('Web Setup unexpectedly succeeded')
+  if (!expectFailure && commandFailed && installerExitCode === 0) {
+    // execFile rejects only a failed PowerShell process; normal stderr does not
+    // set commandFailed.  Keep that script failure distinct from the NSIS
+    // installer result recorded before the script's final validation.
+    throw new Error('Web Setup PowerShell validation failed after installer exit code 0')
+  }
+  if (!expectFailure && (commandFailed || installerExitCode !== 0)) {
+    throw new Error(`Web Setup failed with exit code ${installerExitCode}`)
   }
 }
 
