@@ -6,7 +6,12 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test-setup.ts'],
-    include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.ts', 'packages/dsh-agent-adapter/src/**/*.test.ts'],
+    include: [
+      'src/**/*.test.{ts,tsx}',
+      'scripts/**/*.test.ts',
+      'packages/dsh-agent-adapter/src/**/*.test.ts',
+      'e2e/support/**/*.test.ts',
+    ],
     css: true,
   },
 })
