@@ -15,6 +15,7 @@ import {
   selectWorkbenchCdpTarget,
   summarizeCdpTargetLookup,
   summarizeCdpTargets,
+  withScopedProcessEnvironment,
 } from './desktop'
 
 describe('PackagedDesktopHarness.continueConversation', () => {
@@ -147,6 +148,31 @@ describe('PackagedDesktopHarness CDP target discovery', () => {
       expect(e2eEnvironment(31_337, first).WEBVIEW2_USER_DATA_FOLDER).toBe(first)
     } finally {
       rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('仅在启动宿主的作用域内覆盖 WebView2 环境，并在结束后精确还原', async () => {
+    const originalArguments = process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
+    const originalUserDataFolder = process.env.WEBVIEW2_USER_DATA_FOLDER
+    process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--existing-argument'
+    delete process.env.WEBVIEW2_USER_DATA_FOLDER
+
+    try {
+      await withScopedProcessEnvironment({
+        WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=31337',
+        WEBVIEW2_USER_DATA_FOLDER: 'C:\\e2e\\webview2',
+      }, async () => {
+        expect(process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS).toBe('--remote-debugging-port=31337')
+        expect(process.env.WEBVIEW2_USER_DATA_FOLDER).toBe('C:\\e2e\\webview2')
+      })
+
+      expect(process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS).toBe('--existing-argument')
+      expect(process.env.WEBVIEW2_USER_DATA_FOLDER).toBeUndefined()
+    } finally {
+      if (originalArguments === undefined) delete process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
+      else process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = originalArguments
+      if (originalUserDataFolder === undefined) delete process.env.WEBVIEW2_USER_DATA_FOLDER
+      else process.env.WEBVIEW2_USER_DATA_FOLDER = originalUserDataFolder
     }
   })
 

@@ -76,10 +76,14 @@ export class PackagedDesktopHarness implements DesktopHarness {
         captureBackendLogs: true,
         captureFrontendLogs: true,
         logDir: resolve(process.env.DSH_E2E_ARTIFACTS ?? 'e2e-artifacts'),
-        env: e2eEnvironment(cdpPort, this.webView2UserDataFolder),
       }
       try {
-        this.session = await startWdioSession(capabilities)
+        // WebView2 只会在宿主进程启动前读取这些变量。不能依赖 tauri service
+        // 的 env capability：其公开契约仅覆盖驱动进程，不保证应用宿主继承。
+        this.session = await withScopedProcessEnvironment(
+          e2eEnvironment(cdpPort, this.webView2UserDataFolder),
+          async () => await startWdioSession(capabilities),
+        )
         this.ownsSession = true
       } catch (error) {
         this.cdpEndpoint = undefined
@@ -875,6 +879,43 @@ export function e2eEnvironment(cdpPort: number, webView2UserDataFolder?: string)
   }
   if (webView2UserDataFolder !== undefined) environment.WEBVIEW2_USER_DATA_FOLDER = webView2UserDataFolder
   return environment
+}
+
+let scopedProcessEnvironmentTail: Promise<void> = Promise.resolve()
+
+/**
+ * 仅在启动测试中的桌面宿主时临时覆盖进程环境变量，并在完成后精确还原。
+ *
+ * @wdio/tauri-service 的 embedded driver 从当前 Node 进程派生应用，因此这里能
+ * 确保 WebView2 在创建环境之前继承调试端口和独立 UDF。队列避免将来并发 launch
+ * 时把两个应用的启动环境混在一起。
+ */
+export async function withScopedProcessEnvironment<T>(
+  overrides: Readonly<Record<string, string | undefined>>,
+  run: () => Promise<T>,
+): Promise<T> {
+  let release!: () => void
+  const previousScope = scopedProcessEnvironmentTail
+  scopedProcessEnvironmentTail = new Promise<void>((resolveScope) => {
+    release = resolveScope
+  })
+  await previousScope
+
+  const previousValues = new Map<string, string | undefined>()
+  try {
+    for (const [name, value] of Object.entries(overrides)) {
+      previousValues.set(name, process.env[name])
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+    return await run()
+  } finally {
+    for (const [name, value] of previousValues) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+    release()
+  }
 }
 
 const defaultCdpEndpoint = 'http://127.0.0.1:9229'
