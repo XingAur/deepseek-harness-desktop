@@ -999,6 +999,31 @@ fn map_worker_event(
             }
             json!({"text": object.get("text").cloned().ok_or(SupervisorError::Protocol)?})
         }
+        "approval.requested" => {
+            // The approval identity comes from the frame requestId (a worker
+            // generated UUID); capability/scope are optional safe text.
+            let approval_id = frame
+                .get("requestId")
+                .and_then(Value::as_str)
+                .ok_or(SupervisorError::Protocol)?;
+            if !is_safe_identifier(approval_id) {
+                return Err(SupervisorError::Protocol);
+            }
+            let object = payload.as_object().ok_or(SupervisorError::Protocol)?;
+            let mut mapped = serde_json::Map::new();
+            mapped.insert("approvalId".to_owned(), Value::String(approval_id.to_owned()));
+            for key in ["capability", "scope"] {
+                if let Some(value) = object.get(key) {
+                    let text = value.as_str().ok_or(SupervisorError::Protocol)?;
+                    let limit = if key == "capability" { 64 } else { 512 };
+                    if text.is_empty() || text.len() > limit || !is_safe_display_text(text) {
+                        return Err(SupervisorError::Protocol);
+                    }
+                    mapped.insert(key.to_owned(), Value::String(text.to_owned()));
+                }
+            }
+            Value::Object(mapped)
+        }
         "tool.output" | "command.output" | "file.diff.available" => {
             let object = payload.as_object().ok_or(SupervisorError::Protocol)?;
             if object.len() != 1 || !object.contains_key("contentRef") {
@@ -1096,6 +1121,13 @@ fn is_safe_permission(value: &str) -> bool {
     matches!(value, "request-approval" | "smart-approval" | "full-access")
 }
 
+/// Display-safe text for approval descriptors: printable, no control bytes.
+fn is_safe_display_text(value: &str) -> bool {
+    value
+        .chars()
+        .all(|character| !character.is_control() && character != '\u{7f}')
+}
+
 fn is_secret_like_environment_name(name: &str) -> bool {
     let normalized = name.to_ascii_lowercase();
     [
@@ -1167,7 +1199,7 @@ mod tests {
         time::Duration,
     };
 
-    use serde_json::json;
+    use serde_json::{Value, json};
     use tempfile::TempDir;
 
     use crate::credentials::model::SecretValue;
@@ -1209,6 +1241,63 @@ mod tests {
             .with_handshake_timeout(Duration::from_millis(250))
             .with_output_limit(4096)
             .with_restart_limit(1)
+    }
+
+#[test]
+    fn approval_request_events_carry_their_identity_and_bounded_descriptors() {
+        let event = map_worker_event(
+            &json!({
+                "protocolVersion": ADAPTER_PROTOCOL_VERSION,
+                "requestId": "0b91a2b3-c4d5-4e6f-8a9b-0c1d2e3f4a5b",
+                "sessionId": "session",
+                "sequence": 2,
+                "type": "approval.requested",
+                "payload": {"capability": "terminal", "scope": "npm install left-pad"}
+            }),
+            "generation-1",
+            "task-1",
+            "session",
+        )
+        .unwrap();
+        assert_eq!(event.event_type, "approval.requested");
+        assert_eq!(
+            event.payload.get("approvalId").and_then(Value::as_str),
+            Some("0b91a2b3-c4d5-4e6f-8a9b-0c1d2e3f4a5b")
+        );
+        assert_eq!(event.payload.get("capability").and_then(Value::as_str), Some("terminal"));
+        assert_eq!(event.payload.get("scope").and_then(Value::as_str), Some("npm install left-pad"));
+
+        let bare = map_worker_event(
+            &json!({
+                "protocolVersion": ADAPTER_PROTOCOL_VERSION,
+                "requestId": "approval-2",
+                "sessionId": "session",
+                "sequence": 3,
+                "type": "approval.requested",
+                "payload": {}
+            }),
+            "generation-1",
+            "task-1",
+            "session",
+        )
+        .unwrap();
+        assert_eq!(bare.payload.get("approvalId").and_then(Value::as_str), Some("approval-2"));
+        assert!(bare.payload.get("capability").is_none());
+
+        assert!(map_worker_event(
+            &json!({
+                "protocolVersion": ADAPTER_PROTOCOL_VERSION,
+                "requestId": "approval-3",
+                "sessionId": "session",
+                "sequence": 4,
+                "type": "approval.requested",
+                "payload": {"scope": "x".repeat(513)}
+            }),
+            "generation-1",
+            "task-1",
+            "session",
+        )
+        .is_err());
     }
 
     #[test]

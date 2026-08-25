@@ -851,7 +851,7 @@ dependencies = [
 
 [[package]]
 name = "deepseek-harness-desktop"
-version = "0.1.26"
+version = "0.1.27"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -886,8 +886,8 @@ dependencies = [
  "url",
  "uuid",
  "windows-sys 0.61.2",
- "zip 6.0.0",
  "zeroize",
+ "zip 6.0.0",
 ]
 
 [[package]]

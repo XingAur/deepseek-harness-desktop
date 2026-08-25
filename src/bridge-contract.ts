@@ -51,6 +51,10 @@ export type VersionedBridgeAction =
   | 'credential.test'
   | 'cli.path.select'
   | 'cli.path.status'
+  | 'cli.install.status'
+  | 'cli.install.start'
+  | 'cli.login.status'
+  | 'cli.login.start'
   | 'task.create'
   | 'task.list'
   | 'task.recover'
@@ -114,6 +118,10 @@ export const bridgeCommandByActionV2 = {
   'credential.test': 'agent_credential_test',
   'cli.path.select': 'agent_cli_path_select',
   'cli.path.status': 'agent_cli_path_status',
+  'cli.install.status': 'agent_cli_install_status',
+  'cli.install.start': 'agent_cli_install_start',
+  'cli.login.status': 'agent_cli_login_status',
+  'cli.login.start': 'agent_cli_login_start',
   'task.create': 'agent_task_create',
   'task.list': 'agent_task_list',
   'task.recover': 'agent_task_recover',
@@ -202,7 +210,7 @@ export function isVersionedBridgePayload(action: VersionedBridgeAction, value: u
   if (action === 'task.recover') return hasId('taskId') && hasId('workspaceId') && hasId('sourceSessionId')
   if (action === 'approval.list') return hasId('taskId')
   if (['credential.delete', 'credential.status', 'credential.test'].includes(action)) return hasId('credentialId')
-  if (['cli.path.status'].includes(action)) return hasId('providerId')
+  if (['cli.path.status', 'cli.install.status', 'cli.install.start', 'cli.login.status', 'cli.login.start'].includes(action)) return hasId('providerId')
   if (['extension.install', 'extension.enable', 'extension.disable', 'extension.uninstall'].includes(action)) return hasId('extensionId')
   return Object.keys(value).length === 0
 }
@@ -287,6 +295,10 @@ const versionedPayloadKeys: Record<VersionedBridgeAction, string[]> = {
   'credential.test': ['credentialId'],
   'cli.path.select': ['providerId', 'path'],
   'cli.path.status': ['providerId'],
+  'cli.install.status': ['providerId'],
+  'cli.install.start': ['providerId'],
+  'cli.login.status': ['providerId'],
+  'cli.login.start': ['providerId'],
   'task.create': ['workspaceId', 'prompt', 'permission', 'providerId', 'agentId'],
   'task.list': ['workspaceId'],
   'task.recover': ['workspaceId', 'taskId', 'sourceSessionId'],

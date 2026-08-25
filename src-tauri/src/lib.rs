@@ -83,6 +83,10 @@ macro_rules! renderer_commands {
             commands::agent_credential_test,
             commands::agent_cli_path_select,
             commands::agent_cli_path_status,
+            commands::agent_cli_install_status,
+            commands::agent_cli_install_start,
+            commands::agent_cli_login_status,
+            commands::agent_cli_login_start,
             commands::agent_task_create,
             commands::agent_task_list,
             commands::agent_task_recover,
@@ -383,12 +387,14 @@ fn run_desktop() {
                 foundation.paths.clone(),
                 agent_worker_root,
                 Arc::clone(&sink),
+                Arc::clone(&foundation.credential_vault),
             );
             app.manage(Arc::clone(&agent_runtime));
             let startup_runtime = Arc::clone(&agent_runtime);
             tauri::async_runtime::spawn(async move {
                 let _ = startup_runtime.reconcile_startup().await;
             });
+            app.manage(Arc::new(agents::cli_ops::AgentCliJobState::new()));
             let runtime_services = if foundation.runtime_allowed().is_ok() {
                 let runtime_paths = RuntimePaths::from_app_paths(&foundation.paths)
                     .map_err(|cause| Box::<dyn std::error::Error>::from(cause))?;

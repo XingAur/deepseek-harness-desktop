@@ -1,3 +1,4 @@
+pub mod cli_ops;
 pub mod compatibility;
 pub mod discovery;
 pub mod install_recipe;

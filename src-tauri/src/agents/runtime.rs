@@ -6,15 +6,18 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::{
-    agent_store::AgentStore, generation::coordinator::TauriEventSink, storage::app_paths::AppPaths,
+    agent_store::AgentStore, credentials::model::SecretValue,
+    generation::coordinator::TauriEventSink, storage::app_paths::AppPaths,
 };
 
-use super::model::AgentEventEnvelope;
+use super::discovery::{DiscoveryRequest, discover};
+use super::model::{AgentEventEnvelope, AgentProvider};
 use super::supervisor::{ApprovalControl, SupervisorConfig, WorkerSession, WorkerSupervisor};
 
 const WORKER_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 const WORKER_HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(30);
 const WORKER_OUTPUT_LIMIT: usize = 32 * 1024;
+const WORKER_APPROVAL_EXPIRY: Duration = Duration::from_secs(24 * 60 * 60);
 
 #[derive(Clone)]
 pub struct AgentRuntime {
@@ -22,6 +25,7 @@ pub struct AgentRuntime {
     paths: AppPaths,
     worker_root: PathBuf,
     sink: Arc<TauriEventSink>,
+    credential_vault: Arc<dyn crate::credentials::vault::CredentialVault>,
     sessions: Arc<Mutex<HashMap<Uuid, Arc<Mutex<WorkerSession>>>>>,
     approval_controls: Arc<Mutex<HashMap<Uuid, ApprovalControl>>>,
 }
@@ -32,12 +36,14 @@ impl AgentRuntime {
         paths: AppPaths,
         worker_root: PathBuf,
         sink: Arc<TauriEventSink>,
+        credential_vault: Arc<dyn crate::credentials::vault::CredentialVault>,
     ) -> Arc<Self> {
         Arc::new(Self {
             store,
             paths,
             worker_root,
             sink,
+            credential_vault,
             sessions: Arc::new(Mutex::new(HashMap::new())),
             approval_controls: Arc::new(Mutex::new(HashMap::new())),
         })
@@ -59,16 +65,27 @@ impl AgentRuntime {
         if !launch.workspace.is_dir() {
             return Err("Agent 工作区不可用".to_owned());
         }
-        let (node, worker_args) = self.worker_command()?;
+        let (node, mut worker_args) = self.worker_command()?;
         let adapter_kind = if std::env::var_os("DSH_AGENT_WORKER_PATH").is_some() {
             launch.provider_id.as_str()
         } else {
             bundled_worker_adapter(&launch.provider_id)?
         };
+        if adapter_kind == "codex-cli" {
+            let selected = discover(&DiscoveryRequest::for_provider(AgentProvider::Codex))
+                .map_err(|error| error)?
+                .selected
+                .ok_or_else(|| {
+                    "未找到 Codex CLI。请先在「模型与 Agent」中安装 Codex CLI，或选择其他 Provider"
+                        .to_owned()
+                })?;
+            worker_args.push(format!("--dsh-codex-cli={}", selected.path.display()));
+        }
         let config = SupervisorConfig::new(node.clone(), launch.workspace)
             .with_allowed_executables([node])
             .with_adapter_args(worker_args)
             .with_adapter_kind(adapter_kind)
+            .with_env(minimal_worker_environment())
             .with_handshake_timeout(WORKER_HANDSHAKE_TIMEOUT)
             .with_heartbeat_timeout(WORKER_HEARTBEAT_TIMEOUT)
             .with_output_limit(WORKER_OUTPUT_LIMIT);
@@ -76,6 +93,19 @@ impl AgentRuntime {
             .launch(&launch.worker_session_id)
             .await
             .map_err(|error| error.to_string())?;
+        if let Some(credential_id) = launch.credential_id.as_deref() {
+            let secret = self
+                .credential_vault
+                .resolve(
+                    &crate::credentials::model::CredentialId::from_string(credential_id.to_owned())
+                        .map_err(|_| "Codex 凭证标识无效".to_owned())?,
+                )
+                .map_err(|_| "Codex 凭证读取失败，请重新配置".to_owned())?;
+            worker
+                .initialize_secret(credential_id, secret)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
         worker
             .start_agent_task(&launch.prompt, &launch.permission)
             .await
@@ -104,6 +134,11 @@ impl AgentRuntime {
                 match result {
                     Ok(Some(event)) => {
                         let terminal = task_status_for_event(&event.event_type);
+                        if event.event_type == "approval.requested" {
+                            if persist_worker_approval(&runtime.store, &event, task_id).is_err() {
+                                break Some("needs-review");
+                            }
+                        }
                         if record_event_checkpoint(&runtime.store, &event).is_err() {
                             break Some("needs-review");
                         }
@@ -313,6 +348,7 @@ struct TaskLaunch {
     permission: String,
     provider_id: String,
     worker_session_id: String,
+    credential_id: Option<String>,
 }
 
 fn task_status_for_event(event_type: &str) -> Option<&'static str> {
@@ -332,11 +368,39 @@ fn should_broadcast_terminal_event(
 }
 
 fn bundled_worker_adapter(provider_id: &str) -> Result<&'static str, String> {
-    if provider_id == "mock" {
-        Ok("mock")
-    } else {
-        Err("内置 Agent Worker 目前只提供协议 mock 预览；请先安装并由宿主注入 Codex/Claude 官方 SDK 或 CLI Worker".to_owned())
+    match provider_id {
+        "mock" => Ok("mock"),
+        // Codex runs through the real CLI adapter: the bundled worker spawns
+        // `codex app-server` from the discovered official CLI executable.
+        "codex" => Ok("codex-cli"),
+        _ => Err(
+            "该 Provider 暂未接入真实 CLI Worker；Codex 已支持真实执行，Claude 将在后续版本提供"
+                .to_owned(),
+        ),
     }
+}
+
+/// The worker process starts with an empty environment; the Codex CLI child it
+/// spawns needs the minimal user context to locate `~/.codex` and TLS roots.
+/// Secret-like names are rejected by the supervisor, so credentials travel via
+/// the private `adapter.init` frame instead of the environment.
+fn minimal_worker_environment() -> std::collections::BTreeMap<String, String> {
+    let mut env = std::collections::BTreeMap::new();
+    for name in ["HOME", "PATH", "LANG", "LC_ALL", "TZ", "TMPDIR", "USER", "CODEX_HOME"] {
+        if let Some(value) = std::env::var_os(name) {
+            let value = value.to_string_lossy().into_owned();
+            if !value.is_empty() {
+                env.insert(name.to_owned(), value);
+            }
+        }
+    }
+    if !env.contains_key("PATH") {
+        env.insert(
+            "PATH".to_owned(),
+            "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin".to_owned(),
+        );
+    }
+    env
 }
 
 fn startup_recovery_status(
@@ -437,10 +501,12 @@ fn read_task_launch(
     connection
         .query_row(
             "SELECT tasks.workspace_path, tasks.prompt, tasks.permission_mode,
-                    COALESCE(agents.provider_id, ''), worker_sessions.worker_session_id
+                    COALESCE(agents.provider_id, ''), worker_sessions.worker_session_id,
+                    providers.credential_id
              FROM tasks
              JOIN agents ON agents.agent_id = tasks.agent_id
              JOIN worker_sessions ON worker_sessions.task_id = tasks.task_id
+             LEFT JOIN providers ON providers.provider_id = agents.provider_id
              WHERE tasks.task_id = ?1
                AND worker_sessions.generation_id = ?2
                AND worker_sessions.desktop_session_id = ?3",
@@ -452,6 +518,7 @@ fn read_task_launch(
                     permission: row.get(2)?,
                     provider_id: row.get(3)?,
                     worker_session_id: row.get(4)?,
+                    credential_id: row.get(5)?,
                 })
             },
         )
@@ -484,6 +551,98 @@ fn set_task_status(
         return Err("Agent 任务状态已失效，终态事件不会广播".to_owned());
     }
     Ok(())
+}
+
+/// Persist a worker-reported approval so `approval.list`/`approval.resolve`
+/// operate on durable state. The approval id is the worker frame's requestId
+/// (a UUID generated by the adapter for one Codex app-server approval).
+fn persist_worker_approval(
+    store: &Option<Arc<AgentStore>>,
+    event: &AgentEventEnvelope,
+    task_id: Uuid,
+) -> Result<(), String> {
+    let Some(store) = store.as_ref() else {
+        return Err("Agent 数据服务当前不可用".to_owned());
+    };
+    let approval_id = event
+        .payload
+        .get("approvalId")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| "审批事件缺少标识".to_owned())?;
+    let approval_id = Uuid::parse_str(approval_id).map_err(|_| "审批标识无效".to_owned())?;
+    let capability = event
+        .payload
+        .get("capability")
+        .and_then(|value| value.as_str())
+        .unwrap_or("unknown");
+    let capability = sanitize_capability_kind(capability);
+    let scope = event
+        .payload
+        .get("scope")
+        .and_then(|value| value.as_str())
+        .unwrap_or("codex-approval");
+    let scope: String = scope
+        .chars()
+        .filter(|character| !character.is_control())
+        .take(256)
+        .collect();
+    let now = Utc::now();
+    let expires_at = now + chrono::Duration::from_std(WORKER_APPROVAL_EXPIRY).expect("valid duration");
+    let writer = store.writer().map_err(|error| error.to_string())?;
+    let connection = writer.connection();
+    connection
+        .execute(
+            "INSERT INTO approvals (
+                approval_id, task_id, request_id, generation_id, capability_kind,
+                canonical_scope, risk_class, policy_version, status, requested_at,
+                resolved_at, decision, result_category, error_code, expires_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'unknown', 'dsh-agent-adapter/v1', 'pending', ?7, NULL, NULL, 'pending', NULL, ?8)
+            ON CONFLICT(approval_id) DO NOTHING",
+            params![
+                approval_id.to_string(),
+                task_id.to_string(),
+                Uuid::new_v4().to_string(),
+                event.generation_id,
+                capability,
+                scope,
+                now.to_rfc3339(),
+                expires_at.to_rfc3339(),
+            ],
+        )
+        .map_err(|_| "审批状态写入失败".to_owned())?;
+    connection
+        .execute(
+            "INSERT INTO audit_summaries (
+                audit_id, task_id, request_id, generation_id, event_kind,
+                capability_kind, canonical_scope, risk_class, policy_version,
+                decision, result_category, error_code, occurred_at
+            ) VALUES (?1, ?2, ?3, ?4, 'approval-requested', ?5, ?6, 'unknown', 'dsh-agent-adapter/v1', NULL, 'pending', NULL, ?7)",
+            params![
+                Uuid::new_v4().to_string(),
+                task_id.to_string(),
+                approval_id.to_string(),
+                event.generation_id,
+                capability,
+                scope,
+                now.to_rfc3339(),
+            ],
+        )
+        .map_err(|_| "审批审计写入失败".to_owned())?;
+    Ok(())
+}
+
+fn sanitize_capability_kind(value: &str) -> &str {
+    const KINDS: [&str; 18] = [
+        "file-read", "file-write", "file-delete", "terminal", "network", "package-install",
+        "process-launch", "external-write", "git-commit", "git-push", "deploy", "credential-use",
+        "credential-export", "extension-call", "mcp-call", "audit-disable", "bridge-bypass",
+        "unknown",
+    ];
+    if KINDS.contains(&value) {
+        value
+    } else {
+        "unknown"
+    }
 }
 
 #[cfg(test)]
@@ -663,9 +822,10 @@ mod tests {
     }
 
     #[test]
-    fn bundled_worker_does_not_impersonate_real_providers() {
+    fn bundled_worker_maps_codex_to_the_real_cli_adapter_and_rejects_the_rest() {
         assert_eq!(bundled_worker_adapter("mock").unwrap(), "mock");
-        assert!(bundled_worker_adapter("codex").is_err());
+        assert_eq!(bundled_worker_adapter("codex").unwrap(), "codex-cli");
         assert!(bundled_worker_adapter("claude").is_err());
+        assert!(bundled_worker_adapter("unknown").is_err());
     }
 }

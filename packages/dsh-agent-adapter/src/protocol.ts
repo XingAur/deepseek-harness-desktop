@@ -5,7 +5,7 @@ export const CONTROL_FRAME_MAX_BYTES = 32 * 1024
 const identifier = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 const permissionProfiles = ['request-approval', 'smart-approval', 'full-access'] as const
 const extensionTypes = ['plugin', 'skill', 'mcp'] as const
-const adapterKinds = ['mock', 'codex-sdk', 'codex-app-server-preview', 'claude-agent-sdk', 'claude-cli-dev'] as const
+const adapterKinds = ['mock', 'codex-cli', 'codex-sdk', 'codex-app-server-preview', 'claude-agent-sdk', 'claude-cli-dev'] as const
 const requestTypes = ['handshake', 'adapter.init', 'session.start', 'session.cancel', 'approval.resolve'] as const
 const responseTypes = ['response.ok', 'response.error'] as const
 const eventTypes = [
@@ -82,14 +82,16 @@ export type ResponseOk = FrameBase<'response.ok', ResponseOkPayload>
 export type ResponseError = FrameBase<'response.error', ResponseErrorPayload>
 export type AdapterResponse = ResponseOk | ResponseError
 
-export type EmptyAgentEventType = Exclude<AgentEventType, 'message.delta' | 'message.completed' | 'tool.output' | 'command.output' | 'file.diff.available'>
+export type EmptyAgentEventType = Exclude<AgentEventType, 'message.delta' | 'message.completed' | 'tool.output' | 'command.output' | 'file.diff.available' | 'approval.requested'>
 export type EmptyAgentEvent = FrameBase<EmptyAgentEventType, EmptyPayload>
 export type MessageDeltaEvent = FrameBase<'message.delta', TextPayload>
 export type MessageCompletedEvent = FrameBase<'message.completed', TextPayload>
 export type ToolOutputEvent = FrameBase<'tool.output', ContentReferencePayload>
 export type CommandOutputEvent = FrameBase<'command.output', ContentReferencePayload>
 export type FileDiffAvailableEvent = FrameBase<'file.diff.available', ContentReferencePayload>
-export type AgentEvent = EmptyAgentEvent | MessageDeltaEvent | MessageCompletedEvent | ToolOutputEvent | CommandOutputEvent | FileDiffAvailableEvent
+export type ApprovalRequestedPayload = { capability?: string; scope?: string }
+export type ApprovalRequestedEvent = FrameBase<'approval.requested', ApprovalRequestedPayload>
+export type AgentEvent = EmptyAgentEvent | MessageDeltaEvent | MessageCompletedEvent | ToolOutputEvent | CommandOutputEvent | FileDiffAvailableEvent | ApprovalRequestedEvent
 export type ProtocolFrame = AdapterRequest | AdapterResponse | AgentEvent
 
 export function decodeProtocolFrame(serialized: string): ProtocolFrame {
@@ -190,6 +192,17 @@ function validatePayload(type: string, value: unknown): void {
   if (type === 'message.delta' || type === 'message.completed') {
     assertExactKeys(payload, ['text'], type)
     if (typeof payload.text !== 'string') throw new Error(`${type} payload text must be string`)
+    return
+  }
+  if (type === 'approval.requested') {
+    const keys = Object.keys(payload)
+    if (keys.some((key) => key !== 'capability' && key !== 'scope')) throw new Error('approval.requested payload has unknown fields')
+    for (const key of ['capability', 'scope'] as const) {
+      if (keys.includes(key)
+        && (typeof payload[key] !== 'string' || (payload[key] as string).length === 0 || (payload[key] as string).length > (key === 'capability' ? 64 : 512))) {
+        throw new Error(`approval.requested payload ${key} is invalid`)
+      }
+    }
     return
   }
   if (type === 'tool.output' || type === 'command.output' || type === 'file.diff.available') {

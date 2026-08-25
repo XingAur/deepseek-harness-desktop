@@ -52,6 +52,10 @@ pub(crate) const VERSIONED_AGENT_COMMAND_NAMES: &[&str] = &[
     "agent_credential_test",
     "agent_cli_path_select",
     "agent_cli_path_status",
+    "agent_cli_install_status",
+    "agent_cli_install_start",
+    "agent_cli_login_status",
+    "agent_cli_login_start",
     "agent_task_create",
     "agent_task_list",
     "agent_task_recover",
@@ -663,6 +667,70 @@ pub async fn agent_cli_path_select(
     discover(
         &DiscoveryRequest::for_provider(parse_provider(&provider_id)?).with_explicit_path(path),
     )
+}
+
+#[tauri::command]
+pub async fn agent_cli_install_status(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    jobs: State<'_, Arc<crate::agents::cli_ops::AgentCliJobState>>,
+    generation_id: String,
+    session_id: String,
+    provider_id: String,
+) -> Result<crate::agents::cli_ops::CliInstallStatusReply, String> {
+    coordinator
+        .validate_generation(&generation_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    crate::agents::cli_ops::install_status(&jobs, &provider_id)
+}
+
+#[tauri::command]
+pub async fn agent_cli_install_start(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    jobs: State<'_, Arc<crate::agents::cli_ops::AgentCliJobState>>,
+    generation_id: String,
+    session_id: String,
+    provider_id: String,
+) -> Result<crate::agents::cli_ops::CliInstallStatusReply, String> {
+    coordinator
+        .validate_generation(&generation_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    crate::agents::cli_ops::install_start(&jobs, &provider_id)
+}
+
+#[tauri::command]
+pub async fn agent_cli_login_status(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    jobs: State<'_, Arc<crate::agents::cli_ops::AgentCliJobState>>,
+    generation_id: String,
+    session_id: String,
+    provider_id: String,
+) -> Result<crate::agents::cli_ops::CliLoginStatusReply, String> {
+    coordinator
+        .validate_generation(&generation_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    crate::agents::cli_ops::login_status(&jobs, &provider_id)
+}
+
+#[tauri::command]
+pub async fn agent_cli_login_start(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    jobs: State<'_, Arc<crate::agents::cli_ops::AgentCliJobState>>,
+    generation_id: String,
+    session_id: String,
+    provider_id: String,
+) -> Result<crate::agents::cli_ops::CliLoginStatusReply, String> {
+    coordinator
+        .validate_generation(&generation_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    crate::agents::cli_ops::login_start(&jobs, &provider_id)
 }
 
 fn parse_provider(value: &str) -> Result<AgentProvider, String> {

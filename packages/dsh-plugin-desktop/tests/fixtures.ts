@@ -9,6 +9,7 @@ import type {
 import type { DesktopBridgeAction, DesktopBridgeLike } from '../src/client/desktop-bridge'
 import { DesktopLayoutState } from '../src/client/layout-state'
 import { LocalProjectsState } from '../src/client/local-projects-state'
+import { AgentHomeState } from '../src/client/agent-home-state'
 import { LocalProjectsFooterAction } from '../src/client/LocalProjectsFooterAction'
 
 export function workspaceFixture(items: WorkspaceView[] = []) {
@@ -123,6 +124,7 @@ export function renderFrame(overrides: Partial<AdvancedFrameProps> = {}) {
   const workspaces = overrides.workspaces ?? workspaceFixture()
   const sessions = overrides.sessions ?? sessionFixture()
   const localProjects = overrides.localProjects ?? new LocalProjectsState()
+  const agentHome = overrides.agentHome ?? new AgentHomeState()
   const props: AdvancedFrameProps = {
     layout: new DesktopLayoutState(),
     platform: 'win32',
@@ -138,6 +140,7 @@ export function renderFrame(overrides: Partial<AdvancedFrameProps> = {}) {
     sessions,
     bridge: bridgeFixture(),
     localProjects,
+    agentHome,
     ...overrides,
   }
   return { ...render(createElement(AdvancedFrame, props)), props, workspaces, sessions }

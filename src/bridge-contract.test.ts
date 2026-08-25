@@ -48,6 +48,19 @@ describe('dsh-desktop/v2 bridge contract', () => {
     expect(bridgeCommandByActionV2['task.list']).toBe('agent_task_list')
   })
 
+it('maps the codex cli lifecycle actions to dedicated commands with provider payloads', () => {
+    expect(bridgeCommandByActionV2['cli.install.status']).toBe('agent_cli_install_status')
+    expect(bridgeCommandByActionV2['cli.install.start']).toBe('agent_cli_install_start')
+    expect(bridgeCommandByActionV2['cli.login.status']).toBe('agent_cli_login_status')
+    expect(bridgeCommandByActionV2['cli.login.start']).toBe('agent_cli_login_start')
+    for (const action of ['cli.install.status', 'cli.install.start', 'cli.login.status', 'cli.login.start'] as const) {
+      expect(isVersionedBridgePayload(action, { providerId: 'codex' })).toBe(true)
+      expect(isVersionedBridgePayload(action, { providerId: '../escape' })).toBe(false)
+      expect(isVersionedBridgePayload(action, { providerId: 'codex', command: ['npm'] })).toBe(false)
+      expect(isVersionedBridgeRequest({ ...request, action, payload: { providerId: 'codex' } })).toBe(true)
+    }
+  })
+
   it('requires a bounded non-empty task prompt', () => {
     expect(isVersionedBridgePayload('task.create', {
       workspaceId: 'workspace-1',

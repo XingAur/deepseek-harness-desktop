@@ -230,7 +230,9 @@ function bridgePayloadV2(
     requireId(payload.credentialId, 'Credential ID')
     return { credentialId: payload.credentialId }
   }
-  if (action === 'cli.path.select' || action === 'cli.path.status') {
+  if (action === 'cli.path.select' || action === 'cli.path.status'
+    || action === 'cli.install.status' || action === 'cli.install.start'
+    || action === 'cli.login.status' || action === 'cli.login.start') {
     requireId(payload.providerId, 'Provider ID')
     if (action === 'cli.path.select') return { providerId: payload.providerId, path: payload.path }
     return { providerId: payload.providerId }

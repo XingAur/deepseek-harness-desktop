@@ -11,6 +11,7 @@ export function installAdvancedStyles(): () => void {
     .dshDesktopFrame { position: relative; display: grid; width: 100%; height: 100%; min-width: 0; background: var(--dsw-alias-bg-base, #151517); }
     .dshDesktopSidebarSurface, .dshDesktopConversationSurface, .dshDesktopDetailsSurface { min-width: 0; min-height: 0; overflow: hidden; border-color: var(--dsh-desktop-divider); }
     .dshDesktopSidebarSurface { position: relative; display: flex; flex-direction: column; background: var(--dsw-specific-sidebar-fill, var(--dsw-alias-bg-layer-2, #2c2c2f)); border-right: 1px solid var(--dsh-desktop-divider); }
+    .dshDesktopSidebarEntries { display: flex; flex-direction: column; padding: 6px 8px 10px; }
     .dshDesktopUpstreamSidebar { flex: 1; min-height: 0; }
     .dshDesktopFooterAction { box-sizing: border-box; display: flex; align-items: center; width: calc(100% + 4px); height: 42px; margin: 4px -2px; padding: 0 10px 0 8px; gap: 8px; border: 0; border-radius: 12px; color: var(--dsw-alias-label-primary, #e8edf2); background: transparent; font: 400 14px/22px var(--dsw-font-family, system-ui, sans-serif); text-align: left; cursor: pointer; overflow: hidden; transition: background-color .15s ease; }
     .dshDesktopFooterAction svg { width: 18px; height: 18px; flex: 0 0 18px; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
