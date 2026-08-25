@@ -41,7 +41,7 @@ describe('model and agent center', () => {
     const bridge = bridgeFixture()
     render(<ModelAgentCenter bridge={bridge} />)
     await screen.findByText('Codex')
-    fireEvent.click(screen.getByRole('button', { name: '配置 Codex 凭证' }))
+    fireEvent.click(screen.getByRole('button', { name: '配置 Codex API Key（可选）' }))
     expect(screen.getByRole('dialog')).toBeVisible()
     fireEvent.change(screen.getByLabelText('API Key'), { target: { value: 'sk-secret-value' } })
     fireEvent.click(screen.getByRole('button', { name: '取消' }))

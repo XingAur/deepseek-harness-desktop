@@ -260,6 +260,33 @@ export function installAdvancedStyles(): () => void {
     .dshAgentWorkbenchDiff { padding: 12px; border: 1px solid var(--dsh-desktop-divider); border-radius: 10px; background: var(--dsw-alias-bg-layer-2, #29292e); }
     .dshAgentWorkbenchDiff > div { display: flex; align-items: center; justify-content: space-between; }
     .dshAgentWorkbenchDiff pre { max-height: 260px; margin: 8px 0 0; overflow: auto; color: #cbd7ff; font: 11px/1.5 ui-monospace, SFMono-Regular, monospace; white-space: pre-wrap; }
+    .dshPluginMarket { display: grid; gap: 16px; margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--dsh-desktop-divider); }
+    .dshPluginMarketHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+    .dshPluginMarketHead h3 { margin: 0 0 4px; font-size: 16px; }
+    .dshPluginMarketHead p { margin: 0; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 12px; }
+    .dshPluginMarketWarning { padding: 10px 12px; border-radius: 9px; color: #e3c884; background: color-mix(in srgb, #8a7434 18%, transparent); font-size: 12px; line-height: 1.6; }
+    .dshPluginMarketControls { display: grid; gap: 10px; }
+    .dshPluginMarketControls input { box-sizing: border-box; width: 100%; max-width: 420px; min-height: 34px; padding: 0 12px; border: 1px solid var(--dsh-desktop-divider); border-radius: 10px; color: inherit; background: var(--dsw-alias-bg-layer-2, #29292e); font: 13px inherit; }
+    .dshPluginMarketControls input:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, #7d9cf0); outline-offset: 1px; }
+    .dshPluginMarketCategories { display: flex; flex-wrap: wrap; gap: 6px; }
+    .dshPluginMarketCategories button { min-height: 26px; padding: 0 10px; border: 1px solid var(--dsh-desktop-divider); border-radius: 999px; color: var(--dsw-alias-label-secondary, #b7b7bf); background: transparent; font-size: 11.5px; cursor: pointer; }
+    .dshPluginMarketCategories button:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.1)); }
+    .dshPluginMarketCategories button.is-active { color: #cfd9ff; border-color: color-mix(in srgb, #9db2ff 55%, transparent); background: color-mix(in srgb, #5877cf 20%, transparent); }
+    .dshPluginMarketGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; }
+    .dshPluginCard { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; padding: 15px 16px; border: 1px solid var(--dsh-desktop-divider); border-radius: 14px; background: var(--dsw-alias-bg-layer-1, #1d1d20); }
+    .dshPluginCard.is-featured { grid-column: 1 / -1; border-color: color-mix(in srgb, #9db2ff 45%, var(--dsh-desktop-divider)); background: linear-gradient(120deg, color-mix(in srgb, #5877cf 12%, #1d1d20), var(--dsw-alias-bg-layer-1, #1d1d20)); }
+    .dshPluginCardMain { display: grid; gap: 5px; min-width: 0; }
+    .dshPluginCardTitle { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+    .dshPluginCardTitle strong { font-size: 13.5px; }
+    .dshPluginCardTitle small { color: var(--dsw-alias-label-tertiary, #85858d); font-size: 11px; overflow-wrap: anywhere; }
+    .dshPluginCardTitle a { color: #9db2ff; text-decoration: none; }
+    .dshPluginCardTitle a:hover { text-decoration: underline; }
+    .dshPluginCard p { margin: 0; color: var(--dsw-alias-label-secondary, #b7b7bf); font-size: 12px; line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+    .dshPluginInstalled { color: #8fd3a0; font-size: 12px; }
+    .dshPluginFailed { display: grid; gap: 8px; justify-items: end; }
+    .dshPluginFailed > button { min-height: 30px; }
+    .dshPluginJobLog { grid-column: 1 / -1; max-height: 120px; margin: 0; padding: 9px 11px; border: 1px solid var(--dsh-desktop-divider); border-radius: 9px; overflow: auto; color: #b9c4d6; background: #101013; font: 11px/1.6 ui-monospace, SFMono-Regular, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .dshPluginMarketMore { display: flex; justify-content: center; }
     .dshAgentPage { display: block; width: 100%; height: 100%; overflow: auto; padding: 36px 40px 56px; }
     .dshAgentHome { display: grid; gap: 22px; max-width: 760px; margin: 0 auto; }
     .dshAgentHomeHero { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 2px; }

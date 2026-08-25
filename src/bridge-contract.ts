@@ -55,6 +55,9 @@ export type VersionedBridgeAction =
   | 'cli.install.start'
   | 'cli.login.status'
   | 'cli.login.start'
+  | 'plugin.catalog.list'
+  | 'plugin.install.start'
+  | 'plugin.install.status'
   | 'task.create'
   | 'task.list'
   | 'task.recover'
@@ -122,6 +125,9 @@ export const bridgeCommandByActionV2 = {
   'cli.install.start': 'agent_cli_install_start',
   'cli.login.status': 'agent_cli_login_status',
   'cli.login.start': 'agent_cli_login_start',
+  'plugin.catalog.list': 'agent_plugin_catalog',
+  'plugin.install.start': 'agent_plugin_install_start',
+  'plugin.install.status': 'agent_plugin_install_status',
   'task.create': 'agent_task_create',
   'task.list': 'agent_task_list',
   'task.recover': 'agent_task_recover',
@@ -212,6 +218,15 @@ export function isVersionedBridgePayload(action: VersionedBridgeAction, value: u
   if (['credential.delete', 'credential.status', 'credential.test'].includes(action)) return hasId('credentialId')
   if (['cli.path.status', 'cli.install.status', 'cli.install.start', 'cli.login.status', 'cli.login.start'].includes(action)) return hasId('providerId')
   if (['extension.install', 'extension.enable', 'extension.disable', 'extension.uninstall'].includes(action)) return hasId('extensionId')
+  if (action === 'plugin.catalog.list') {
+    return (value.query === undefined || (typeof value.query === 'string' && value.query.length <= 120))
+      && (value.category === undefined || (typeof value.category === 'string' && value.category.length <= 64))
+      && optionalNonNegativeInteger(value.offset, 0)
+      && optionalRange(value.limit ?? 50, 50)
+  }
+  if (action === 'plugin.install.start' || action === 'plugin.install.status') {
+    return typeof value.pluginId === 'string' && validPluginId(value.pluginId)
+  }
   return Object.keys(value).length === 0
 }
 
@@ -246,6 +261,10 @@ export function containsSecretShape(value: unknown): boolean {
     if (/^(api[_-]?key|access[_-]?token|refresh[_-]?token|token|oauth|authorization|cookie|set-cookie|secret|password|private[_-]?key)$/i.test(key)) return true
     return containsSecretShape(nested)
   })
+}
+
+function validPluginId(value: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._/-]{0,159}$/.test(value)
 }
 
 export function validRequestId(value: unknown): value is string {
@@ -299,6 +318,9 @@ const versionedPayloadKeys: Record<VersionedBridgeAction, string[]> = {
   'cli.install.start': ['providerId'],
   'cli.login.status': ['providerId'],
   'cli.login.start': ['providerId'],
+  'plugin.catalog.list': ['query', 'category', 'offset', 'limit'],
+  'plugin.install.start': ['pluginId'],
+  'plugin.install.status': ['pluginId'],
   'task.create': ['workspaceId', 'prompt', 'permission', 'providerId', 'agentId'],
   'task.list': ['workspaceId'],
   'task.recover': ['workspaceId', 'taskId', 'sourceSessionId'],

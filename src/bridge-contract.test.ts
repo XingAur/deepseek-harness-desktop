@@ -61,6 +61,20 @@ it('maps the codex cli lifecycle actions to dedicated commands with provider pay
     }
   })
 
+it('maps plugin market actions to dedicated commands with bounded payloads', () => {
+    expect(bridgeCommandByActionV2['plugin.catalog.list']).toBe('agent_plugin_catalog')
+    expect(bridgeCommandByActionV2['plugin.install.start']).toBe('agent_plugin_install_start')
+    expect(bridgeCommandByActionV2['plugin.install.status']).toBe('agent_plugin_install_status')
+    expect(isVersionedBridgePayload('plugin.catalog.list', {})).toBe(true)
+    expect(isVersionedBridgePayload('plugin.catalog.list', { query: '余额', category: 'tools', offset: 0, limit: 30 })).toBe(true)
+    expect(isVersionedBridgePayload('plugin.catalog.list', { query: 'x'.repeat(121) })).toBe(false)
+    expect(isVersionedBridgePayload('plugin.catalog.list', { limit: 51 })).toBe(false)
+    expect(isVersionedBridgePayload('plugin.catalog.list', { pluginId: 'a/b' })).toBe(false)
+    expect(isVersionedBridgePayload('plugin.install.start', { pluginId: 'owner/repo' })).toBe(true)
+    expect(isVersionedBridgePayload('plugin.install.start', { pluginId: '../escape' })).toBe(false)
+    expect(isVersionedBridgePayload('plugin.install.status', { pluginId: 'a/b' })).toBe(true)
+  })
+
   it('requires a bounded non-empty task prompt', () => {
     expect(isVersionedBridgePayload('task.create', {
       workspaceId: 'workspace-1',

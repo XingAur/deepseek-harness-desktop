@@ -14,6 +14,7 @@ mod migration;
 mod mcp;
 mod navigation;
 mod platform;
+mod plugin_market;
 mod profile;
 mod projects;
 mod provisioning;
@@ -87,6 +88,9 @@ macro_rules! renderer_commands {
             commands::agent_cli_install_start,
             commands::agent_cli_login_status,
             commands::agent_cli_login_start,
+            commands::agent_plugin_catalog,
+            commands::agent_plugin_install_start,
+            commands::agent_plugin_install_status,
             commands::agent_task_create,
             commands::agent_task_list,
             commands::agent_task_recover,
@@ -421,6 +425,7 @@ fn run_desktop() {
                 let _ = startup_runtime.reconcile_startup().await;
             });
             app.manage(Arc::new(agents::cli_ops::AgentCliJobState::new()));
+            app.manage(Arc::new(plugin_market::PluginMarketState::new()));
             let runtime_services = if foundation.runtime_allowed().is_ok() {
                 let runtime_paths = RuntimePaths::from_app_paths(&foundation.paths)
                     .map_err(|cause| Box::<dyn std::error::Error>::from(cause))?;

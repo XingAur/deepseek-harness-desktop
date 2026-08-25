@@ -8,7 +8,7 @@ use std::{
 use chrono::Utc;
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, State, WebviewWindow};
+use tauri::{AppHandle, Manager, State, WebviewWindow};
 use tauri_plugin_opener::OpenerExt;
 use uuid::Uuid;
 
@@ -56,6 +56,9 @@ pub(crate) const VERSIONED_AGENT_COMMAND_NAMES: &[&str] = &[
     "agent_cli_install_start",
     "agent_cli_login_status",
     "agent_cli_login_start",
+    "agent_plugin_catalog",
+    "agent_plugin_install_start",
+    "agent_plugin_install_status",
     "agent_task_create",
     "agent_task_list",
     "agent_task_recover",
@@ -812,6 +815,89 @@ fn provider_display_name(provider: AgentProvider) -> &'static str {
         AgentProvider::Codex => "Codex",
         AgentProvider::Claude => "Claude",
     }
+}
+
+#[tauri::command]
+pub async fn agent_plugin_catalog(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    foundation: State<'_, Arc<DesktopFoundation>>,
+    market: State<'_, Arc<crate::plugin_market::PluginMarketState>>,
+    app: AppHandle,
+    generation_id: String,
+    session_id: String,
+    query: Option<String>,
+    category: Option<String>,
+    offset: Option<u64>,
+    limit: Option<u64>,
+) -> Result<crate::plugin_market::CatalogPage, String> {
+    coordinator
+        .validate_generation(&generation_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|_| "应用资源目录不可用".to_owned())?;
+    let _ = &foundation;
+    crate::plugin_market::catalog_page(
+        &market,
+        &resource_dir,
+        query.as_deref().unwrap_or(""),
+        category.as_deref().unwrap_or(""),
+        offset.unwrap_or(0).min(10_000) as usize,
+        limit.unwrap_or(30).min(crate::plugin_market::CATALOG_PAGE_MAX as u64) as usize,
+    )
+}
+
+#[tauri::command]
+pub async fn agent_plugin_install_start(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    foundation: State<'_, Arc<DesktopFoundation>>,
+    market: State<'_, Arc<crate::plugin_market::PluginMarketState>>,
+    app: AppHandle,
+    generation_id: String,
+    session_id: String,
+    plugin_id: String,
+) -> Result<crate::plugin_market::PluginInstallStatusReply, String> {
+    coordinator
+        .validate_generation(&generation_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|_| "应用资源目录不可用".to_owned())?;
+    let profile = active_profile(&foundation).map_err(|error| error.to_string())?;
+    crate::plugin_market::install_start(
+        &market,
+        &resource_dir,
+        &foundation.paths.runtime,
+        &profile.data_root,
+        &plugin_id,
+    )
+}
+
+#[tauri::command]
+pub async fn agent_plugin_install_status(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    market: State<'_, Arc<crate::plugin_market::PluginMarketState>>,
+    app: AppHandle,
+    generation_id: String,
+    session_id: String,
+    plugin_id: String,
+) -> Result<crate::plugin_market::PluginInstallStatusReply, String> {
+    coordinator
+        .validate_generation(&generation_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|_| "应用资源目录不可用".to_owned())?;
+    crate::plugin_market::install_status(&market, &resource_dir, &plugin_id)
 }
 
 #[tauri::command]
