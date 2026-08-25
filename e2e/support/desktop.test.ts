@@ -1,0 +1,70 @@
+import { describe, expect, it } from 'vitest'
+import {
+  PackagedDesktopHarness,
+  assertSessionRoundTripCoverage,
+  conversationAssistantReplyCountExpression,
+  conversationAssistantReplyIncreaseExpression,
+  conversationSendEnabledExpression,
+} from './desktop'
+
+describe('PackagedDesktopHarness.continueConversation', () => {
+  it('在连接工作台前拒绝空白续聊消息', async () => {
+    const desktop = new PackagedDesktopHarness()
+
+    await expect(desktop.continueConversation('  \t')).rejects.toThrow('继续会话消息不能为空')
+  })
+
+  it('已有 E2E_PONG 不足以满足续聊回复，必须新增助手回复节点', () => {
+    document.body.innerHTML = `
+      <section data-slot="conversation.session">
+        <div data-chat-flow-kind="assistant-step">E2E_PONG</div>
+        <div data-chat-flow-kind="user">E2E_PONG</div>
+      </section>
+    `
+    const previous = evaluateWorkbenchExpression<number>(conversationAssistantReplyCountExpression('E2E_PONG'))
+
+    expect(previous).toBe(1)
+    expect(evaluateWorkbenchExpression<boolean>(conversationAssistantReplyIncreaseExpression('E2E_PONG', previous))).toBe(false)
+
+    document.querySelector('[data-slot="conversation.session"]')?.insertAdjacentHTML(
+      'beforeend',
+      '<div data-chat-flow-kind="assistant-step">E2E_PONG</div>',
+    )
+
+    expect(evaluateWorkbenchExpression<boolean>(conversationAssistantReplyIncreaseExpression('E2E_PONG', previous))).toBe(true)
+  })
+
+  it('续聊仅在发送按钮启用后允许发送', () => {
+    document.body.innerHTML = '<button aria-label="发送消息" disabled>发送</button>'
+
+    expect(evaluateWorkbenchExpression<boolean>(conversationSendEnabledExpression())).toBe(false)
+    const sendButton = document.querySelector('button[aria-label="发送消息"]')
+    if (!(sendButton instanceof HTMLButtonElement)) throw new Error('测试发送按钮不存在')
+    sendButton.disabled = false
+    expect(evaluateWorkbenchExpression<boolean>(conversationSendEnabledExpression())).toBe(true)
+  })
+})
+
+describe('assertSessionRoundTripCoverage', () => {
+  const first = 'E2E 第一会话 Ω'
+  const second = 'E2E 第二会话 二'
+  const continuation = 'E2E 升级后继续 Ω'
+
+  it('允许两条会话行覆盖三个 marker，其中一条包含续聊', () => {
+    expect(() => assertSessionRoundTripCoverage(
+      [first, second, continuation],
+      new Map([[first, 0], [second, 1], [continuation, 1]]),
+    )).not.toThrow()
+  })
+
+  it('仍拒绝未在实际会话内容中命中的 marker', () => {
+    expect(() => assertSessionRoundTripCoverage(
+      [first, second, continuation],
+      new Map([[first, 0], [second, 1]]),
+    )).toThrow(`找不到包含正文标记的会话：${continuation}`)
+  })
+})
+
+function evaluateWorkbenchExpression<T>(expression: string): T {
+  return Function(`return (${expression})`)() as T
+}

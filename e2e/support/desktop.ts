@@ -28,6 +28,7 @@ export interface DesktopHarness {
   createProfile(input: { name: string; dataRoot: string }): Promise<string>
   createProject(input: { idea: string }): Promise<void>
   createConversation(prompt: string): Promise<void>
+  continueConversation(prompt: string): Promise<void>
   assertSessionRoundTrip(markers: readonly string[]): Promise<void>
   selectProject(title: string): Promise<void>
   openProject(title: string): Promise<void>
@@ -194,6 +195,32 @@ export class PackagedDesktopHarness implements DesktopHarness {
     })
   }
 
+  async continueConversation(prompt: string): Promise<void> {
+    if (prompt.trim() === '') throw new Error('继续会话消息不能为空')
+    await this.withWorkbenchTarget(async (page) => {
+      const composer = conversationComposerExpression()
+      await page.waitFor(`${composer} !== null`, {
+        timeoutMs: 30_000,
+        message: '继续会话输入框未出现',
+      })
+      const previousPongCount = await page.evaluate<number>(conversationAssistantReplyCountExpression('E2E_PONG'))
+      await page.setValueFromExpression(composer, prompt)
+      await page.waitFor(conversationSendEnabledExpression(), {
+        timeoutMs: 10_000,
+        message: '继续会话发送按钮未启用',
+      })
+      await page.click('button[aria-label="发送消息"]')
+      await page.waitFor(conversationContainsExpression(prompt), {
+        timeoutMs: 30_000,
+        message: `继续会话用户消息未实时显示：${prompt}`,
+      })
+      await page.waitFor(conversationAssistantReplyIncreaseExpression('E2E_PONG', previousPongCount), {
+        timeoutMs: 60_000,
+        message: '继续会话没有收到确定性模型回复',
+      })
+    })
+  }
+
   async assertSessionRoundTrip(markers: readonly string[]): Promise<void> {
     if (markers.length === 0 || markers.some((marker) => marker.trim() === '')) {
       throw new Error('会话正文标记不能为空')
@@ -201,16 +228,20 @@ export class PackagedDesktopHarness implements DesktopHarness {
     await this.withWorkbenchTarget(async (page) => {
       await this.ensureSidebarExpanded(page)
       const rows = sessionRowsExpression()
-      await page.waitFor(`(${rows}).length >= ${markers.length}`, {
+      await page.waitFor(`(${rows}).length >= 2`, {
         timeoutMs: 30_000,
-        message: `会话列表少于 ${markers.length} 项`,
+        message: '会话列表少于 2 项',
       })
       const sequence = markers.length > 1 ? [...markers, markers[0]] : [...markers]
+      const markerRows = new Map<string, number>()
       for (const marker of sequence) {
-        if (!await this.openSessionContaining(page, marker)) {
+        const row = await this.openSessionContaining(page, marker)
+        if (row === undefined) {
           throw new Error(`找不到包含正文标记的会话：${marker}`)
         }
+        markerRows.set(marker, row)
       }
+      assertSessionRoundTripCoverage(markers, markerRows)
     })
   }
 
@@ -442,13 +473,14 @@ export class PackagedDesktopHarness implements DesktopHarness {
     })
   }
 
-  private async openSessionContaining(page: CdpPage, marker: string): Promise<boolean> {
+  private async openSessionContaining(page: CdpPage, marker: string): Promise<number | undefined> {
     const rows = sessionRowsExpression()
     const initialCount = await page.evaluate<number>(`(${rows}).length`)
     for (let attempt = 0; attempt < Math.max(3, initialCount * 3); attempt += 1) {
+      const rowIndex = attempt % Math.max(1, initialCount)
       const clicked = await page.evaluate<boolean>(`(() => {
         const candidates = ${rows};
-        const row = candidates[${attempt} % Math.max(1, candidates.length)];
+        const row = candidates[${rowIndex} % Math.max(1, candidates.length)];
         if (!(row instanceof HTMLElement)) return false;
         row.click();
         return true;
@@ -457,10 +489,19 @@ export class PackagedDesktopHarness implements DesktopHarness {
         await page.waitForValue(`(${rows}).length > 0`, 500)
         continue
       }
-      if (await page.waitForValue(conversationContainsExpression(marker), 3_000)) return true
+      if (await page.waitForValue(conversationContainsExpression(marker), 3_000)) return rowIndex
     }
-    return false
+    return undefined
   }
+}
+
+export function assertSessionRoundTripCoverage(markers: readonly string[], markerRows: ReadonlyMap<string, number>): void {
+  const rows = markers.map((marker) => {
+    const row = markerRows.get(marker)
+    if (!Number.isSafeInteger(row) || row < 0) throw new Error(`找不到包含正文标记的会话：${marker}`)
+    return row
+  })
+  if (new Set(rows).size < 2) throw new Error('会话轮转未覆盖至少两个独立会话')
 }
 
 interface CdpTarget {
@@ -676,6 +717,25 @@ function visibleButtonTextExpression(text: string): string {
 
 function conversationContainsExpression(text: string): string {
   return `document.querySelector('[data-slot="conversation.session"]')?.textContent?.includes(${JSON.stringify(text)}) === true`
+}
+
+export function conversationAssistantReplyCountExpression(text: string): string {
+  return `(() => {
+    const session = document.querySelector('[data-slot="conversation.session"]')
+    if (session === null) return 0
+    return Array.from(session.querySelectorAll('[data-chat-flow-kind="assistant-step"]'))
+      .filter((node) => node.textContent?.includes(${JSON.stringify(text)}) === true)
+      .length
+  })()`
+}
+
+export function conversationAssistantReplyIncreaseExpression(text: string, previousCount: number): string {
+  if (!Number.isSafeInteger(previousCount) || previousCount < 0) throw new Error('助手回复计数无效')
+  return `(${conversationAssistantReplyCountExpression(text)}) > ${previousCount}`
+}
+
+export function conversationSendEnabledExpression(): string {
+  return `document.querySelector('button[aria-label="发送消息"]')?.disabled === false`
 }
 
 function conversationComposerExpression(): string {

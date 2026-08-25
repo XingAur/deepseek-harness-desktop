@@ -1,20 +1,44 @@
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { expectNoRecordedProcessOrPort, expectSentinelScopes } from '../support/assertions'
+import type { InstallationRecord } from '../support/installer'
+import { lifecycleRedactionRoots, stageSafeLifecycleArtifacts } from '../support/lifecycle-report'
+import { captureProjectPath } from '../support/lifecycle-state'
 import { createE2EWorld, type E2EWorld } from '../support/world'
 
 let world: E2EWorld
 let appBinary: string
+let latestDataRoot: string | undefined
+let recordedRuntimeIdentity: InstallationRecord | undefined
 
 const FIRST_SESSION_MARKER = 'E2E 第一会话 Ω'
 const SECOND_SESSION_MARKER = 'E2E 第二会话 二'
+const CONTINUATION_PROMPT = 'E2E 升级后继续 Ω'
 
 beforeAll(async () => {
   world = await createE2EWorld()
 })
 
 afterAll(async () => {
-  await world?.close()
+  const failures: unknown[] = []
+  try {
+    if (latestDataRoot !== undefined) {
+      stageSafeLifecycleArtifacts({
+        artifactsRoot: resolve(process.env.DSH_E2E_ARTIFACTS ?? 'e2e-artifacts'),
+        roots: lifecycleRedactionRoots(latestDataRoot),
+      })
+    }
+  } catch (error) {
+    failures.push(error)
+  }
+  try {
+    await world?.close()
+  } catch (error) {
+    failures.push(error)
+  }
+  if (failures.length === 1) throw failures[0]
+  if (failures.length > 1) throw new AggregateError(failures, 'E2E 生命周期收尾失败')
 })
 
 describe('Windows Web Setup success path', () => {
@@ -28,6 +52,7 @@ describe('Windows Web Setup success path', () => {
     expect(installation.appBinary).toBeTypeOf('string')
     if (installation.appBinary === undefined) throw new Error('安装记录缺少应用路径')
     appBinary = installation.appBinary
+    latestDataRoot = installation.dataRoot
 
     runtimeFixture.clearRequests()
     await desktop.launch(appBinary)
@@ -66,7 +91,38 @@ describe('Windows Web Setup success path', () => {
     await desktop.quit()
     await desktop.launch(appBinary)
     await desktop.waitForWorkbench(8_000)
-    await desktop.assertSessionRoundTrip([FIRST_SESSION_MARKER, SECOND_SESSION_MARKER])
+    const requestCountBeforeContinuation = modelFixture.requests().filter(
+      (request) => request.method === 'POST' && request.path === '/chat/completions',
+    ).length
+    await desktop.continueConversation(CONTINUATION_PROMPT)
+    const continuationRequests = modelFixture.requests().filter(
+      (request) => request.method === 'POST' && request.path === '/chat/completions',
+    ).slice(requestCountBeforeContinuation)
+    expect(continuationRequests.length).toBeGreaterThan(0)
+    expect(continuationRequests.some((request) => request.body.includes(CONTINUATION_PROMPT))).toBe(true)
+    await desktop.assertSessionRoundTrip([FIRST_SESSION_MARKER, SECOND_SESSION_MARKER, CONTINUATION_PROMPT])
+    recordedRuntimeIdentity = await installer.recordRuntimeIdentity({
+      runtimePid: await desktop.runtimePid(),
+      runtimePort: await desktop.runtimePort(),
+    })
+  })
+
+  it('默认卸载仅移除应用，并保留应用数据、项目与外部哨兵', async () => {
+    if (latestDataRoot === undefined) throw new Error('安装记录缺少数据目录')
+    const { desktop, installer } = world
+    const projectPath = captureProjectPath(latestDataRoot)
+    const sentinels = await installer.writePreservationSentinels(projectPath)
+
+    await desktop.quit()
+    await installer.uninstall('preserve-all')
+    expect(await installer.appBinaryExists()).toBe(false)
+    if (recordedRuntimeIdentity === undefined) throw new Error('安装记录缺少 Runtime 身份')
+    await expectNoRecordedProcessOrPort(recordedRuntimeIdentity)
+    await expectSentinelScopes(sentinels, {
+      'app-data': 'present',
+      project: 'present',
+      external: 'present',
+    })
   })
 })
 
