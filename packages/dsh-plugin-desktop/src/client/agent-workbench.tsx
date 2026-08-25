@@ -154,7 +154,9 @@ export function AgentWorkbench({ bridge, workspaceId = '', providerOptions = def
         <div><p className="dshModelAgentEyebrow">AGENT WORKBENCH</p><h3>Agent 工作台</h3><p>任务、审批、进度和文件变更都在同一条可恢复会话中。</p></div>
         <button type="button" onClick={() => void loadTasks()}>刷新任务</button>
       </header>
-      <div className="dshAgentWorkbenchWarning" role="note">当前安装包内置 Worker 是协议预览实现，不会冒充真实 Codex 或 Claude。真实模型执行需要由宿主注入对应官方 SDK 或受管 CLI Worker。</div>
+      {providerId === 'codex'
+        ? <div className="dshAgentWorkbenchNotice" role="note">Codex 通过本机官方 CLI 真实执行。写入文件、运行命令等敏感操作会先弹出审批，由你决定是否放行。</div>
+        : <div className="dshAgentWorkbenchWarning" role="note">这个 Provider 暂时只有协议预览实现，不会执行真实模型操作。</div>}
       <div className="dshAgentWorkbenchCreate">
         <label>Provider<select aria-label="Provider" value={providerId} onChange={(event) => setProviderId(event.target.value)}>{providerOptions.map((provider) => <option key={provider.id} value={provider.id}>{provider.label}</option>)}</select></label>
         <label>权限模式<select aria-label="权限模式" value={permission} onChange={(event) => setPermission(event.target.value as PermissionMode)}><option value="request-approval">请求批准</option><option value="smart-approval">智能批准</option><option value="full-access">完全访问权限</option></select></label>

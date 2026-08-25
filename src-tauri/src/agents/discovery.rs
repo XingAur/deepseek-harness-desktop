@@ -358,8 +358,24 @@ fn official_install_locations(provider: AgentProvider) -> Vec<PathBuf> {
     if let Some(home) = home {
         locations.push(home.join(".local").join("bin"));
         locations.push(home.join(".npm-global").join("bin"));
+        // nvm 把每个 Node 版本的全局 bin 放在 ~/.nvm/versions/node/<v>/bin，
+        // `npm install -g` 默认安装到当前版本的目录；从新到旧扫描。
+        let nvm_root = home.join(".nvm").join("versions").join("node");
+        if let Ok(entries) = fs::read_dir(&nvm_root) {
+            let mut version_bins: Vec<PathBuf> = entries
+                .flatten()
+                .map(|entry| entry.path().join("bin"))
+                .collect();
+            version_bins.sort();
+            version_bins.reverse();
+            locations.extend(version_bins);
+        }
+        // volta 的全局 bin。
+        locations.push(home.join(".volta").join("bin"));
         if matches!(provider, AgentProvider::Codex) {
             locations.push(home.join(".cargo").join("bin"));
+            // ChatGPT 桌面版 / codex plugin 管理的官方 app-server 副本。
+            locations.push(home.join(".codex").join("plugins").join(".plugin-appserver"));
         }
     }
     if cfg!(windows) {

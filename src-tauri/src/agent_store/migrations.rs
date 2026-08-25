@@ -1,6 +1,6 @@
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 7;
+pub const CURRENT_SCHEMA_VERSION: i64 = 8;
 
 const V1_SCHEMA: &str = r#"
 CREATE TABLE agents (
@@ -246,7 +246,7 @@ pub fn migrate_to_current_in_transaction(transaction: &Transaction<'_>) -> rusql
     let version = user_version(transaction)?;
     match version {
         0 => transaction.execute_batch(V1_SCHEMA)?,
-        1 | 2 | 3 | 4 | 5 | 6 => {}
+        1 | 2 | 3 | 4 | 5 | 6 | 7 => {}
         CURRENT_SCHEMA_VERSION => return Ok(()),
         _ => return Err(rusqlite::Error::InvalidQuery),
     }
@@ -267,6 +267,9 @@ pub fn migrate_to_current_in_transaction(transaction: &Transaction<'_>) -> rusql
     }
     if version <= 6 {
         transaction.execute_batch(V7_SCHEMA)?;
+    }
+    if version <= 7 {
+        transaction.execute_batch(V8_SCHEMA)?;
     }
     transaction.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION)?;
     Ok(())
@@ -415,6 +418,10 @@ ALTER TABLE worker_sessions_v6 RENAME TO worker_sessions;
 const V7_SCHEMA: &str = r#"
 ALTER TABLE event_checkpoints ADD COLUMN generation_id TEXT NOT NULL DEFAULT '';
 ALTER TABLE event_checkpoints ADD COLUMN desktop_session_id TEXT NOT NULL DEFAULT '';
+"#;
+
+const V8_SCHEMA: &str = r#"
+ALTER TABLE providers ADD COLUMN cli_path TEXT;
 "#;
 
 #[cfg(test)]

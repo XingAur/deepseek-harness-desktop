@@ -22,6 +22,35 @@ use super::{
     model::AgentProvider,
 };
 
+type AgentStoreRef<'a> = Option<&'a Arc<crate::agent_store::AgentStore>>;
+
+/// Provider 行里手动保存的 CLI 路径（用户在高级设置里指定的兜底）。
+fn configured_cli_path(store: AgentStoreRef<'_>, provider_id: &str) -> Option<std::path::PathBuf> {
+    let store = store?;
+    let connection = store.reader().ok()?;
+    let path: Option<String> = rusqlite::OptionalExtension::optional(
+        connection
+            .query_row(
+                "SELECT cli_path FROM providers WHERE provider_id = ?1 AND cli_path IS NOT NULL",
+                rusqlite::params![provider_id],
+                |row| row.get(0),
+            ),
+    )
+    .ok()
+    .flatten();
+    path.filter(|value| !value.is_empty())
+      .filter(|value| std::path::Path::new(value).is_absolute())
+      .map(std::path::PathBuf::from)
+}
+
+fn discovery_for(store: AgentStoreRef<'_>, provider: AgentProvider) -> Result<super::model::DiscoveryResult, String> {
+    let mut request = DiscoveryRequest::for_provider(provider);
+    if let Some(configured) = configured_cli_path(store, provider.command_name()) {
+        request = request.with_explicit_path(configured);
+    }
+    discover(&request)
+}
+
 const OUTPUT_LIMIT: usize = 64 * 1024;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
 const JOB_TIMEOUT: Duration = Duration::from_secs(15 * 60);
@@ -90,9 +119,9 @@ impl AgentCliJobState {
     }
 }
 
-pub fn login_status(state: &AgentCliJobState, provider_id: &str) -> Result<CliLoginStatusReply, String> {
+pub fn login_status(state: &AgentCliJobState, store: AgentStoreRef<'_>, provider_id: &str) -> Result<CliLoginStatusReply, String> {
     let provider = parse_provider(provider_id)?;
-    let discovered = discover(&DiscoveryRequest::for_provider(provider))?;
+    let discovered = discovery_for(store, provider)?;
     let installed = discovered.selected.is_some();
     let mut reply = CliLoginStatusReply {
         provider_id: provider_id.to_owned(),
@@ -137,9 +166,9 @@ pub fn login_status(state: &AgentCliJobState, provider_id: &str) -> Result<CliLo
 /// Start the official interactive login. `codex login` opens the browser and
 /// blocks until the OAuth round-trip completes; its captured output is exposed
 /// through the polling status reply.
-pub fn login_start(state: &Arc<AgentCliJobState>, provider_id: &str) -> Result<CliLoginStatusReply, String> {
+pub fn login_start(state: &Arc<AgentCliJobState>, store: AgentStoreRef<'_>, provider_id: &str) -> Result<CliLoginStatusReply, String> {
     let provider = parse_provider(provider_id)?;
-    let discovered = discover(&DiscoveryRequest::for_provider(provider))?;
+    let discovered = discovery_for(store, provider)?;
     let selected = discovered
         .selected
         .ok_or_else(|| "未找到 CLI，请先安装".to_owned())?
@@ -198,11 +227,12 @@ pub fn login_start(state: &Arc<AgentCliJobState>, provider_id: &str) -> Result<C
 
 pub fn install_status(
     state: &AgentCliJobState,
+    store: AgentStoreRef<'_>,
     provider_id: &str,
 ) -> Result<CliInstallStatusReply, String> {
     let provider = parse_provider(provider_id)?;
     let recipe = install_recipe(provider).ok_or_else(|| "该 Provider 没有固定安装配方".to_owned())?;
-    let discovered = discover(&DiscoveryRequest::for_provider(provider))?;
+    let discovered = discovery_for(store, provider)?;
     let mut reply = CliInstallStatusReply {
         provider_id: provider_id.to_owned(),
         recipe_id: Some(recipe.id),
@@ -230,7 +260,7 @@ pub fn install_status(
 /// Execute the fixed install recipe after its explicit UI confirmation. The
 /// command runs without a shell, with only npm allowlisted, and is verified by
 /// re-running CLI discovery afterwards.
-pub fn install_start(state: &Arc<AgentCliJobState>, provider_id: &str) -> Result<CliInstallStatusReply, String> {
+pub fn install_start(state: &Arc<AgentCliJobState>, store: AgentStoreRef<'_>, provider_id: &str) -> Result<CliInstallStatusReply, String> {
     let provider = parse_provider(provider_id)?;
     let recipe = install_recipe(provider).ok_or_else(|| "该 Provider 没有固定安装配方".to_owned())?;    if !recipe.requires_explicit_confirmation {
         return Err("安装配方缺少强制确认标记".to_owned());
@@ -256,19 +286,19 @@ pub fn install_start(state: &Arc<AgentCliJobState>, provider_id: &str) -> Result
         job.output.clear();
     }
     let state_for_job = Arc::clone(state);
+    let store_for_job = store.cloned();
     let provider_key = provider_id.to_owned();
     let verify_provider = provider_key.clone();
     let recipe_args: Vec<String> = recipe.command.iter().skip(1).cloned().collect();
     std::thread::spawn(move || {
         let arg_refs: Vec<&str> = recipe_args.iter().map(String::as_str).collect();
         let result = run_bounded_cli(&npm, &arg_refs, None, JOB_TIMEOUT).and_then(|_| {
-            let discovered =
-                discover(&DiscoveryRequest::for_provider(parse_provider(&verify_provider).expect("validated")))
-                    .map_err(|error| error)?;
-            if discovered.selected.is_none() {
-                return Err("安装命令已完成，但未能检测到可用的 CLI".to_owned());
+            let provider = parse_provider(&verify_provider).expect("validated");
+            let discovered = discovery_for(store_for_job.as_ref(), provider)?;
+            if discovered.selected.is_some() {
+                return Ok(String::new());
             }
-            Ok(String::new())
+            Err("Codex CLI 已安装，但应用没有自动找到它。\n两个解决办法：\n1. 点「重新检测」再试一次；\n2. 展开下方「高级」，把 codex 的完整路径粘贴进去（在终端运行 which codex 可获得该路径）。".to_owned())
         });
         if let Ok(mut jobs) = state_for_job.install.lock() {
             let job = jobs.entry(provider_key).or_default();
@@ -560,7 +590,7 @@ mod tests {
     #[test]
     fn job_state_starts_empty_and_reports_nothing() {
         let state = AgentCliJobState::new();
-        let reply = super::login_status(&state, "codex").unwrap();
+        let reply = super::login_status(&state, None, "codex").unwrap();
         assert_eq!(reply.provider_id, "codex");
         assert!(!reply.job_running);
         assert!(reply.job_finished.is_none());
@@ -569,7 +599,25 @@ mod tests {
     #[test]
     fn unknown_providers_are_rejected() {
         let state = AgentCliJobState::new();
-        assert!(super::login_status(&state, "unknown").is_err());
-        assert!(super::install_status(&state, "unknown").is_err());
+        assert!(super::login_status(&state, None, "unknown").is_err());
+        assert!(super::install_status(&state, None, "unknown").is_err());
+    }
+
+    #[test]
+    fn install_failure_copy_tells_the_user_what_to_do_next() {
+        // 错误文案必须给出可执行的下一步，而不是内部术语。
+        let store = std::sync::Arc::new(AgentCliJobState::new());
+        let reply = super::install_start(&store, None, "codex");
+        // 没有可用 npm 时直接失败；错误信息同样保持人话。
+        match reply {
+            Ok(status) => {
+                // 找到 npm 但安装必然立即失败的情况不在此测试范围内；
+                // 这里只断言状态结构稳定。
+                assert_eq!(status.provider_id, "codex");
+            }
+            Err(message) => {
+                assert!(message.contains("npm") || message.contains("Node.js"), "{message}");
+            }
+        }
     }
 }

@@ -3,8 +3,14 @@ import type { DesktopBridgeLike } from './desktop-bridge'
 import { messageOf } from './model-agent/state'
 
 /**
- * 主界面的 Agent 入口页：选择 Provider（Codex / Claude）并直达工作台。
- * Codex 卡片聚合 CLI 检测、安装、官方账号登录三步引导。
+ * 主界面 Agent 入口页。
+ *
+ * 设计目标：一眼看懂「我在哪一步、下一步做什么」。
+ * - 顶部：一句话说明 + 重新检测
+ * - Codex 卡片：三步就绪状态（安装 CLI → 登录账号 → 选择工作区），
+ *   每一步都有明确的完成/待办状态和人话提示
+ * - 高级：手动指定 CLI 路径（自动检测失败时的自助兜底）
+ * - 任务日志：仅在有内容时展示，终端风格
  */
 
 export interface AgentHomeProps {
@@ -42,12 +48,17 @@ interface InstallStatus {
   jobSuccess?: boolean
 }
 
+type StepState = 'done' | 'active' | 'todo'
+
 export function AgentHome({ bridge, workspaceId, onOpenWorkbench }: AgentHomeProps) {
   const [providers, setProviders] = useState<ProviderSummary[]>([])
   const [login, setLogin] = useState<Record<string, LoginStatus>>({})
   const [install, setInstall] = useState<Record<string, InstallStatus>>({})
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [manualPath, setManualPath] = useState('')
+  const [manualBusy, setManualBusy] = useState(false)
+  const [manualResult, setManualResult] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setBusy(true)
@@ -80,17 +91,17 @@ export function AgentHome({ bridge, workspaceId, onOpenWorkbench }: AgentHomePro
 
   useEffect(() => { void load() }, [load])
 
-  const refreshWhenJobsRun = useMemo(() => {
-    const running = Object.values(login).some((status) => status.jobRunning)
-      || Object.values(install).some((status) => status.jobRunning)
-    return running
-  }, [login, install])
+  const jobsRunning = useMemo(
+    () => Object.values(login).some((status) => status.jobRunning)
+      || Object.values(install).some((status) => status.jobRunning),
+    [login, install],
+  )
 
   useEffect(() => {
-    if (!refreshWhenJobsRun) return
+    if (!jobsRunning) return
     const timer = setInterval(() => { void load() }, 2000)
     return () => clearInterval(timer)
-  }, [refreshWhenJobsRun, load])
+  }, [jobsRunning, load])
 
   const startInstall = async (provider: ProviderSummary) => {
     try {
@@ -110,71 +121,169 @@ export function AgentHome({ bridge, workspaceId, onOpenWorkbench }: AgentHomePro
     }
   }
 
+  const saveManualPath = async () => {
+    const trimmed = manualPath.trim()
+    if (trimmed.length === 0 || manualBusy) return
+    setManualBusy(true)
+    setManualResult(null)
+    try {
+      await bridge.requestV2('cli.path.select', undefined, { providerId: 'codex', path: trimmed })
+      setManualResult('已保存，并且检测通过。现在可以直接进入工作台。')
+      await load()
+    } catch (cause) {
+      setManualResult(messageOf(cause))
+    } finally {
+      setManualBusy(false)
+    }
+  }
+
   return (
     <section className="dshAgentHome" aria-label="Agent 入口">
-      <header className="dshAgentHomeHeader">
-        <div>
-          <p className="dshModelAgentEyebrow">AGENT CONSOLE</p>
-          <h2>选择你的 Agent</h2>
-          <p>在当前工作区使用 Codex 等官方 CLI Agent 执行任务；首次使用先完成安装与登录。</p>
+      <header className="dshAgentHomeHero">
+        <div className="dshAgentHomeHeroCopy">
+          <h2>Agent</h2>
+          <p>选择一个 Agent，在你的项目里执行真实任务。Codex 由官方 CLI 驱动，写入文件、执行命令等操作都会先请求你的批准。</p>
         </div>
-        <button type="button" disabled={busy} onClick={() => void load()}>刷新</button>
+        <button type="button" className="dshAgentGhostButton" disabled={busy} onClick={() => { void load() }}>
+          {busy ? '检测中…' : '重新检测'}
+        </button>
       </header>
+
       {error !== null && <div className="dshModelAgentError" role="alert">{error}</div>}
-      {workspaceId === undefined || workspaceId.trim() === ''
-        ? <p className="dshModelAgentMuted">还没有可用工作区：先在左侧创建或选择一个项目。</p>
-        : null}
+
       <div className="dshAgentHomeGrid">
-        {providers.map((provider) => {
+        {providers.filter((provider) => provider.providerId === 'codex').map((provider) => {
           const loginStatus = login[provider.providerId]
           const installStatus = install[provider.providerId]
-          const codexReady = provider.providerId === 'codex'
-            && loginStatus?.installed === true
-            && loginStatus?.loggedIn !== false
-          const ready = provider.providerId === 'codex' ? codexReady : loginStatus?.installed === true
+          const installJob = installStatus?.jobRunning === true
+          const loginJob = loginStatus?.jobRunning === true
+          const installed = loginStatus?.installed === true
+          const loggedIn = loginStatus?.loggedIn === true
+          const workspaceReady = workspaceId !== undefined && workspaceId.trim() !== ''
+          const ready = installed && loggedIn && workspaceReady
+          const installStep: StepState = installJob ? 'active' : installed ? 'done' : 'todo'
+          const loginStep: StepState = !installed ? 'todo' : loginJob ? 'active' : loggedIn ? 'done' : 'active'
+          const workspaceStep: StepState = installed && loggedIn ? (workspaceReady ? 'done' : 'active') : 'todo'
+          const logLines = [...(installStatus?.jobOutput ?? []), ...(loginStatus?.jobOutput ?? [])]
           return (
-            <article key={provider.providerId} className={`dshAgentHomeCard${provider.providerId === 'codex' ? ' is-codex' : ''}`} data-ready={ready || undefined}>
-              <div className="dshAgentHomeCardHeader">
-                <div><span className="dshAgentHomeMark">{provider.displayName.slice(0, 1)}</span><div><h3>{provider.displayName}</h3><small>{provider.providerId}:default</small></div></div>
-                <span className={`dshModelAgentStatus dshModelAgentStatus-${ready ? 'available' : 'missing-cli'}`}>{ready ? '可用' : '待准备'}</span>
-              </div>
-              <dl className="dshModelAgentDetails">
-                <div><dt>CLI</dt><dd title={loginStatus?.cliPath ?? ''}>{loginStatus?.installed === true ? (loginStatus.cliPath ?? '已安装') : '未安装'}</dd></div>
-                <div><dt>账号</dt><dd>{provider.providerId === 'codex' ? (loginStatus?.mode ?? (loginStatus?.loggedIn === true ? '已登录' : '未登录')) : '—'}</dd></div>
-                <div><dt>凭证</dt><dd>{provider.credentialStatus === 'configured' ? '已配置' : '未配置'}</dd></div>
-              </dl>
-              {provider.providerId === 'codex' && (
-                <div className="dshAgentHomeActions">
-                  {loginStatus?.installed !== true && (
-                    <button type="button" disabled={installStatus?.jobRunning === true} onClick={() => void startInstall(provider)}>
-                      {installStatus?.jobRunning === true ? '正在安装…' : '安装 Codex CLI'}
-                    </button>
-                  )}
-                  {loginStatus?.installed === true && loginStatus.loggedIn !== true && (
-                    <button type="button" disabled={loginStatus.jobRunning} onClick={() => void startLogin(provider)}>
-                      {loginStatus.jobRunning ? '等待浏览器授权…' : '登录官方账号'}
-                    </button>
-                  )}
-                  <button type="button" className="dshModelAgentPrimary" disabled={!ready || workspaceId === undefined || workspaceId.trim() === ''} onClick={() => onOpenWorkbench(provider.providerId)}>
-                    进入 {provider.displayName} 工作台
+            <article key={provider.providerId} className="dshAgentCard is-codex" data-ready={ready || undefined}>
+              <header className="dshAgentCardHead">
+                <div className="dshAgentCardIdentity">
+                  <span className="dshAgentCardGlyph" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none"><path d="M12 3a9 9 0 1 0 9 9" /><circle cx="12" cy="12" r="3.2" /><path d="M12 3v3.5M21 12h-3.5" /></svg>
+                  </span>
+                  <div>
+                    <h3>Codex</h3>
+                    <small>OpenAI 官方 CLI Agent</small>
+                  </div>
+                </div>
+                <span className={`dshAgentPill ${ready ? 'is-ok' : 'is-warn'}`}>{ready ? '可用' : '待准备'}</span>
+              </header>
+
+              <ol className="dshAgentSteps" aria-label="准备进度">
+                <Step state={installStep} index={1} title="安装 Codex CLI"
+                  doneText={loginStatus?.cliPath || '已在本机检测到'}
+                  todoText={installJob ? '正在安装，通常需要 1-2 分钟，完成后自动检测。' : '还没有安装。点下方「安装 Codex CLI」，通过 npm 安装官方命令行。'} />
+                <Step state={loginStep} index={2} title="登录官方账号"
+                  doneText={loginStatus?.mode || '已登录'}
+                  todoText={loginJob ? '已打开浏览器。完成 ChatGPT 授权后回到这里，状态会自动刷新。' : 'CLI 已就绪。还需要用你的 OpenAI 账号登录一次，登录只在浏览器里进行。'} />
+                <Step state={workspaceStep} index={3} title="选择工作区"
+                  doneText={workspaceId ?? ''}
+                  todoText="在左侧打开或创建一个项目，这里会自动就绪。" />
+              </ol>
+
+              <div className="dshAgentCardActions">
+                <button
+                  type="button"
+                  className="dshAgentPrimaryButton"
+                  disabled={!ready}
+                  onClick={() => onOpenWorkbench(provider.providerId)}
+                >
+                  进入 Codex 工作台
+                </button>
+                {!installed && !installJob && (
+                  <button type="button" className="dshAgentGhostButton" onClick={() => void startInstall(provider)}>
+                    安装 Codex CLI
                   </button>
+                )}
+                {installed && !loggedIn && !loginJob && (
+                  <button type="button" className="dshAgentGhostButton" onClick={() => void startLogin(provider)}>
+                    登录官方账号
+                  </button>
+                )}
+              </div>
+
+              {logLines.length > 0 && (
+                <div className="dshAgentLog">
+                  <div className="dshAgentLogHead">
+                    <span>{installJob ? '安装日志' : loginJob ? '登录日志' : '日志'}</span>
+                    {jobsRunning ? <span className="dshAgentLogLive">进行中</span> : null}
+                  </div>
+                  <pre>{logLines.join('\n')}</pre>
                 </div>
               )}
-              {provider.providerId !== 'codex' && (
-                <div className="dshAgentHomeActions">
-                  <button type="button" disabled onClick={() => onOpenWorkbench(provider.providerId)}>即将支持</button>
+
+              <details className="dshAgentAdvanced">
+                <summary>高级：自动检测不到 CLI？手动指定路径</summary>
+                <div className="dshAgentAdvancedBody">
+                  <p>在终端里运行 <code>which codex</code>，把输出的完整路径粘贴到这里。保存后会立即验证并生效。</p>
+                  <div className="dshAgentAdvancedRow">
+                    <input
+                      type="text"
+                      value={manualPath}
+                      placeholder="/opt/homebrew/bin/codex"
+                      spellCheck={false}
+                      disabled={manualBusy}
+                      onChange={(event) => setManualPath(event.target.value)}
+                      onKeyDown={(event) => { if (event.key === 'Enter') void saveManualPath() }}
+                    />
+                    <button type="button" className="dshAgentGhostButton" disabled={manualBusy || manualPath.trim() === ''} onClick={() => void saveManualPath()}>
+                      {manualBusy ? '验证中…' : '保存并检测'}
+                    </button>
+                  </div>
+                  {manualResult !== null && <p className="dshAgentAdvancedResult" role="status">{manualResult}</p>}
                 </div>
-              )}
-              {installStatus?.jobOutput !== undefined && installStatus.jobOutput.length > 0 && (
-                <pre className="dshAgentHomeJobOutput">{installStatus.jobOutput.join('\n')}</pre>
-              )}
-              {loginStatus?.jobOutput !== undefined && loginStatus.jobOutput.length > 0 && (
-                <pre className="dshAgentHomeJobOutput">{loginStatus.jobOutput.join('\n')}</pre>
-              )}
+              </details>
             </article>
           )
         })}
+
+        {providers.filter((provider) => provider.providerId !== 'codex').map((provider) => (
+          <article key={provider.providerId} className="dshAgentCard is-coming" aria-disabled="true">
+            <header className="dshAgentCardHead">
+              <div className="dshAgentCardIdentity">
+                <span className="dshAgentCardGlyph" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none"><path d="M12 4v16M4 12h16" /></svg>
+                </span>
+                <div>
+                  <h3>{provider.displayName}</h3>
+                  <small>官方 CLI Agent</small>
+                </div>
+              </div>
+              <span className="dshAgentPill is-muted">即将支持</span>
+            </header>
+            <p className="dshAgentComingHint">这个 Provider 正在准备中。当前版本先把 Codex 做扎实。</p>
+          </article>
+        ))}
       </div>
     </section>
+  )
+}
+
+function Step(props: { state: StepState; index: number; title: string; doneText: string; todoText: string }) {
+  return (
+    <li className="dshAgentStep" data-state={props.state}>
+      <span className="dshAgentStepMark" aria-hidden="true">
+        {props.state === 'done'
+          ? <svg viewBox="0 0 24 24" fill="none"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+          : props.state === 'active'
+            ? <span className="dshAgentStepPulse" />
+            : props.index}
+      </span>
+      <div className="dshAgentStepCopy">
+        <strong>{props.title}</strong>
+        <p>{props.state === 'done' ? props.doneText : props.todoText}</p>
+      </div>
+    </li>
   )
 }
