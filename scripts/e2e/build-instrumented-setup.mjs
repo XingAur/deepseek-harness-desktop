@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
-import { isAbsolute, join, resolve } from 'node:path'
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 import { loadReleaseVersions } from '../release-versions.mjs'
@@ -11,10 +11,11 @@ import { selectChangedInstaller } from './installer-artifact-selection.mjs'
 
 const positional = process.argv.slice(2).filter((arg) => !arg.startsWith('--'))
 const mode = process.argv.find((arg) => arg.startsWith('--mode='))?.slice('--mode='.length) ?? 'quick'
-const artifacts = requiredAbsolute(positional[1] ?? resolve('e2e-artifacts'), 'artifact root', false)
+const e2eRoot = requiredAbsolute(process.env.DSH_E2E_ROOT ?? resolve('.'), 'E2E root')
+const artifacts = requiredAbsolute(positional[1] ?? join(e2eRoot, 'e2e-artifacts'), 'artifact root', false)
 const versions = loadReleaseVersions()
 const runtimeVersion = resolveRuntimeVersion(process.env.DSH_E2E_RUNTIME_VERSION, versions.runtimeVersion)
-mkdirSync(artifacts, { recursive: true })
+initializeOwnedArtifactsRoot(artifacts, e2eRoot)
 const archive = positional[0] ? requiredAbsolute(positional[0], 'Runtime archive') : await buildCurrentRuntime(artifacts, runtimeVersion, versions)
 if (!existsSync(archive) || !statSync(archive).isFile()) throw new Error(`Runtime archive 不存在：${archive}`)
 
@@ -86,4 +87,64 @@ function requiredAbsolute(value, name, mustExist = true) {
   if (!isAbsolute(path)) throw new Error(`${name} 必须是绝对路径`)
   if (mustExist && !existsSync(path)) throw new Error(`${name} 不存在：${path}`)
   return path
+}
+
+function initializeOwnedArtifactsRoot(artifactsRoot, e2eRoot) {
+  assertSafeExistingPath(e2eRoot)
+  if (!lstatSync(e2eRoot).isDirectory()) throw new Error('E2E root 必须是目录')
+  assertStrictDescendant(e2eRoot, artifactsRoot)
+  if (existsSync(artifactsRoot)) {
+    validateOwnedArtifactsRoot(artifactsRoot)
+    return
+  }
+  const parent = dirname(artifactsRoot)
+  assertSafeExistingPath(parent)
+  if (!lstatSync(parent).isDirectory()) throw new Error('artifact root 父目录无效')
+  assertContainedOrEqual(e2eRoot, parent)
+  mkdirSync(artifactsRoot)
+  assertSafeExistingPath(artifactsRoot)
+  writeFileSync(join(artifactsRoot, '.dsh-e2e-artifacts-owned'), 'E2E-owned', { encoding: 'utf8', flag: 'wx' })
+  validateOwnedArtifactsRoot(artifactsRoot)
+}
+
+function validateOwnedArtifactsRoot(artifactsRoot) {
+  assertSafeExistingPath(artifactsRoot)
+  if (!lstatSync(artifactsRoot).isDirectory()) throw new Error('artifact root 必须是目录')
+  const marker = join(artifactsRoot, '.dsh-e2e-artifacts-owned')
+  assertSafeExistingPath(marker)
+  if (!lstatSync(marker).isFile() || readFileSync(marker, 'utf8') !== 'E2E-owned') {
+    throw new Error('artifact root ownership marker 无效')
+  }
+}
+
+function assertSafeExistingPath(path) {
+  let current = resolve(path)
+  while (true) {
+    const stat = lstatSync(current)
+    if (stat.isSymbolicLink() || safePathKey(realpathSync.native(current)) !== safePathKey(current)) {
+      throw new Error(`不安全路径：${path}`)
+    }
+    const parent = dirname(current)
+    if (parent === current) return
+    current = parent
+  }
+}
+
+function assertStrictDescendant(root, path) {
+  const relation = relative(root, path)
+  if (relation === '' || relation === '..' || relation.startsWith('..\\') || relation.startsWith('../') || isAbsolute(relation)) {
+    throw new Error('artifact root 必须严格位于 E2E root 内')
+  }
+}
+
+function assertContainedOrEqual(root, path) {
+  const relation = relative(root, path)
+  if (relation === '..' || relation.startsWith('..\\') || relation.startsWith('../') || isAbsolute(relation)) {
+    throw new Error('artifact root 父目录必须位于 E2E root 内')
+  }
+}
+
+function safePathKey(path) {
+  const normalized = resolve(path).replace(/^\\\\\?\\/, '')
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized
 }

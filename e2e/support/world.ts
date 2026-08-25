@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { isAbsolute, resolve } from 'node:path'
-import { prepareSafeDirectory, assertSafePath } from './safe-path'
+import { prepareSafeDirectory, assertSafeLeaf, assertSafePath } from './safe-path'
+import { initializeE2EArtifactsRoot } from './lifecycle-report'
 import { startAppUpdateFixture, type AppUpdateFixture } from '../../scripts/e2e/app-update-fixture.mjs'
 import { startFakeDeepSeek, type FakeDeepSeekFixture } from '../../scripts/e2e/fake-deepseek-server.mjs'
 import { startRuntimeFixture, type RuntimeFixture } from '../../scripts/e2e/runtime-fixture-server.mjs'
@@ -19,7 +20,6 @@ export interface E2EWorld {
 }
 
 export async function createE2EWorld(): Promise<E2EWorld> {
-  const build = loadInstrumentedSetup()
   const e2eRoot = resolve(process.env.DSH_E2E_ROOT ?? '.')
   const projectsRoot = resolve(e2eRoot, 'projects-owned')
   assertSafePath(e2eRoot)
@@ -27,8 +27,14 @@ export async function createE2EWorld(): Promise<E2EWorld> {
   const documentsMarker = resolve(projectsRoot, '.dsh-e2e-documents-owned')
   if (existsSync(documentsMarker) && lstatSync(documentsMarker).isSymbolicLink()) throw new Error('文档所有权标记不得是 symlink')
   writeFileSync(documentsMarker, 'E2E-owned', 'utf8')
+  const artifacts = initializeE2EArtifactsRoot(
+    resolve(process.env.DSH_E2E_ARTIFACTS ?? resolve(e2eRoot, 'e2e-artifacts')),
+    e2eRoot,
+  )
+  const build = loadInstrumentedSetup(artifacts)
   const restoreBuildEnvironment = applyEnvironment({
     DSH_E2E_ROOT: e2eRoot,
+    DSH_E2E_ARTIFACTS: artifacts,
     DSH_E2E_DOCUMENTS_ROOT: projectsRoot,
     DSH_E2E_INSTALLER: process.env.DSH_E2E_INSTALLER ?? build.installers.candidate.path,
     DSH_E2E_ARTIFACT_ROOT: process.env.DSH_E2E_ARTIFACT_ROOT ?? build.artifactRoot,
@@ -48,7 +54,6 @@ export async function createE2EWorld(): Promise<E2EWorld> {
   })
   const modelFixture = await startFakeDeepSeek({ tls })
   const appUpdateFixture = await startAppUpdateFixture({ tls })
-  const artifacts = prepareSafeDirectory(resolve(process.env.DSH_E2E_ARTIFACTS ?? 'e2e-artifacts'))
   const caPath = resolve(artifacts, 'loopback-fixture-ca.pem')
   assertSafeLeaf(caPath); writeFileSync(caPath, tls.caCertificate, 'utf8')
   const restoreEnvironment = applyEnvironment({
@@ -109,8 +114,8 @@ interface InstallerArtifact {
   sha256: string
 }
 
-function loadInstrumentedSetup(): InstrumentedSetup {
-  const metadataPath = resolve(process.env.DSH_E2E_ARTIFACTS ?? 'e2e-artifacts', 'instrumented-setup.json')
+function loadInstrumentedSetup(artifactsRoot: string): InstrumentedSetup {
+  const metadataPath = resolve(artifactsRoot, 'instrumented-setup.json')
   if (!existsSync(metadataPath)) {
     throw new Error(`缺少 E2E 构建元数据，请先运行 npm run e2e:setup:build：${metadataPath}`)
   }
