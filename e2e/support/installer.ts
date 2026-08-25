@@ -239,6 +239,13 @@ export class WindowsInstallerHarness implements InstallerHarness {
 
 function resolveKnownE2eDataRoot(): string {
   if (process.platform !== 'win32') return resolve(process.cwd(), 'ai.deepseek.harness.desktop.e2e')
+  // Unit tests construct the harness on Windows without a real installer
+  // run; LOCALAPPDATA holds the same SpecialFolder value the PowerShell
+  // probe returns and is always set on Windows runners and desktops.
+  const localAppData = process.env.LOCALAPPDATA
+  if (localAppData !== undefined && localAppData !== '' && isAbsolute(localAppData)) {
+    return resolve(localAppData, E2E_BUNDLE_ID)
+  }
   const local = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', '[Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)'], { encoding: 'utf8' }).trim()
   if (!isAbsolute(local)) throw new Error('无法确定 Windows LocalApplicationData')
   return resolve(local, E2E_BUNDLE_ID)
