@@ -493,7 +493,11 @@ describe('product copy', () => {
     expect(workflow).toContain('npm ci --legacy-peer-deps')
     expect(workflow).toContain('DSH_E2E_ROOT: ${{ github.workspace }}\\\\.dsh-e2e-owned-${{ github.run_id }}')
     expect(workflow).toContain('DSH_E2E_ARTIFACTS: ${{ github.workspace }}\\\\.dsh-e2e-owned-${{ github.run_id }}\\\\e2e-artifacts')
-    expect(workflow).not.toContain('DSH_E2E_ROOT: ${{ github.workspace }}\\\\.dsh-e2e-owned\n')
+    expect(workflow).not.toMatch(/DSH_E2E_ROOT: \$\{\{ github\.workspace \}\}\\\\\\.dsh-e2e-owned(?:\r?\n|$)/)
+    expect(workflow).toContain('- name: Initialize owned E2E root')
+    expect(workflow).toContain('initializeOwnedE2ERoot(process.env.DSH_E2E_ROOT)')
+    expect(workflow.indexOf('- uses: actions/checkout@v4')).toBeLessThan(workflow.indexOf('- name: Initialize owned E2E root'))
+    expect(workflow.indexOf('- name: Initialize owned E2E root')).toBeLessThan(workflow.indexOf('- name: Test deterministic fixtures'))
     expect(workflow).toContain('upload-safe')
   })
 

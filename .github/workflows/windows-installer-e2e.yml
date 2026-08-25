@@ -54,6 +54,11 @@ jobs:
           node-version: ${{ steps.versions.outputs.node_version }}
           cache: npm
 
+      - name: Initialize owned E2E root
+        shell: pwsh
+        run: |
+          node --input-type=module -e "import { initializeOwnedE2ERoot } from './scripts/e2e/owned-e2e-root.mjs'; initializeOwnedE2ERoot(process.env.DSH_E2E_ROOT)"
+
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Install dependencies
