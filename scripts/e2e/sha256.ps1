@@ -6,13 +6,13 @@ function Get-E2ESha256 {
   param([Parameter(Mandatory = $true)][string]$LiteralPath)
 
   if (-not (Test-Path -LiteralPath $LiteralPath -PathType Leaf)) {
-    throw "SHA-256 目标不是普通文件：$LiteralPath"
+    throw "SHA256 target is not a regular file: $LiteralPath"
   }
   $fileHash = Find-E2EFileHashCommand
   if ($null -ne $fileHash) {
     $result = & $fileHash -LiteralPath $LiteralPath -Algorithm SHA256
     if ($null -eq $result -or [string]::IsNullOrWhiteSpace($result.Hash) -or $result.Hash -notmatch '^[0-9a-fA-F]{64}$') {
-      throw "Get-FileHash 未返回有效 SHA-256：$LiteralPath"
+      throw "Get-FileHash returned an invalid SHA256 value: $LiteralPath"
     }
     return $result.Hash.ToLowerInvariant()
   }

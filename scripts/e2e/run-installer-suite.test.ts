@@ -23,7 +23,10 @@ describe('installer suite runner', () => {
   })
 
   it('quick 与 full 分别只运行各自隔离的 installer spec', () => {
-    const quick = createInstallerSuiteCommand('quick', 'E:/repo')
+    // The CI workflow exports its own E2E paths.  Keep this default-path
+    // assertion hermetic so it verifies the runner rather than the runner's
+    // ambient process environment.
+    const quick = createInstallerSuiteCommand('quick', 'E:/repo', {})
     expect(quick.command).toBe(process.execPath)
     expect(quick.args).toEqual([
       resolve('E:/repo/node_modules/vitest/vitest.mjs'),
@@ -39,7 +42,7 @@ describe('installer suite runner', () => {
       DSH_E2E_ARTIFACTS: resolve('E:/repo', DEFAULT_E2E_ROOT_DIRECTORY, 'e2e-artifacts'),
     })
 
-    const full = createInstallerSuiteCommand('full', 'E:/repo')
+    const full = createInstallerSuiteCommand('full', 'E:/repo', {})
     expect(full.args).toEqual([
       resolve('E:/repo/node_modules/vitest/vitest.mjs'),
       'run',
@@ -49,6 +52,22 @@ describe('installer suite runner', () => {
     ])
     expect(full.options.env.DSH_E2E_MODE).toBe('full')
     expect(full.options.env.DSH_E2E_ROOT).toBe(resolve('E:/repo', DEFAULT_E2E_ROOT_DIRECTORY))
+  })
+
+  it('保留调用方显式提供的 E2E root 和 artifacts 路径', () => {
+    const env = {
+      DSH_E2E_ROOT: 'E:/ci-controlled/root',
+      DSH_E2E_ARTIFACTS: 'E:/ci-controlled/artifacts',
+      KEEP: '1',
+    }
+    const command = createInstallerSuiteCommand('full', 'E:/repo', env)
+
+    expect(command.options.env).toMatchObject({
+      DSH_E2E_ROOT: resolve('E:/repo', env.DSH_E2E_ROOT),
+      DSH_E2E_ARTIFACTS: resolve('E:/repo', env.DSH_E2E_ARTIFACTS),
+      DSH_E2E_MODE: 'full',
+      KEEP: '1',
+    })
   })
 
   it('校验构建元数据模式与 DSH_E2E_MODE 一致，quick 不需要升级 spec', () => {

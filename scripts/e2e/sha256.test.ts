@@ -9,7 +9,7 @@ const helper = resolve('scripts/e2e/sha256.ps1')
 const uninstall = resolve('scripts/e2e/uninstall-web-setup.ps1')
 
 describe('E2E SHA-256 PowerShell compatibility', () => {
-  it('优先可用 cmdlet，缺失时用流式 .NET SHA-256 得到同一小写哈希', () => {
+  it('在 Windows PowerShell 和 PowerShell 7 中均可解析，且 fallback 得到同一小写哈希', () => {
     const root = mkdtempSync(join(tmpdir(), 'dsh-e2e-sha256-'))
     const fixture = join(root, 'fixture.bin')
     const payload = Buffer.alloc(1024 * 1024 + 17, 0x5a)
@@ -18,11 +18,13 @@ describe('E2E SHA-256 PowerShell compatibility', () => {
     const escapedHelper = helper.replace(/'/g, "''")
     const escapedFixture = fixture.replace(/'/g, "''")
     try {
-      const output = execFileSync('powershell.exe', [
-        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command',
-        `. '${escapedHelper}'; $normal = Get-E2ESha256 -LiteralPath '${escapedFixture}'; function Find-E2EFileHashCommand { return $null }; $fallback = Get-E2ESha256 -LiteralPath '${escapedFixture}'; Write-Output ($normal + '|' + $fallback)`,
-      ], { encoding: 'utf8' }).trim()
-      expect(output).toBe(`${expected}|${expected}`)
+      for (const shell of ['powershell.exe', 'pwsh']) {
+        const output = execFileSync(shell, [
+          '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command',
+          `. '${escapedHelper}'; $normal = Get-E2ESha256 -LiteralPath '${escapedFixture}'; function Find-E2EFileHashCommand { return $null }; $fallback = Get-E2ESha256 -LiteralPath '${escapedFixture}'; Write-Output ($normal + '|' + $fallback)`,
+        ], { encoding: 'utf8' }).trim()
+        expect(output).toBe(`${expected}|${expected}`)
+      }
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -37,5 +39,6 @@ describe('E2E SHA-256 PowerShell compatibility', () => {
     expect(helperSource).toContain('Get-Command -Name Get-FileHash -CommandType Cmdlet')
     expect(helperSource).toContain('$sha256.ComputeHash($stream)')
     expect(helperSource).not.toContain('ReadAllBytes')
+    expect(helperSource).toMatch(/^[\x00-\x7F]*$/)
   })
 })
