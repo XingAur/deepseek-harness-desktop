@@ -102,6 +102,25 @@ describe('captureLifecycleSnapshot', () => {
     expect(JSON.stringify(snapshot)).not.toContain(fixture.root)
   })
 
+  it('accepts the persisted profile shape when pending is omitted', () => {
+    const fixture = createFixture()
+    writeJson(fixture.stateFile, {
+      selectedProfile: { profileId: 'profile-selected', revision: 7 },
+      lastKnownGood: { profileId: 'profile-selected', revision: 7, runtimeVersion: '1.8.2' },
+    })
+
+    expect(captureLifecycleSnapshot({
+      dataRoot: fixture.dataRoot,
+      projectPath: fixture.projectPath,
+      roots: fixture.roots,
+    }).profile).toEqual({
+      selectedId: 'profile-selected',
+      lastKnownGoodId: 'profile-selected',
+      revision: 7,
+      pending: false,
+    })
+  })
+
   it.runIf(process.platform === 'win32')('normalizes extended drive paths before tokenization and comparison', () => {
     const fixture = createFixture()
     const normal = captureLifecycleSnapshot({

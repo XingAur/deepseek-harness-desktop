@@ -6,7 +6,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-function Assert-NotReparsePoint([string]$Path) { if (Test-Path -LiteralPath $Path) { if ((Get-Item -LiteralPath $Path).Attributes -band [System.IO.FileAttributes]::ReparsePoint) { throw "拒绝 reparse point: $Path" } } }
+function Assert-NotReparsePoint([string]$Path) { if (Test-Path -LiteralPath $Path) { if ((Get-Item -LiteralPath $Path -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint) { throw "拒绝 reparse point: $Path" } } }
 function Assert-NoReparseComponents([string]$Path) { $current = [IO.Path]::GetFullPath($Path); while ($null -ne $current -and $current -ne [IO.Path]::GetPathRoot($current)) { Assert-NotReparsePoint $current; $current = [IO.Path]::GetDirectoryName($current) }; Assert-NotReparsePoint $current }
 function Get-LocalAppData() { $p = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData); if ([string]::IsNullOrWhiteSpace($p) -or -not [IO.Path]::IsPathRooted($p)) { throw '无法确定 LocalAppData' }; return [IO.Path]::GetFullPath($p) }
 if ($DeleteAppData -and $DeleteProjects) { throw 'DeleteAppData and DeleteProjects cannot be combined' }
@@ -59,7 +59,7 @@ foreach ($scope in @('app-data', 'project', 'external')) { if ([int]($scopeCount
 
 $arguments = @('/P')
 if ($DeleteAppData -or $DeleteProjects) {
-  if ((Test-Path -LiteralPath $dataRoot -PathType Container) -and ((Get-Item -LiteralPath $dataRoot).Attributes -band [System.IO.FileAttributes]::ReparsePoint)) { throw 'E2E data root is a reparse point' }
+  if ((Test-Path -LiteralPath $dataRoot -PathType Container) -and ((Get-Item -LiteralPath $dataRoot -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint)) { throw 'E2E data root is a reparse point' }
 $ownershipMarker = Join-Path $dataRoot '.dsh-e2e-owned'
   Assert-NoReparseComponents $ownershipMarker
   if (-not (Test-Path -LiteralPath $ownershipMarker -PathType Leaf)) {

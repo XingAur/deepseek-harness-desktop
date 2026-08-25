@@ -1,6 +1,11 @@
 import { EventEmitter } from 'node:events'
 import { resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { DEFAULT_E2E_ROOT_DIRECTORY } from './default-e2e-paths.mjs'
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { initializeDefaultE2ERoot } from './owned-e2e-root.mjs'
+import { afterAll, describe, expect, it } from 'vitest'
 import {
   createInstallerSuiteCommand,
   assertInstallerSuiteReady,
@@ -29,6 +34,10 @@ describe('installer suite runner', () => {
     ])
     expect(quick.options).toMatchObject({ stdio: 'inherit', windowsHide: true })
     expect(quick.options.env.DSH_E2E_MODE).toBe('quick')
+    expect(quick.options.env).toMatchObject({
+      DSH_E2E_ROOT: resolve('E:/repo', DEFAULT_E2E_ROOT_DIRECTORY),
+      DSH_E2E_ARTIFACTS: resolve('E:/repo', DEFAULT_E2E_ROOT_DIRECTORY, 'e2e-artifacts'),
+    })
 
     const full = createInstallerSuiteCommand('full', 'E:/repo')
     expect(full.args).toEqual([
@@ -38,6 +47,7 @@ describe('installer suite runner', () => {
       'vitest.e2e.config.ts',
     ])
     expect(full.options.env.DSH_E2E_MODE).toBe('full')
+    expect(full.options.env.DSH_E2E_ROOT).toBe(resolve('E:/repo', DEFAULT_E2E_ROOT_DIRECTORY))
   })
 
   it('校验构建元数据模式与 DSH_E2E_MODE 一致，quick 不需要升级 spec', () => {
@@ -46,9 +56,9 @@ describe('installer suite runner', () => {
       .toThrow('E2E 构建元数据模式与 DSH_E2E_MODE 不匹配')
   })
 
-  it('full 在缺少明确升级验证 spec 时拒绝执行', () => {
+  it('full 在缺少升级和卸载矩阵 spec 时拒绝执行', () => {
     expect(() => assertInstallerSuiteReady('full', readyOptions('full', false)))
-      .toThrow('full 安装 E2E 尚未接入升级验证 spec，已拒绝执行')
+      .toThrow('full 安装 E2E 尚未接入升级和卸载矩阵 spec，已拒绝执行')
     expect(() => assertInstallerSuiteReady('full', readyOptions('full', true))).not.toThrow()
   })
 
@@ -72,6 +82,76 @@ describe('installer suite runner', () => {
       spawnProcess: () => childThatErrors(new Error('spawn failed')),
     })).rejects.toThrow('spawn failed')
   })
+
+  describe.each(['quick', 'full'] as const)('%s ownership gate', (mode) => {
+    it('rejects an unowned default root before metadata read or child spawn', async () => {
+      const cwd = temporaryRoot()
+      let metadataRead = false
+      let spawned = false
+
+      expect(() => runInstallerSuite(mode, {
+        cwd,
+        env: {},
+        readFile: () => { metadataRead = true; return JSON.stringify({ mode }) },
+        exists: () => true,
+        spawnProcess: () => { spawned = true; return childThatExits(0) },
+      })).toThrow('默认 E2E root 未受本套件所有权标记保护')
+      expect(metadataRead).toBe(false)
+      expect(spawned).toBe(false)
+    })
+
+    it('rejects a root marker junction before metadata read or child spawn', async (context) => {
+      const cwd = temporaryRoot()
+      const root = resolve(cwd, DEFAULT_E2E_ROOT_DIRECTORY)
+      const marker = join(root, '.dsh-e2e-root-owned')
+      const external = join(cwd, 'external-marker')
+      mkdirSync(root)
+      mkdirSync(external)
+      try {
+        symlinkSync(external, marker, process.platform === 'win32' ? 'junction' : 'dir')
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'EPERM') {
+          context.skip('当前 Windows 权限不允许创建 junction reparse point')
+          return
+        }
+        throw error
+      }
+      let metadataRead = false
+      let spawned = false
+
+      expect(() => runInstallerSuite(mode, {
+        cwd,
+        env: {},
+        readFile: () => { metadataRead = true; return JSON.stringify({ mode }) },
+        exists: () => true,
+        spawnProcess: () => { spawned = true; return childThatExits(0) },
+      })).toThrow('默认 E2E root 未受本套件所有权标记保护')
+      expect(metadataRead).toBe(false)
+      expect(spawned).toBe(false)
+    })
+
+    it('accepts a normal owned root and retains the metadata mode gate', () => {
+      const cwd = temporaryRoot()
+      const root = resolve(cwd, DEFAULT_E2E_ROOT_DIRECTORY)
+      const artifacts = join(root, 'e2e-artifacts')
+      initializeDefaultE2ERoot(root)
+      mkdirSync(artifacts)
+      writeFileSync(join(artifacts, '.dsh-e2e-artifacts-owned'), 'E2E-owned', 'utf8')
+
+      expect(() => assertInstallerSuiteReady(mode, {
+        cwd,
+        env: {},
+        readFile: () => JSON.stringify({ mode }),
+        exists: () => true,
+      })).not.toThrow()
+      expect(() => assertInstallerSuiteReady(mode, {
+        cwd,
+        env: {},
+        readFile: () => JSON.stringify({ mode: mode === 'quick' ? 'full' : 'quick' }),
+        exists: () => true,
+      })).toThrow('E2E 构建元数据模式与 DSH_E2E_MODE 不匹配')
+    })
+  })
 })
 
 function readyOptions(metadataMode: 'quick' | 'full', fullSpecExists: boolean, e2eMode = metadataMode) {
@@ -79,7 +159,19 @@ function readyOptions(metadataMode: 'quick' | 'full', fullSpecExists: boolean, e
     env: { DSH_E2E_ARTIFACTS: 'E:/artifacts', DSH_E2E_MODE: e2eMode },
     readFile: () => JSON.stringify({ mode: metadataMode }),
     exists: () => fullSpecExists,
+    validatePaths: () => {},
   }
+}
+
+const temporaryRoots: string[] = []
+afterAll(() => {
+  for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true })
+})
+
+function temporaryRoot() {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-runner-owned-root-'))
+  temporaryRoots.push(root)
+  return root
 }
 
 function childThatExits(code: number | null, signal: NodeJS.Signals | null = null) {

@@ -26,11 +26,27 @@ export interface RedactionRoots {
   temp: string
 }
 
+export interface LifecycleReportInput {
+  artifactsRoot: string
+  roots: RedactionRoots
+  category: string
+  stage: string
+  status: 'passed' | 'failed'
+  durationMs?: number
+  desktopVersion?: string
+  runtimeVersion?: string
+  version?: string
+  snapshot?: unknown
+  differences?: unknown
+  path?: string
+}
+
 const FORBIDDEN_KEYS = /^(apiKey|authorization|cookie|prompt|response|messages?)$/i
 const ALLOWED_KEYS = new Set([
   'schemaVersion',
   'mode',
   'stage',
+  'stages',
   'status',
   'category',
   'durationMs',
@@ -145,6 +161,24 @@ export function initializeE2EArtifactsRoot(path: string, e2eRootPath: string): s
   return verifyOwnedArtifactsRoot(artifactsRoot)
 }
 
+export function recordLifecycleReport(input: LifecycleReportInput): void {
+  if (input.category.trim() === '' || input.stage.trim() === '' || (input.status !== 'passed' && input.status !== 'failed')) {
+    throw new Error('lifecycle-report-invalid')
+  }
+  const e2eRoot = verifyControlledE2ERoot(input.roots.e2eRoot)
+  const requestedArtifactsRoot = stableRoot(input.artifactsRoot, 'artifacts-root-invalid')
+  assertStrictDescendant(e2eRoot, requestedArtifactsRoot)
+  const artifactsRoot = verifyOwnedArtifactsRoot(requestedArtifactsRoot)
+  const reportPath = assertContainedLeaf(join(artifactsRoot, 'lifecycle-report.json'), artifactsRoot)
+  assertSafeLeaf(reportPath)
+
+  const { artifactsRoot: _artifactsRoot, roots: _roots, ...entry } = input
+  const stage = sanitizeLifecycleReport(entry, input.roots)
+  if (!isJsonObject(stage) || !isLifecycleStage(stage)) throw new Error('lifecycle-report-invalid')
+  const report = { schemaVersion: 1, stages: [...readLifecycleStages(reportPath), stage] }
+  atomicWriteLifecycleReport(reportPath, artifactsRoot, report)
+}
+
 export function stageSafeLifecycleArtifacts(input: {
   artifactsRoot: string
   roots: RedactionRoots
@@ -220,6 +254,39 @@ function sanitizeValue(value: unknown, replacements: readonly RootReplacement[])
     sanitized[key] = sanitizeValue(entry, replacements)
   }
   return sanitized
+}
+
+function readLifecycleStages(reportPath: string): JsonObject[] {
+  if (!existsSync(reportPath)) return []
+  try {
+    const existing = JSON.parse(readFileSync(reportPath, 'utf8')) as unknown
+    if (!isJsonObject(existing) || existing.schemaVersion !== 1 || !Array.isArray(existing.stages)) {
+      throw new Error('lifecycle-report-invalid')
+    }
+    if (existing.stages.some((stage) => !isJsonObject(stage) || !isLifecycleStage(stage))) throw new Error('lifecycle-report-invalid')
+    return existing.stages as JsonObject[]
+  } catch {
+    throw new Error('lifecycle-report-invalid')
+  }
+}
+
+function isLifecycleStage(value: JsonObject): boolean {
+  return typeof value.category === 'string' && value.category.trim() !== ''
+    && typeof value.stage === 'string' && value.stage.trim() !== ''
+    && (value.status === 'passed' || value.status === 'failed')
+}
+
+function atomicWriteLifecycleReport(reportPath: string, artifactsRoot: string, report: JsonObject): void {
+  const temporary = assertContainedLeaf(join(artifactsRoot, `.lifecycle-report-${randomUUID()}.tmp`), artifactsRoot)
+  try {
+    writeFileSync(temporary, `${JSON.stringify(report, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' })
+    if (!lstatSync(assertSafeLeaf(temporary)).isFile()) throw new Error('lifecycle-report-invalid')
+    assertSafeLeaf(reportPath)
+    renameSync(temporary, reportPath)
+    assertSafeLeaf(reportPath)
+  } finally {
+    if (existsSync(temporary)) unlinkSync(assertSafeLeaf(temporary))
+  }
 }
 
 function buildRootReplacements(roots: RedactionRoots): RootReplacement[] {

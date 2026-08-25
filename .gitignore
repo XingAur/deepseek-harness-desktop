@@ -18,5 +18,6 @@ src-tauri/icons/ios/
 src-tauri/icons/StoreLogo.png
 src-tauri/icons/Square*Logo.png
 e2e-artifacts/
+.dsh-e2e-owned/
 .tmp-pack/
 doc/updater-e2e.key*

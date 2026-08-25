@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   initializeE2EArtifactsRoot,
   lifecycleRedactionRoots,
+  recordLifecycleReport,
   sanitizeLifecycleReport,
   stageSafeLifecycleArtifacts,
   type RedactionRoots,
@@ -292,6 +293,51 @@ describe('stageSafeLifecycleArtifacts', () => {
       roots: fixture.roots,
     })).toThrow('不安全路径')
     expect(readFileSync(sentinel, 'utf8')).toBe('outside')
+  })
+})
+
+describe('recordLifecycleReport', () => {
+  it('appends root-tokenized stages, keeps failures, and stages the complete safe timeline', () => {
+    const fixture = createArtifactsFixture()
+    recordLifecycleReport({
+      artifactsRoot: fixture.artifactsRoot,
+      roots: fixture.roots,
+      category: 'candidate-install',
+      stage: 'candidate-install',
+      status: 'passed',
+      path: join(fixture.roots.dataRoot, 'state', 'provisioning.json'),
+    })
+    recordLifecycleReport({
+      artifactsRoot: fixture.artifactsRoot,
+      roots: fixture.roots,
+      category: 'state-comparison',
+      stage: 'compare',
+      status: 'failed',
+      differences: ['profile-pending'],
+      prompt: 'must-not-be-recorded',
+    } as unknown as Parameters<typeof recordLifecycleReport>[0])
+    recordLifecycleReport({
+      artifactsRoot: fixture.artifactsRoot,
+      roots: fixture.roots,
+      category: 'cleanup',
+      stage: 'cleanup',
+      status: 'passed',
+    })
+
+    const report = JSON.parse(readFileSync(join(fixture.artifactsRoot, 'lifecycle-report.json'), 'utf8'))
+    expect(report).toEqual({
+      schemaVersion: 1,
+      stages: [
+        { category: 'candidate-install', stage: 'candidate-install', status: 'passed', path: '$DATA_ROOT\\state\\provisioning.json' },
+        { category: 'state-comparison', stage: 'compare', status: 'failed', differences: ['profile-pending'] },
+        { category: 'cleanup', stage: 'cleanup', status: 'passed' },
+      ],
+    })
+    expect(JSON.stringify(report)).not.toContain(fixture.root)
+    expect(JSON.stringify(report)).not.toContain('must-not-be-recorded')
+
+    stageSafeLifecycleArtifacts({ artifactsRoot: fixture.artifactsRoot, roots: fixture.roots })
+    expect(JSON.parse(readFileSync(join(fixture.artifactsRoot, 'upload-safe', 'lifecycle-report.json'), 'utf8'))).toEqual(report)
   })
 })
 

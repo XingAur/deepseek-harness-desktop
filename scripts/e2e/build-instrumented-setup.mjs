@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
@@ -8,14 +8,22 @@ import { createRuntimeSigningState, loadRuntimeSigningState } from './runtime-si
 import { findCompatibleRuntimeDependencyCache } from './runtime-dependency-cache.mjs'
 import { createInstallerBuildPlan, resolveRuntimeVersion } from './installer-build-plan.mjs'
 import { selectChangedInstaller } from './installer-artifact-selection.mjs'
+import { resolveE2EPaths } from './default-e2e-paths.mjs'
+import { initializeOwnedE2ERoot } from './owned-e2e-root.mjs'
 
 const positional = process.argv.slice(2).filter((arg) => !arg.startsWith('--'))
 const mode = process.argv.find((arg) => arg.startsWith('--mode='))?.slice('--mode='.length) ?? 'quick'
-const e2eRoot = requiredAbsolute(process.env.DSH_E2E_ROOT ?? resolve('.'), 'E2E root')
-const artifacts = requiredAbsolute(positional[1] ?? join(e2eRoot, 'e2e-artifacts'), 'artifact root', false)
+const e2ePaths = resolveE2EPaths(process.cwd(), process.env)
+const e2eRoot = e2ePaths.e2eRoot
+// An explicit root is just as untrusted as the default one.  This only creates
+// a marker alongside a root this process just created; an existing unmarked
+// root fails closed before any artifacts are inspected or written.
+initializeOwnedE2ERoot(e2eRoot)
+const artifacts = requiredAbsolute(positional[1] ?? e2ePaths.artifactsRoot, 'artifact root', false)
 const versions = loadReleaseVersions()
 const runtimeVersion = resolveRuntimeVersion(process.env.DSH_E2E_RUNTIME_VERSION, versions.runtimeVersion)
 initializeOwnedArtifactsRoot(artifacts, e2eRoot)
+if (!positional[0]) cleanOwnedRuntimeOutput(artifacts)
 const archive = positional[0] ? requiredAbsolute(positional[0], 'Runtime archive') : await buildCurrentRuntime(artifacts, runtimeVersion, versions)
 if (!existsSync(archive) || !statSync(archive).isFile()) throw new Error(`Runtime archive 不存在：${archive}`)
 
@@ -104,6 +112,17 @@ function initializeOwnedArtifactsRoot(artifactsRoot, e2eRoot) {
   mkdirSync(artifactsRoot)
   assertSafeExistingPath(artifactsRoot)
   writeFileSync(join(artifactsRoot, '.dsh-e2e-artifacts-owned'), 'E2E-owned', { encoding: 'utf8', flag: 'wx' })
+  validateOwnedArtifactsRoot(artifactsRoot)
+}
+
+function cleanOwnedRuntimeOutput(artifactsRoot) {
+  const runtimeOutput = join(artifactsRoot, 'runtime-build-windows-x86_64')
+  if (!existsSync(runtimeOutput)) return
+  validateOwnedArtifactsRoot(artifactsRoot)
+  assertSafeExistingPath(runtimeOutput)
+  const relation = relative(artifactsRoot, runtimeOutput)
+  if (relation !== 'runtime-build-windows-x86_64') throw new Error('Runtime 构建输出路径无效')
+  rmSync(runtimeOutput, { recursive: true, force: true, maxRetries: 3, retryDelay: 250 })
   validateOwnedArtifactsRoot(artifactsRoot)
 }
 
