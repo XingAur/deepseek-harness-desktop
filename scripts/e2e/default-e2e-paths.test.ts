@@ -15,11 +15,11 @@ describe('default E2E paths', () => {
 
   it('keeps explicit roots and artifacts together in child process environment', () => {
     const paths = resolveE2EPaths('E:/repo', { DSH_E2E_ROOT: 'E:/controlled', DSH_E2E_ARTIFACTS: 'E:/controlled/artifacts' })
-    expect(paths).toEqual({ e2eRoot: resolve('E:/controlled'), artifactsRoot: resolve('E:/controlled/artifacts'), usesDefaultRoot: false })
+    expect(paths).toEqual({ e2eRoot: resolve('E:/repo', 'E:/controlled'), artifactsRoot: resolve('E:/repo', 'E:/controlled/artifacts'), usesDefaultRoot: false })
     expect(withE2EPaths({ KEEP: '1' }, paths)).toEqual({
       KEEP: '1',
-      DSH_E2E_ROOT: resolve('E:/controlled'),
-      DSH_E2E_ARTIFACTS: resolve('E:/controlled/artifacts'),
+      DSH_E2E_ROOT: resolve('E:/repo', 'E:/controlled'),
+      DSH_E2E_ARTIFACTS: resolve('E:/repo', 'E:/controlled/artifacts'),
     })
   })
 })

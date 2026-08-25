@@ -137,15 +137,27 @@ function validateOwnedArtifactsRoot(artifactsRoot) {
 }
 
 function assertSafeExistingPath(path) {
+  // 与 e2e/support/safe-path.ts 相同的语义：符号链接检测为准，豁免
+  // 文件系统根一级的系统布局符号链接；规范拼写差异视为同一物理目录。
   let current = resolve(path)
   while (true) {
     const stat = lstatSync(current)
-    if (stat.isSymbolicLink() || safePathKey(realpathSync.native(current)) !== safePathKey(current)) {
+    if (stat.isSymbolicLink() && !isSystemLayoutAlias(current)) {
       throw new Error(`不安全路径：${path}`)
     }
     const parent = dirname(current)
     if (parent === current) return
     current = parent
+  }
+}
+
+function isSystemLayoutAlias(path) {
+  const parent = dirname(path)
+  if (dirname(parent) !== parent) return false
+  try {
+    return lstatSync(path).isSymbolicLink() && safePathKey(realpathSync.native(path)) !== safePathKey(path)
+  } catch {
+    return false
   }
 }
 

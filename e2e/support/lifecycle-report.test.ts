@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   initializeE2EArtifactsRoot,
@@ -186,7 +186,7 @@ describe('stageSafeLifecycleArtifacts', () => {
       'quick-preserve-all-final.png',
     ])
     const staged = readFileSync(join(fixture.artifactsRoot, 'upload-safe', 'lifecycle-report.json'), 'utf8')
-    expect(staged).toContain(String.raw`$DATA_ROOT\\state.json`)
+    expect(staged).toContain(['$DATA_ROOT', 'state.json'].join(sep))
     expect(staged).not.toContain(fixture.roots.dataRoot)
   })
 
@@ -328,7 +328,7 @@ describe('recordLifecycleReport', () => {
     expect(report).toEqual({
       schemaVersion: 1,
       stages: [
-        { category: 'candidate-install', stage: 'candidate-install', status: 'passed', path: '$DATA_ROOT\\state\\provisioning.json' },
+        { category: 'candidate-install', stage: 'candidate-install', status: 'passed', path: ['$DATA_ROOT', 'state', 'provisioning.json'].join(sep) },
         { category: 'state-comparison', stage: 'compare', status: 'failed', differences: ['profile-pending'] },
         { category: 'cleanup', stage: 'cleanup', status: 'passed' },
       ],
