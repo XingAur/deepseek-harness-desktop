@@ -1,5 +1,6 @@
-import { existsSync } from 'node:fs'
-import { isAbsolute, relative, resolve } from 'node:path'
+import { existsSync, mkdtempSync } from 'node:fs'
+import { createServer } from 'node:net'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 import '@wdio/tauri-service'
 import {
   cleanupWdioSession,
@@ -7,6 +8,7 @@ import {
   startWdioSession,
   type TauriCapabilities,
 } from '@wdio/tauri-service'
+import { assertSafePath, prepareSafeDirectory } from './safe-path'
 
 export interface FixtureRequest {
   method: string
@@ -47,9 +49,12 @@ export interface DesktopHarness {
 export class PackagedDesktopHarness implements DesktopHarness {
   private session?: WebdriverIO.Browser
   private ownsSession = false
+  private cdpEndpoint?: string
+  private webView2UserDataFolder?: string
 
   constructor(session?: WebdriverIO.Browser) {
     this.session = session
+    if (session !== undefined) this.cdpEndpoint = configuredCdpEndpoint()
   }
 
   async launch(appBinary = process.env.DSH_E2E_APP_BINARY): Promise<void> {
@@ -57,6 +62,9 @@ export class PackagedDesktopHarness implements DesktopHarness {
       throw new Error('E2E 应用路径无效')
     }
     if (this.session === undefined) {
+      const cdpPort = await reserveLoopbackPort()
+      this.cdpEndpoint = cdpEndpointForPort(cdpPort)
+      this.webView2UserDataFolder = createE2eWebViewUserDataFolder()
       const capabilities = createTauriCapabilities(appBinary, {
         driverProvider: 'embedded',
         logLevel: 'error',
@@ -68,10 +76,16 @@ export class PackagedDesktopHarness implements DesktopHarness {
         captureBackendLogs: true,
         captureFrontendLogs: true,
         logDir: resolve(process.env.DSH_E2E_ARTIFACTS ?? 'e2e-artifacts'),
-        env: e2eEnvironment(),
+        env: e2eEnvironment(cdpPort, this.webView2UserDataFolder),
       }
-      this.session = await startWdioSession(capabilities)
-      this.ownsSession = true
+      try {
+        this.session = await startWdioSession(capabilities)
+        this.ownsSession = true
+      } catch (error) {
+        this.cdpEndpoint = undefined
+        this.webView2UserDataFolder = undefined
+        throw error
+      }
     }
     const session = this.requireSession()
     await session.waitUntil(async () => (await session.getWindowHandles()).length > 0, {
@@ -369,12 +383,22 @@ export class PackagedDesktopHarness implements DesktopHarness {
 
   async quit(): Promise<void> {
     const session = this.session
-    if (session === undefined) return
+    if (session === undefined) {
+      this.cdpEndpoint = undefined
+      this.webView2UserDataFolder = undefined
+      return
+    }
     this.session = undefined
-    if (this.ownsSession) {
-      this.ownsSession = false
-      await session.tauri.execute(({ core }) => core.invoke('orderly_quit')).catch(() => undefined)
-      await cleanupWdioSession(session)
+    try {
+      if (this.ownsSession) {
+        this.ownsSession = false
+        await session.tauri.execute(({ core }) => core.invoke('orderly_quit')).catch(() => undefined)
+        await cleanupWdioSession(session)
+      }
+    } finally {
+      this.cdpEndpoint = undefined
+      // 目录保留到受控 DSH_E2E_ROOT 的统一清理，避免同一 run 的后续 launch 复用 UDF。
+      this.webView2UserDataFolder = undefined
     }
   }
 
@@ -418,7 +442,7 @@ export class PackagedDesktopHarness implements DesktopHarness {
 
   /** 主窗口（tauri 壳层，非工作台 iframe）上下文中执行；用于本地应用视图断言。 */
   private async withMainWindowTarget(run: (page: CdpPage) => Promise<void>): Promise<void> {
-    const targets = await this.cdpTargets()
+    const { targets } = await this.cdpTargets()
     const main = targets.find((target) => target.type === 'page' && !target.url.includes('127.0.0.1:'))
     if (main?.webSocketDebuggerUrl === undefined) throw new Error('找不到主窗口 CDP target')
     const page = await CdpPage.connect(main.webSocketDebuggerUrl)
@@ -429,32 +453,41 @@ export class PackagedDesktopHarness implements DesktopHarness {
     }
   }
 
-  /** 枚举 WebView2 暴露的 CDP targets；服务未就绪时返回空列表，由调用方决定是否重试。 */
-  private async cdpTargets(): Promise<CdpTarget[]> {
+  /** 枚举当前 launch 的 WebView2 CDP targets；服务未就绪时把连接拒绝交由调用方重试。 */
+  private async cdpTargets(): Promise<CdpTargetLookup> {
+    const endpoint = this.cdpEndpoint
+    if (endpoint === undefined) throw new Error('当前 E2E 会话未配置 CDP endpoint')
     let response: Response
     try {
-      response = await fetch('http://127.0.0.1:9229/json/list')
+      response = await fetch(new URL('/json/list', endpoint))
     } catch (error) {
       // 新进程启动时，WebView2 的 CDP 端口可能尚未开始监听；交由 findWorkbenchTarget 轮询。
-      if (isCdpConnectionRefused(error)) return []
+      if (isCdpConnectionRefused(error)) return { state: 'connection-refused', targets: [] }
       throw error
     }
     if (!response.ok) throw new Error(`CDP target endpoint 返回 ${response.status}`)
-    return await response.json() as CdpTarget[]
+    return { state: 'ready', targets: await response.json() as CdpTarget[] }
+  }
+
+  private requireCdpEndpoint(): string {
+    if (this.cdpEndpoint === undefined) throw new Error('当前 E2E 会话未配置 CDP endpoint')
+    return this.cdpEndpoint
   }
 
   private async findWorkbenchTarget(frameUrl: string): Promise<CdpTarget & { webSocketDebuggerUrl: string }> {
+    const endpoint = this.requireCdpEndpoint()
     const deadline = Date.now() + 30_000
-    let lastTargets: readonly CdpTarget[] = []
+    let lastLookup: CdpTargetLookup = { state: 'connection-refused', targets: [] }
     while (Date.now() < deadline) {
-      const targets = await this.cdpTargets()
-      lastTargets = targets
+      const lookup = await this.cdpTargets()
+      lastLookup = lookup
+      const { targets } = lookup
       const match = selectWorkbenchCdpTarget(targets, frameUrl)
       if (match !== undefined) return match
       await new Promise((resolveWait) => setTimeout(resolveWait, 100))
     }
     throw new Error(
-      `找不到工作台 CDP target：${summarizeCdpUrl(frameUrl)}；最后 CDP targets：${summarizeCdpTargets(lastTargets)}`,
+      `找不到工作台 CDP target：${summarizeCdpUrl(frameUrl)}；最后 CDP endpoint ${summarizeCdpUrl(endpoint)}：${summarizeCdpTargetLookup(lastLookup)}`,
     )
   }
 
@@ -527,6 +560,11 @@ export interface CdpTarget {
   webSocketDebuggerUrl?: string
 }
 
+export type CdpTargetLookup = {
+  state: 'connection-refused' | 'ready'
+  targets: readonly CdpTarget[]
+}
+
 export function selectWorkbenchCdpTarget(
   targets: readonly CdpTarget[],
   frameUrl: string,
@@ -539,6 +577,14 @@ export function selectWorkbenchCdpTarget(
 export function summarizeCdpTargets(targets: readonly CdpTarget[]): string {
   if (targets.length === 0) return '无'
   return targets.map((target) => `${target.type} ${summarizeCdpUrl(target.url)}`).join(', ')
+}
+
+export function summarizeCdpTargetLookup(lookup: CdpTargetLookup): string {
+  if (lookup.state === 'connection-refused') {
+    return '连接被拒绝（请检查 WebView2 是否收到 --remote-debugging-port 参数）'
+  }
+  if (lookup.targets.length === 0) return 'endpoint HTTP 200，空 target 列表'
+  return `endpoint HTTP 200，targets：${summarizeCdpTargets(lookup.targets)}`
 }
 
 function summarizeCdpUrl(rawUrl: string): string {
@@ -810,8 +856,12 @@ function escapeCssAttribute(value: string): string {
   return value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')
 }
 
-function e2eEnvironment(): Record<string, string> {
-  return {
+export function e2eEnvironment(cdpPort: number, webView2UserDataFolder?: string): Record<string, string> {
+  if (!Number.isInteger(cdpPort) || cdpPort < 1 || cdpPort > 65_535) throw new Error('CDP 端口无效')
+  if (webView2UserDataFolder !== undefined && !isAbsolute(webView2UserDataFolder)) {
+    throw new Error('WebView2 用户数据目录必须是绝对路径')
+  }
+  const environment = {
     ...Object.fromEntries(Object.entries(process.env).filter(
     ([name, value]) => (
       name.startsWith('DSH_E2E_')
@@ -821,6 +871,87 @@ function e2eEnvironment(): Record<string, string> {
       || name === 'DEEPSEEK_API_KEY'
     ) && value !== undefined,
     )) as Record<string, string>,
-    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=9229',
+    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${cdpPort}`,
   }
+  if (webView2UserDataFolder !== undefined) environment.WEBVIEW2_USER_DATA_FOLDER = webView2UserDataFolder
+  return environment
+}
+
+const defaultCdpEndpoint = 'http://127.0.0.1:9229'
+const leasedCdpPorts = new Set<number>()
+
+export function normalizeE2eCdpEndpoint(rawEndpoint: string): string {
+  let endpoint: URL
+  try {
+    endpoint = new URL(rawEndpoint)
+  } catch {
+    throw new Error('DSH_E2E_CDP_ENDPOINT 无效')
+  }
+  if (
+    endpoint.protocol !== 'http:'
+    || !['127.0.0.1', '::1', '[::1]'].includes(endpoint.hostname)
+    || endpoint.port === ''
+    || endpoint.username !== ''
+    || endpoint.password !== ''
+    || endpoint.pathname !== '/'
+    || endpoint.search !== ''
+    || endpoint.hash !== ''
+  ) {
+    throw new Error('DSH_E2E_CDP_ENDPOINT 必须是无查询参数的 loopback HTTP 地址')
+  }
+  return endpoint.origin
+}
+
+export async function reserveLoopbackPort(): Promise<number> {
+  for (let attempt = 0; attempt < 32; attempt += 1) {
+    const port = await findFreeLoopbackPort()
+    if (leasedCdpPorts.has(port)) continue
+    leasedCdpPorts.add(port)
+    return port
+  }
+  throw new Error('无法为当前 E2E launch 分配未使用的 loopback CDP 端口')
+}
+
+async function findFreeLoopbackPort(): Promise<number> {
+  return await new Promise<number>((resolvePort, rejectPort) => {
+    const server = createServer()
+    server.once('error', rejectPort)
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address()
+      if (address === null || typeof address === 'string') {
+        server.close(() => rejectPort(new Error('无法分配 loopback CDP 端口')))
+        return
+      }
+      server.close((error) => {
+        if (error !== undefined) rejectPort(error)
+        else resolvePort(address.port)
+      })
+    })
+  })
+}
+
+function cdpEndpointForPort(port: number): string {
+  return `http://127.0.0.1:${port}`
+}
+
+function configuredCdpEndpoint(): string {
+  // 仅用于调用方自己已启动且使用默认 CDP 端口的 WebDriver session；launch() 总是注入独立端口。
+  return normalizeE2eCdpEndpoint(process.env.DSH_E2E_CDP_ENDPOINT ?? defaultCdpEndpoint)
+}
+
+/**
+ * 为每一次桌面 launch 创建独立 WebView2 UDF。目录留在 E2E-owned root 下，
+ * 由 fixture 的 root 清理统一回收；不能在 quit 后立即复用，避免 WebView2 browser
+ * process/命令行参数在相邻会话之间共享。
+ */
+export function createE2eWebViewUserDataFolder(e2eRoot = process.env.DSH_E2E_ROOT): string {
+  if (e2eRoot === undefined || !isAbsolute(e2eRoot)) throw new Error('DSH_E2E_ROOT 必须是绝对路径')
+  const safeRoot = assertSafePath(e2eRoot)
+  const parent = resolve(safeRoot, 'webview2')
+  const relation = relative(safeRoot, parent)
+  if (relation === '' || relation.startsWith('..') || isAbsolute(relation)) {
+    throw new Error('WebView2 用户数据目录越出 DSH_E2E_ROOT')
+  }
+  const safeParent = prepareSafeDirectory(parent)
+  return assertSafePath(mkdtempSync(join(safeParent, 'launch-')))
 }

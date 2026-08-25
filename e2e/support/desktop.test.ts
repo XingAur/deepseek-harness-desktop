@@ -1,11 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import {
   PackagedDesktopHarness,
   assertSessionRoundTripCoverage,
   conversationAssistantReplyCountExpression,
   conversationAssistantReplyIncreaseExpression,
   conversationSendEnabledExpression,
+  createE2eWebViewUserDataFolder,
+  e2eEnvironment,
+  normalizeE2eCdpEndpoint,
+  reserveLoopbackPort,
   selectWorkbenchCdpTarget,
+  summarizeCdpTargetLookup,
   summarizeCdpTargets,
 } from './desktop'
 
@@ -57,7 +65,10 @@ describe('PackagedDesktopHarness CDP target discovery', () => {
     const connectionFailure = Object.assign(new TypeError('fetch failed'), { cause })
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(connectionFailure))
 
-    await expect(readCdpTargets(new PackagedDesktopHarness())).resolves.toEqual([])
+    await expect(readCdpTargets(new PackagedDesktopHarness())).resolves.toEqual({
+      state: 'connection-refused',
+      targets: [],
+    })
   })
 
   it('不吞掉 CDP 返回的 JSON 解析异常', async () => {
@@ -73,6 +84,70 @@ describe('PackagedDesktopHarness CDP target discovery', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }))
 
     await expect(readCdpTargets(new PackagedDesktopHarness())).rejects.toThrow('CDP target endpoint 返回 503')
+  })
+
+  it('区分连接拒绝与 HTTP 200 的空 target 列表，且摘要不含 URL 查询值', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue([]) }))
+
+    await expect(readCdpTargets(new PackagedDesktopHarness())).resolves.toEqual({ state: 'ready', targets: [] })
+    expect(summarizeCdpTargetLookup({ state: 'connection-refused', targets: [] })).toBe(
+      '连接被拒绝（请检查 WebView2 是否收到 --remote-debugging-port 参数）',
+    )
+    expect(summarizeCdpTargetLookup({ state: 'ready', targets: [] })).toBe('endpoint HTTP 200，空 target 列表')
+  })
+
+  it('将本次 launch 分配的端口注入 WebView2 调试参数', () => {
+    expect(e2eEnvironment(31_337).WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS).toBe('--remote-debugging-port=31337')
+    expect(() => e2eEnvironment(0)).toThrow('CDP 端口无效')
+  })
+
+  it('为同一测试进程的多个 launch 分配不同的 loopback 端口', async () => {
+    const first = await reserveLoopbackPort()
+    const second = await reserveLoopbackPort()
+
+    expect(first).toBeGreaterThan(0)
+    expect(second).toBeGreaterThan(0)
+    expect(second).not.toBe(first)
+  })
+
+  it('仅允许既有 WebDriver session 使用显式 loopback CDP endpoint', () => {
+    expect(normalizeE2eCdpEndpoint('http://127.0.0.1:31337')).toBe('http://127.0.0.1:31337')
+    expect(normalizeE2eCdpEndpoint('http://[::1]:31337')).toBe('http://[::1]:31337')
+    expect(() => normalizeE2eCdpEndpoint('http://localhost:31337')).toThrow('loopback HTTP 地址')
+    expect(() => normalizeE2eCdpEndpoint('https://127.0.0.1:31337')).toThrow('loopback HTTP 地址')
+    expect(() => normalizeE2eCdpEndpoint('http://127.0.0.1:31337/?token=secret')).toThrow('loopback HTTP 地址')
+  })
+
+  it('既有 WebDriver session 未指定 endpoint 时兼容默认 9229，指定时使用安全覆盖', () => {
+    const original = process.env.DSH_E2E_CDP_ENDPOINT
+    try {
+      delete process.env.DSH_E2E_CDP_ENDPOINT
+      const legacy = new PackagedDesktopHarness({} as WebdriverIO.Browser)
+      expect((legacy as unknown as { cdpEndpoint?: string }).cdpEndpoint).toBe('http://127.0.0.1:9229')
+
+      process.env.DSH_E2E_CDP_ENDPOINT = 'http://127.0.0.1:31337'
+      const configured = new PackagedDesktopHarness({} as WebdriverIO.Browser)
+      expect((configured as unknown as { cdpEndpoint?: string }).cdpEndpoint).toBe('http://127.0.0.1:31337')
+    } finally {
+      if (original === undefined) delete process.env.DSH_E2E_CDP_ENDPOINT
+      else process.env.DSH_E2E_CDP_ENDPOINT = original
+    }
+  })
+
+  it('每次 launch 都在受控 E2E root 下创建独立 WebView2 用户数据目录，并由 root 范围清理', () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-e2e-webview2-'))
+    try {
+      const first = createE2eWebViewUserDataFolder(root)
+      const second = createE2eWebViewUserDataFolder(root)
+      expect(first).not.toBe(second)
+      expect(first.startsWith(join(root, 'webview2'))).toBe(true)
+      expect(second.startsWith(join(root, 'webview2'))).toBe(true)
+      expect(existsSync(first)).toBe(true)
+      expect(existsSync(second)).toBe(true)
+      expect(e2eEnvironment(31_337, first).WEBVIEW2_USER_DATA_FOLDER).toBe(first)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it('允许 CDP 将工作台 iframe 以 page target 暴露，仍按完整 URL 选中', () => {
@@ -127,5 +202,6 @@ function evaluateWorkbenchExpression<T>(expression: string): T {
 }
 
 function readCdpTargets(desktop: PackagedDesktopHarness): Promise<unknown> {
+  ;(desktop as unknown as { cdpEndpoint?: string }).cdpEndpoint = 'http://127.0.0.1:31337'
   return (desktop as unknown as { cdpTargets(): Promise<unknown> }).cdpTargets()
 }
