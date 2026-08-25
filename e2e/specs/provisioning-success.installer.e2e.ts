@@ -74,11 +74,16 @@ describe('Windows Web Setup success path', () => {
       firstGenerationElapsedMs: firstTiming.elapsedMs,
       warmGenerationElapsedMs: warmTiming.elapsedMs,
     }) + '\n')
+    await desktop.quit()
   })
 
   it('creates two sessions, switches without refresh, and restores them after restart', async () => {
+    if (appBinary === undefined) throw new Error('安装记录缺少应用路径')
+    if (latestDataRoot === undefined) throw new Error('安装记录缺少数据目录')
     const { desktop, modelFixture } = world
 
+    await desktop.launch(appBinary)
+    await desktop.waitForWorkbench(8_000)
     await desktop.createProject({
       idea: `${FIRST_SESSION_MARKER}：请创建 README，并在完成后回复确认`,
     })
