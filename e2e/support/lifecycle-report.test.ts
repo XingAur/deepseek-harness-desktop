@@ -186,7 +186,10 @@ describe('stageSafeLifecycleArtifacts', () => {
       'quick-preserve-all-final.png',
     ])
     const staged = readFileSync(join(fixture.artifactsRoot, 'upload-safe', 'lifecycle-report.json'), 'utf8')
-    expect(staged).toContain(['$DATA_ROOT', 'state.json'].join(sep))
+    // 序列化后的 JSON 会把路径分隔符转义（Windows 上 \\ 变 \\\\），
+    // 因此按平台分隔符的两种拼写之一断言。
+    const token = ['$DATA_ROOT', 'state.json'].join(sep)
+    expect(staged.includes(token) || staged.includes(JSON.stringify(token).slice(1, -1))).toBe(true)
     expect(staged).not.toContain(fixture.roots.dataRoot)
   })
 
