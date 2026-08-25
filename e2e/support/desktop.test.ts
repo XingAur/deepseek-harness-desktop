@@ -1,21 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
-import { tmpdir } from 'node:os'
 import {
   PackagedDesktopHarness,
   assertSessionRoundTripCoverage,
   conversationAssistantReplyCountExpression,
   conversationAssistantReplyIncreaseExpression,
   conversationSendEnabledExpression,
-  createE2eWebViewUserDataFolder,
-  e2eEnvironment,
   normalizeE2eCdpEndpoint,
-  reserveLoopbackPort,
   selectWorkbenchCdpTarget,
   summarizeCdpTargetLookup,
   summarizeCdpTargets,
-  withScopedProcessEnvironment,
 } from './desktop'
 
 describe('PackagedDesktopHarness.continueConversation', () => {
@@ -97,20 +90,6 @@ describe('PackagedDesktopHarness CDP target discovery', () => {
     expect(summarizeCdpTargetLookup({ state: 'ready', targets: [] })).toBe('endpoint HTTP 200，空 target 列表')
   })
 
-  it('将本次 launch 分配的端口注入 WebView2 调试参数', () => {
-    expect(e2eEnvironment(31_337).WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS).toBe('--remote-debugging-port=31337')
-    expect(() => e2eEnvironment(0)).toThrow('CDP 端口无效')
-  })
-
-  it('为同一测试进程的多个 launch 分配不同的 loopback 端口', async () => {
-    const first = await reserveLoopbackPort()
-    const second = await reserveLoopbackPort()
-
-    expect(first).toBeGreaterThan(0)
-    expect(second).toBeGreaterThan(0)
-    expect(second).not.toBe(first)
-  })
-
   it('仅允许既有 WebDriver session 使用显式 loopback CDP endpoint', () => {
     expect(normalizeE2eCdpEndpoint('http://127.0.0.1:31337')).toBe('http://127.0.0.1:31337')
     expect(normalizeE2eCdpEndpoint('http://[::1]:31337')).toBe('http://[::1]:31337')
@@ -132,47 +111,6 @@ describe('PackagedDesktopHarness CDP target discovery', () => {
     } finally {
       if (original === undefined) delete process.env.DSH_E2E_CDP_ENDPOINT
       else process.env.DSH_E2E_CDP_ENDPOINT = original
-    }
-  })
-
-  it('每次 launch 都在受控 E2E root 下创建独立 WebView2 用户数据目录，并由 root 范围清理', () => {
-    const root = mkdtempSync(join(tmpdir(), 'dsh-e2e-webview2-'))
-    try {
-      const first = createE2eWebViewUserDataFolder(root)
-      const second = createE2eWebViewUserDataFolder(root)
-      expect(first).not.toBe(second)
-      expect(first.startsWith(join(root, 'webview2'))).toBe(true)
-      expect(second.startsWith(join(root, 'webview2'))).toBe(true)
-      expect(existsSync(first)).toBe(true)
-      expect(existsSync(second)).toBe(true)
-      expect(e2eEnvironment(31_337, first).WEBVIEW2_USER_DATA_FOLDER).toBe(first)
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-
-  it('仅在启动宿主的作用域内覆盖 WebView2 环境，并在结束后精确还原', async () => {
-    const originalArguments = process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
-    const originalUserDataFolder = process.env.WEBVIEW2_USER_DATA_FOLDER
-    process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--existing-argument'
-    delete process.env.WEBVIEW2_USER_DATA_FOLDER
-
-    try {
-      await withScopedProcessEnvironment({
-        WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=31337',
-        WEBVIEW2_USER_DATA_FOLDER: 'C:\\e2e\\webview2',
-      }, async () => {
-        expect(process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS).toBe('--remote-debugging-port=31337')
-        expect(process.env.WEBVIEW2_USER_DATA_FOLDER).toBe('C:\\e2e\\webview2')
-      })
-
-      expect(process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS).toBe('--existing-argument')
-      expect(process.env.WEBVIEW2_USER_DATA_FOLDER).toBeUndefined()
-    } finally {
-      if (originalArguments === undefined) delete process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
-      else process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = originalArguments
-      if (originalUserDataFolder === undefined) delete process.env.WEBVIEW2_USER_DATA_FOLDER
-      else process.env.WEBVIEW2_USER_DATA_FOLDER = originalUserDataFolder
     }
   })
 

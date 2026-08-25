@@ -1,6 +1,5 @@
-import { existsSync, mkdtempSync } from 'node:fs'
-import { createServer } from 'node:net'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { existsSync } from 'node:fs'
+import { isAbsolute, relative, resolve } from 'node:path'
 import '@wdio/tauri-service'
 import {
   cleanupWdioSession,
@@ -8,7 +7,6 @@ import {
   startWdioSession,
   type TauriCapabilities,
 } from '@wdio/tauri-service'
-import { assertSafePath, prepareSafeDirectory } from './safe-path'
 
 export interface FixtureRequest {
   method: string
@@ -50,7 +48,6 @@ export class PackagedDesktopHarness implements DesktopHarness {
   private session?: WebdriverIO.Browser
   private ownsSession = false
   private cdpEndpoint?: string
-  private webView2UserDataFolder?: string
 
   constructor(session?: WebdriverIO.Browser) {
     this.session = session
@@ -62,9 +59,9 @@ export class PackagedDesktopHarness implements DesktopHarness {
       throw new Error('E2E 应用路径无效')
     }
     if (this.session === undefined) {
-      const cdpPort = await reserveLoopbackPort()
-      this.cdpEndpoint = cdpEndpointForPort(cdpPort)
-      this.webView2UserDataFolder = createE2eWebViewUserDataFolder()
+      // E2E 构建在 WebView2 创建层固定配置 9229；不要依赖环境变量覆盖，
+      // 因为 WebView2 不保证从 Tauri/WebDriver 的子进程环境读取该配置。
+      this.cdpEndpoint = defaultCdpEndpoint
       const capabilities = createTauriCapabilities(appBinary, {
         driverProvider: 'embedded',
         logLevel: 'error',
@@ -78,16 +75,10 @@ export class PackagedDesktopHarness implements DesktopHarness {
         logDir: resolve(process.env.DSH_E2E_ARTIFACTS ?? 'e2e-artifacts'),
       }
       try {
-        // WebView2 只会在宿主进程启动前读取这些变量。不能依赖 tauri service
-        // 的 env capability：其公开契约仅覆盖驱动进程，不保证应用宿主继承。
-        this.session = await withScopedProcessEnvironment(
-          e2eEnvironment(cdpPort, this.webView2UserDataFolder),
-          async () => await startWdioSession(capabilities),
-        )
+        this.session = await startWdioSession(capabilities)
         this.ownsSession = true
       } catch (error) {
         this.cdpEndpoint = undefined
-        this.webView2UserDataFolder = undefined
         throw error
       }
     }
@@ -389,7 +380,6 @@ export class PackagedDesktopHarness implements DesktopHarness {
     const session = this.session
     if (session === undefined) {
       this.cdpEndpoint = undefined
-      this.webView2UserDataFolder = undefined
       return
     }
     this.session = undefined
@@ -401,8 +391,6 @@ export class PackagedDesktopHarness implements DesktopHarness {
       }
     } finally {
       this.cdpEndpoint = undefined
-      // 目录保留到受控 DSH_E2E_ROOT 的统一清理，避免同一 run 的后续 launch 复用 UDF。
-      this.webView2UserDataFolder = undefined
     }
   }
 
@@ -860,66 +848,7 @@ function escapeCssAttribute(value: string): string {
   return value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')
 }
 
-export function e2eEnvironment(cdpPort: number, webView2UserDataFolder?: string): Record<string, string> {
-  if (!Number.isInteger(cdpPort) || cdpPort < 1 || cdpPort > 65_535) throw new Error('CDP 端口无效')
-  if (webView2UserDataFolder !== undefined && !isAbsolute(webView2UserDataFolder)) {
-    throw new Error('WebView2 用户数据目录必须是绝对路径')
-  }
-  const environment = {
-    ...Object.fromEntries(Object.entries(process.env).filter(
-    ([name, value]) => (
-      name.startsWith('DSH_E2E_')
-      || name.startsWith('DSH_DESKTOP_E2E_')
-      || name === 'NODE_EXTRA_CA_CERTS'
-      || name === 'DEEPSEEK_BASE_URL'
-      || name === 'DEEPSEEK_API_KEY'
-    ) && value !== undefined,
-    )) as Record<string, string>,
-    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${cdpPort}`,
-  }
-  if (webView2UserDataFolder !== undefined) environment.WEBVIEW2_USER_DATA_FOLDER = webView2UserDataFolder
-  return environment
-}
-
-let scopedProcessEnvironmentTail: Promise<void> = Promise.resolve()
-
-/**
- * 仅在启动测试中的桌面宿主时临时覆盖进程环境变量，并在完成后精确还原。
- *
- * @wdio/tauri-service 的 embedded driver 从当前 Node 进程派生应用，因此这里能
- * 确保 WebView2 在创建环境之前继承调试端口和独立 UDF。队列避免将来并发 launch
- * 时把两个应用的启动环境混在一起。
- */
-export async function withScopedProcessEnvironment<T>(
-  overrides: Readonly<Record<string, string | undefined>>,
-  run: () => Promise<T>,
-): Promise<T> {
-  let release!: () => void
-  const previousScope = scopedProcessEnvironmentTail
-  scopedProcessEnvironmentTail = new Promise<void>((resolveScope) => {
-    release = resolveScope
-  })
-  await previousScope
-
-  const previousValues = new Map<string, string | undefined>()
-  try {
-    for (const [name, value] of Object.entries(overrides)) {
-      previousValues.set(name, process.env[name])
-      if (value === undefined) delete process.env[name]
-      else process.env[name] = value
-    }
-    return await run()
-  } finally {
-    for (const [name, value] of previousValues) {
-      if (value === undefined) delete process.env[name]
-      else process.env[name] = value
-    }
-    release()
-  }
-}
-
 const defaultCdpEndpoint = 'http://127.0.0.1:9229'
-const leasedCdpPorts = new Set<number>()
 
 export function normalizeE2eCdpEndpoint(rawEndpoint: string): string {
   let endpoint: URL
@@ -943,56 +872,7 @@ export function normalizeE2eCdpEndpoint(rawEndpoint: string): string {
   return endpoint.origin
 }
 
-export async function reserveLoopbackPort(): Promise<number> {
-  for (let attempt = 0; attempt < 32; attempt += 1) {
-    const port = await findFreeLoopbackPort()
-    if (leasedCdpPorts.has(port)) continue
-    leasedCdpPorts.add(port)
-    return port
-  }
-  throw new Error('无法为当前 E2E launch 分配未使用的 loopback CDP 端口')
-}
-
-async function findFreeLoopbackPort(): Promise<number> {
-  return await new Promise<number>((resolvePort, rejectPort) => {
-    const server = createServer()
-    server.once('error', rejectPort)
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address()
-      if (address === null || typeof address === 'string') {
-        server.close(() => rejectPort(new Error('无法分配 loopback CDP 端口')))
-        return
-      }
-      server.close((error) => {
-        if (error !== undefined) rejectPort(error)
-        else resolvePort(address.port)
-      })
-    })
-  })
-}
-
-function cdpEndpointForPort(port: number): string {
-  return `http://127.0.0.1:${port}`
-}
-
 function configuredCdpEndpoint(): string {
-  // 仅用于调用方自己已启动且使用默认 CDP 端口的 WebDriver session；launch() 总是注入独立端口。
+  // 仅用于调用方自己已启动的 WebDriver session；内部 launch 固定使用 E2E 构建的 9229。
   return normalizeE2eCdpEndpoint(process.env.DSH_E2E_CDP_ENDPOINT ?? defaultCdpEndpoint)
-}
-
-/**
- * 为每一次桌面 launch 创建独立 WebView2 UDF。目录留在 E2E-owned root 下，
- * 由 fixture 的 root 清理统一回收；不能在 quit 后立即复用，避免 WebView2 browser
- * process/命令行参数在相邻会话之间共享。
- */
-export function createE2eWebViewUserDataFolder(e2eRoot = process.env.DSH_E2E_ROOT): string {
-  if (e2eRoot === undefined || !isAbsolute(e2eRoot)) throw new Error('DSH_E2E_ROOT 必须是绝对路径')
-  const safeRoot = assertSafePath(e2eRoot)
-  const parent = resolve(safeRoot, 'webview2')
-  const relation = relative(safeRoot, parent)
-  if (relation === '' || relation.startsWith('..') || isAbsolute(relation)) {
-    throw new Error('WebView2 用户数据目录越出 DSH_E2E_ROOT')
-  }
-  const safeParent = prepareSafeDirectory(parent)
-  return assertSafePath(mkdtempSync(join(safeParent, 'launch-')))
 }

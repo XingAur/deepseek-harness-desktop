@@ -40,6 +40,11 @@ use runtime::paths::RuntimePaths;
 use storage::app_paths::AppPaths;
 use tauri::{Emitter, Manager, webview::WebviewWindowBuilder};
 
+// 仅编译进安装包级 E2E 候选应用。Windows WebDriver 不能可靠地穿透跨域工作台 iframe，
+// 因此测试通过 WebView2 的 CDP 端口连接工作台；该配置必须在创建 WebView2 环境时传入。
+#[cfg(feature = "e2e")]
+const E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS: &str = "--remote-debugging-port=9229";
+
 macro_rules! renderer_commands {
     ($callback:ident) => {
         $callback! {
@@ -151,6 +156,15 @@ mod renderer_command_tests {
         let registered = super::RENDERER_COMMAND_NAMES
             .contains(&"commands::e2e_runtime_identity");
         assert_eq!(registered, cfg!(feature = "e2e"));
+    }
+
+    #[cfg(feature = "e2e")]
+    #[test]
+    fn e2e_build_enables_the_fixed_webview2_cdp_port() {
+        assert_eq!(
+            super::E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS,
+            "--remote-debugging-port=9229"
+        );
     }
 }
 
@@ -461,11 +475,14 @@ fn run_desktop() {
                 .iter()
                 .find(|config| config.label == "main")
                 .ok_or("缺少 main window 配置")?;
-            let window = WebviewWindowBuilder::from_config(app, config)?
+            let window_builder = WebviewWindowBuilder::from_config(app, config)?
                 .on_navigation(navigation::NavigationPolicy::desktop_webview)
                 .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
-                .on_download(|_, _| false)
-                .build()?;
+                .on_download(|_, _| false);
+            #[cfg(feature = "e2e")]
+            let window_builder =
+                window_builder.additional_browser_args(E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS);
+            let window = window_builder.build()?;
             if let Some((app_launcher, coordinator)) = runtime_services {
                 app.manage(Arc::clone(&app_launcher));
                 app.manage(Arc::clone(&coordinator));

@@ -56,7 +56,9 @@ describe('Windows Web Setup success path', () => {
 
     runtimeFixture.clearRequests()
     await desktop.launch(appBinary)
-    await desktop.waitForWorkbench(120_000)
+    // 首次安装需要完成 Runtime 下载、校验、解压与健康检查；GitHub Windows runner
+    // 在冷缓存下可能超过 120 秒，不能把仍在推进的首启误判为失败。
+    await desktop.waitForWorkbench(180_000)
     const firstTiming = latestActiveTiming(installation.dataRoot)
     expect(runtimeFixture.requests().filter((request) => request.path === '/runtime.zip')).toHaveLength(1)
     expect(readProvisioningReceipt(installation.dataRoot).runtimeVersion).toBe(runtimeFixture.version)
