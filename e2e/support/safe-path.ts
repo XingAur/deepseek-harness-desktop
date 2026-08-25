@@ -5,13 +5,17 @@ function normalize(path: string): string { return resolve(path).replace(/^\\\\\?
 
 /**
  * Validate that the checked path contains no attacker-controlled symlink
- * redirection while tolerating operating-system layout aliases (macOS
- * `os.tmpdir()` starts with `/var`, a system symlink to `/private/var`).
+ * redirection while tolerating operating-system path aliases:
  *
- * Depth-1 symlinks at the filesystem root can only be system layout — an
- * attacker plants symlinks deeper inside writable trees. A realpath mismatch
- * on a deeper non-symlink node is accepted only when it is fully explained by
- * a depth-1 alias prefix; every other mismatch is a redirection and rejected.
+ * - macOS `os.tmpdir()` starts with `/var`, a system symlink to `/private/var`;
+ * - Windows temporary paths frequently use 8.3 short names (`RUNNER~1`) whose
+ *   canonical form differs textually from the given spelling.
+ *
+ * Detection is anchored on `lstat`: a redirection always goes through a
+ * symlink at some node of the path, and only depth-1 symlinks (filesystem
+ * layout such as `/var`) are excused. Non-symlink nodes never fail on
+ * textual canonical mismatches — those are alias spellings of the same
+ * physical directory, which is exactly what `realpath` resolves for callers.
  */
 export function assertSafePath(path: string): string {
   const target = resolve(path)
@@ -19,11 +23,10 @@ export function assertSafePath(path: string): string {
   let current = target
   while (true) {
     const stat = tryLstat(current)
-    if (stat !== undefined) {
-      const real = realpathSync.native(current)
-      if (stat.isSymbolicLink()) {
-        if (!isDepthOneAlias(current, aliases)) throw new Error(`不安全路径：${path}`)
-      } else if (normalize(real) !== normalize(current) && !explainedByAlias(current, real, aliases)) {
+    if (stat !== undefined && stat.isSymbolicLink()) {
+      const real = tryRealpath(current)
+      if (real === undefined) throw new Error(`不安全路径：${path}`)
+      if (!isDepthOneAlias(current, aliases) && normalize(real) !== normalize(current)) {
         throw new Error(`不安全路径：${path}`)
       }
     }
@@ -38,16 +41,6 @@ type AliasMount = { alias: string; real: string }
 
 function isDepthOneAlias(path: string, aliases: AliasMount[]): boolean {
   return aliases.some((mount) => normalize(mount.alias) === normalize(path))
-}
-
-function explainedByAlias(path: string, real: string, aliases: AliasMount[]): boolean {
-  for (const mount of aliases) {
-    if (normalize(path).startsWith(`${normalize(mount.alias)}/`)) {
-      const expected = `${mount.real}${path.slice(mount.alias.length)}`
-      if (normalize(real) === normalize(expected)) return true
-    }
-  }
-  return false
 }
 
 /** Enumerate depth-1 symlink mounts of the filesystem root (system layout). */
@@ -80,9 +73,17 @@ function tryLstat(path: string) {
   }
 }
 
+function tryRealpath(path: string): string | undefined {
+  try {
+    return realpathSync.native(path)
+  } catch {
+    return undefined
+  }
+}
+
 export function prepareSafeDirectory(path: string): string { const target = assertSafePath(path); mkdirSync(target, { recursive: true }); return assertSafePath(target) }
 export function assertSafeLeaf(path: string): string {
   const target = assertSafePath(path)
-  try { const stat = lstatSync(target); if (stat.isSymbolicLink() || normalize(realpathSync.native(target)) !== normalize(target)) throw new Error(`不安全文件：${path}`) } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+  try { const stat = lstatSync(target); if (stat.isSymbolicLink()) throw new Error(`不安全文件：${path}`) } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
   return target
 }
