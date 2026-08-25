@@ -21,7 +21,7 @@ export async function createE2EWorld(): Promise<E2EWorld> {
   const build = loadInstrumentedSetup()
   const restoreBuildEnvironment = applyEnvironment({
     DSH_E2E_ROOT: process.env.DSH_E2E_ROOT ?? resolve('.'),
-    DSH_E2E_INSTALLER: process.env.DSH_E2E_INSTALLER ?? build.installer,
+    DSH_E2E_INSTALLER: process.env.DSH_E2E_INSTALLER ?? build.installers.candidate.path,
     DSH_E2E_ARTIFACT_ROOT: process.env.DSH_E2E_ARTIFACT_ROOT ?? build.artifactRoot,
     DSH_E2E_RUNTIME_ARCHIVE: process.env.DSH_E2E_RUNTIME_ARCHIVE ?? build.runtimeArchive,
     DSH_E2E_RUNTIME_SIGNING_STATE: process.env.DSH_E2E_RUNTIME_SIGNING_STATE ?? build.signingState,
@@ -53,7 +53,7 @@ export async function createE2EWorld(): Promise<E2EWorld> {
     NODE_EXTRA_CA_CERTS: caPath,
   })
   const desktop = new PackagedDesktopHarness()
-  const installer = new WindowsInstallerHarness()
+  const installer = new WindowsInstallerHarness({ installers: build.installers })
   let closed = false
 
   return {
@@ -82,11 +82,23 @@ export async function createE2EWorld(): Promise<E2EWorld> {
 }
 
 interface InstrumentedSetup {
-  installer: string
+  schemaVersion: 2
   artifactRoot: string
   runtimeArchive: string
   runtimeVersion: string
   signingState: string
+  mode: 'quick' | 'full'
+  sourceCommit: string | null
+  installers: {
+    candidate: InstallerArtifact
+    baseline?: InstallerArtifact
+  }
+}
+
+interface InstallerArtifact {
+  path: string
+  version: string
+  sha256: string
 }
 
 function loadInstrumentedSetup(): InstrumentedSetup {
@@ -95,12 +107,26 @@ function loadInstrumentedSetup(): InstrumentedSetup {
     throw new Error(`缺少 E2E 构建元数据，请先运行 npm run e2e:setup:build：${metadataPath}`)
   }
   const value = JSON.parse(readFileSync(metadataPath, 'utf8')) as Partial<InstrumentedSetup>
-  for (const key of ['installer', 'artifactRoot', 'runtimeArchive', 'runtimeVersion', 'signingState'] as const) {
+  if (value.schemaVersion !== 2) throw new Error('E2E 构建元数据 schemaVersion 必须是 2')
+  for (const key of ['artifactRoot', 'runtimeArchive', 'runtimeVersion', 'signingState'] as const) {
     if (typeof value[key] !== 'string' || value[key]?.trim() === '') {
       throw new Error(`E2E 构建元数据缺少 ${key}`)
     }
   }
+  if (value.mode !== 'quick' && value.mode !== 'full') throw new Error('E2E 构建元数据 mode 无效')
+  if (value.sourceCommit !== null && typeof value.sourceCommit !== 'string') throw new Error('E2E 构建元数据 sourceCommit 无效')
+  if (value.installers === undefined || typeof value.installers !== 'object' || value.installers === null) throw new Error('E2E 构建元数据缺少 installers')
+  validateInstaller(value.installers.candidate, 'candidate')
+  if (value.installers.baseline !== undefined) validateInstaller(value.installers.baseline, 'baseline')
   return value as InstrumentedSetup
+}
+
+function validateInstaller(value: unknown, name: string): asserts value is InstallerArtifact {
+  if (typeof value !== 'object' || value === null) throw new Error(`E2E 构建元数据缺少 installers.${name}`)
+  const artifact = value as Partial<InstallerArtifact>
+  if (typeof artifact.path !== 'string' || !isAbsolute(artifact.path) || artifact.path.trim() === '') throw new Error(`installers.${name}.path 必须是绝对路径`)
+  if (typeof artifact.version !== 'string' || artifact.version.trim() === '') throw new Error(`installers.${name}.version 无效`)
+  if (typeof artifact.sha256 !== 'string' || !/^[0-9a-fA-F]{64}$/.test(artifact.sha256)) throw new Error(`installers.${name}.sha256 必须是 64 位十六进制`)
 }
 
 function requiredFile(name: string): string {

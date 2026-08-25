@@ -14,6 +14,7 @@ export interface InstallerBuildPlan {
 }
 
 export function deriveBaselineVersion(desktopVersion: string): string
+export function resolveRuntimeVersion(override: string | undefined, releaseRuntimeVersion: string): string
 export function createInstallerBuildPlan(options: {
   mode: InstallerBuildMode
   candidateVersion: string

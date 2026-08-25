@@ -2,6 +2,12 @@ import { resolve } from 'node:path'
 
 const desktopVersionPattern = /^(\d+)\.(\d+)\.(\d+)$/
 
+export function resolveRuntimeVersion(override, releaseRuntimeVersion) {
+  if (typeof override === 'string' && override.trim() !== '') return override
+  if (typeof releaseRuntimeVersion !== 'string' || releaseRuntimeVersion.trim() === '') throw new Error('Runtime 版本不能为空')
+  return releaseRuntimeVersion
+}
+
 function parseDesktopVersion(desktopVersion) {
   const match = typeof desktopVersion === 'string' ? desktopVersion.match(desktopVersionPattern) : null
   if (!match) throw new Error(`桌面版本不是三段数字 SemVer：${String(desktopVersion)}`)

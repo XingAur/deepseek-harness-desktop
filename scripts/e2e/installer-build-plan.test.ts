@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { resolve } from 'node:path'
-import { createInstallerBuildPlan, deriveBaselineVersion } from './installer-build-plan.mjs'
+import { createInstallerBuildPlan, deriveBaselineVersion, resolveRuntimeVersion } from './installer-build-plan.mjs'
 
 describe('installer build plan', () => {
   it('derives the previous patch version', () => {
@@ -56,7 +56,7 @@ describe('installer build plan', () => {
   })
 
   it('normalizes the artifact root and uses stable installer names', () => {
-    const plan = createInstallerBuildPlan({ mode: 'full', candidateVersion: '0.1.26', artifactsRoot: './artifacts/../artifacts' })
+    const plan = createInstallerBuildPlan({ mode: 'full', candidateVersion: '2.4.0', artifactsRoot: './artifacts/../artifacts' })
     const artifactsRoot = resolve('./artifacts')
     expect(plan.variants.map(({ configPath }) => configPath)).toEqual([
       resolve(artifactsRoot, 'tauri-baseline.json'),
@@ -64,5 +64,12 @@ describe('installer build plan', () => {
     ])
     expect(plan.variants[0].installerPath).toMatch(/DeepSeek-Harness-Desktop-E2E-baseline-x64\.exe$/)
     expect(plan.variants[1].installerPath).toMatch(/DeepSeek-Harness-Desktop-E2E-candidate-x64\.exe$/)
+  })
+
+  it('prefers a non-empty runtime version override', () => {
+    expect(resolveRuntimeVersion('2.0.0-preview', '1.0.0-preview')).toBe('2.0.0-preview')
+    expect(resolveRuntimeVersion('', '1.0.0-preview')).toBe('1.0.0-preview')
+    expect(resolveRuntimeVersion(undefined, '1.0.0-preview')).toBe('1.0.0-preview')
+    expect(() => resolveRuntimeVersion(undefined, '')).toThrow('Runtime 版本不能为空')
   })
 })

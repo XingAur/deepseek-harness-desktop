@@ -53,6 +53,11 @@ export interface InstallerHarness {
   appBinaryExists(): Promise<boolean>
 }
 
+export interface InstallerArtifacts {
+  candidate: { path: string; version: string; sha256: string }
+  baseline?: { path: string; version: string; sha256: string }
+}
+
 export class WindowsInstallerHarness implements InstallerHarness {
   private latest?: InstallationRecord
   private readonly root: string
@@ -62,9 +67,12 @@ export class WindowsInstallerHarness implements InstallerHarness {
   private readonly productName: string
   private readonly bundleId: string
 
-  constructor(options: { root?: string; installer?: string; artifactRoot?: string } = {}) {
+  readonly installers: InstallerArtifacts | undefined
+
+  constructor(options: { root?: string; installer?: string; artifactRoot?: string; installers?: InstallerArtifacts } = {}) {
     this.root = absolute(options.root ?? process.env.DSH_E2E_ROOT, 'DSH_E2E_ROOT')
-    this.installer = absolute(options.installer ?? process.env.DSH_E2E_INSTALLER, 'DSH_E2E_INSTALLER')
+    this.installers = options.installers
+    this.installer = resolveInstallerPath(options)
     this.artifactRoot = absolute(options.artifactRoot ?? process.env.DSH_E2E_ARTIFACT_ROOT, 'DSH_E2E_ARTIFACT_ROOT')
     this.recordsRoot = resolve(process.env.DSH_E2E_ARTIFACTS ?? join(this.root, 'e2e-artifacts'), 'installer-records')
     this.productName = process.env.DSH_E2E_PRODUCT_NAME ?? 'DeepSeek Harness Desktop E2E'
@@ -157,6 +165,10 @@ export class WindowsInstallerHarness implements InstallerHarness {
     if (this.latest === undefined) throw new Error('No installation record is available')
     return this.latest
   }
+}
+
+export function resolveInstallerPath(options: { installer?: string; installers?: InstallerArtifacts } = {}): string {
+  return absolute(options.installer ?? process.env.DSH_E2E_INSTALLER ?? options.installers?.candidate.path, 'DSH_E2E_INSTALLER')
 }
 
 async function runPowerShell(script: string, args: string[]) {
