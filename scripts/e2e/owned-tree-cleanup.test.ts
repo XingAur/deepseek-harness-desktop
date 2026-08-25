@@ -36,10 +36,15 @@ describe('owned PowerShell tree cleanup', () => {
     expect(helper).toContain("Get-Command node.exe -ErrorAction Stop")
     expect(helper).toContain("owned-tree-cleanup.mjs') '--root'")
     expect(nodeHelper).toContain("from 'node:fs/promises'")
-    expect(nodeHelper).toContain('limited(context, () => lstat(cursor))')
+    expect(nodeHelper).toContain('const rootMetadata = await checkedLstat(context, cursor)')
+    expect(nodeHelper).toContain('async function checkDirectChildren(context, parent, entries)')
+    expect(nodeHelper).toContain('await assertOwnedTreePathWithoutReparsePoints(context, parent, false)')
+    expect(nodeHelper).toContain('beforeScheduleDirectChildren')
+    expect(nodeHelper).not.toContain('Promise.all(paths.map((cursor) => limited(context, () => lstat(cursor))))')
     expect(nodeHelper).toContain('const entries = await limited(context, () => readdir(path))')
     expect(nodeHelper).toContain('new Semaphore(16)')
-    expect(nodeHelper).toContain('await Promise.all(entries.filter((entry) => entry !== marker)')
+    expect(nodeHelper).toContain('const precheckedChildren = await checkDirectChildren(context, path, children)')
+    expect(nodeHelper).toContain('await Promise.all(precheckedChildren.map')
     expect(nodeHelper).toContain('rm(path, { force: false, recursive: false')
     expect(nodeHelper).toContain('const marker = path === context.rootPath ? context.markerName : undefined')
     expect(nodeHelper).toContain("entry.toLowerCase() === OWNERSHIP_MARKER")
@@ -106,6 +111,45 @@ describe('owned PowerShell tree cleanup', () => {
     expect(readFileSync(join(outside, 'keep.txt'), 'utf8')).toBe('keep')
     expect(existsSync(outside)).toBe(true)
     expect(readFileSync(join(owned, markerName), 'utf8')).toBe('E2E-owned')
+  })
+
+  it('does not schedule a direct child after its verified parent is replaced by a junction', async (context) => {
+    if (process.platform !== 'win32') context.skip('junction 行为仅在 Windows 上验证')
+    const root = temporaryRoot()
+    const owned = join(root, 'owned')
+    const outside = join(root, 'outside')
+    const runtime = join(owned, 'runtime')
+    const moved = join(owned, 'runtime-before-schedule-replace')
+    mkdirSync(runtime, { recursive: true })
+    writeFileSync(join(owned, '.dsh-e2e-owned'), 'E2E-owned', 'utf8')
+    writeFileSync(join(runtime, 'inside.txt'), 'inside', 'utf8')
+    mkdirSync(outside)
+    writeFileSync(join(outside, 'must-not-lstat.txt'), 'outside', 'utf8')
+    const directChild = resolve(runtime, 'inside.txt')
+    const observedLstats: string[] = []
+    let replaced = false
+
+    await expect(removeOwnedTreeWithoutFollowingReparsePoints(owned, {
+      beforeScheduleDirectChildren: async (path) => {
+        if (path !== runtime || replaced) return
+        replaced = true
+        renameSync(runtime, moved)
+        try {
+          symlinkSync(outside, runtime, 'junction')
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'EPERM') context.skip('当前 Windows 环境不允许创建 junction')
+          throw error
+        }
+      },
+      onLstat: (path) => observedLstats.push(resolve(path)),
+    })).rejects.toThrow('reparse point')
+
+    expect(replaced).toBe(true)
+    // onLstat observes lexical arguments, not Windows junction resolution.
+    // The relevant safety contract is that revalidation rejects before the
+    // direct child work item can be scheduled at all.
+    expect(observedLstats).not.toContain(directChild)
+    expect(readFileSync(join(outside, 'must-not-lstat.txt'), 'utf8')).toBe('outside')
   })
 
   it('refuses an invalid ownership marker before touching payload files', async () => {

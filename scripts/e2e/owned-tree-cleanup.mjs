@@ -4,10 +4,12 @@ import { pathToFileURL } from 'node:url'
 
 const OWNERSHIP_MARKER = '.dsh-e2e-owned'
 
-export async function removeOwnedTreeWithoutFollowingReparsePoints(root, { beforeEnumerate, onOperationEnd, onOperationStart } = {}) {
+export async function removeOwnedTreeWithoutFollowingReparsePoints(root, { beforeEnumerate, beforeScheduleDirectChildren, onLstat, onOperationEnd, onOperationStart } = {}) {
   const rootPath = resolve(root)
   const context = {
     beforeEnumerate,
+    beforeScheduleDirectChildren,
+    onLstat,
     onOperationEnd,
     onOperationStart,
     rootPath,
@@ -17,11 +19,13 @@ export async function removeOwnedTreeWithoutFollowingReparsePoints(root, { befor
   await removeEntry(context, rootPath)
 }
 
-async function removeEntry(context, path) {
+async function removeEntry(context, path, precheckedMetadata) {
   // A reparse work item may be removed as a leaf only.  The root and every
   // ancestor are always rechecked before a traversal or normal deletion.
-  const metadata = await assertOwnedTreePathWithoutReparsePoints(context, path, true)
+  const metadata = precheckedMetadata ?? await assertOwnedTreePathWithoutReparsePoints(context, path, true)
   if (metadata.isSymbolicLink()) {
+    const current = await assertOwnedTreePathWithoutReparsePoints(context, path, true)
+    if (!current.isSymbolicLink()) return removeEntry(context, path)
     await removeLinkEntry(context, path)
     return
   }
@@ -41,7 +45,9 @@ async function removeEntry(context, path) {
   // Preserve the reset authorization marker until all payload entries have
   // been removed, so an interruption never leaves a substantial unmarked tree.
   const marker = path === context.rootPath ? context.markerName : undefined
-  await Promise.all(entries.filter((entry) => entry !== marker).map((entry) => removeEntry(context, resolve(path, entry))))
+  const children = entries.filter((entry) => entry !== marker)
+  const precheckedChildren = await checkDirectChildren(context, path, children)
+  await Promise.all(precheckedChildren.map(({ path: childPath, metadata: childMetadata }) => removeEntry(context, childPath, childMetadata)))
   if (path === context.rootPath) await refreshOwnedRootMarker(context)
   if (marker !== undefined && entries.includes(marker)) await removeEntry(context, resolve(path, marker))
   await assertOwnedTreePathWithoutReparsePoints(context, path, false)
@@ -54,17 +60,35 @@ async function assertOwnedTreePathWithoutReparsePoints(context, path, allowLeafR
   if (!isOwnedDescendant(rootPath, candidate)) throw new Error('拒绝遍历 owned root 外的路径')
   let cursor = rootPath
   const components = relative(rootPath, candidate).split(/[\\/]/).filter(Boolean)
-  const rootMetadata = await limited(context, () => lstat(cursor))
+  const rootMetadata = await checkedLstat(context, cursor)
   if (rootMetadata.isSymbolicLink()) throw new Error(`拒绝遍历 reparse point: ${cursor}`)
   for (const component of components) {
     cursor = resolve(cursor, component)
-    const metadata = await limited(context, () => lstat(cursor))
+    const metadata = await checkedLstat(context, cursor)
     if (metadata.isSymbolicLink() && (!allowLeafReparse || cursor !== candidate)) {
       throw new Error(`拒绝遍历 reparse point: ${cursor}`)
     }
     if (cursor === candidate) return metadata
   }
   return rootMetadata
+}
+
+async function checkDirectChildren(context, parent, entries) {
+  // Do not issue I/O for a descendant until its immediate parent has been
+  // verified.  A hook then models replacement in this narrow race window;
+  // the second parent check must fail before any child lstat is scheduled.
+  await assertOwnedTreePathWithoutReparsePoints(context, parent, false)
+  if (context.beforeScheduleDirectChildren !== undefined) await context.beforeScheduleDirectChildren(parent)
+  await assertOwnedTreePathWithoutReparsePoints(context, parent, false)
+  return Promise.all(entries.map(async (entry) => {
+    const child = resolve(parent, entry)
+    return { path: child, metadata: await checkedLstat(context, child) }
+  }))
+}
+
+async function checkedLstat(context, path) {
+  context.onLstat?.(path)
+  return limited(context, () => lstat(path))
 }
 
 function isOwnedDescendant(root, candidate) {
