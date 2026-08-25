@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   PackagedDesktopHarness,
   assertSessionRoundTripCoverage,
@@ -45,6 +45,35 @@ describe('PackagedDesktopHarness.continueConversation', () => {
   })
 })
 
+describe('PackagedDesktopHarness CDP target discovery', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('将 CDP 端口尚未监听的 ECONNREFUSED 交给调用方轮询', async () => {
+    const cause = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:9229'), { code: 'ECONNREFUSED' })
+    const connectionFailure = Object.assign(new TypeError('fetch failed'), { cause })
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(connectionFailure))
+
+    await expect(readCdpTargets(new PackagedDesktopHarness())).resolves.toEqual([])
+  })
+
+  it('不吞掉 CDP 返回的 JSON 解析异常', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockRejectedValue(new SyntaxError('invalid CDP target payload')),
+    }))
+
+    await expect(readCdpTargets(new PackagedDesktopHarness())).rejects.toThrow('invalid CDP target payload')
+  })
+
+  it('不将 CDP 的 HTTP 失败误判为服务尚未就绪', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }))
+
+    await expect(readCdpTargets(new PackagedDesktopHarness())).rejects.toThrow('CDP target endpoint 返回 503')
+  })
+})
+
 describe('assertSessionRoundTripCoverage', () => {
   const first = 'E2E 第一会话 Ω'
   const second = 'E2E 第二会话 二'
@@ -67,4 +96,8 @@ describe('assertSessionRoundTripCoverage', () => {
 
 function evaluateWorkbenchExpression<T>(expression: string): T {
   return Function(`return (${expression})`)() as T
+}
+
+function readCdpTargets(desktop: PackagedDesktopHarness): Promise<unknown> {
+  return (desktop as unknown as { cdpTargets(): Promise<unknown> }).cdpTargets()
 }

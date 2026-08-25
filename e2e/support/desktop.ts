@@ -431,8 +431,15 @@ export class PackagedDesktopHarness implements DesktopHarness {
 
   /** 枚举 WebView2 暴露的 CDP targets；服务未就绪时返回空列表，由调用方决定是否重试。 */
   private async cdpTargets(): Promise<CdpTarget[]> {
-    const response = await fetch('http://127.0.0.1:9229/json/list')
-    if (!response.ok) return []
+    let response: Response
+    try {
+      response = await fetch('http://127.0.0.1:9229/json/list')
+    } catch (error) {
+      // 新进程启动时，WebView2 的 CDP 端口可能尚未开始监听；交由 findWorkbenchTarget 轮询。
+      if (isCdpConnectionRefused(error)) return []
+      throw error
+    }
+    if (!response.ok) throw new Error(`CDP target endpoint 返回 ${response.status}`)
     return await response.json() as CdpTarget[]
   }
 
@@ -514,6 +521,13 @@ interface CdpTarget {
   type: string
   url: string
   webSocketDebuggerUrl: string
+}
+
+function isCdpConnectionRefused(error: unknown): boolean {
+  if (!(error instanceof TypeError)) return false
+  const cause = (error as { cause?: unknown }).cause
+  if (typeof cause !== 'object' || cause === null) return false
+  return (cause as { code?: unknown }).code === 'ECONNREFUSED'
 }
 
 class CdpPage {
