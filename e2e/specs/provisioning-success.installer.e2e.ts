@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { expectNoRecordedProcessOrPort, expectSentinelScopes } from '../support/assertions'
 import { lifecycleRedactionRoots, stageSafeLifecycleArtifacts } from '../support/lifecycle-report'
 import { createE2EWorld, type E2EWorld } from '../support/world'
@@ -14,6 +14,12 @@ const CONTINUATION_PROMPT = 'E2E 升级后继续 Ω'
 
 beforeAll(async () => {
   world = await createE2EWorld()
+})
+
+// 场景独立安装时，即使前一条断言失败也必须释放桌面和 Runtime，
+// 否则下一条 reset 会因 Windows 占用 runtime/node.exe 而失败。
+afterEach(async () => {
+  await world?.desktop.quit()
 })
 
 afterAll(async () => {

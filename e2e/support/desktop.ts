@@ -163,13 +163,7 @@ export class PackagedDesktopHarness implements DesktopHarness {
   async createProject(input: { idea: string }): Promise<void> {
     await this.withWorkbenchTarget(async (page) => {
       await this.openLocalProjects(page)
-      const declarationContinue = visibleButtonTextExpression('继续')
-      if (await page.evaluate<boolean>(`(${declarationContinue}) !== null`)) {
-        await page.evaluate(`(() => { const button = ${declarationContinue}; button.click(); return true })()`)
-        await page.waitFor(`(${declarationContinue}) === null`, {
-          timeoutMs: 10_000,
-          message: '首次使用声明未关闭',
-        })
+      if (await this.dismissFirstUseNotice(page)) {
         await this.openLocalProjects(page)
       }
 
@@ -187,6 +181,7 @@ export class PackagedDesktopHarness implements DesktopHarness {
   async createConversation(prompt: string): Promise<void> {
     if (prompt.trim() === '') throw new Error('新会话消息不能为空')
     await this.withWorkbenchTarget(async (page) => {
+      await this.dismissFirstUseNotice(page)
       await page.click('button[aria-label="新建会话"]')
       const composer = conversationComposerExpression()
       await page.waitFor(`${composer} !== null`, {
@@ -495,6 +490,17 @@ export class PackagedDesktopHarness implements DesktopHarness {
     }
   }
 
+  private async dismissFirstUseNotice(page: CdpPage): Promise<boolean> {
+    const continueButton = firstUseContinueButtonExpression()
+    if (!await page.evaluate<boolean>(`(${continueButton}) !== null`)) return false
+    await page.evaluate(`(() => { const button = ${continueButton}; button.click(); return true })()`)
+    await page.waitFor(`(${continueButton}) === null`, {
+      timeoutMs: 10_000,
+      message: '首次使用声明未关闭',
+    })
+    return true
+  }
+
   private async ensureSidebarExpanded(page: CdpPage): Promise<void> {
     const frame = '.dshDesktopFrame'
     const openButton = 'button[aria-label="打开侧边栏"]'
@@ -799,6 +805,10 @@ function buttonTextExpression(text: string): string {
 
 function visibleButtonTextExpression(text: string): string {
   return `Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.trim() === ${JSON.stringify(text)} && button.getClientRects().length > 0 && !button.disabled) ?? null`
+}
+
+function firstUseContinueButtonExpression(): string {
+  return `Array.from(document.querySelectorAll('button')).find((button) => ['继续', 'Continue'].includes(button.textContent?.trim() ?? '') && button.getClientRects().length > 0 && !button.disabled) ?? null`
 }
 
 function conversationContainsExpression(text: string): string {
