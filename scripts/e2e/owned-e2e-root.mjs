@@ -3,6 +3,8 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
 const ROOT_MARKER = '.dsh-e2e-root-owned'
 const ROOT_MARKER_VALUE = 'E2E-owned'
+const ARTIFACTS_MARKER = '.dsh-e2e-artifacts-owned'
+const ARTIFACTS_MARKER_VALUE = 'E2E-owned'
 
 // Both setup and the runner use this entry point.  In particular, an explicit
 // root is not a trust boundary: it receives the same marker checks as the
@@ -40,14 +42,59 @@ export function initializeOwnedE2ERoot(path) {
 // based name above so explicit and default roots cannot diverge.
 export const initializeDefaultE2ERoot = initializeOwnedE2ERoot
 
+// Callers that remove a child below a validated E2E root use this to reject a
+// symlink or junction replacement immediately before touching that child.
+export function assertSafeExistingE2EPath(path) {
+  assertSafeExistingPath(path)
+}
+
+// Initializes both paths with the same fail-closed ownership contract used by
+// the later setup and runner validation.  This lets CI create its per-run
+// artifacts directory before fixture tests without adopting any existing data.
+export function initializeOwnedE2EPaths(rootPath, artifactsPath) {
+  const e2eRoot = initializeOwnedE2ERoot(rootPath)
+  const artifactsRoot = resolve(artifactsPath)
+  assertArtifactsRootIsControlled(e2eRoot, artifactsRoot)
+
+  if (existsSync(artifactsRoot)) {
+    validateOwnedMarker(artifactsRoot, ARTIFACTS_MARKER, ARTIFACTS_MARKER_VALUE, 'E2E artifacts root 未受本套件所有权标记保护')
+    return { e2eRoot, artifactsRoot }
+  }
+
+  const parent = dirname(artifactsRoot)
+  assertSafeExistingPath(parent)
+  if (!lstatSync(parent).isDirectory()) throw new Error('E2E artifacts root 父目录无效')
+  try {
+    mkdirSync(artifactsRoot)
+  } catch (error) {
+    if (error?.code !== 'EEXIST') throw error
+    validateOwnedMarker(artifactsRoot, ARTIFACTS_MARKER, ARTIFACTS_MARKER_VALUE, 'E2E artifacts root 未受本套件所有权标记保护')
+    return { e2eRoot, artifactsRoot }
+  }
+  try {
+    assertSafeExistingPath(artifactsRoot)
+    writeFileSync(join(artifactsRoot, ARTIFACTS_MARKER), ARTIFACTS_MARKER_VALUE, { encoding: 'utf8', flag: 'wx' })
+    validateOwnedMarker(artifactsRoot, ARTIFACTS_MARKER, ARTIFACTS_MARKER_VALUE, 'E2E artifacts root 未受本套件所有权标记保护')
+    return { e2eRoot, artifactsRoot }
+  } catch (error) {
+    // Do not remove a path whose marker publication failed: it may have been
+    // replaced or populated concurrently, so preserving it is fail-closed.
+    throw error
+  }
+}
+
 export function validateOwnedE2EPaths(paths) {
   validateOwnedE2ERoot(paths.e2eRoot)
   const artifactsRoot = resolve(paths.artifactsRoot)
-  const relation = relative(resolve(paths.e2eRoot), artifactsRoot)
+  assertArtifactsRootIsControlled(resolve(paths.e2eRoot), artifactsRoot)
+  validateOwnedMarker(artifactsRoot, ARTIFACTS_MARKER, ARTIFACTS_MARKER_VALUE, 'E2E artifacts root 未受本套件所有权标记保护')
+}
+
+function assertArtifactsRootIsControlled(e2eRoot, artifactsRoot) {
+  const relation = relative(e2eRoot, artifactsRoot)
   if (relation === '' || relation === '..' || relation.startsWith('..\\') || relation.startsWith('../') || isAbsolute(relation)) {
     throw new Error('E2E artifacts root 不在受控 E2E root 内')
   }
-  validateOwnedMarker(artifactsRoot, '.dsh-e2e-artifacts-owned', 'E2E-owned', 'E2E artifacts root 未受本套件所有权标记保护')
 }
 
 function validateOwnedE2ERoot(root) {

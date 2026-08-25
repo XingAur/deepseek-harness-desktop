@@ -57,7 +57,7 @@ jobs:
       - name: Initialize owned E2E root
         shell: pwsh
         run: |
-          node --input-type=module -e "import { initializeOwnedE2ERoot } from './scripts/e2e/owned-e2e-root.mjs'; initializeOwnedE2ERoot(process.env.DSH_E2E_ROOT)"
+          node --input-type=module -e "import { initializeOwnedE2EPaths } from './scripts/e2e/owned-e2e-root.mjs'; initializeOwnedE2EPaths(process.env.DSH_E2E_ROOT, process.env.DSH_E2E_ARTIFACTS)"
 
       - uses: dtolnay/rust-toolchain@stable
 

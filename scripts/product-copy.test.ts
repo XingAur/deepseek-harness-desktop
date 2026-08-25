@@ -495,7 +495,7 @@ describe('product copy', () => {
     expect(workflow).toContain('DSH_E2E_ARTIFACTS: ${{ github.workspace }}\\\\.dsh-e2e-owned-${{ github.run_id }}\\\\e2e-artifacts')
     expect(workflow).not.toMatch(/DSH_E2E_ROOT: \$\{\{ github\.workspace \}\}\\\\\\.dsh-e2e-owned(?:\r?\n|$)/)
     expect(workflow).toContain('- name: Initialize owned E2E root')
-    expect(workflow).toContain('initializeOwnedE2ERoot(process.env.DSH_E2E_ROOT)')
+    expect(workflow).toContain('initializeOwnedE2EPaths(process.env.DSH_E2E_ROOT, process.env.DSH_E2E_ARTIFACTS)')
     expect(workflow.indexOf('- uses: actions/checkout@v4')).toBeLessThan(workflow.indexOf('- name: Initialize owned E2E root'))
     expect(workflow.indexOf('- name: Initialize owned E2E root')).toBeLessThan(workflow.indexOf('- name: Test deterministic fixtures'))
     expect(workflow).toContain('upload-safe')
