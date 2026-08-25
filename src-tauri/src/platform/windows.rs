@@ -2,6 +2,7 @@ use std::{
     ffi::{OsString, c_void},
     mem::size_of,
     os::windows::{ffi::OsStringExt, process::CommandExt},
+    os::windows::fs::MetadataExt,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -23,6 +24,8 @@ use windows_sys::Win32::{
 };
 use windows_sys::core::GUID;
 
+const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+
 use super::{PlatformAdapter, ProcessIdentity, normalize_legacy_roots};
 use crate::runtime::{RuntimeFailure, model::RuntimeFailureCode};
 
@@ -39,6 +42,20 @@ impl PlatformAdapter for WindowsPlatformAdapter {
     }
 
     fn documents_dir(&self) -> Result<PathBuf, RuntimeFailure> {
+        #[cfg(feature = "e2e")]
+        if let Some(root) = std::env::var_os("DSH_E2E_DOCUMENTS_ROOT") {
+            let root = PathBuf::from(root);
+            if !root.is_absolute() {
+                return Err(RuntimeFailure::internal("E2E 文档目录必须是绝对路径"));
+            }
+            let marker = root.join(".dsh-e2e-documents-owned");
+            if has_reparse_components(&root)
+                || has_reparse_components(&marker)
+                || std::fs::read_to_string(&marker).map(|v| v != "E2E-owned").unwrap_or(true) {
+                return Err(RuntimeFailure::internal("E2E 文档目录缺少所有权标记"));
+            }
+            return Ok(root);
+        }
         known_folder_path(&FOLDERID_Documents)
     }
 
@@ -149,6 +166,10 @@ mod tests {
 
     use super::{PlatformAdapter, WindowsPlatformAdapter, process_inventory};
 
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    struct EnvGuard(&'static str, Option<std::ffi::OsString>);
+    impl Drop for EnvGuard { fn drop(&mut self) { match self.1.take() { Some(v) => unsafe { std::env::set_var(self.0, v) }, None => unsafe { std::env::remove_var(self.0) } } } }
+
     #[test]
     fn inventory_resolves_the_current_process_executable() {
         let current = std::process::id();
@@ -163,21 +184,39 @@ mod tests {
 
     #[test]
     fn documents_directory_is_absolute_and_does_not_follow_userprofile_override() {
-        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
         let _guard = ENV_LOCK.lock().unwrap();
         let adapter = WindowsPlatformAdapter;
         let expected = adapter.documents_dir().unwrap();
-        let original = std::env::var_os("USERPROFILE");
+        let _env = EnvGuard("USERPROFILE", std::env::var_os("USERPROFILE"));
         unsafe { std::env::set_var("USERPROFILE", r"Z:\attacker-controlled") };
         let actual = adapter.documents_dir().unwrap();
-        match original {
-            Some(value) => unsafe { std::env::set_var("USERPROFILE", value) },
-            None => unsafe { std::env::remove_var("USERPROFILE") },
-        }
         assert!(actual.is_absolute());
         assert_eq!(actual, expected);
         assert_ne!(actual, PathBuf::from(r"Z:\attacker-controlled"));
     }
+
+    #[cfg(feature = "e2e")]
+    #[test]
+    fn e2e_documents_root_requires_an_absolute_owned_directory() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let root = std::env::temp_dir().join(format!("dsh-documents-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let _env = EnvGuard("DSH_E2E_DOCUMENTS_ROOT", std::env::var_os("DSH_E2E_DOCUMENTS_ROOT"));
+        unsafe { std::env::set_var("DSH_E2E_DOCUMENTS_ROOT", &root) };
+        assert!(WindowsPlatformAdapter.documents_dir().is_err());
+        std::fs::write(root.join(".dsh-e2e-documents-owned"), b"wrong").unwrap();
+        assert!(WindowsPlatformAdapter.documents_dir().is_err());
+        std::fs::write(root.join(".dsh-e2e-documents-owned"), b"E2E-owned").unwrap();
+        assert_eq!(WindowsPlatformAdapter.documents_dir().unwrap(), root);
+        let _ = std::fs::remove_dir_all(root);
+    }
+}
+
+fn has_reparse_components(path: &Path) -> bool {
+    path.ancestors().any(|component| std::fs::symlink_metadata(component)
+        .map(|metadata| metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0)
+        .unwrap_or(false))
 }
 
 fn known_folder_path(folder_id: &GUID) -> Result<PathBuf, RuntimeFailure> {

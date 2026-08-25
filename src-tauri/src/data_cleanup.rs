@@ -10,7 +10,13 @@ use crate::{
     runtime::model::RuntimeFailure, safe_remove::remove_tree_without_following_reparse_points,
 };
 
+#[cfg(feature = "e2e")]
+pub const APP_IDENTIFIER: &str = "ai.deepseek.harness.desktop.e2e";
+#[cfg(not(feature = "e2e"))]
 pub const APP_IDENTIFIER: &str = "ai.deepseek.harness.desktop";
+#[cfg(feature = "e2e")]
+const PENDING_PREFIX: &str = "ai.deepseek.harness.desktop.e2e.pending-delete-";
+#[cfg(not(feature = "e2e"))]
 const PENDING_PREFIX: &str = "ai.deepseek.harness.desktop.pending-delete-";
 
 pub fn prepare_and_spawn() -> Result<(), RuntimeFailure> {
@@ -264,6 +270,9 @@ fn write_cleanup_log(
 mod tests {
     use super::*;
 
+    struct EnvGuard(&'static str, Option<std::ffi::OsString>);
+    impl Drop for EnvGuard { fn drop(&mut self) { match self.1.take() { Some(v) => unsafe { std::env::set_var(self.0, v) }, None => unsafe { std::env::remove_var(self.0) } } } }
+
     #[test]
     fn injected_known_folder_must_be_absolute_and_non_empty() {
         assert!(known_folder_result(|| Ok(PathBuf::new())).is_err());
@@ -284,14 +293,10 @@ mod tests {
     fn local_app_data_does_not_trust_the_environment_variable() {
         static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
         let _guard = ENV_LOCK.lock().unwrap();
-        let original = std::env::var_os("LOCALAPPDATA");
+        let _env = EnvGuard("LOCALAPPDATA", std::env::var_os("LOCALAPPDATA"));
         let expected = local_app_data().unwrap();
         unsafe { std::env::set_var("LOCALAPPDATA", r"Z:\attacker-controlled") };
         let actual = local_app_data().unwrap();
-        match original {
-            Some(value) => unsafe { std::env::set_var("LOCALAPPDATA", value) },
-            None => unsafe { std::env::remove_var("LOCALAPPDATA") },
-        }
         assert_eq!(actual, expected);
         assert_ne!(actual, PathBuf::from(r"Z:\attacker-controlled"));
     }
@@ -303,10 +308,25 @@ mod tests {
         assert_eq!(
             pending_root(&local, nonce).unwrap(),
             local.join(
-                "ai.deepseek.harness.desktop.pending-delete-4b8bbca3-fd7f-4c6d-9111-2d955457047a"
+                format!("{PENDING_PREFIX}4b8bbca3-fd7f-4c6d-9111-2d955457047a")
             )
         );
         assert!(validate_pending_root(&local, &local.join(APP_IDENTIFIER)).is_err());
         assert!(validate_pending_root(&local, &PathBuf::from(r"C:\Users\test")).is_err());
+    }
+
+    #[cfg(not(feature = "e2e"))]
+    #[test]
+    fn production_cleanup_identifiers_are_fixed() {
+        assert_eq!(APP_IDENTIFIER, "ai.deepseek.harness.desktop");
+        assert_eq!(PENDING_PREFIX, "ai.deepseek.harness.desktop.pending-delete-");
+    }
+
+    #[cfg(feature = "e2e")]
+    #[test]
+    fn e2e_cleanup_identifier_cannot_target_production_data() {
+        assert_eq!(APP_IDENTIFIER, "ai.deepseek.harness.desktop.e2e");
+        assert_ne!(APP_IDENTIFIER, "ai.deepseek.harness.desktop");
+        assert_eq!(PENDING_PREFIX, "ai.deepseek.harness.desktop.e2e.pending-delete-");
     }
 }

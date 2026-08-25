@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { isAbsolute, resolve } from 'node:path'
+import { prepareSafeDirectory, assertSafePath } from './safe-path'
 import { startAppUpdateFixture, type AppUpdateFixture } from '../../scripts/e2e/app-update-fixture.mjs'
 import { startFakeDeepSeek, type FakeDeepSeekFixture } from '../../scripts/e2e/fake-deepseek-server.mjs'
 import { startRuntimeFixture, type RuntimeFixture } from '../../scripts/e2e/runtime-fixture-server.mjs'
@@ -19,8 +20,16 @@ export interface E2EWorld {
 
 export async function createE2EWorld(): Promise<E2EWorld> {
   const build = loadInstrumentedSetup()
+  const e2eRoot = resolve(process.env.DSH_E2E_ROOT ?? '.')
+  const projectsRoot = resolve(e2eRoot, 'projects-owned')
+  assertSafePath(e2eRoot)
+  prepareSafeDirectory(projectsRoot)
+  const documentsMarker = resolve(projectsRoot, '.dsh-e2e-documents-owned')
+  if (existsSync(documentsMarker) && lstatSync(documentsMarker).isSymbolicLink()) throw new Error('文档所有权标记不得是 symlink')
+  writeFileSync(documentsMarker, 'E2E-owned', 'utf8')
   const restoreBuildEnvironment = applyEnvironment({
-    DSH_E2E_ROOT: process.env.DSH_E2E_ROOT ?? resolve('.'),
+    DSH_E2E_ROOT: e2eRoot,
+    DSH_E2E_DOCUMENTS_ROOT: projectsRoot,
     DSH_E2E_INSTALLER: process.env.DSH_E2E_INSTALLER ?? build.installers.candidate.path,
     DSH_E2E_ARTIFACT_ROOT: process.env.DSH_E2E_ARTIFACT_ROOT ?? build.artifactRoot,
     DSH_E2E_RUNTIME_ARCHIVE: process.env.DSH_E2E_RUNTIME_ARCHIVE ?? build.runtimeArchive,
@@ -39,10 +48,9 @@ export async function createE2EWorld(): Promise<E2EWorld> {
   })
   const modelFixture = await startFakeDeepSeek({ tls })
   const appUpdateFixture = await startAppUpdateFixture({ tls })
-  const artifacts = resolve(process.env.DSH_E2E_ARTIFACTS ?? 'e2e-artifacts')
-  mkdirSync(artifacts, { recursive: true })
+  const artifacts = prepareSafeDirectory(resolve(process.env.DSH_E2E_ARTIFACTS ?? 'e2e-artifacts'))
   const caPath = resolve(artifacts, 'loopback-fixture-ca.pem')
-  writeFileSync(caPath, tls.caCertificate, 'utf8')
+  assertSafeLeaf(caPath); writeFileSync(caPath, tls.caCertificate, 'utf8')
   const restoreEnvironment = applyEnvironment({
     DSH_DESKTOP_E2E_RUNTIME_MANIFEST_URL: runtimeFixture.manifestUrl,
     DSH_E2E_RUNTIME_FIXTURE: runtimeFixture.url,

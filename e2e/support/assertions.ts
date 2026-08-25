@@ -21,6 +21,21 @@ export async function expectPreserved(sentinels: PreservationSentinels): Promise
   }
 }
 
+export async function expectSentinelScopes(
+  sentinels: PreservationSentinels,
+  expected: Record<'app-data' | 'project' | 'external', 'present' | 'absent'>,
+): Promise<void> {
+  const scopes = new Set(sentinels.entries.map((entry) => entry.scope))
+  for (const scope of ['app-data', 'project', 'external'] as const) {
+    expect(scopes.has(scope), `${scope} sentinel should exist`).toBe(true)
+  }
+  for (const sentinel of sentinels.entries) {
+    const present = existsSync(sentinel.path)
+    expect(present, `${sentinel.path} presence`).toBe(expected[sentinel.scope] === 'present')
+    if (present) expect(sha256(readFileSync(sentinel.path))).toBe(sentinel.sha256)
+  }
+}
+
 function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0)
