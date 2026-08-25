@@ -34,8 +34,8 @@ jobs:
       contents: read
     env:
       E2E_MODE: ${{ github.event_name == 'pull_request' && 'quick' || github.event_name == 'schedule' && 'full' || inputs.mode }}
-      DSH_E2E_ROOT: ${{ github.workspace }}\\.dsh-e2e-owned
-      DSH_E2E_ARTIFACTS: ${{ github.workspace }}\\.dsh-e2e-owned\\e2e-artifacts
+      DSH_E2E_ROOT: ${{ github.workspace }}\\.dsh-e2e-owned-${{ github.run_id }}
+      DSH_E2E_ARTIFACTS: ${{ github.workspace }}\\.dsh-e2e-owned-${{ github.run_id }}\\e2e-artifacts
 
     steps:
       - uses: actions/checkout@v4

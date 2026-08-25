@@ -491,7 +491,9 @@ describe('product copy', () => {
     expect(workflow).toContain('contents: read')
     expect(workflow).toContain('persist-credentials: false')
     expect(workflow).toContain('npm ci --legacy-peer-deps')
-    expect(workflow).toContain('DSH_E2E_ARTIFACTS:')
+    expect(workflow).toContain('DSH_E2E_ROOT: ${{ github.workspace }}\\\\.dsh-e2e-owned-${{ github.run_id }}')
+    expect(workflow).toContain('DSH_E2E_ARTIFACTS: ${{ github.workspace }}\\\\.dsh-e2e-owned-${{ github.run_id }}\\\\e2e-artifacts')
+    expect(workflow).not.toContain('DSH_E2E_ROOT: ${{ github.workspace }}\\\\.dsh-e2e-owned\n')
     expect(workflow).toContain('upload-safe')
   })
 
