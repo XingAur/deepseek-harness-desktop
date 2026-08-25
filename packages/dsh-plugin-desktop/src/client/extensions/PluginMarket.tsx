@@ -37,6 +37,22 @@ interface InstallStatus {
   jobSuccess?: boolean
 }
 
+function isCatalogPage(value: unknown): value is CatalogPage {
+  if (typeof value !== 'object' || value === null) return false
+  const candidate = value as Partial<CatalogPage>
+  return typeof candidate.total === 'number'
+    && typeof candidate.offset === 'number'
+    && Array.isArray(candidate.categories)
+    && Array.isArray(candidate.entries)
+}
+
+function isInstallStatus(value: unknown): value is InstallStatus {
+  if (typeof value !== 'object' || value === null) return false
+  const candidate = value as Partial<InstallStatus>
+  return typeof candidate.jobRunning === 'boolean'
+    && Array.isArray(candidate.jobOutput)
+}
+
 const PAGE_SIZE = 30
 const FEATURED_PLUGIN = 'dsh-market/dsh-market'
 
@@ -69,6 +85,8 @@ export function PluginMarket({ bridge }: PluginMarketProps) {
         offset,
         limit: PAGE_SIZE,
       })
+      // 桥返回的页面形状异常时降级为错误状态，绝不让整个页签崩溃。
+      if (!isCatalogPage(reply)) throw new Error('插件目录响应异常，请刷新重试')
       setPage(reply)
       setError(null)
     } catch (cause) {
@@ -90,7 +108,7 @@ export function PluginMarket({ bridge }: PluginMarketProps) {
       await Promise.all(ids.map(async (id) => {
         try {
           const status = await bridge.requestV2<InstallStatus>('plugin.install.status', undefined, { pluginId: id })
-          if (status.jobFinished !== undefined || status.jobRunning) next[id] = status
+          if (isInstallStatus(status) && (status.jobFinished !== undefined || status.jobRunning)) next[id] = status
         } catch { /* 状态不可知时按未安装展示 */ }
       }))
       if (!cancelled && Object.keys(next).length > 0) setJobs((current) => ({ ...next, ...current }))
@@ -106,7 +124,8 @@ export function PluginMarket({ bridge }: PluginMarketProps) {
     const next: Record<string, InstallStatus> = {}
     await Promise.all(running.map(async (id) => {
       try {
-        next[id] = await bridge.requestV2<InstallStatus>('plugin.install.status', undefined, { pluginId: id })
+        const status = await bridge.requestV2<InstallStatus>('plugin.install.status', undefined, { pluginId: id })
+        if (isInstallStatus(status)) next[id] = status
       } catch { /* 轮询失败下次再试 */ }
     }))
     if (Object.keys(next).length > 0) setJobs((current) => ({ ...current, ...next }))
@@ -121,6 +140,7 @@ export function PluginMarket({ bridge }: PluginMarketProps) {
   const install = async (entry: CatalogEntry) => {
     try {
       const reply = await bridge.requestV2<InstallStatus>('plugin.install.start', undefined, { pluginId: entry.id })
+      if (!isInstallStatus(reply)) throw new Error('安装响应异常，请重试')
       setJobs((current) => ({ ...current, [entry.id]: reply }))
     } catch (cause) {
       setError(messageOf(cause))
