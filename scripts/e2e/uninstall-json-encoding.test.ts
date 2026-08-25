@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 describe('uninstall PowerShell JSON encoding', () => {
-  it('在 Windows PowerShell 5.1 中以 UTF-8 读取 Node 写入的 Unicode sentinel 路径', () => {
+  it.skipIf(process.platform !== 'win32')('在 Windows PowerShell 5.1 中以 UTF-8 读取 Node 写入的 Unicode sentinel 路径', () => {
     const root = mkdtempSync(join(tmpdir(), 'dsh-e2e-uninstall-json-'))
     const sentinels = join(root, 'preservation-sentinels.json')
     const projectPath = 'E:\\e2e\\projects-owned\\E2E 卸载 delete-all Ω-4\\e2e-preserve.txt'

@@ -20,7 +20,7 @@ describe('uninstall project sentinel ownership contract', () => {
     expect(uninstall).not.toContain("Test-Path -LiteralPath $projectMarker -PathType Leaf")
   })
 
-  it('以 -Force 读取隐藏的有效 marker，并拒绝内容被篡改的 marker', () => {
+  it.skipIf(process.platform !== 'win32')('以 -Force 读取隐藏的有效 marker，并拒绝内容被篡改的 marker', () => {
     const root = mkdtempSync(join(tmpdir(), 'dsh-e2e-project-marker-'))
     const project = join(root, 'project')
     const marker = join(project, '.dsh-e2e-project-owned')
@@ -37,7 +37,7 @@ describe('uninstall project sentinel ownership contract', () => {
     }
   }, 30_000)
 
-  it('读取期间 marker 被替换为 junction 时必须拒绝', (context) => {
+  it.skipIf(process.platform !== 'win32')('读取期间 marker 被替换为 junction 时必须拒绝', (context) => {
     const root = mkdtempSync(join(tmpdir(), 'dsh-e2e-project-marker-race-'))
     const project = join(root, 'project')
     const marker = join(project, '.dsh-e2e-project-owned')

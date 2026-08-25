@@ -19,6 +19,7 @@ describe('E2E SHA-256 PowerShell compatibility', () => {
     const escapedFixture = fixture.replace(/'/g, "''")
     try {
       for (const shell of ['powershell.exe', 'pwsh']) {
+        if (!shellAvailable(shell)) continue
         const output = execFileSync(shell, [
           '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command',
           `. '${escapedHelper}'; $normal = Get-E2ESha256 -LiteralPath '${escapedFixture}'; function Find-E2EFileHashCommand { return $null }; $fallback = Get-E2ESha256 -LiteralPath '${escapedFixture}'; Write-Output ($normal + '|' + $fallback)`,
@@ -42,3 +43,13 @@ describe('E2E SHA-256 PowerShell compatibility', () => {
     expect(helperSource).toMatch(/^[\x00-\x7F]*$/)
   })
 })
+
+
+function shellAvailable(executable: string): boolean {
+  try {
+    execFileSync(executable, ['-NoProfile', '-NonInteractive', '-Command', '$PSVersionTable.PSVersion.Major'], { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+}

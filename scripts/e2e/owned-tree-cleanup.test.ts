@@ -53,7 +53,7 @@ describe('owned PowerShell tree cleanup', () => {
     expect(nodeHelper.match(/assertOwnedTreePathWithoutReparsePoints\(context, path/g)?.length).toBeGreaterThanOrEqual(5)
   })
 
-  it('deletes an owned-tree junction entry without traversing its external target', (context) => {
+  it.skipIf(process.platform !== 'win32')('deletes an owned-tree junction entry without traversing its external target', (context) => {
     if (process.platform !== 'win32') context.skip('junction 行为仅在 Windows 上验证')
     const root = temporaryRoot()
     const helper = resolve('scripts/e2e/owned-tree-cleanup.ps1').replace(/'/g, "''")
@@ -164,7 +164,7 @@ describe('owned PowerShell tree cleanup', () => {
     expect(readFileSync(payload, 'utf8')).toBe('keep')
   })
 
-  it('retains a marker renamed only by case after initial validation until final cleanup', async () => {
+  it.skipIf(process.platform !== 'win32')('retains a marker renamed only by case after initial validation until final cleanup', async () => {
     const root = join(temporaryRoot(), 'owned')
     const originalMarker = join(root, '.dsh-e2e-owned')
     const renamedMarker = join(root, '.DSH-E2E-OWNED')
