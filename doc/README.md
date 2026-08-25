@@ -114,31 +114,9 @@ P0 未完成前，不应投入移动端、插件目录或大规模多 Provider �
 
 ### P0.2 Windows 完整安装生命周期 E2E
 
-每个 PR 使用确定性 Runtime 运行：
+已完成自动化底座：PR quick 门禁验证安装、首次启动、双会话、重启恢复和默认保留卸载；每日或手动 full 门禁验证双安装包覆盖升级、状态不变量和三种有效卸载结果。
 
-```text
-构建候选应用
-→ 启动 Runtime
-→ 创建 Unicode 路径项目
-→ 创建会话并发送消息
-→ 标题和回复实时出现
-→ 创建第二个会话并切换
-→ 退出并再次启动
-→ 会话仍可见
-```
-
-每日或 Release Candidate 运行：
-
-```text
-静默安装
-→ 首次启动
-→ 内置 Runtime 准备
-→ 创建项目并对话
-→ 退出重启
-→ 覆盖升级
-→ 用户数据保留
-→ 卸载并验证用户选择
-```
+自动化完成不替代安装版人工验收。每个 Release Candidate 仍须在真实安装版连续执行 30 轮创建、回复和会话切换，并记录机器、版本、结果和诊断摘要。GitHub Actions 是否运行成功以对应工作流的实际运行记录为准，不得仅据本地自动化结果宣称 CI 已通过。
 
 真实 DeepSeek API 测试只允许通过 `workflow_dispatch` 手动执行。Key 来自 GitHub Secret；日志和截图不得包含认证头、Key、用户路径和敏感对话内容。
 
@@ -372,15 +350,15 @@ docs: 更新会话一致性开发进度
 
 ## 八、下一步从这里开始
 
-P0.1 的候选 Runtime Session Contract fixture 已完成；安装版连续 30 轮仍是发布人工验收项。下一个开发子项目是 P0.2 Windows 完整安装生命周期 E2E：
+P0.1 的候选 Runtime Session Contract fixture 已完成，P0.2 的安装生命周期自动化底座也已完成；两者都不应重复实现。下一个开发子项目是 P0.3 Runtime 激活前契约门禁，重点补齐候选 Runtime 激活前的剩余验证：
 
-1. 构建当前 Windows NSIS 安装包，并准备隔离的 E2E 用户数据目录。
-2. 静默安装后首次启动，等待内置 Runtime 准备完成。
-3. 创建 Unicode 路径项目，创建两个会话并验证标题、回复和切换都无需刷新。
-4. 完全退出并重新启动，验证项目、会话和模型配置仍可恢复。
-5. 执行覆盖升级，验证用户数据、active Runtime 和 last-known-good 保留。
-6. 执行卸载，分别验证“保留用户数据”和“删除全部数据”两个勾选组合。
-7. 保存脱敏的机器报告；安装版连续 30 轮创建、回复和切换仍需在 Release Candidate 上单独验收。
+1. 固定 Runtime 版本、Profile ID 与配置修订的读取和比对规则。
+2. 验证 `/api/events.mux`、`/api/events.host` WebSocket 与 Workspace list/create/connect。
+3. 验证 Desktop 插件关键 Slot、Bridge 协议版本/能力集合，以及受管进程树身份和稳定窗口。
+4. 任一剩余契约失败时阻止 active pointer 切换，继续使用 last-known-good，并输出可诊断的失败阶段。
+5. 将通过的契约结果纳入 Runtime 版本兼容证据；Session create/binding/open/prompt/cancel 已由既有 Session Contract 覆盖，不再另建并行门禁。
+
+安装版连续 30 轮创建、回复和会话切换仍需在每个 Release Candidate 上单独人工验收。
 
 完成一个步骤并验证后再进入下一步，不把多个不相关功能压进同一提交。
 
