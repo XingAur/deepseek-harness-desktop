@@ -1,0 +1,95 @@
+name: Windows Installer Lifecycle E2E
+
+on:
+  pull_request:
+    paths:
+      - 'src-tauri/**'
+      - 'packages/dsh-plugin-desktop/**'
+      - 'e2e/**'
+      - 'scripts/e2e/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'release/versions.json'
+      - '.github/workflows/windows-installer-e2e.yml'
+  schedule:
+    - cron: '30 18 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Installer lifecycle mode
+        type: choice
+        options: [quick, full]
+        default: full
+
+concurrency:
+  group: windows-installer-e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  lifecycle:
+    name: ${{ github.event_name == 'pull_request' && 'quick' || github.event_name == 'schedule' && 'full' || inputs.mode }}
+    runs-on: windows-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      E2E_MODE: ${{ github.event_name == 'pull_request' && 'quick' || github.event_name == 'schedule' && 'full' || inputs.mode }}
+      DSH_E2E_ROOT: ${{ github.workspace }}\\.dsh-e2e-owned
+      DSH_E2E_ARTIFACTS: ${{ github.workspace }}\\.dsh-e2e-owned\\e2e-artifacts
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Read Node version
+        id: versions
+        shell: pwsh
+        run: |
+          $versions = Get-Content -LiteralPath 'release/versions.json' -Raw | ConvertFrom-Json
+          "node_version=$($versions.nodeVersion)" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.versions.outputs.node_version }}
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Test deterministic fixtures
+        run: npm run e2e:fixtures
+
+      - name: Build installer candidates
+        shell: pwsh
+        run: |
+          if ($env:E2E_MODE -eq 'quick') { npm run e2e:setup:quick }
+          else { npm run e2e:setup:full }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run installer lifecycle
+        shell: pwsh
+        run: |
+          if ($env:E2E_MODE -eq 'quick') { npm run e2e:installer:quick }
+          else { npm run e2e:installer:full }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify recorded process cleanup
+        if: always()
+        shell: pwsh
+        run: |
+          $record = Join-Path $env:DSH_E2E_ARTIFACTS 'installer-records/latest-install.json'
+          if (Test-Path -LiteralPath $record) {
+            ./scripts/e2e/verify-cleanup.ps1 -RecordPath $record -TerminateRecorded
+          }
+
+      - name: Upload sanitized lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-lifecycle-${{ github.run_id }}
+          path: ${{ env.DSH_E2E_ARTIFACTS }}\\upload-safe
+          if-no-files-found: warn
+          retention-days: 14
