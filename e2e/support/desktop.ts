@@ -181,7 +181,19 @@ export class PackagedDesktopHarness implements DesktopHarness {
   async createConversation(prompt: string): Promise<void> {
     if (prompt.trim() === '') throw new Error('新会话消息不能为空')
     await this.withWorkbenchTarget(async (page) => {
+      // 首启声明在工作台 shell 就绪后异步挂载。不能只做一次即时检查，
+      // 否则它会在检查与点击「新建会话」之间出现，导致首个会话用例偶发失败。
+      const newSessionButton = 'document.querySelector(\'button[aria-label="新建会话"]\')'
+      const continueButton = firstUseContinueButtonExpression()
+      await page.waitFor(`(${newSessionButton}) !== null || (${continueButton}) !== null`, {
+        timeoutMs: 15_000,
+        message: '工作台未进入可创建会话或确认首启声明的状态',
+      })
       await this.dismissFirstUseNotice(page)
+      await page.waitFor(`(${newSessionButton}) !== null`, {
+        timeoutMs: 15_000,
+        message: '关闭首次使用声明后未出现新建会话入口',
+      })
       await page.click('button[aria-label="新建会话"]')
       const composer = conversationComposerExpression()
       await page.waitFor(`${composer} !== null`, {
@@ -493,7 +505,12 @@ export class PackagedDesktopHarness implements DesktopHarness {
   private async dismissFirstUseNotice(page: CdpPage): Promise<boolean> {
     const continueButton = firstUseContinueButtonExpression()
     if (!await page.evaluate<boolean>(`(${continueButton}) !== null`)) return false
-    await page.evaluate(`(() => { const button = ${continueButton}; button.click(); return true })()`)
+    await page.evaluate(`(() => {
+      const button = ${continueButton};
+      if (!(button instanceof HTMLElement)) throw new Error('首次使用声明确认按钮不可点击');
+      button.click();
+      return true;
+    })()`)
     await page.waitFor(`(${continueButton}) === null`, {
       timeoutMs: 10_000,
       message: '首次使用声明未关闭',
