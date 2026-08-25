@@ -5,6 +5,8 @@ import {
   conversationAssistantReplyCountExpression,
   conversationAssistantReplyIncreaseExpression,
   conversationSendEnabledExpression,
+  selectWorkbenchCdpTarget,
+  summarizeCdpTargets,
 } from './desktop'
 
 describe('PackagedDesktopHarness.continueConversation', () => {
@@ -71,6 +73,32 @@ describe('PackagedDesktopHarness CDP target discovery', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }))
 
     await expect(readCdpTargets(new PackagedDesktopHarness())).rejects.toThrow('CDP target endpoint 返回 503')
+  })
+
+  it('允许 CDP 将工作台 iframe 以 page target 暴露，仍按完整 URL 选中', () => {
+    const frameUrl = 'http://127.0.0.1:64785/?dsh-desktop-token=expected&dsh-desktop-generation-id=current'
+    const target = {
+      type: 'page',
+      url: frameUrl,
+      webSocketDebuggerUrl: 'ws://127.0.0.1:9229/devtools/page/current',
+    }
+
+    expect(selectWorkbenchCdpTarget([target], frameUrl)).toBe(target)
+  })
+
+  it('仍拒绝 URL 不同的 CDP target，并在摘要中隐藏查询值', () => {
+    const frameUrl = 'http://127.0.0.1:64785/?dsh-desktop-token=expected'
+    const other = {
+      type: 'iframe',
+      url: 'http://127.0.0.1:64785/?dsh-desktop-token=other-secret&dsh-desktop-session-id=old-session',
+      webSocketDebuggerUrl: 'ws://127.0.0.1:9229/devtools/page/old',
+    }
+
+    expect(selectWorkbenchCdpTarget([other], frameUrl)).toBeUndefined()
+    expect(summarizeCdpTargets([other])).toBe(
+      'iframe http://127.0.0.1:64785/?dsh-desktop-session-id&dsh-desktop-token',
+    )
+    expect(summarizeCdpTargets([other])).not.toContain('other-secret')
   })
 })
 

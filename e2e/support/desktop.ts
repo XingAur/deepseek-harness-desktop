@@ -443,15 +443,19 @@ export class PackagedDesktopHarness implements DesktopHarness {
     return await response.json() as CdpTarget[]
   }
 
-  private async findWorkbenchTarget(frameUrl: string): Promise<CdpTarget> {
+  private async findWorkbenchTarget(frameUrl: string): Promise<CdpTarget & { webSocketDebuggerUrl: string }> {
     const deadline = Date.now() + 30_000
+    let lastTargets: readonly CdpTarget[] = []
     while (Date.now() < deadline) {
-      const match = (await this.cdpTargets())
-        .find((target) => target.type === 'iframe' && target.url === frameUrl)
-      if (match?.webSocketDebuggerUrl !== undefined) return match
+      const targets = await this.cdpTargets()
+      lastTargets = targets
+      const match = selectWorkbenchCdpTarget(targets, frameUrl)
+      if (match !== undefined) return match
       await new Promise((resolveWait) => setTimeout(resolveWait, 100))
     }
-    throw new Error(`找不到工作台 CDP target：${frameUrl}`)
+    throw new Error(
+      `找不到工作台 CDP target：${summarizeCdpUrl(frameUrl)}；最后 CDP targets：${summarizeCdpTargets(lastTargets)}`,
+    )
   }
 
   private async openLocalProjects(page: CdpPage): Promise<void> {
@@ -517,10 +521,34 @@ export function assertSessionRoundTripCoverage(markers: readonly string[], marke
   if (new Set(rows).size < 2) throw new Error('会话轮转未覆盖至少两个独立会话')
 }
 
-interface CdpTarget {
+export interface CdpTarget {
   type: string
   url: string
-  webSocketDebuggerUrl: string
+  webSocketDebuggerUrl?: string
+}
+
+export function selectWorkbenchCdpTarget(
+  targets: readonly CdpTarget[],
+  frameUrl: string,
+): (CdpTarget & { webSocketDebuggerUrl: string }) | undefined {
+  return targets.find((target): target is CdpTarget & { webSocketDebuggerUrl: string } => (
+    target.url === frameUrl && typeof target.webSocketDebuggerUrl === 'string' && target.webSocketDebuggerUrl !== ''
+  ))
+}
+
+export function summarizeCdpTargets(targets: readonly CdpTarget[]): string {
+  if (targets.length === 0) return '无'
+  return targets.map((target) => `${target.type} ${summarizeCdpUrl(target.url)}`).join(', ')
+}
+
+function summarizeCdpUrl(rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl)
+    const queryKeys = [...new Set(url.searchParams.keys())].sort()
+    return `${url.origin}${url.pathname}${queryKeys.length === 0 ? '' : `?${queryKeys.join('&')}`}`
+  } catch {
+    return '<无效 URL>'
+  }
 }
 
 function isCdpConnectionRefused(error: unknown): boolean {
