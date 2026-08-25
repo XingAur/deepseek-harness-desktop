@@ -238,6 +238,7 @@ export function installAdvancedStyles(): () => void {
     .dshAgentWorkbenchCreate textarea { min-height: 58px; resize: vertical; }
     .dshAgentWorkbenchPrimary { min-height: 34px; padding: 0 13px; border: 0; border-radius: 8px; color: white; background: #5877cf; cursor: pointer; }
     .dshAgentWorkbenchPrimary:disabled { cursor: default; opacity: .45; }
+    .dshAgentWorkbenchNotice { padding: 10px 12px; border-radius: 9px; color: #a9c6f0; background: color-mix(in srgb, #3d5a8f 16%, transparent); font-size: 12px; }
     .dshAgentWorkbenchWarning, .dshAgentWorkbenchError { padding: 10px 12px; border-radius: 9px; font-size: 12px; }
     .dshAgentWorkbenchWarning { color: #ead8a0; background: color-mix(in srgb, #826f2f 20%, transparent); }
     .dshAgentWorkbenchError { color: #e8aaaa; background: color-mix(in srgb, #6d3636 18%, transparent); }
@@ -259,6 +260,69 @@ export function installAdvancedStyles(): () => void {
     .dshAgentWorkbenchDiff { padding: 12px; border: 1px solid var(--dsh-desktop-divider); border-radius: 10px; background: var(--dsw-alias-bg-layer-2, #29292e); }
     .dshAgentWorkbenchDiff > div { display: flex; align-items: center; justify-content: space-between; }
     .dshAgentWorkbenchDiff pre { max-height: 260px; margin: 8px 0 0; overflow: auto; color: #cbd7ff; font: 11px/1.5 ui-monospace, SFMono-Regular, monospace; white-space: pre-wrap; }
+    .dshAgentPage { display: block; width: 100%; height: 100%; overflow: auto; padding: 36px 40px 56px; }
+    .dshAgentHome { display: grid; gap: 22px; max-width: 760px; margin: 0 auto; }
+    .dshAgentHomeHero { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 2px; }
+    .dshAgentHomeHeroCopy h2 { margin: 0 0 6px; font-size: 24px; letter-spacing: .2px; }
+    .dshAgentHomeHeroCopy p { margin: 0; max-width: 52ch; color: var(--dsw-alias-label-secondary, #b7b7bf); font-size: 13px; line-height: 1.65; }
+    .dshAgentHomeGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; align-items: start; }
+    .dshAgentCard { display: grid; gap: 18px; padding: 22px; border: 1px solid var(--dsh-desktop-divider); border-radius: 18px; background: linear-gradient(180deg, color-mix(in srgb, #5877cf 5%, var(--dsw-alias-bg-layer-1, #1d1d20)), var(--dsw-alias-bg-layer-1, #1d1d20)); }
+    .dshAgentCard.is-coming { background: var(--dsw-alias-bg-layer-1, #1d1d20); opacity: .72; }
+    .dshAgentCard.is-codex[data-ready] { border-color: color-mix(in srgb, #6faa7d 45%, var(--dsh-desktop-divider)); }
+    .dshAgentCardHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .dshAgentCardIdentity { display: flex; align-items: center; gap: 13px; min-width: 0; }
+    .dshAgentCardIdentity h3 { margin: 0; font-size: 17px; letter-spacing: .2px; }
+    .dshAgentCardIdentity small { display: block; margin-top: 2px; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 11.5px; }
+    .dshAgentCardGlyph { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; flex: 0 0 40px; border-radius: 12px; color: #cfd9ff; background: radial-gradient(120% 120% at 30% 20%, color-mix(in srgb, #5877cf 62%, #20263c), color-mix(in srgb, #5877cf 30%, #1d1d20)); box-shadow: inset 0 0 0 1px color-mix(in srgb, #9db2ff 22%, transparent); }
+    .dshAgentCardGlyph svg { width: 20px; height: 20px; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+    .dshAgentCard.is-coming .dshAgentCardGlyph { color: var(--dsw-alias-label-tertiary, #85858d); background: var(--dsw-alias-bg-layer-2, #29292e); box-shadow: none; }
+    .dshAgentPill { flex: 0 0 auto; padding: 4px 11px; border-radius: 999px; font-size: 12px; font-weight: 600; letter-spacing: .3px; }
+    .dshAgentPill.is-ok { color: #8fd3a0; background: color-mix(in srgb, #3f7a51 26%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, #8fd3a0 30%, transparent); }
+    .dshAgentPill.is-warn { color: #e3c884; background: color-mix(in srgb, #8a7434 24%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, #e3c884 26%, transparent); }
+    .dshAgentPill.is-muted { color: var(--dsw-alias-label-tertiary, #85858d); background: color-mix(in srgb, #85858d 12%, transparent); }
+    .dshAgentSteps { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+    .dshAgentStep { position: relative; display: grid; grid-template-columns: 28px 1fr; gap: 0 14px; padding: 0 0 18px; }
+    .dshAgentStep:last-child { padding-bottom: 2px; }
+    .dshAgentStep::before { content: ""; position: absolute; top: 28px; bottom: 0; left: 13.5px; width: 1.5px; background: var(--dsh-desktop-divider); }
+    .dshAgentStep:last-child::before { display: none; }
+    .dshAgentStep[data-state="done"]::before { background: color-mix(in srgb, #6faa7d 55%, var(--dsh-desktop-divider)); }
+    .dshAgentStepMark { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid var(--dsh-desktop-divider); background: var(--dsw-alias-bg-layer-1, #1d1d20); color: var(--dsw-alias-label-tertiary, #85858d); font-size: 12.5px; font-weight: 600; }
+    .dshAgentStep[data-state="done"] .dshAgentStepMark { border-color: color-mix(in srgb, #6faa7d 70%, transparent); color: #8fd3a0; background: color-mix(in srgb, #6faa7d 16%, var(--dsw-alias-bg-layer-1, #1d1d20)); }
+    .dshAgentStep[data-state="active"] .dshAgentStepMark { border-color: color-mix(in srgb, #9db2ff 75%, transparent); color: #cfd9ff; background: color-mix(in srgb, #5877cf 22%, var(--dsw-alias-bg-layer-1, #1d1d20)); }
+    .dshAgentStepMark svg { width: 14px; height: 14px; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+    .dshAgentStepPulse { width: 8px; height: 8px; border-radius: 50%; background: #9db2ff; box-shadow: 0 0 0 0 color-mix(in srgb, #9db2ff 60%, transparent); animation: dshAgentPulse 1.6s ease-out infinite; }
+    @keyframes dshAgentPulse { 70% { box-shadow: 0 0 0 7px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+    .dshAgentStepCopy { min-width: 0; padding-top: 3px; }
+    .dshAgentStepCopy strong { display: block; font-size: 13.5px; }
+    .dshAgentStep[data-state="done"] .dshAgentStepCopy strong { color: var(--dsw-alias-label-secondary, #b7b7bf); }
+    .dshAgentStepCopy p { margin: 3px 0 0; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+    .dshAgentCardActions { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin-top: 2px; }
+    .dshAgentPrimaryButton { min-height: 36px; padding: 0 16px; border: 0; border-radius: 10px; color: white; background: #5877cf; font-size: 13px; font-weight: 600; cursor: pointer; transition: filter .15s ease; }
+    .dshAgentPrimaryButton:hover:not(:disabled) { filter: brightness(1.1); }
+    .dshAgentPrimaryButton:disabled { cursor: default; opacity: .4; }
+    .dshAgentGhostButton { min-height: 34px; padding: 0 13px; border: 1px solid var(--dsh-desktop-divider); border-radius: 10px; color: var(--dsw-alias-label-primary, #e8edf2); background: transparent; font-size: 12.5px; cursor: pointer; transition: background-color .15s ease; }
+    .dshAgentGhostButton:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.1)); }
+    .dshAgentGhostButton:disabled { cursor: default; opacity: .45; }
+    .dshAgentComingHint { margin: 0; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 12.5px; line-height: 1.6; }
+    .dshAgentLog { border: 1px solid var(--dsh-desktop-divider); border-radius: 12px; overflow: hidden; background: #101013; }
+    .dshAgentLogHead { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--dsh-desktop-divider); color: var(--dsw-alias-label-tertiary, #85858d); font-size: 11px; letter-spacing: .4px; }
+    .dshAgentLogLive { color: #9db2ff; }
+    .dshAgentLog pre { max-height: 168px; margin: 0; padding: 11px 13px; overflow: auto; color: #b9c4d6; font: 11.5px/1.65 ui-monospace, SFMono-Regular, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .dshAgentAdvanced { border-top: 1px dashed var(--dsh-desktop-divider); padding-top: 4px; }
+    .dshAgentAdvanced summary { padding: 8px 0; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 12px; cursor: pointer; user-select: none; }
+    .dshAgentAdvanced summary:hover { color: var(--dsw-alias-label-secondary, #b7b7bf); }
+    .dshAgentAdvancedBody { display: grid; gap: 9px; }
+    .dshAgentAdvancedBody > p { margin: 0; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 12px; line-height: 1.6; }
+    .dshAgentAdvancedBody code { padding: 1px 5px; border-radius: 5px; background: var(--dsw-alias-bg-layer-2, #29292e); font: 11px ui-monospace, SFMono-Regular, monospace; }
+    .dshAgentAdvancedRow { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+    .dshAgentAdvancedRow input { box-sizing: border-box; min-height: 34px; padding: 0 11px; border: 1px solid var(--dsh-desktop-divider); border-radius: 10px; color: inherit; background: var(--dsw-alias-bg-layer-2, #29292e); font: 12px ui-monospace, SFMono-Regular, monospace; }
+    .dshAgentAdvancedRow input:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, #7d9cf0); outline-offset: 1px; }
+    .dshAgentAdvancedResult { margin: 0; color: var(--dsw-alias-label-secondary, #b7b7bf); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+    .dshAgentWorkbenchHost { display: grid; gap: 4px; max-width: 1080px; margin: 0 auto; }
+    .dshAgentWorkbenchHost .dshAgentWorkbench { margin-top: 6px; }
+    .dshAgentWorkbenchHostHeader { display: flex; align-items: center; gap: 12px; }
+    .dshAgentWorkbenchHostHeader h3 { margin: 0; font-size: 18px; }
+    .dshAgentWorkbenchHostHeader button { min-height: 30px; padding: 0 10px; border: 1px solid var(--dsh-desktop-divider); border-radius: 8px; color: inherit; background: var(--dsw-alias-bg-layer-2, #29292e); cursor: pointer; }
     @media (max-width: 760px) {
       .dshDesktopProjectsPage { padding-inline: 20px; }
       .dshDesktopProfileEditor, .dshDesktopProfileSettingsList article { grid-template-columns: 1fr; }

@@ -72,11 +72,18 @@ impl AgentRuntime {
             bundled_worker_adapter(&launch.provider_id)?
         };
         if adapter_kind == "codex-cli" {
-            let selected = discover(&DiscoveryRequest::for_provider(AgentProvider::Codex))
+            let mut request = DiscoveryRequest::for_provider(AgentProvider::Codex);
+            if let Some(configured) = launch.cli_path.clone() {
+                let configured = PathBuf::from(&configured);
+                if configured.is_absolute() {
+                    request = request.with_explicit_path(configured);
+                }
+            }
+            let selected = discover(&request)
                 .map_err(|error| error)?
                 .selected
                 .ok_or_else(|| {
-                    "未找到 Codex CLI。请先在「模型与 Agent」中安装 Codex CLI，或选择其他 Provider"
+                    "没有找到 Codex CLI。回到「Agent」页重新检测，或在高级设置里手动指定 CLI 路径"
                         .to_owned()
                 })?;
             worker_args.push(format!("--dsh-codex-cli={}", selected.path.display()));
@@ -349,6 +356,7 @@ struct TaskLaunch {
     provider_id: String,
     worker_session_id: String,
     credential_id: Option<String>,
+    cli_path: Option<String>,
 }
 
 fn task_status_for_event(event_type: &str) -> Option<&'static str> {
@@ -519,6 +527,7 @@ fn read_task_launch(
                     provider_id: row.get(3)?,
                     worker_session_id: row.get(4)?,
                     credential_id: row.get(5)?,
+                    cli_path: row.get(6)?,
                 })
             },
         )

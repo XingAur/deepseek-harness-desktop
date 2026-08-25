@@ -647,6 +647,7 @@ pub async fn agent_cli_path_status(
 #[tauri::command]
 pub async fn agent_cli_path_select(
     coordinator: State<'_, Arc<DesktopCoordinator>>,
+    foundation: State<'_, Arc<DesktopFoundation>>,
     generation_id: String,
     session_id: String,
     provider_id: String,
@@ -660,18 +661,38 @@ pub async fn agent_cli_path_select(
     if path.is_empty() || path.len() > 4096 {
         return Err("CLI 路径无效".to_owned());
     }
-    let path = PathBuf::from(path);
+    let path = PathBuf::from(&path);
     if !path.is_absolute() {
         return Err("CLI 路径必须是绝对路径".to_owned());
     }
-    discover(
-        &DiscoveryRequest::for_provider(parse_provider(&provider_id)?).with_explicit_path(path),
-    )
+    let provider = parse_provider(&provider_id)?;
+    let result = discover(&DiscoveryRequest::for_provider(provider).with_explicit_path(path))?;
+    if result.selected.is_none() {
+        return Err("选择的路径不是可用的 CLI：请确认文件存在、可执行，并且能返回版本号".to_owned());
+    }
+    let selected = result.selected.as_ref().expect("checked").path.clone();
+    let store = foundation
+        .agent_store
+        .as_ref()
+        .ok_or_else(|| "Agent 数据服务当前不可用".to_owned())?;
+    let writer = store.writer().map_err(|error| error.to_string())?;
+    let now = Utc::now().to_rfc3339();
+    writer
+        .connection()
+        .execute(
+            "INSERT INTO providers (provider_id, provider_kind, display_name, cli_path, status, created_at, updated_at)
+             VALUES (?1, 'cli', ?2, ?3, 'active', ?4, ?4)
+             ON CONFLICT(provider_id) DO UPDATE SET cli_path = excluded.cli_path, updated_at = excluded.updated_at",
+            params![provider_id, provider.command_name(), selected.to_string_lossy(), now],
+        )
+        .map_err(|_| "CLI 路径保存失败".to_owned())?;
+    Ok(result)
 }
 
 #[tauri::command]
 pub async fn agent_cli_install_status(
     coordinator: State<'_, Arc<DesktopCoordinator>>,
+    foundation: State<'_, Arc<DesktopFoundation>>,
     jobs: State<'_, Arc<crate::agents::cli_ops::AgentCliJobState>>,
     generation_id: String,
     session_id: String,
@@ -682,12 +703,13 @@ pub async fn agent_cli_install_status(
         .await
         .map_err(|error| error.to_string())?;
     validate_agent_identifier(&session_id, "Session ID")?;
-    crate::agents::cli_ops::install_status(&jobs, &provider_id)
+    crate::agents::cli_ops::install_status(&jobs, foundation.agent_store.as_ref(), &provider_id)
 }
 
 #[tauri::command]
 pub async fn agent_cli_install_start(
     coordinator: State<'_, Arc<DesktopCoordinator>>,
+    foundation: State<'_, Arc<DesktopFoundation>>,
     jobs: State<'_, Arc<crate::agents::cli_ops::AgentCliJobState>>,
     generation_id: String,
     session_id: String,
@@ -698,12 +720,13 @@ pub async fn agent_cli_install_start(
         .await
         .map_err(|error| error.to_string())?;
     validate_agent_identifier(&session_id, "Session ID")?;
-    crate::agents::cli_ops::install_start(&jobs, &provider_id)
+    crate::agents::cli_ops::install_start(&jobs, foundation.agent_store.as_ref(), &provider_id)
 }
 
 #[tauri::command]
 pub async fn agent_cli_login_status(
     coordinator: State<'_, Arc<DesktopCoordinator>>,
+    foundation: State<'_, Arc<DesktopFoundation>>,
     jobs: State<'_, Arc<crate::agents::cli_ops::AgentCliJobState>>,
     generation_id: String,
     session_id: String,
@@ -714,12 +737,13 @@ pub async fn agent_cli_login_status(
         .await
         .map_err(|error| error.to_string())?;
     validate_agent_identifier(&session_id, "Session ID")?;
-    crate::agents::cli_ops::login_status(&jobs, &provider_id)
+    crate::agents::cli_ops::login_status(&jobs, foundation.agent_store.as_ref(), &provider_id)
 }
 
 #[tauri::command]
 pub async fn agent_cli_login_start(
     coordinator: State<'_, Arc<DesktopCoordinator>>,
+    foundation: State<'_, Arc<DesktopFoundation>>,
     jobs: State<'_, Arc<crate::agents::cli_ops::AgentCliJobState>>,
     generation_id: String,
     session_id: String,
@@ -730,7 +754,7 @@ pub async fn agent_cli_login_start(
         .await
         .map_err(|error| error.to_string())?;
     validate_agent_identifier(&session_id, "Session ID")?;
-    crate::agents::cli_ops::login_start(&jobs, &provider_id)
+    crate::agents::cli_ops::login_start(&jobs, foundation.agent_store.as_ref(), &provider_id)
 }
 
 fn parse_provider(value: &str) -> Result<AgentProvider, String> {
