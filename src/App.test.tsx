@@ -405,6 +405,7 @@ describe('App', () => {
     const { container } = render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
     const frame = await screen.findByTitle<HTMLIFrameElement>('DeepSeek Harness 工作台')
     const shell = container.querySelector('.windowShell')
+    expect(shell).toHaveAttribute('data-theme', 'light')
 
     window.dispatchEvent(new MessageEvent('message', {
       data: { type: 'dsh-desktop-theme', colorScheme: 'light' },

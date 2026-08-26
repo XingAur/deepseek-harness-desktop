@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import type { AppUpdateFailure, AppUpdateReceipt, AppUpdateState, GenerationPhase, LocalAppEvent, MigrationStatus, RecoveryStatus, RuntimeClient, RuntimeFailure, RuntimeFailureCode, RuntimePhase } from './runtime-contract'
 import { failureFromUnknown, initialRuntimeState, runtimeReducer } from './runtime-reducer'
-import { themeFromWorkbenchMessage } from './theme-message'
+import { initialDesktopColorScheme, persistDesktopColorScheme, themeFromWorkbenchMessage } from './theme-message'
 import type { DesktopColorScheme } from './theme-message'
 import { TitleBar } from './TitleBar'
 import { DeepSeekFishLogo } from './DeepSeekFishLogo'
@@ -172,7 +172,7 @@ export function AppUpdateBanner(props: AppUpdateBannerProps) {
 export function App({ runtime, windowControls }: AppProps) {
   const [state, dispatch] = useReducer(runtimeReducer, initialRuntimeState)
   const [detailsOpen, setDetailsOpen] = useState(false)
-  const [shellTheme, setShellTheme] = useState<DesktopColorScheme | undefined>()
+  const [shellTheme, setShellTheme] = useState<DesktopColorScheme>(initialDesktopColorScheme)
   const [migration, setMigration] = useState<MigrationStatus | null>(null)
   const [recovery, setRecovery] = useState<RecoveryStatus | null>(null)
   const [appUpdate, setAppUpdate] = useState<AppUpdateState>({ phase: 'idle' })
@@ -271,7 +271,10 @@ export function App({ runtime, windowControls }: AppProps) {
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       const nextTheme = themeFromWorkbenchMessage(event, iframeRef.current?.contentWindow ?? null)
-      if (nextTheme) setShellTheme((previous) => previous === nextTheme ? previous : nextTheme)
+      if (nextTheme) {
+        persistDesktopColorScheme(nextTheme)
+        setShellTheme((previous) => previous === nextTheme ? previous : nextTheme)
+      }
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
