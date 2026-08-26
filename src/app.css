@@ -297,10 +297,19 @@ h1 { margin: 0; font-size: clamp(30px, 5vw, 44px); font-weight: 560; letter-spac
 }
 
 .workbenchFrame[data-hidden] { display: none; }
-.localAppSurface { position: absolute; inset: 0; display: flex; flex-direction: column; z-index: 5; background: #151517; }
-.localAppStrip { display: flex; align-items: center; justify-content: space-between; gap: 16px; box-sizing: border-box; height: 40px; padding: 0 14px; background: #1c1c1f; border-bottom: 1px solid rgba(255,255,255,.08); color: #ececf0; font-size: 13px; }
-.localAppStripActions { display: flex; gap: 8px; }
-.localAppStripActions button { min-height: 26px; padding: 0 12px; border: 1px solid rgba(255,255,255,.14); border-radius: 999px; background: transparent; color: inherit; font-size: 12px; cursor: pointer; }
-.localAppStripActions button:hover { background: rgba(127,127,127,.14); }
-.localAppStripStop { border-color: rgba(214,118,118,.5) !important; color: #e8aaaa !important; }
+.localAppSurface { position: absolute; inset: 0; display: flex; flex-direction: column; z-index: 5; background: var(--shell-bg); }
+.localAppStrip { display: flex; align-items: center; justify-content: space-between; gap: 16px; box-sizing: border-box; min-height: 54px; padding: 0 16px 0 18px; background: color-mix(in srgb, var(--shell-surface-solid) 92%, transparent); border-bottom: 1px solid var(--shell-border); color: var(--shell-text); }
+.localAppStripIdentity, .localAppStripActions { display: flex; align-items: center; }
+.localAppStripIdentity { min-width: 0; gap: 10px; }
+.localAppStripIdentity p, .localAppStripIdentity strong { margin: 0; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.localAppStripIdentity p { margin-bottom: 2px; color: var(--shell-subtle); font-size: 10px; font-weight: 700; letter-spacing: .11em; text-transform: uppercase; }
+.localAppStripIdentity strong { max-width: min(52vw, 640px); font-size: 14px; font-weight: 650; }
+.localAppStripStatus { width: 9px; height: 9px; flex: 0 0 auto; border-radius: 50%; background: #68c58a; box-shadow: 0 0 0 4px color-mix(in srgb, #68c58a 16%, transparent); }
+.localAppStripRunning { border-radius: 999px; padding: 3px 8px; background: color-mix(in srgb, #68c58a 15%, transparent); color: color-mix(in srgb, #3c9c62 86%, var(--shell-text)); font-size: 11px; font-weight: 650; }
+.localAppStripActions { gap: 6px; }
+.localAppStripAction { width: 30px; height: 30px; display: inline-grid; place-items: center; padding: 0; border: 1px solid var(--shell-border); border-radius: 8px; background: transparent; color: var(--shell-muted); cursor: pointer; transition: color .16s ease, background .16s ease, border-color .16s ease; }
+.localAppStripAction svg { width: 16px; height: 16px; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.localAppStripAction:hover { background: var(--shell-layer); border-color: color-mix(in srgb, var(--shell-brand) 35%, var(--shell-border)); color: var(--shell-text); }
+.localAppStripAction:focus-visible { outline: 2px solid var(--shell-brand); outline-offset: 2px; }
+.localAppStripStop:hover { background: color-mix(in srgb, var(--shell-error) 12%, transparent); border-color: color-mix(in srgb, var(--shell-error) 52%, var(--shell-border)); color: var(--shell-error); }
 .localAppFrame { flex: 1; width: 100%; border: 0; background: #fff; }

@@ -453,13 +453,24 @@ export function App({ runtime, windowControls }: AppProps) {
             />
             {activeApp !== null && (
               <section className="localAppSurface" aria-label="本地应用视图">
-                <div className="localAppStrip">
-                  <span className="localAppStripTitle">正在运行：{activeApp.title}</span>
-                  <div className="localAppStripActions">
-                    <button type="button" onClick={() => setActiveApp(null)}>返回工作台</button>
-                    <button type="button" className="localAppStripStop" onClick={() => void stopActiveApp()}>停止应用</button>
+                <header className="localAppStrip">
+                  <div className="localAppStripIdentity">
+                    <span className="localAppStripStatus" aria-hidden="true" />
+                    <div>
+                      <p>本地应用</p>
+                      <strong>{activeApp.title}</strong>
+                    </div>
+                    <span className="localAppStripRunning">运行中</span>
                   </div>
-                </div>
+                  <div className="localAppStripActions">
+                    <button type="button" className="localAppStripAction" aria-label="返回工作台" title="返回工作台" onClick={() => setActiveApp(null)}>
+                      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M6 5v5h5M6.5 10A7 7 0 1 1 5 15" /></svg>
+                    </button>
+                    <button type="button" className="localAppStripAction localAppStripStop" aria-label="停止应用" title="停止应用" onClick={() => void stopActiveApp()}>
+                      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="m7 7 10 10M17 7 7 17" /></svg>
+                    </button>
+                  </div>
+                </header>
                 <iframe
                   className="localAppFrame"
                   title={`本地应用 ${activeApp.title}`}
