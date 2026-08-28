@@ -13,8 +13,9 @@
 1. **共享预设池**：所有预设存一处；一个预设可同时激活到多个目标。
 2. **每应用单激活**：每个目标同一时刻最多一个激活预设；激活 = 写入对应 live 文件。
 3. **回填保护**：切换/编辑前先把 live 文件的外部修改回填进预设库，外部编辑不丢。
-4. **统一入口**：侧边栏新增「扩展中心」overlay 面板，「提示词」为第一个 tab；
-   后续 MCP / Skills / 用量等 cc-switch 系功能以新 tab 陆续填充。
+4. **统一入口**：侧边栏现有「Agent」星形按钮（`AgentHomeEntry`）移除，原位替换为
+   「扩展中心」overlay 面板，「提示词」为第一个 tab；后续 MCP / Skills / 用量等
+   cc-switch 系功能以新 tab 陆续填充。
 5. **编辑器**：textarea + marked 实时预览（V1 不引入重型编辑器）。
 
 ### 明确不做（YAGNI，本期）
@@ -26,6 +27,8 @@
 - CodeMirror 等重型编辑器、语法高亮
 - WebDAV / 云同步、SQL 导出导入
 - 定时文件监听（同步均为操作触发，不后台 watch）
+- AgentHome 页面本身不迁移保留：其「安装 CLI / 登录」操作并入「模型与 Agent」中心
+  Agents tab（见 §4.1），其余能力（Agent 独立工作台宿主）由中心内已有 AgentWorkbench 覆盖
 
 ## 2. 方案选型
 
@@ -93,12 +96,28 @@ CREATE TABLE prompt_activations (
 
 ## 4. UI 设计（插件侧）
 
-### 4.1 入口：扩展中心
+### 4.1 入口：扩展中心（替换 Agent 入口）
 
-- 新增第二个 `sidebar.footer.action` 注册（id `dsh-desktop-extension-center`，order 20）：
-  星形图标 +「扩展中心」，与「本地项目」按钮并列；点击开合 overlay 面板，
-  完全复用 `LocalProjectsPage` 的 overlay 模式（`AdvancedFrame` 注入新的面板 state）。
-- 官方导航栏内部无插件可注入槽位，`sidebar.footer.action` 是唯一导航级入口。
+**移除**（用户已确认的产品决策）：
+
+- 删除 `AdvancedFrame` 内自渲染的 `AgentHomeEntry` 星形按钮及其独立容器
+  `dshDesktopSidebarEntries`——「歪」的根因即它不在官方侧边栏 footer 容器内，与
+  「本地项目」「设置」不同层；
+- 删除 `AgentHome` overlay、`AgentHomeState`、`AgentHome.tsx`、`agent-home-state.ts`
+  及相关样式与 `AdvancedFrameProps.agentHome` 注入；
+- 能力补偿：AgentHome 独有的「安装 CLI / 登录」两个操作（`cli.install.start` /
+  `cli.login.start`）**并入「模型与 Agent」中心 Agents tab 的 AgentCard**（动作契约
+  已存在，仅补 UI 入口），功能不丢失；ModelAgentCenter 内已有 AgentWorkbench 不动。
+
+**新增**：
+
+- 在 `sidebar.footer.action` 槽位新增第二个注册（id `dsh-desktop-extension-center`，
+  order 20），与「本地项目」（order 10）同槽渲染——天然与「设置」对齐，修复原
+  Agent 按钮的错位；按钮复用 `LocalProjectsFooterAction` 的 `dshDesktopFooterAction`
+  样式与宽窄模式，图标改用扩展中心语义（拼图/网格，弃用星形）；
+- 点击开合 overlay 面板，复用 `LocalProjectsPage` 的 overlay 模式；`AdvancedFrame`
+  以 `extensionCenter` state 替代原 `agentHome` 注入，布局列计算中的
+  `agentOpen` 同步替换；
 - 面板内 tab 导航：「提示词」（本期）；「MCP」「Skills」「用量」占位（显示"即将推出"）。
 
 ### 4.2 提示词 tab 布局
@@ -189,9 +208,11 @@ CREATE TABLE prompt_activations (
   - 激活/停用全链路：备份生成与 10 份轮转、未安装跳过、写失败不落激活、
     原子替换后旧内容可从备份恢复；
   - targets：路径推导、安装判定、超限标记。
-- **插件**（`npm run plugin:test`）：扩展中心按钮开合、tab 切换与占位、
+- **插件**（`npm run plugin:test`）：扩展中心按钮开合与「本地项目」同槽渲染（对齐
+  回归）、侧边栏不再出现 Agent 按钮与 AgentHome（移除回归）、tab 切换与占位、
   提示词 tab 列表/激活/停用/保存重投影（mock bridge）、预览渲染（含脚本净化）、
-  冲突对话框分支、首启导入对话框、粘贴 JSON 导入校验。
+  冲突对话框分支、首启导入对话框、粘贴 JSON 导入校验；Agents tab 新增安装/登录
+  入口的触发与状态断言。原有引用 AgentHome 的插件测试同步移除或改写。
 - **bridge 契约**：`bridge-contract.test.ts` / `workbench-bridge.test.ts` 补 8 个动作的
   payload 键校验、32 KiB 帧上限、secret 形状洗涤断言。
 - **验收线**：`npm run check` 全绿；v1 不新增 e2e 套件（unit + 契约测试已覆盖，
