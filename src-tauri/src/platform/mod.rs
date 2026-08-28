@@ -51,6 +51,16 @@ pub fn current() -> Arc<dyn PlatformAdapter> {
     Arc::new(macos::MacOsPlatformAdapter)
 }
 
+#[cfg(target_os = "windows")]
+pub(crate) fn updater_proxy() -> Option<url::Url> {
+    windows::updater_proxy()
+}
+
+#[cfg(not(target_os = "windows"))]
+pub(crate) fn updater_proxy() -> Option<url::Url> {
+    None
+}
+
 pub fn normalize_legacy_roots(stable: &Path, candidates: Vec<PathBuf>) -> Vec<PathBuf> {
     let stable_key = comparison_key(stable);
     let mut roots: Vec<PathBuf> = Vec::new();

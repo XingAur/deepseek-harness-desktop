@@ -62,6 +62,7 @@ security-framework = "=3.7.0"
 
 [target.'cfg(windows)'.dependencies]
 trash = "=5.2.6"
+winreg = "=0.55.0"
 windows-sys = { version = "=0.61.2", features = [
   "Win32_Foundation",
   "Win32_Security",

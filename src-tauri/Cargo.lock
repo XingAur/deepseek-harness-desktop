@@ -886,6 +886,7 @@ dependencies = [
  "url",
  "uuid",
  "windows-sys 0.61.2",
+ "winreg",
  "zeroize",
  "zip 6.0.0",
 ]
