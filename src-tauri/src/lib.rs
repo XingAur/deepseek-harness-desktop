@@ -17,6 +17,7 @@ mod platform;
 mod plugin_market;
 mod profile;
 mod projects;
+mod prompts;
 mod provisioning;
 mod runtime;
 mod safe_remove;
