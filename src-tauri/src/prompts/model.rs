@@ -90,6 +90,14 @@ pub enum ActivateOutcome {
     BackfillConflict { preset_id: String, candidates: Vec<ConflictCandidate> },
 }
 
+/// 承载“正常完成 or 冲突待裁决”的结果:冲突是业务分支而非错误,不走错误通道。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "resolution", rename_all = "kebab-case")]
+pub enum Flow<T> {
+    Done(T),
+    Conflict { preset_id: String, candidates: Vec<ConflictCandidate> },
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum PromptsError {
     #[error("prompts_store_error: {0}")]
