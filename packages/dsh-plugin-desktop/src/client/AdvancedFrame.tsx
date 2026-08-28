@@ -19,6 +19,7 @@ export function AdvancedFrame({ layout, platform, renderSlot, useSessions, useWo
     const current = state.current
     return current !== undefined && state.byId[current]?.blank === false ? current : undefined
   })
+  const currentSessionId = useSessions((state) => state.current)
 
   useEffect(() => {
     const element = frameRef.current
@@ -35,6 +36,13 @@ export function AdvancedFrame({ layout, platform, renderSlot, useSessions, useWo
   useEffect(() => { if (projectsOpen || pluginsOpen) layout.closeDetails() }, [layout, projectsOpen, pluginsOpen])
   useEffect(() => { if (pluginsOpen) localProjects.close() }, [pluginsOpen, localProjects])
   useEffect(() => { if (projectsOpen) pluginCenter.close() }, [projectsOpen, pluginCenter])
+  // 侧栏“新会话”/会话切换只改会话状态，不会碰下面两个全屏页面；
+  // 会话成为当前会话时必须回到工作台，否则页面会一直盖住会话视图。
+  useEffect(() => {
+    if (currentSessionId === undefined) return
+    localProjects.close()
+    pluginCenter.close()
+  }, [currentSessionId, localProjects, pluginCenter])
 
   const collapsed = panels.narrow ? !panels.narrowExpanded : panels.sidebar === 0
   const sidebarPreference = collapsed ? 0 : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
