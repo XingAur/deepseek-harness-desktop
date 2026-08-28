@@ -45,7 +45,7 @@ impl PromptsService {
 
     fn validate_title(title: &str) -> Result<()> {
         let trimmed = title.trim();
-        if trimmed.is_empty() || trimmed.len() > 200 {
+        if trimmed.is_empty() || trimmed.chars().count() > 200 {
             return Err(PromptsError::InvalidInput("标题须为 1-200 字符".into()));
         }
         Ok(())
@@ -77,7 +77,10 @@ impl PromptsService {
             .ok_or_else(|| PromptsError::InvalidInput(format!("预设不存在: {preset_id}")))
     }
 
-    /// 保存:新建或更新;更新前先回填检测(外部修改单目标→静默采纳;多目标分歧→冲突)。
+    /// 保存:新建或更新。
+    /// 更新已激活预设时:≥2 份不同分歧 live → Flow::Conflict(DB 未写入);
+    /// 恰 1 份分歧 → 先落 backup-{ms} 备份预设吸收外部修改,再以用户提交内容更新 DB;
+    /// 最后强制重投影(备份+原子写,不比对),保证任何选择都能收敛。
     pub fn save(&self, preset_id: Option<&str>, title: &str, content: &str) -> Result<Flow<SaveOutcome>> {
         Self::validate_title(title)?;
         Self::validate_content(content)?;
@@ -86,35 +89,26 @@ impl PromptsService {
             None => {
                 let id = uuid::Uuid::new_v4().to_string();
                 self.store.insert_preset(&id, title.trim(), content, now, now)?;
-                PromptPreset {
-                    id,
-                    title: title.trim().to_owned(),
-                    content: content.to_owned(),
-                    created_at: now,
-                    updated_at: now,
-                }
+                PromptPreset { id, title: title.trim().to_owned(), content: content.to_owned(), created_at: now, updated_at: now }
             }
             Some(existing_id) => {
                 let existing = self.get(existing_id)?;
-                if let Err(candidates) = self.detect_backfill(existing_id, &existing.content) {
-                    return Ok(Flow::Conflict { preset_id: existing_id.to_owned(), candidates });
+                let divergent = self.divergent_live_contents(existing_id, &existing.content);
+                if divergent.len() >= 2 {
+                    // 冲突在检测阶段返回:此刻尚未写库,外部修改原样保留。
+                    return Ok(Flow::Conflict { preset_id: existing_id.to_owned(), candidates: divergent });
+                }
+                if let Some(candidate) = divergent.first() {
+                    if candidate.content != content {
+                        let backup_id = uuid::Uuid::new_v4().to_string();
+                        self.store.insert_preset(&backup_id, &format!("backup-{now}"), &candidate.content, now, now)?;
+                    }
                 }
                 self.store.update_preset(existing_id, title.trim(), content, now)?;
-                PromptPreset {
-                    id: existing.id,
-                    title: title.trim().to_owned(),
-                    content: content.to_owned(),
-                    created_at: existing.created_at,
-                    updated_at: now,
-                }
+                PromptPreset { id: existing.id, title: title.trim().to_owned(), content: content.to_owned(), created_at: existing.created_at, updated_at: now }
             }
         };
-        let projected = match self.project_active_targets(&stored)? {
-            Flow::Done(projected) => projected,
-            Flow::Conflict { candidates, .. } => {
-                return Ok(Flow::Conflict { preset_id: stored.id.clone(), candidates });
-            }
-        };
+        let projected = self.project_active_targets_forced(&stored)?;
         Ok(Flow::Done(SaveOutcome::Saved { preset: stored, projected }))
     }
 
@@ -126,57 +120,32 @@ impl PromptsService {
         self.store.delete_preset(preset_id)
     }
 
-    /// 回填检测(spec §5):
-    /// - 无激活目标 → Ok(None);
-    /// - 恰一个候选(live ≠ DB)→ Ok(Some(live))(静默回填源);
-    /// - ≥2 个候选(live 分歧)→ Err(candidates) 冲突;
-    /// - 其余(live 为空/与 DB 一致)→ Ok(None)。
-    fn detect_backfill(
-        &self,
-        preset_id: &str,
-        db_content: &str,
-    ) -> std::result::Result<Option<String>, Vec<ConflictCandidate>> {
-        let mut candidates = Vec::new();
+    /// 收集激活目标 live 内容与 DB 的分歧项,按内容去重(同内容保留最先目标,target 升序)。
+    /// 读取失败/未安装的目标跳过。
+    fn divergent_live_contents(&self, preset_id: &str, db_content: &str) -> Vec<ConflictCandidate> {
+        let mut candidates: Vec<ConflictCandidate> = Vec::new();
         for target in self.store.activated_targets(preset_id).unwrap_or_default() {
             let Ok(Some(live)) = self.live_content(target) else { continue };
-            if live != db_content {
-                candidates.push(ConflictCandidate { target, content: live, updated_at: Self::now_ms() });
+            if live == db_content {
+                continue;
             }
+            if candidates.iter().any(|candidate| candidate.content == live) {
+                continue;
+            }
+            candidates.push(ConflictCandidate { target, content: live, updated_at: Self::now_ms() });
         }
-        match candidates.len() {
-            0 => Ok(None),
-            1 => Ok(Some(candidates.remove(0).content)),
-            _ => Err(candidates),
-        }
+        candidates
     }
 
-    /// 把预设内容写入所有激活它的目标(先冲突检测,再逐目标备份+原子写)。
-    pub(crate) fn project_active_targets(&self, preset: &PromptPreset) -> Result<Flow<Vec<TargetStatus>>> {
-        let activated = self.store.activated_targets(&preset.id)?;
-        if activated.is_empty() {
-            return Ok(Flow::Done(Vec::new()));
-        }
-        let mut candidates = Vec::new();
-        for target in &activated {
-            if let Ok(Some(live)) = self.live_content(*target) {
-                if live != preset.content {
-                    candidates.push(ConflictCandidate {
-                        target: *target,
-                        content: live,
-                        updated_at: Self::now_ms(),
-                    });
-                }
-            }
-        }
-        if !candidates.is_empty() {
-            return Ok(Flow::Conflict { preset_id: preset.id.clone(), candidates });
-        }
+    /// 强制重投影:逐激活目标 备份 → 原子写 → 状态收集,不做 live 比对。
+    /// save 路径的分歧裁决(备份预设/冲突)已在调用前完成,此处无条件以预设内容覆盖,保证收敛。
+    fn project_active_targets_forced(&self, preset: &PromptPreset) -> Result<Vec<TargetStatus>> {
         let mut projected = Vec::new();
-        for target in &activated {
-            self.write_target(*target, &preset.content)?;
-            projected.push(self.status_of(*target)?);
+        for target in self.store.activated_targets(&preset.id)? {
+            self.write_target(target, &preset.content)?;
+            projected.push(self.status_of(target)?);
         }
-        Ok(Flow::Done(projected))
+        Ok(projected)
     }
 
     fn live_content(&self, target: PromptTarget) -> Result<Option<String>> {
@@ -326,5 +295,73 @@ mod tests {
         let env = env();
         let service = service(&env);
         assert!(service.save(None, "   ", "c").is_err());
+    }
+
+    fn seed_activated(service: &PromptsService, preset_id: &str, target: PromptTarget) {
+        service.store.set_activation(target, preset_id, 1).unwrap();
+    }
+
+    #[test]
+    fn save_with_single_divergent_live_backs_up_external_and_keeps_user_content() {
+        let env = env();
+        let service = service(&env);
+        let saved = match service.save(None, "P", "v1").unwrap() {
+            Flow::Done(SaveOutcome::Saved { preset, .. }) => preset,
+            _ => panic!(),
+        };
+        seed_activated(&service, &saved.id, PromptTarget::Claude);
+        let path = service.prompt_file_for(PromptTarget::Claude).unwrap().unwrap();
+        std::fs::write(&path, "外部修改").unwrap();
+
+        let outcome = service.save(Some(&saved.id), "P", "v2").unwrap();
+        match outcome {
+            Flow::Done(SaveOutcome::Saved { preset, projected }) => {
+                assert_eq!(preset.content, "v2", "用户提交内容为准");
+                assert_eq!(projected.len(), 1);
+            }
+            _ => panic!("单份分歧不应冲突"),
+        }
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "v2");
+        assert!(service.list().unwrap().iter().any(|summary| summary.title.starts_with("backup-")), "外部修改须落为备份预设");
+    }
+
+    #[test]
+    fn save_with_identical_divergent_lives_does_not_conflict() {
+        let env = env();
+        let service = service(&env);
+        let saved = match service.save(None, "P", "v1").unwrap() {
+            Flow::Done(SaveOutcome::Saved { preset, .. }) => preset,
+            _ => panic!(),
+        };
+        seed_activated(&service, &saved.id, PromptTarget::Claude);
+        seed_activated(&service, &saved.id, PromptTarget::Codex);
+        for target in [PromptTarget::Claude, PromptTarget::Codex] {
+            let path = service.prompt_file_for(target).unwrap().unwrap();
+            std::fs::write(&path, "相同的外部修改").unwrap();
+        }
+        assert!(matches!(service.save(Some(&saved.id), "P", "v2").unwrap(), Flow::Done(_)), "内容相同的分歧按去重不算冲突");
+    }
+
+    #[test]
+    fn save_with_two_distinct_divergent_lives_returns_deduped_conflict() {
+        let env = env();
+        let service = service(&env);
+        let saved = match service.save(None, "P", "v1").unwrap() {
+            Flow::Done(SaveOutcome::Saved { preset, .. }) => preset,
+            _ => panic!(),
+        };
+        seed_activated(&service, &saved.id, PromptTarget::Claude);
+        seed_activated(&service, &saved.id, PromptTarget::Codex);
+        let claude_path = service.prompt_file_for(PromptTarget::Claude).unwrap().unwrap();
+        let codex_path = service.prompt_file_for(PromptTarget::Codex).unwrap().unwrap();
+        std::fs::write(&claude_path, "claude 端修改").unwrap();
+        std::fs::write(&codex_path, "codex 端修改").unwrap();
+        match service.save(Some(&saved.id), "P", "v2").unwrap() {
+            Flow::Conflict { preset_id, candidates } => {
+                assert_eq!(preset_id, saved.id);
+                assert_eq!(candidates.len(), 2, "两份不同内容各留一个候选");
+            }
+            _ => panic!("两份不同分歧必须冲突"),
+        }
     }
 }

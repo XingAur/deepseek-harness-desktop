@@ -19,7 +19,8 @@ pub fn backup_live_file(live_path: &Path, backup_root: &Path) -> Result<Option<P
     digest.update(&bytes);
     let name = format!("{timestamp}-{}.md", &hex::encode(digest.finalize())[..8]);
     let destination = backup_root.join(&name);
-    let temporary = backup_root.join(format!(".{name}.tmp"));
+    let token = uuid::Uuid::new_v4();
+    let temporary = backup_root.join(format!(".{name}.{token}.tmp"));
     std::fs::write(&temporary, &bytes).map_err(|error| PromptsError::Io(error.to_string()))?;
     std::fs::rename(&temporary, &destination).map_err(|error| PromptsError::Io(error.to_string()))?;
     rotate_backups(backup_root, MAX_BACKUPS_PER_TARGET)?;
@@ -27,7 +28,8 @@ pub fn backup_live_file(live_path: &Path, backup_root: &Path) -> Result<Option<P
 }
 
 /// 轮转依赖备份目录内文件名为定宽 `{UTC时间戳}-{sha256前8}.md`(字典序=时间序);
-/// 目录内不应混入其他文件。仅在进程内串行调用(服务层持锁)。
+/// 目录内不应混入其他文件。调用方需自行保证同目录串行;并发轮转最坏情况是单次可重试 IO
+/// 错误(删除已不存在文件按 NotFound 容忍)。
 pub fn rotate_backups(backup_root: &Path, keep: usize) -> Result<()> {
     let mut entries: Vec<PathBuf> = std::fs::read_dir(backup_root)
         .map_err(|error| PromptsError::Io(error.to_string()))?

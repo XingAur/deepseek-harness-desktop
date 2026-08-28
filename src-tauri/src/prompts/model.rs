@@ -91,8 +91,8 @@ pub enum ActivateOutcome {
 }
 
 /// 承载“正常完成 or 冲突待裁决”的结果:冲突是业务分支而非错误,不走错误通道。
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "resolution", rename_all = "kebab-case")]
+/// 纯内部类型,不做序列化;commands 层手工映射冲突载荷(经 SaveOutcome::BackfillConflict)。
+#[derive(Clone, Debug)]
 pub enum Flow<T> {
     Done(T),
     Conflict { preset_id: String, candidates: Vec<ConflictCandidate> },
