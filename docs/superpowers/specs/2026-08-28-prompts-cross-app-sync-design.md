@@ -42,7 +42,7 @@
 
 ### 3.1 模块布局（`src-tauri/src/prompts/`，顶层模块，与 `agents/`、`profile/` 平级）
 
-```
+```text
 prompts/
   mod.rs        模块根 + PromptTarget 枚举（Claude | Codex | Dsh）
   model.rs      PromptPreset、TargetStatus、冲突与导入相关类型
@@ -103,7 +103,7 @@ CREATE TABLE prompt_activations (
 
 ### 4.2 提示词 tab 布局
 
-```
+```text
 ┌────────────────────────────────────────────────────────┐
 │ 目标状态条: [Claude ● 已激活·预设A] [Codex ○ 未安装] [DSH ● ⚠外部修改] │
 ├───────────┬────────────────────────┬───────────────────┤
@@ -116,7 +116,8 @@ CREATE TABLE prompt_activations (
 ```
 
 - 目标状态条：每目标显示 安装/未安装、当前激活预设；live 文件哈希与 DB 不一致时
-  亮「⚠外部修改」徽标，点击可触发回填；未安装目标按钮禁用。
+  亮「⚠外部修改」徽标，点击打开该激活预设进编辑器（保存时经 §5 回填流程吸收外部
+  修改，无需独立回填动作）；未安装目标按钮禁用。
 - 新增依赖（插件包）：`marked` + `dompurify`（预览渲染，防 iframe 内注入）。
 - 手动粘贴 JSON 导入：对话框内粘贴 cc-switch 格式或 `{title, content}` JSON，
   解析入库（不激活），作为 Deep Link 缺位的导入通道。
@@ -161,7 +162,7 @@ CREATE TABLE prompt_activations (
 | `prompts.activate` | `prompts_activate` | `{ presetId, target }` → `{ status }` 或冲突载荷 |
 | `prompts.deactivate` | `prompts_deactivate` | `{ target }` → `{ status }` |
 | `prompts.status` | `prompts_status` | → `TargetStatus[]`：`{ target, installed, liveFileExists, activePresetId, liveContentSha256, matchesActivePreset, oversized }` |
-| `prompts.import` | `prompts_import` | `{ targets: [...] }` → `{ imported: PresetSummary[] }` |
+| `prompts.import` | `prompts_import` | `{ targets: Array<'claude' \| 'codex' \| 'dsh'> }` → `{ imported: PresetSummary[] }` |
 
 契约改动落三处：`src/bridge-contract.ts`、
 `packages/dsh-plugin-desktop/src/client/bridge-contract.ts`（动作联合 +
