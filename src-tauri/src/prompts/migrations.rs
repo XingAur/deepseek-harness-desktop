@@ -1,4 +1,4 @@
-use rusqlite::Connection;
+use rusqlite::{Connection, TransactionBehavior};
 
 pub const CURRENT_SCHEMA_VERSION: i64 = 1;
 
@@ -38,13 +38,16 @@ pub fn validate_current_schema(connection: &Connection) -> rusqlite::Result<()> 
 
 pub fn migrate_to_current(connection: &mut Connection) -> rusqlite::Result<()> {
     let version = user_version(connection)?;
-    match version {
-        0 => connection.execute_batch(V1_SCHEMA)?,
-        CURRENT_SCHEMA_VERSION => return Ok(()),
-        _ => return Err(rusqlite::Error::InvalidQuery),
+    if version == CURRENT_SCHEMA_VERSION {
+        return Ok(());
     }
-    connection.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION)?;
-    Ok(())
+    if version != 0 {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Exclusive)?;
+    transaction.execute_batch(V1_SCHEMA)?;
+    transaction.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION)?;
+    transaction.commit()
 }
 
 #[cfg(test)]
@@ -86,5 +89,29 @@ mod tests {
         let mut connection = Connection::open_in_memory().unwrap();
         connection.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION + 1).unwrap();
         assert!(migrate_to_current(&mut connection).is_err());
+    }
+
+    #[test]
+    fn migrate_to_current_is_idempotent() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate_to_current(&mut connection).unwrap();
+        migrate_to_current(&mut connection).unwrap();
+        assert_eq!(user_version(&connection).unwrap(), CURRENT_SCHEMA_VERSION);
+        validate_current_schema(&connection).unwrap();
+    }
+
+    #[test]
+    fn activation_check_constraint_rejects_unknown_target() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate_to_current(&mut connection).unwrap();
+        connection.execute_batch(
+            "INSERT INTO prompts (id, title, content, created_at, updated_at) VALUES
+             ('p1', 'A', 'content-a', 1, 1);",
+        ).unwrap();
+        let rejected = connection.execute(
+            "INSERT INTO prompt_activations (target, preset_id, activated_at) VALUES ('gemini', 'p1', 1)",
+            [],
+        );
+        assert!(rejected.is_err(), "CHECK 约束必须拒绝非法激活目标");
     }
 }
