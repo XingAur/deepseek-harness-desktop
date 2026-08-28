@@ -112,6 +112,27 @@ impl PromptsService {
         Ok(Flow::Done(SaveOutcome::Saved { preset: stored, projected }))
     }
 
+    /// 冲突裁决后的收敛入口:用户已选定最终内容(通常来自 Flow::Conflict 的某个候选)。
+    /// 其余分歧 live 内容先落 backup-{ms} 备份预设防丢,再以选定内容更新 DB 并强制重投影。
+    /// 与 save 不同:不再做分歧闸门(用户裁决即权威),保证一次调用必然收敛。
+    pub fn resolve_save_conflict(&self, preset_id: &str, title: &str, content: &str) -> Result<Flow<SaveOutcome>> {
+        Self::validate_title(title)?;
+        Self::validate_content(content)?;
+        let existing = self.get(preset_id)?;
+        let now = Self::now_ms();
+        for candidate in self.divergent_live_contents(preset_id, &existing.content) {
+            if candidate.content == content {
+                continue;
+            }
+            let backup_id = uuid::Uuid::new_v4().to_string();
+            self.store.insert_preset(&backup_id, &format!("backup-{now}"), &candidate.content, now, now)?;
+        }
+        self.store.update_preset(preset_id, title.trim(), content, now)?;
+        let stored = PromptPreset { id: existing.id, title: title.trim().to_owned(), content: content.to_owned(), created_at: existing.created_at, updated_at: now };
+        let projected = self.project_active_targets_forced(&stored)?;
+        Ok(Flow::Done(SaveOutcome::Saved { preset: stored, projected }))
+    }
+
     /// 删除:任一目标仍激活该预设时拒绝(要求先停用)。
     pub fn delete(&self, preset_id: &str) -> Result<()> {
         if !self.store.activated_targets(preset_id)?.is_empty() {
@@ -363,5 +384,66 @@ mod tests {
             }
             _ => panic!("两份不同分歧必须冲突"),
         }
+    }
+
+    #[test]
+    fn resolve_save_conflict_converges_and_preserves_other_candidates() {
+        let env = env();
+        let service = service(&env);
+        let saved = match service.save(None, "P", "v1").unwrap() {
+            Flow::Done(SaveOutcome::Saved { preset, .. }) => preset,
+            _ => panic!(),
+        };
+        seed_activated(&service, &saved.id, PromptTarget::Claude);
+        seed_activated(&service, &saved.id, PromptTarget::Codex);
+        let claude_path = service.prompt_file_for(PromptTarget::Claude).unwrap().unwrap();
+        let codex_path = service.prompt_file_for(PromptTarget::Codex).unwrap().unwrap();
+        std::fs::write(&claude_path, "claude 端修改").unwrap();
+        std::fs::write(&codex_path, "codex 端修改").unwrap();
+
+        // 冲突:DB 未写入
+        match service.save(Some(&saved.id), "P", "v2").unwrap() {
+            Flow::Conflict { candidates, .. } => assert_eq!(candidates.len(), 2),
+            _ => panic!(),
+        }
+        assert_eq!(service.get(&saved.id).unwrap().content, "v1", "冲突返回时 DB 不得写入");
+
+        // 裁决以 claude 端为准 → 收敛,另一端内容落备份
+        let resolved = match service.resolve_save_conflict(&saved.id, "P", "claude 端修改").unwrap() {
+            Flow::Done(SaveOutcome::Saved { preset, projected }) => (preset, projected),
+            _ => panic!("resolve 必须收敛"),
+        };
+        assert_eq!(resolved.0.content, "claude 端修改");
+        assert_eq!(resolved.1.len(), 2);
+        assert_eq!(std::fs::read_to_string(&claude_path).unwrap(), "claude 端修改");
+        assert_eq!(std::fs::read_to_string(&codex_path).unwrap(), "claude 端修改");
+        let summaries = service.list().unwrap();
+        let backups: Vec<&crate::prompts::model::PresetSummary> = summaries.iter()
+            .filter(|summary| summary.title.starts_with("backup-"))
+            .collect();
+        assert_eq!(backups.len(), 1);
+        let backup_preset = service.get(&backups[0].id).unwrap();
+        assert_eq!(backup_preset.content, "codex 端修改", "未选中一端的分歧内容必须落备份");
+
+        // 收敛后再 save 不再冲突
+        assert!(matches!(service.save(Some(&saved.id), "P", "v3").unwrap(), Flow::Done(_)));
+    }
+
+    #[test]
+    fn backup_preset_from_single_divergence_carries_external_content() {
+        let env = env();
+        let service = service(&env);
+        let saved = match service.save(None, "P", "v1").unwrap() {
+            Flow::Done(SaveOutcome::Saved { preset, .. }) => preset,
+            _ => panic!(),
+        };
+        seed_activated(&service, &saved.id, PromptTarget::Claude);
+        let path = service.prompt_file_for(PromptTarget::Claude).unwrap().unwrap();
+        std::fs::write(&path, "外部修改").unwrap();
+        let _ = service.save(Some(&saved.id), "P", "v2").unwrap();
+        let backup = service.list().unwrap().into_iter()
+            .find(|summary| summary.title.starts_with("backup-"))
+            .expect("应有备份预设");
+        assert_eq!(service.get(&backup.id).unwrap().content, "外部修改");
     }
 }
