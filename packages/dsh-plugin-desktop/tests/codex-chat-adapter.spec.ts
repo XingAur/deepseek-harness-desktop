@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { codexSpawnSpec } from '../src/server/codex-chat'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -63,8 +64,14 @@ let fakeDir: string | null = null
 
 function installFakeCli(): string {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-fake-codex-'))
-  const cliPath = join(dir, 'codex')
-  writeFileSync(cliPath, '#!/usr/bin/env node\n' + fakeServerSource, { mode: 0o755 })
+  const serverPath = join(dir, 'codex-fake.js')
+  writeFileSync(serverPath, fakeServerSource)
+  const cliPath = process.platform === 'win32' ? join(dir, 'codex.cmd') : join(dir, 'codex')
+  if (process.platform === 'win32') {
+    writeFileSync(cliPath, `@echo off\r\n"${process.execPath}" "%~dp0codex-fake.js" %*\r\n`)
+  } else {
+    writeFileSync(cliPath, '#!/usr/bin/env node\n' + fakeServerSource, { mode: 0o755 })
+  }
   process.env.DSH_DESKTOP_CODEX_CLI = cliPath
   fakeDir = dir
   return cliPath
@@ -109,6 +116,14 @@ async function collect(stream: AsyncGenerator<any>): Promise<any[]> {
 }
 
 describe('codex chat adapter（假 CLI 端到端）', () => {
+  it('Windows 的 cmd CLI 通过 shell 启动 app-server', () => {
+    expect(codexSpawnSpec('C:\\Users\\test\\codex.cmd', 'win32')).toEqual({
+      command: 'C:\\Users\\test\\codex.cmd',
+      args: ['app-server'],
+      shell: true,
+    })
+  })
+
   it('满足注册契约：providerInfo/listModels/prepareCall', async () => {
     installFakeCli()
     const { adapter, providers } = await registerAdapter()

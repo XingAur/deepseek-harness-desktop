@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { isAbsolute, join } from 'node:path'
+import { extname, isAbsolute, join } from 'node:path'
 
 /**
  * Codex 聊天模型适配器：把官方 Codex CLI（app-server JSON-RPC over stdio）
@@ -29,6 +29,16 @@ export interface CodexChannel {
 
 const FRAME_LIMIT = 4 * 1024 * 1024
 
+export function codexSpawnSpec(cliPath: string, platform = process.platform): {
+  command: string
+  args: string[]
+  shell: boolean
+} {
+  const extension = extname(cliPath).toLowerCase()
+  const shell = platform === 'win32' && (extension === '.cmd' || extension === '.bat')
+  return { command: cliPath, args: ['app-server'], shell }
+}
+
 export interface CodexModel {
   id: string
   name: string
@@ -38,9 +48,11 @@ export interface CodexModel {
 }
 
 export function openCodexChannel(cliPath: string, cwd: string): CodexChannel {
-  const child: ChildProcess = spawn(cliPath, ['app-server'], {
+  const spawnSpec = codexSpawnSpec(cliPath)
+  const child: ChildProcess = spawn(spawnSpec.command, spawnSpec.args, {
     cwd,
     env: buildCodexEnv(),
+    shell: spawnSpec.shell,
     stdio: ['pipe', 'pipe', 'pipe'],
   })
   let nextId = 1
