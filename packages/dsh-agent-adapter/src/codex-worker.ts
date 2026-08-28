@@ -193,7 +193,7 @@ export async function runCodexCliWorker(io: CodexWorkerIo, options: CodexWorkerO
           heartbeatTimer.unref?.()
         } catch (cause) {
           await teardown()
-          writeError(frame, 'CODEX_START_FAILED', typeof redactDiagnostic(cause) === 'string' ? redactDiagnostic(cause) : 'Codex app-server failed to start')
+          writeError(frame, 'CODEX_START_FAILED', humanizeStartError(String(redactDiagnostic(cause))))
           continue
         }
         continue
@@ -307,6 +307,21 @@ async function startSession(
     await channel.close()
     throw cause
   }
+}
+
+/** 把 Codex 启动失败的原因翻译成人话与下一步。 */
+function humanizeStartError(raw: string): string {
+  if (raw.includes('sqlite state runtime')) {
+    return 'Codex 启动失败：本机 Codex 状态库被其他程序占用（比如 ChatGPT 桌面版）。重新开始任务会自动使用隔离的运行目录，一般即可解决。'
+  }
+  if (raw.includes('not logged in') || raw.includes('login required') || raw.includes('auth')) {
+    return 'Codex 启动失败：还没有登录。回到 Agent 页完成「登录官方账号」后重试。'
+  }
+  if (raw.includes('ENOENT') || raw.includes('no such file')) {
+    return 'Codex 启动失败：找不到 CLI 文件。回到 Agent 页「重新检测」，或在高级设置里手动指定路径。'
+  }
+  const bounded = raw.slice(0, 300)
+  return `Codex 启动失败：${bounded}`
 }
 
 function buildChildEnvironment(secret: string | null): Record<string, string> {

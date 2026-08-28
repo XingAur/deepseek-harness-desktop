@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use futures_util::StreamExt;
 use reqwest::redirect::{Attempt, Policy};
 use semver::Version;
 use serde::Deserialize;
@@ -11,6 +10,7 @@ use super::model::{AppUpdateFailure, AppUpdateMode, UpdateInfo};
 pub const PRODUCTION_MANIFEST_ENDPOINT: &str = "https://github.com/XingAur/deepseek-harness-desktop/releases/latest/download/desktop-release.json";
 const REPOSITORY: &str = "XingAur/deepseek-harness-desktop";
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
+const MANIFEST_FETCH_ATTEMPTS: usize = 2;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -58,12 +58,37 @@ pub async fn fetch_manual_update() -> Result<Option<UpdateInfo>, AppUpdateFailur
     let endpoint = manifest_endpoint()?;
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
+        // GitHub 的 latest/download 会经过 CDN 重定向；部分代理对 HTTP/2
+        // 响应流处理不完整，reqwest 会因此报 "error decoding response body"。
+        .http1_only()
         .redirect(Policy::custom(restrict_redirect))
         .build()
         .map_err(|cause| failure("configuration", cause))?;
+    let mut last_failure = None;
+    for attempt in 0..MANIFEST_FETCH_ATTEMPTS {
+        match fetch_manifest_bytes(&client, &endpoint).await {
+            Ok(bytes) => {
+                let json = std::str::from_utf8(&bytes).map_err(|cause| failure("manifest", cause))?;
+                return manual_update_from_json(json, env!("CARGO_PKG_VERSION"), std::env::consts::ARCH);
+            }
+            Err(error) if error.code == "check" && attempt + 1 < MANIFEST_FETCH_ATTEMPTS => {
+                last_failure = Some(error);
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err(last_failure.unwrap_or_else(|| AppUpdateFailure::new("check", "macOS 更新清单请求失败")))
+}
+
+async fn fetch_manifest_bytes(
+    client: &reqwest::Client,
+    endpoint: &Url,
+) -> Result<Vec<u8>, AppUpdateFailure> {
     let response = client
-        .get(endpoint)
+        .get(endpoint.clone())
         .header(reqwest::header::ACCEPT, "application/json")
+        .header(reqwest::header::CACHE_CONTROL, "no-cache")
         .send()
         .await
         .map_err(|cause| failure("check", cause))?;
@@ -82,20 +107,17 @@ pub async fn fetch_manual_update() -> Result<Option<UpdateInfo>, AppUpdateFailur
             "macOS 更新清单超过 1 MB 限制",
         ));
     }
-    let mut stream = response.bytes_stream();
-    let mut bytes = Vec::new();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|cause| failure("check", cause))?;
-        if chunk.len() > MAX_MANIFEST_BYTES as usize - bytes.len() {
-            return Err(AppUpdateFailure::new(
-                "manifest",
-                "macOS 更新清单超过 1 MB 限制",
-            ));
-        }
-        bytes.extend_from_slice(&chunk);
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|cause| failure("check", cause))?;
+    if bytes.len() > MAX_MANIFEST_BYTES as usize {
+        return Err(AppUpdateFailure::new(
+            "manifest",
+            "macOS 更新清单超过 1 MB 限制",
+        ));
     }
-    let json = std::str::from_utf8(&bytes).map_err(|cause| failure("manifest", cause))?;
-    manual_update_from_json(json, env!("CARGO_PKG_VERSION"), std::env::consts::ARCH)
+    Ok(bytes.to_vec())
 }
 
 pub fn manual_update_from_json(

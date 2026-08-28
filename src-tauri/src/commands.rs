@@ -651,6 +651,7 @@ pub async fn agent_cli_path_status(
 pub async fn agent_cli_path_select(
     coordinator: State<'_, Arc<DesktopCoordinator>>,
     foundation: State<'_, Arc<DesktopFoundation>>,
+    jobs: State<'_, Arc<crate::agents::cli_ops::AgentCliJobState>>,
     generation_id: String,
     session_id: String,
     provider_id: String,
@@ -689,6 +690,7 @@ pub async fn agent_cli_path_select(
             params![provider_id, provider.command_name(), selected.to_string_lossy(), now],
         )
         .map_err(|_| "CLI 路径保存失败".to_owned())?;
+    jobs.invalidate_probes(&provider_id);
     Ok(result)
 }
 
@@ -1147,7 +1149,12 @@ pub async fn agent_task_start(
         "running",
     )?;
     if let Err(error) = runtime
-        .start_task(task_id, &reply.generation_id, &reply.worker_session_id)
+        .start_task(
+            task_id,
+            &reply.generation_id,
+            &reply.worker_session_id,
+            codex_home_for(&foundation).as_deref(),
+        )
         .await
     {
         let _ = update_task_status(
@@ -1185,7 +1192,12 @@ pub async fn agent_task_resume(
         "running",
     )?;
     if let Err(error) = runtime
-        .start_task(task_id, &reply.generation_id, &reply.worker_session_id)
+        .start_task(
+            task_id,
+            &reply.generation_id,
+            &reply.worker_session_id,
+            codex_home_for(&foundation).as_deref(),
+        )
         .await
     {
         let _ = update_task_status(
@@ -1225,6 +1237,12 @@ pub async fn agent_task_cancel(
     }
     runtime.cancel_task(task_id).await?;
     task_reply(&foundation, task_id, &generation_id, &session_id)
+}
+
+/// 每个数据根（Profile）独立一份隔离 Codex 目录，随 Profile 切换自然分离。
+fn codex_home_for(foundation: &DesktopFoundation) -> Option<std::path::PathBuf> {
+    let profile = active_profile(foundation).ok()?;
+    Some(profile.data_root.join("codex-home"))
 }
 
 fn validate_permission(value: &str) -> Result<(), String> {

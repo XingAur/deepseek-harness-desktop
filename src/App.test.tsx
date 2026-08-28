@@ -55,6 +55,27 @@ function fakeWindowControls(): WindowControls {
 }
 
 describe('App', () => {
+  it('uses a compact lower-left update launcher and opens details on demand', async () => {
+    const { runtime } = fakeRuntime()
+    vi.mocked(runtime.checkAppUpdate).mockResolvedValue({
+      phase: 'available',
+      update: {
+        version: '0.1.13', notes: '稳定性更新', size: 2048, mode: 'manual-dmg',
+        downloadUrl: 'https://github.com/XingAur/deepseek-harness-desktop/releases/download/desktop-v0.1.13/file_0.1.13_aarch64.dmg',
+        developerIdSigned: false, notarized: false,
+      },
+    })
+    const { container } = render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
+
+    const launcher = await screen.findByRole('button', { name: '打开应用更新' })
+    expect(launcher).toBeVisible()
+    expect(container.querySelector('.appUpdateLauncher')).toHaveClass('appUpdateLauncher')
+    expect(screen.queryByRole('button', { name: '下载 DMG' })).not.toBeInTheDocument()
+
+    fireEvent.click(launcher)
+    expect(await screen.findByRole('button', { name: '下载 DMG' })).toBeVisible()
+  })
+
   it('checks for an application update once when the shell mounts before Runtime is ready', async () => {
     const { runtime } = fakeRuntime()
     render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
@@ -89,6 +110,7 @@ describe('App', () => {
     })
     render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
 
+    fireEvent.click(await screen.findByRole('button', { name: '打开应用更新' }))
     expect(await screen.findByRole('button', { name: '下载 DMG' })).toBeVisible()
     expect(screen.getByText(/未使用 Apple Developer ID 签名、未经过 Apple 公证/)).toBeVisible()
     expect(screen.getByText(/保留现有 Profile、项目和本地数据/)).toBeVisible()
@@ -115,6 +137,7 @@ describe('App', () => {
     vi.mocked(runtime.openAppUpdateDownload).mockRejectedValue(new Error('无法打开浏览器'))
     render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
 
+    fireEvent.click(await screen.findByRole('button', { name: '打开应用更新' }))
     fireEvent.click(await screen.findByRole('button', { name: '下载 DMG' }))
     expect(await screen.findByText('应用更新暂时不可用')).toBeVisible()
     expect(screen.getByText(/不影响当前工作台/)).toBeVisible()
@@ -137,6 +160,7 @@ describe('App', () => {
       },
     })
 
+    fireEvent.click(await screen.findByRole('button', { name: '打开应用更新' }))
     expect(await screen.findByText('DeepSeek Harness 0.2.0 已准备好')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '立即重启安装' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '退出时安装' })).toBeInTheDocument()

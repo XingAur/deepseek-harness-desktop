@@ -5,35 +5,20 @@ import {
   SIDEBAR_COLLAPSED, SIDEBAR_DEFAULT,
 } from './layout-state'
 import { LocalProjectsPage } from './LocalProjectsPage'
-import { AgentHome } from './AgentHome'
-import { AgentWorkbench } from './agent-workbench'
-import { currentWorkspaceIdOf } from './workspace-selection'
+import { PluginCenterPage } from './PluginCenterPage'
 
-export function AdvancedFrame({ layout, platform, renderSlot, useSessions, useWorkspaces, workspaces, sessions, bridge, localProjects, agentHome }: AdvancedFrameProps) {
+export function AdvancedFrame({ layout, platform, renderSlot, useSessions, useWorkspaces, workspaces, sessions, bridge, localProjects, pluginCenter }: AdvancedFrameProps) {
   const subscribe = useCallback((listener: () => void) => layout.subscribe(listener), [layout])
   const panels = useSyncExternalStore(subscribe, layout.getSnapshot)
   const frameRef = useRef<HTMLDivElement>(null)
   const [viewport, setViewport] = useState(() => window.innerWidth)
   const projectsOpen = useSyncExternalStore(localProjects.subscribe, localProjects.getSnapshot)
-  const agentOpen = useSyncExternalStore(agentHome.subscribe, agentHome.getSnapshot)
-  const [agentProvider, setAgentProvider] = useState<string | null>(null)
+  const pluginsOpen = useSyncExternalStore(pluginCenter.subscribe, pluginCenter.getSnapshot)
   const workspaceState = useWorkspaces((state) => state)
-  const workspaceList = useWorkspaces((state) => state.items)
-  const recentWorkspaceId = useWorkspaces((state) => state.recentWorkspaceId)
-  const workspaceId = currentWorkspaceIdOf(workspaceList, recentWorkspaceId)
   const detailsSession = useSessions((state) => {
     const current = state.current
     return current !== undefined && state.byId[current]?.blank === false ? current : undefined
   })
-
-  const openWorkbench = useCallback((providerId: string) => {
-    setAgentProvider(providerId)
-    agentHome.open()
-  }, [agentHome])
-  const closeAgentHome = useCallback(() => {
-    agentHome.close()
-    setAgentProvider(null)
-  }, [agentHome])
 
   useEffect(() => {
     const element = frameRef.current
@@ -47,16 +32,16 @@ export function AdvancedFrame({ layout, platform, renderSlot, useSessions, useWo
 
   const narrow = viewport < SIDEBAR_AUTO_COLLAPSE
   useEffect(() => layout.setNarrow(narrow), [layout, narrow])
-  useEffect(() => { if (projectsOpen) layout.closeDetails() }, [layout, projectsOpen])
-  useEffect(() => { if (projectsOpen) { agentHome.close(); setAgentProvider(null) } }, [projectsOpen, agentHome])
-  useEffect(() => { if (agentOpen) localProjects.close() }, [agentOpen, localProjects])
+  useEffect(() => { if (projectsOpen || pluginsOpen) layout.closeDetails() }, [layout, projectsOpen, pluginsOpen])
+  useEffect(() => { if (pluginsOpen) localProjects.close() }, [pluginsOpen, localProjects])
+  useEffect(() => { if (projectsOpen) pluginCenter.close() }, [projectsOpen, pluginCenter])
 
   const collapsed = panels.narrow ? !panels.narrowExpanded : panels.sidebar === 0
   const sidebarPreference = collapsed ? 0 : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
   const columns = computeDesktopColumns(
     viewport,
     sidebarPreference,
-    projectsOpen || agentOpen || detailsSession === undefined ? 0 : panels.details,
+    projectsOpen || pluginsOpen || detailsSession === undefined ? 0 : panels.details,
     platform === 'darwin' ? MACOS_SIDEBAR_COLLAPSED : SIDEBAR_COLLAPSED,
   )
 
@@ -70,54 +55,19 @@ export function AdvancedFrame({ layout, platform, renderSlot, useSessions, useWo
     >
       <aside className="dshDesktopSidebarSurface">
         <div className="dshDesktopUpstreamSidebar">{renderSlot('sidebar', { collapsed, width: columns.sidebar })}</div>
-        <div className="dshDesktopSidebarEntries">
-          <AgentHomeEntry wide={!collapsed} active={agentOpen} onOpen={() => { if (agentOpen) { closeAgentHome() } else { agentHome.open() } }} />
-        </div>
       </aside>
       <main className="dshDesktopConversationSurface">
         {projectsOpen
           ? <LocalProjectsPage state={workspaceState} workspaces={workspaces} sessions={sessions} bridge={bridge} onClose={() => localProjects.close()} />
-          : agentOpen
-            ? (
-              <div className="dshAgentPage">
-                {agentProvider === null
-                  ? <AgentHome bridge={bridge} workspaceId={workspaceId} onOpenWorkbench={openWorkbench} />
-                  : (
-                    <div className="dshAgentWorkbenchHost">
-                      <header className="dshAgentWorkbenchHostHeader">
-                        <button type="button" onClick={() => setAgentProvider(null)}>← 返回 Agent 选择</button>
-                        <h3>{agentProvider === 'codex' ? 'Codex' : agentProvider} 工作台</h3>
-                      </header>
-                      <AgentWorkbench bridge={bridge} workspaceId={workspaceId ?? ''} providerOptions={[{ id: agentProvider, label: agentProvider === 'codex' ? 'Codex' : agentProvider }]} />
-                    </div>
-                  )}
-              </div>
-            )
-          : renderSlot('conversation', {})}
+          : pluginsOpen
+            ? <div className="dshAgentPage"><PluginCenterPage bridge={bridge} onClose={() => pluginCenter.close()} /></div>
+            : renderSlot('conversation', {})}
       </main>
       <aside className="dshDesktopDetailsSurface">{renderSlot('details', {})}</aside>
       <div className="dshDesktopOverlay" data-shell-overlay>{renderSlot('shell.overlay', {})}</div>
       {!collapsed && <ResizeHandle side="sidebar" left={columns.sidebar} size={columns.sidebar} onResize={(width) => layout.setSidebar(width)} />}
       {columns.details > 0 && <ResizeHandle side="details" left={viewport - columns.details} size={columns.details} onResize={(width) => layout.setDetails(width)} />}
     </div>
-  )
-}
-
-function AgentHomeEntry(props: { wide: boolean; active: boolean; onOpen(): void }) {
-  return (
-    <button
-      type="button"
-      className={`dshDesktopFooterAction${props.wide ? '' : ' is-rail'}${props.active ? ' is-active' : ''}`}
-      aria-label="Agent"
-      aria-pressed={props.active}
-      title={props.wide ? undefined : 'Agent'}
-      onClick={props.onOpen}
-    >
-      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
-        <path d="m12 3 2.4 5.2L20 9.3l-4 3.9 1 5.8-5-2.9-5 2.9 1-5.8-4-3.9 5.6-1.1L12 3Z" />
-      </svg>
-      {props.wide && <span className="dshDesktopFooterActionLabel">Agent</span>}
-    </button>
   )
 }
 

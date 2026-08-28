@@ -1,11 +1,11 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { AdvancedFrame } from '../src/client/AdvancedFrame'
-import { AgentHomeState } from '../src/client/agent-home-state'
 import { LocalProjectsFooterAction } from '../src/client/LocalProjectsFooterAction'
 import { bridgeFixture, renderFrame, sessionFixture, workspaceFixture } from './fixtures'
 import { DesktopLayoutState } from '../src/client/layout-state'
 import { LocalProjectsState } from '../src/client/local-projects-state'
+import { PluginCenterState } from '../src/client/plugin-center-state'
 
 class ResizeObserverStub {
   observe() {}
@@ -60,7 +60,7 @@ describe('advanced frame', () => {
           sessions={sessionFixture()}
           bridge={bridgeFixture()}
           localProjects={new LocalProjectsState()}
-          agentHome={new AgentHomeState()}
+          pluginCenter={new PluginCenterState()}
         />,
       )
 
@@ -83,7 +83,7 @@ describe('advanced frame', () => {
         sessions={sessionFixture()}
         bridge={bridgeFixture()}
         localProjects={new LocalProjectsState()}
-        agentHome={new AgentHomeState()}
+        pluginCenter={new PluginCenterState()}
       />,
     )
 

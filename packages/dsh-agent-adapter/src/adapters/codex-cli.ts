@@ -74,8 +74,14 @@ export function openCodexAppServerChannel(options: CodexAppServerChannelOptions)
     pending.clear()
   }
   const exited = new Promise<void>((resolve) => {
-    void child.once('exit', () => { closed = true; rejectPending('Codex app-server exited'); resolve() })
-    void child.once('error', () => { closed = true; rejectPending('Codex app-server failed to start'); resolve() })
+    const finish = (fallback: string) => {
+      closed = true
+      const reason = lastStderrLine() ?? fallback
+      rejectPending(`Codex app-server 已退出：${reason}`)
+      resolve()
+    }
+    void child.once('exit', () => finish('app-server exited'))
+    void child.once('error', () => finish('app-server failed to start'))
   })
 
   child.stdout?.setEncoding('utf8')
@@ -96,11 +102,22 @@ export function openCodexAppServerChannel(options: CodexAppServerChannelOptions)
     }
   })
   child.stdout?.once('close', () => { stdoutClosed = true })
+  // 保留 stderr 尾行（有界、脱敏路径）：app-server 启动失败时这是唯一的
+  // 诊断来源，会进入 CODEX_START_FAILED 的人话提示。
+  const stderrTail: string[] = []
   child.stderr?.setEncoding('utf8')
-  child.stderr?.on('data', () => {
-    // The app-server diagnostics on stderr are intentionally ignored: protocol
-    // state is driven by stdout only, and stderr may contain user paths.
+  child.stderr?.on('data', (chunk: string) => {
+    for (const line of chunk.split('\n')) {
+      const trimmed = line.trim()
+      if (trimmed.length > 0) stderrTail.push(trimmed.slice(0, 200))
+    }
+    while (stderrTail.length > 6) stderrTail.shift()
   })
+
+  function lastStderrLine(): string | undefined {
+    const relevant = stderrTail.filter((line) => !line.startsWith('WARNING:'))
+    return relevant.at(-1)
+  }
 
   function handleLine(line: string): void {
     let message: unknown

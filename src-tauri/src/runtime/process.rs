@@ -198,6 +198,9 @@ pub async fn spawn_runtime_from_dir(
     for (key, value) in profile_environment(profile, generation_id) {
         command.env(key, value);
     }
+    for (key, value) in codex_environment(profile) {
+        command.env(key, value);
+    }
     command
         .args(args)
         .current_dir(&runtime_dir)
@@ -257,6 +260,32 @@ fn managed_args(mut args: Vec<String>) -> Vec<String> {
         args.push("--no-open".to_string());
     }
     args
+}
+
+/// 聊天模型用的 Codex 环境：发现的 CLI 路径 + 隔离状态目录。
+///
+/// 运行时内的桌面插件把 provider 路由 `codex` 注册进官方 LLM 服务；
+/// 注入的变量让它无需再次发现即可拉起官方 CLI，并与常驻 Codex 守护
+/// 进程（如 ChatGPT 桌面版）的状态库互不干扰。
+fn codex_environment(profile: &ProfileRecord) -> Vec<(OsString, OsString)> {
+    let mut env = Vec::new();
+    let home = profile.data_root.join("codex-home");
+    super::super::agents::runtime::prepare_codex_home_for(&home);
+    env.push(("CODEX_HOME".into(), home.as_os_str().to_owned()));
+    if let Some(selected) = crate::agents::discovery::discover(
+        &crate::agents::discovery::DiscoveryRequest::for_provider(
+            crate::agents::model::AgentProvider::Codex,
+        ),
+    )
+    .ok()
+    .and_then(|result| result.selected)
+    {
+        env.push((
+            "DSH_DESKTOP_CODEX_CLI".into(),
+            selected.path.as_os_str().to_owned(),
+        ));
+    }
+    env
 }
 
 fn profile_environment(profile: &ProfileRecord, generation_id: &str) -> Vec<(OsString, OsString)> {

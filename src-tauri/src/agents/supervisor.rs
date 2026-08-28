@@ -614,6 +614,21 @@ impl WorkerSession {
             .await
             .map_err(|_| SupervisorError::HeartbeatLost)??;
         validate_response_ok(&response, request_id, &self.session_id)
+            .map_err(|error| {
+                // 透传 worker 上报的错误信息（例如 Codex 启动失败的具体原因），
+                // 而不是一律折叠成协议错误。
+                if matches!(error, SupervisorError::Protocol) {
+                    if let Some(message) = response
+                        .pointer("/payload/message")
+                        .and_then(Value::as_str)
+                    {
+                        if !message.is_empty() && message.len() <= 512 {
+                            return SupervisorError::WorkerStart(message.to_owned());
+                        }
+                    }
+                }
+                error
+            })
     }
 
     pub async fn resolve_approval(
@@ -1180,6 +1195,8 @@ pub enum SupervisorError {
     WorkerExited,
     #[error("Worker protocol frame is invalid")]
     Protocol,
+    #[error("{0}")]
+    WorkerStart(String),
     #[error("Worker heartbeat was lost")]
     HeartbeatLost,
     #[error("Worker secret initialization was already sent")]

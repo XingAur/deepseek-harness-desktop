@@ -54,6 +54,7 @@ impl AgentRuntime {
         task_id: Uuid,
         generation_id: &str,
         session_id: &str,
+        codex_home: Option<&std::path::Path>,
     ) -> Result<(), String> {
         let Some(store) = self.store.as_ref() else {
             return Err("Agent 数据服务当前不可用".to_owned());
@@ -88,11 +89,27 @@ impl AgentRuntime {
                 })?;
             worker_args.push(format!("--dsh-codex-cli={}", selected.path.display()));
         }
+        let mut worker_env = minimal_worker_environment();
+        if adapter_kind == "codex-cli" {
+            // 隔离的 CODEX_HOME：ChatGPT 桌面版等常驻 Codex 守护进程会独占
+            // ~/.codex 的状态库，导致新起的 app-server 初始化失败。桌面端在
+            // 独立目录维护自己的状态库，并把 auth.json 链接回真实文件共享登录。
+            let home = codex_home
+                .map(std::path::Path::to_path_buf)
+                .unwrap_or_else(|| {
+                    std::env::var_os("HOME")
+                        .map(PathBuf::from)
+                        .unwrap_or_else(|| PathBuf::from("/tmp"))
+                        .join(".codex")
+                });
+            prepare_codex_home(&home);
+            worker_env.insert("CODEX_HOME".to_owned(), home.to_string_lossy().into_owned());
+        }
         let config = SupervisorConfig::new(node.clone(), launch.workspace)
             .with_allowed_executables([node])
             .with_adapter_args(worker_args)
             .with_adapter_kind(adapter_kind)
-            .with_env(minimal_worker_environment())
+            .with_env(worker_env)
             .with_handshake_timeout(WORKER_HANDSHAKE_TIMEOUT)
             .with_heartbeat_timeout(WORKER_HEARTBEAT_TIMEOUT)
             .with_output_limit(WORKER_OUTPUT_LIMIT);
@@ -385,6 +402,37 @@ fn bundled_worker_adapter(provider_id: &str) -> Result<&'static str, String> {
             "该 Provider 暂未接入真实 CLI Worker；Codex 已支持真实执行，Claude 将在后续版本提供"
                 .to_owned(),
         ),
+    }
+}
+
+/// 准备隔离的 Codex 目录：确保目录存在，并把真实 ~/.codex/auth.json 链接
+/// 过来共享登录态（Windows 无符号链接权限时退化为复制）。全部 best-effort，
+/// 失败时 Codex 会在隔离目录里以未登录状态运行，由 UI 引导登录。
+pub(crate) fn prepare_codex_home(home: &std::path::Path) {
+    prepare_codex_home_for(home)
+}
+
+/// `prepare_codex_home` 的内部实现，供运行时启动环境注入直接复用。
+pub(crate) fn prepare_codex_home_for(home: &std::path::Path) {
+    let _ = std::fs::create_dir_all(home);
+    let link = home.join("auth.json");
+    if link.exists() {
+        return;
+    }
+    let Some(user_home) = std::env::var_os("HOME").map(PathBuf::from) else {
+        return;
+    };
+    let real = user_home.join(".codex").join("auth.json");
+    if !real.is_file() {
+        return;
+    }
+    #[cfg(unix)]
+    {
+        let _ = std::os::unix::fs::symlink(&real, &link);
+    }
+    #[cfg(windows)]
+    {
+        let _ = std::fs::copy(&real, &link);
     }
 }
 
@@ -828,6 +876,16 @@ mod tests {
             )
             .unwrap();
         assert_eq!(status, "cancelled");
+    }
+
+    #[test]
+    fn codex_home_links_auth_json_when_present() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("codex-home");
+        super::prepare_codex_home(&home);
+        assert!(home.is_dir());
+        // 当前测试环境没有 ~/.codex/auth.json 时也不应失败（best-effort）。
+        super::prepare_codex_home(&home);
     }
 
     #[test]

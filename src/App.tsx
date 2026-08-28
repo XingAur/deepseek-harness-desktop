@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react'
 import type { AppUpdateFailure, AppUpdateReceipt, AppUpdateState, GenerationPhase, LocalAppEvent, MigrationStatus, RecoveryStatus, RuntimeClient, RuntimeFailure, RuntimeFailureCode, RuntimePhase } from './runtime-contract'
 import { failureFromUnknown, initialRuntimeState, runtimeReducer } from './runtime-reducer'
 import { themeFromWorkbenchMessage } from './theme-message'
@@ -95,24 +95,33 @@ export interface AppUpdateBannerProps {
 
 export function AppUpdateBanner(props: AppUpdateBannerProps) {
   const { state, receipt } = props
+  const [open, setOpen] = useState(state.phase === 'idle' && receipt !== null)
+
+  useEffect(() => {
+    if (state.phase === 'failed') setOpen(true)
+    if (state.phase === 'idle' && receipt !== null) setOpen(true)
+  }, [receipt, state.phase])
+
   if (state.phase === 'idle') {
     if (receipt === null) return null
-    return (
-      <aside className="appUpdateBanner success" role="status">
+    return renderWidget(
+      <>
         <div className="appUpdateCopy">
           <strong>DeepSeek Harness 已更新</strong>
           <span>{receipt.previousVersion} → {receipt.targetVersion}</span>
         </div>
         <button className="updateTextButton" onClick={props.onDismissReceipt}>知道了</button>
-      </aside>
+      </>,
+      'success',
+      '应用已更新',
     )
   }
 
   if (state.phase === 'checking') return null
 
   if (state.phase === 'failed') {
-    return (
-      <aside className="appUpdateBanner error" role="status">
+    return renderWidget(
+      <>
         <div className="appUpdateCopy">
           <strong>应用更新暂时不可用</strong>
           <span>{state.update.message}，不影响当前工作台。</span>
@@ -123,7 +132,9 @@ export function AppUpdateBanner(props: AppUpdateBannerProps) {
           <button className="updateTextButton" onClick={props.onExportDiagnostics}>导出诊断</button>
           <button className="updateTextButton" onClick={props.onDefer}>关闭</button>
         </div>
-      </aside>
+      </>,
+      'error',
+      '应用更新遇到问题',
     )
   }
 
@@ -140,8 +151,8 @@ export function AppUpdateBanner(props: AppUpdateBannerProps) {
           ? `正在安装 ${state.update.version}`
           : `正在重启到 ${state.update.version}`
 
-  return (
-    <aside className={`appUpdateBanner${manualDmg ? ' manual' : ''}`} role="status">
+  return renderWidget(
+    <>
       <div className="appUpdateCopy">
         <strong>{title}</strong>
         <span>{copy}{size !== null ? ` · ${size}` : ''}</span>
@@ -165,8 +176,33 @@ export function AppUpdateBanner(props: AppUpdateBannerProps) {
         {(state.phase === 'available' || state.phase === 'ready') && <button className="updateTextButton" onClick={props.onDefer}>{manualDmg ? '稍后提醒' : '暂不安装'}</button>}
         {(state.phase === 'downloading' || state.phase === 'installing' || state.phase === 'restarting') && <span className="updateSpinner" aria-label="处理中" />}
       </div>
-    </aside>
+    </>,
+    manualDmg ? 'manual' : '',
+    state.phase === 'available' ? `发现新版本 ${state.update.version}` : title,
   )
+
+  function renderWidget(content: ReactNode, variant: string, label: string) {
+    return (
+      <aside className={`appUpdateWidget ${variant}`}>
+        {open && <section className={`appUpdatePanel ${variant}`.trim()} role="status">{content}</section>}
+        <button
+          type="button"
+          className="appUpdateLauncher"
+          aria-label={open ? '收起应用更新' : '打开应用更新'}
+          aria-expanded={open}
+          title={label}
+          onClick={() => setOpen((current) => !current)}
+        >
+          <span className="appUpdateLauncherIcon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path d="M12 3v11m0 0 4-4m-4 4-4-4M5 17v2h14v-2" />
+            </svg>
+          </span>
+          <span className="appUpdateLauncherDot" aria-hidden="true" />
+        </button>
+      </aside>
+    )
+  }
 }
 
 export function App({ runtime, windowControls }: AppProps) {

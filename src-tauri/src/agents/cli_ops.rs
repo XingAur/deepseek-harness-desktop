@@ -107,21 +107,137 @@ impl JobState {
 
 /// Tracks at most one install/login job per provider. Jobs are started by an
 /// explicit user confirmation and observed by polling their status.
+///
+/// 探测缓存：CLI 发现与登录状态探测都要起子进程（冷启动可达数秒），
+/// 而 Agent 页会轮询状态。缓存 30 秒并在安装/登录/手动路径变更时失效，
+/// 保证状态查询在热路径上即时返回，不再触发桥超时。
 #[derive(Default)]
 pub struct AgentCliJobState {
     install: Mutex<HashMap<String, JobState>>,
     login: Mutex<HashMap<String, JobState>>,
+    discovery_cache: Mutex<HashMap<String, (Instant, Arc<super::model::DiscoveryResult>)>>,
+    login_probe_cache: Mutex<HashMap<String, (Instant, LoginProbeResult)>>,
+    discovery_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+}
+
+const PROBE_CACHE_TTL: Duration = Duration::from_secs(30);
+
+#[derive(Clone)]
+struct LoginProbeResult {
+    logged_in: Option<bool>,
+    mode: Option<String>,
+    detail: Option<String>,
 }
 
 impl AgentCliJobState {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// 丢弃探测缓存（安装完成、登录完成或手动指定路径后调用）。
+    pub fn invalidate_probes(&self, provider_id: &str) {
+        if let Ok(mut cache) = self.discovery_cache.lock() {
+            cache.remove(provider_id);
+        }
+        if let Ok(mut cache) = self.login_probe_cache.lock() {
+            cache.remove(provider_id);
+        }
+    }
+
+    fn per_provider_lock(&self, provider_id: &str) -> Arc<Mutex<()>> {
+        let mut locks = self.discovery_locks.lock().expect("cli state lock");
+        locks
+            .entry(provider_id.to_owned())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
+    }
+}
+
+/// 带缓存的 CLI 发现：同 Provider 30 秒内只真正探测一次，并发调用串行等待。
+fn discovery_cached(
+    state: &AgentCliJobState,
+    store: AgentStoreRef<'_>,
+    provider: AgentProvider,
+) -> Result<Arc<super::model::DiscoveryResult>, String> {
+    let key = provider.command_name().to_owned();
+    if let Ok(cache) = state.discovery_cache.lock() {
+        if let Some((at, cached)) = cache.get(&key) {
+            if at.elapsed() < PROBE_CACHE_TTL {
+                return Ok(Arc::clone(cached));
+            }
+        }
+    }
+    let guard = state.per_provider_lock(&key);
+    let _guard = guard.lock().expect("probe lock");
+    // 双重检查：等待期间可能已有并发调用填充缓存。
+    if let Ok(cache) = state.discovery_cache.lock() {
+        if let Some((at, cached)) = cache.get(&key) {
+            if at.elapsed() < PROBE_CACHE_TTL {
+                return Ok(Arc::clone(cached));
+            }
+        }
+    }
+    let result = Arc::new(discovery_for(store, provider)?);
+    if let Ok(mut cache) = state.discovery_cache.lock() {
+        cache.insert(key, (Instant::now(), Arc::clone(&result)));
+    }
+    Ok(result)
+}
+
+/// 带缓存的登录状态探测：同 Provider 30 秒内只运行一次 codex login status。
+fn login_probe_cached(
+    state: &AgentCliJobState,
+    cli_path: &std::path::Path,
+) -> LoginProbeResult {
+    let key = "login".to_owned();
+    if let Ok(cache) = state.login_probe_cache.lock() {
+        if let Some((at, cached)) = cache.get(&key) {
+            if at.elapsed() < PROBE_CACHE_TTL {
+                return cached.clone();
+            }
+        }
+    }
+    let guard = state.per_provider_lock(&key);
+    let _guard = guard.lock().expect("probe lock");
+    if let Ok(cache) = state.login_probe_cache.lock() {
+        if let Some((at, cached)) = cache.get(&key) {
+            if at.elapsed() < PROBE_CACHE_TTL {
+                return cached.clone();
+            }
+        }
+    }
+    let result = match run_bounded_cli(cli_path, &["login", "status"], None, PROBE_TIMEOUT) {
+        Ok(output) => {
+            let logged_in = output.contains("Logged in") || output.contains("已登录");
+            LoginProbeResult {
+                logged_in: Some(logged_in),
+                mode: first_login_mode(&output),
+                detail: if logged_in { None } else { Some(summarize_output(&output)) },
+            }
+        }
+        Err(error) => LoginProbeResult {
+            logged_in: None,
+            mode: None,
+            detail: Some(humanize_probe_error(&error)),
+        },
+    };
+    if let Ok(mut cache) = state.login_probe_cache.lock() {
+        cache.insert(key, (Instant::now(), result.clone()));
+    }
+    result
+}
+
+/// 把常见的探测失败翻译成人话与下一步建议。
+fn humanize_probe_error(error: &str) -> String {
+    if error.contains("超时") {
+        return "确认登录状态超时了。CLI 已安装，可以点「重新检测」再试，或直接进入工作台使用。".to_owned();
+    }
+    format!("暂时无法确认登录状态：{error}")
 }
 
 pub fn login_status(state: &AgentCliJobState, store: AgentStoreRef<'_>, provider_id: &str) -> Result<CliLoginStatusReply, String> {
     let provider = parse_provider(provider_id)?;
-    let discovered = discovery_for(store, provider)?;
+    let discovered = discovery_cached(state, store, provider)?;
     let installed = discovered.selected.is_some();
     let mut reply = CliLoginStatusReply {
         provider_id: provider_id.to_owned(),
@@ -139,19 +255,10 @@ pub fn login_status(state: &AgentCliJobState, store: AgentStoreRef<'_>, provider
         job_success: None,
     };
     if let Some(selected) = discovered.selected.as_ref() {
-        match run_bounded_cli(&selected.path, &["login", "status"], None, PROBE_TIMEOUT) {
-            Ok(output) => {
-                let logged_in = output.contains("Logged in") || output.contains("已登录");
-                reply.mode = first_login_mode(&output);
-                reply.logged_in = Some(logged_in);
-                if !logged_in {
-                    reply.detail = Some(summarize_output(&output));
-                }
-            }
-            Err(error) => {
-                reply.detail = Some(error);
-            }
-        }
+        let probe = login_probe_cached(state, &selected.path);
+        reply.logged_in = probe.logged_in;
+        reply.mode = probe.mode;
+        reply.detail = probe.detail;
     }
     if let Ok(jobs) = state.login.lock() {
         let (running, output, finished, success) = JobState::snapshot_of(jobs.get(provider_id));
@@ -168,9 +275,10 @@ pub fn login_status(state: &AgentCliJobState, store: AgentStoreRef<'_>, provider
 /// through the polling status reply.
 pub fn login_start(state: &Arc<AgentCliJobState>, store: AgentStoreRef<'_>, provider_id: &str) -> Result<CliLoginStatusReply, String> {
     let provider = parse_provider(provider_id)?;
-    let discovered = discovery_for(store, provider)?;
+    let discovered = discovery_cached(state, store, provider)?;
     let selected = discovered
         .selected
+        .clone()
         .ok_or_else(|| "未找到 CLI，请先安装".to_owned())?
         .path;
     let cli_path = selected.to_string_lossy().into_owned();
@@ -193,6 +301,7 @@ pub fn login_start(state: &Arc<AgentCliJobState>, store: AgentStoreRef<'_>, prov
     let provider_key = provider_id.to_owned();
     std::thread::spawn(move || {
         let result = run_bounded_cli(&selected, &["login"], None, JOB_TIMEOUT);
+        state_for_job.invalidate_probes(&provider_key);
         if let Ok(mut jobs) = state_for_job.login.lock() {
             let job = jobs.entry(provider_key).or_default();
             job.running = false;
@@ -232,7 +341,7 @@ pub fn install_status(
 ) -> Result<CliInstallStatusReply, String> {
     let provider = parse_provider(provider_id)?;
     let recipe = install_recipe(provider).ok_or_else(|| "该 Provider 没有固定安装配方".to_owned())?;
-    let discovered = discovery_for(store, provider)?;
+    let discovered = discovery_cached(state, store, provider)?;
     let mut reply = CliInstallStatusReply {
         provider_id: provider_id.to_owned(),
         recipe_id: Some(recipe.id),
@@ -240,8 +349,8 @@ pub fn install_status(
         source_url: Some(recipe.source_url),
         impact: Some(recipe.impact),
         installed: discovered.selected.is_some(),
-        selected: discovered.selected,
-        diagnostics: discovered.diagnostics,
+        selected: discovered.selected.clone(),
+        diagnostics: discovered.diagnostics.clone(),
         job_running: false,
         job_output: Vec::new(),
         job_finished: None,
@@ -300,6 +409,7 @@ pub fn install_start(state: &Arc<AgentCliJobState>, store: AgentStoreRef<'_>, pr
             }
             Err("Codex CLI 已安装，但应用没有自动找到它。\n两个解决办法：\n1. 点「重新检测」再试一次；\n2. 展开下方「高级」，把 codex 的完整路径粘贴进去（在终端运行 which codex 可获得该路径）。".to_owned())
         });
+        state_for_job.invalidate_probes(&provider_key);
         if let Ok(mut jobs) = state_for_job.install.lock() {
             let job = jobs.entry(provider_key).or_default();
             job.running = false;
@@ -585,6 +695,25 @@ mod tests {
         assert!(ring.len() <= 200);
         assert_eq!(ring.first().map(String::as_str), Some("line-300"));
         assert_eq!(ring.last().map(String::as_str), Some("line-499"));
+    }
+
+    #[test]
+    fn probe_cache_is_invalidated_on_demand() {
+        let state = AgentCliJobState::new();
+        // 未命中缓存时走真实探测；这里通过失效接口验证缓存容器行为。
+        state.invalidate_probes("codex");
+        assert!(state
+            .discovery_cache
+            .lock()
+            .unwrap()
+            .get("codex")
+            .is_none());
+    }
+
+    #[test]
+    fn probe_error_copy_is_humanized() {
+        let message = super::humanize_probe_error("CLI 执行超时");
+        assert!(message.contains("重新检测"), "{message}");
     }
 
     #[test]

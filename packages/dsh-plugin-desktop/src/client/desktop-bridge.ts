@@ -109,7 +109,7 @@ export function createDesktopBridge(options: DesktopBridgeOptions = {}): Desktop
       return new Promise<T>((resolve, reject) => {
         const timer = setTimeout(() => {
           pending.delete(requestId)
-          reject(new Error('桌面请求超时'))
+          reject(new Error('请求超时：请稍后重试，或点「重新检测」'))
         }, timeoutMs)
         pending.set(requestId, {
           resolve: (value) => resolve(value as T),
@@ -137,7 +137,7 @@ export function createDesktopBridge(options: DesktopBridgeOptions = {}): Desktop
       return new Promise<T>((resolve, reject) => {
         const timer = setTimeout(() => {
           pending.delete(requestId)
-          reject(new Error('桌面请求超时'))
+          reject(new Error('请求超时：请稍后重试，或点「重新检测」'))
         }, timeoutMs)
         pending.set(requestId, {
           resolve: (value) => resolve(value as T),

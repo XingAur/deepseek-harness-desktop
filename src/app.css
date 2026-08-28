@@ -110,12 +110,17 @@ button { font: inherit; }
 .windowContent { position: relative; min-height: 0; flex: 1; overflow: hidden; }
 .workbenchFrame { width: 100%; height: 100%; display: block; border: 0; background: var(--shell-bg); }
 
-.appUpdateBanner {
+.appUpdateWidget {
   position: absolute;
-  top: 16px;
-  right: 18px;
+  left: 18px;
+  bottom: 18px;
   z-index: 8;
-  width: min(620px, calc(100% - 36px));
+}
+.appUpdatePanel {
+  position: absolute;
+  left: 0;
+  bottom: 52px;
+  width: min(430px, calc(100vw - 36px));
   min-height: 72px;
   display: flex;
   align-items: center;
@@ -126,11 +131,35 @@ button { font: inherit; }
   background: color-mix(in srgb, var(--shell-surface-solid) 94%, transparent);
   box-shadow: 0 18px 46px color-mix(in srgb, var(--shell-shadow) 72%, transparent);
   backdrop-filter: blur(20px);
-  animation: updateBannerEnter .32s cubic-bezier(.22, 1, .36, 1) both;
+  animation: updatePanelEnter .22s cubic-bezier(.22, 1, .36, 1) both;
 }
-.appUpdateBanner.error { border-color: color-mix(in srgb, var(--shell-error) 35%, var(--shell-border)); }
-.appUpdateBanner.success { border-color: color-mix(in srgb, #3c9a65 35%, var(--shell-border)); }
-.appUpdateBanner.manual { align-items: flex-start; }
+.appUpdatePanel.error { border-color: color-mix(in srgb, var(--shell-error) 35%, var(--shell-border)); }
+.appUpdatePanel.success { border-color: color-mix(in srgb, #3c9a65 35%, var(--shell-border)); }
+.appUpdatePanel.manual { align-items: flex-start; }
+.appUpdateLauncher {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--shell-brand) 38%, var(--shell-border));
+  border-radius: 50%;
+  color: var(--shell-brand);
+  background: color-mix(in srgb, var(--shell-surface-solid) 94%, transparent);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--shell-shadow) 58%, transparent);
+  backdrop-filter: blur(18px);
+  cursor: pointer;
+  transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
+}
+.appUpdateLauncher:hover { transform: translateY(-1px); box-shadow: 0 10px 28px color-mix(in srgb, var(--shell-shadow) 70%, transparent); }
+.appUpdateLauncher:focus-visible { outline: 3px solid color-mix(in srgb, var(--shell-brand) 78%, #fff); outline-offset: 3px; }
+.appUpdateLauncherIcon { width: 19px; height: 19px; display: grid; place-items: center; }
+.appUpdateLauncherIcon svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.appUpdateLauncherDot { position: absolute; top: 3px; right: 3px; width: 8px; height: 8px; border: 2px solid var(--shell-surface-solid); border-radius: 50%; background: var(--shell-brand); }
+.appUpdateWidget.error .appUpdateLauncher { color: var(--shell-error); border-color: color-mix(in srgb, var(--shell-error) 44%, var(--shell-border)); }
+.appUpdateWidget.error .appUpdateLauncherDot { background: var(--shell-error); }
+.appUpdateWidget.success .appUpdateLauncher { color: #3c9a65; border-color: color-mix(in srgb, #3c9a65 42%, var(--shell-border)); }
+.appUpdateWidget.success .appUpdateLauncherDot { background: #3c9a65; }
 .appUpdateCopy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
 .appUpdateCopy strong { font-size: 14px; font-weight: 650; }
 .appUpdateCopy span, .appUpdateCopy small { overflow-wrap: anywhere; color: var(--shell-muted); font-size: 12px; line-height: 1.45; white-space: normal; }
@@ -155,7 +184,7 @@ button { font: inherit; }
 }
 .updateSecondaryButton:disabled { cursor: default; opacity: .55; }
 .updateSpinner { width: 18px; height: 18px; border: 2px solid var(--shell-brand-soft); border-top-color: var(--shell-brand); border-radius: 50%; animation: updateSpinner .8s linear infinite; }
-@keyframes updateBannerEnter { from { opacity: 0; transform: translateY(-8px) scale(.985); } to { opacity: 1; transform: none; } }
+@keyframes updatePanelEnter { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
 @keyframes updateSpinner { to { transform: rotate(360deg); } }
 
 .bootstrapShell {
@@ -277,7 +306,7 @@ h1 { margin: 0; font-size: clamp(30px, 5vw, 44px); font-weight: 560; letter-spac
   .bootstrapShell { padding: 0; }
   .bootstrapCard { min-height: 100%; padding: 32px 25px; border: 0; border-radius: 0; }
   .statusBlock { margin-top: 64px; }
-  .appUpdateBanner { right: 10px; left: 10px; width: auto; align-items: flex-start; flex-direction: column; }
+  .appUpdatePanel { left: 0; width: min(360px, calc(100vw - 28px)); align-items: flex-start; flex-direction: column; gap: 12px; }
   .appUpdateActions { width: 100%; flex-wrap: wrap; }
 }
 
@@ -290,7 +319,7 @@ h1 { margin: 0; font-size: clamp(30px, 5vw, 44px); font-weight: 560; letter-spac
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .bootstrapCard, .brandFish, .orbitLayer, .orbitParticle, .progressFill, .appUpdateBanner, .updateSpinner {
+  .bootstrapCard, .brandFish, .orbitLayer, .orbitParticle, .progressFill, .appUpdatePanel, .updateSpinner {
     animation: none !important;
     transition: none !important;
   }

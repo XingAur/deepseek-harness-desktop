@@ -21,92 +21,78 @@ function bridgeFixture(responses: Record<string, unknown> = {}): DesktopBridgeLi
   }
 }
 
-const providers = [
-  { providerId: 'codex', displayName: 'Codex', credentialStatus: 'configured' },
-  { providerId: 'claude', displayName: 'Claude' },
-]
+const notInstalled = {
+  'cli.login.status': { installed: false, jobRunning: false, jobOutput: [] },
+  'cli.install.status': { command: ['npm', 'install', '-g', '@openai/codex'], installed: false, jobRunning: false, jobOutput: [] },
+}
 
 describe('AgentHome', () => {
-  it('guides through install and login when Codex CLI is missing', async () => {
-    const bridge = bridgeFixture({
-      'provider.metadata.list': providers,
-      'cli.login.status': { installed: false, jobRunning: false, jobOutput: [] },
-      'cli.install.status': { command: ['npm', 'install', '-g', '@openai/codex'], installed: false, jobRunning: false, jobOutput: [] },
-    })
-    render(<AgentHome bridge={bridge} workspaceId="workspace-1" onOpenWorkbench={() => undefined} />)
-    await waitFor(() => expect(screen.getByRole('button', { name: '安装 Codex CLI' })).toBeInTheDocument())
-    expect(screen.queryByRole('button', { name: '登录官方账号' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: '安装 Codex CLI' }))
+  it('只呈现 Codex：没有 Claude 或其他 Provider 卡片', async () => {
+    render(<AgentHome bridge={bridgeFixture(notInstalled)} workspaceId="workspace-1" />)
+    await screen.findByRole('button', { name: '安装 Codex CLI' })
+    expect(screen.queryByText(/Claude/)).toBeNull()
+    expect(screen.queryByText(/即将支持/)).toBeNull()
+  })
+
+  it('未安装时引导安装，登录按钮不出现', async () => {
+    const bridge = bridgeFixture(notInstalled)
+    render(<AgentHome bridge={bridge} workspaceId="workspace-1" />)
+    fireEvent.click(await screen.findByRole('button', { name: '安装 Codex CLI' }))
     await waitFor(() => expect(bridge.requestV2).toHaveBeenCalledWith('cli.install.start', undefined, { providerId: 'codex' }))
   })
 
-  it('offers official login when installed but logged out, and blocks the workbench until ready', async () => {
+  it('已安装未登录时提供登录入口，工作台按钮保持禁用', async () => {
     const bridge = bridgeFixture({
-      'provider.metadata.list': providers,
       'cli.login.status': { installed: true, cliPath: '/opt/homebrew/bin/codex', loggedIn: false, jobRunning: false, jobOutput: [] },
-      'cli.install.status': { command: ['npm', 'install', '-g', '@openai/codex'], installed: true, jobRunning: false, jobOutput: [] },
+      'cli.install.status': { command: [], installed: true, jobRunning: false, jobOutput: [] },
     })
-    render(<AgentHome bridge={bridge} workspaceId="workspace-1" onOpenWorkbench={() => undefined} />)
-    await waitFor(() => expect(screen.getByRole('button', { name: '登录官方账号' })).toBeInTheDocument())
-    const entry = screen.getByRole('button', { name: /进入 Codex 工作台/ })
-    expect(entry).toBeDisabled()
-    fireEvent.click(screen.getByRole('button', { name: '登录官方账号' }))
+    render(<AgentHome bridge={bridge} workspaceId="workspace-1" />)
+    fireEvent.click(await screen.findByRole('button', { name: '登录官方账号' }))
     await waitFor(() => expect(bridge.requestV2).toHaveBeenCalledWith('cli.login.start', undefined, { providerId: 'codex' }))
   })
 
-  it('enters the Codex workbench once CLI and login are ready', async () => {
-    const bridge = bridgeFixture({
-      'provider.metadata.list': providers,
-      'cli.login.status': { installed: true, cliPath: '/opt/homebrew/bin/codex', loggedIn: true, mode: '已登录（ChatGPT）', jobRunning: false, jobOutput: [] },
-      'cli.install.status': { command: ['npm', 'install', '-g', '@openai/codex'], installed: true, jobRunning: false, jobOutput: [] },
-    })
-    const onOpenWorkbench = vi.fn()
-    render(<AgentHome bridge={bridge} workspaceId="workspace-1" onOpenWorkbench={onOpenWorkbench} />)
-    const entry = await screen.findByRole('button', { name: /进入 Codex 工作台/ })
-    expect(entry).toBeEnabled()
-    fireEvent.click(entry)
-    expect(onOpenWorkbench).toHaveBeenCalledWith('codex')
-    expect(await screen.findByText(/已登录/)).toBeInTheDocument()
-  })
-
-  it('disables entry and explains when no workspace is selected', async () => {
-    const bridge = bridgeFixture({
-      'provider.metadata.list': providers,
-      'cli.login.status': { installed: true, loggedIn: true, jobRunning: false, jobOutput: [] },
+  it('登录探测中显示确认文案且不出现登录按钮', async () => {
+    render(<AgentHome bridge={bridgeFixture({
+      'cli.login.status': { installed: true, cliPath: '/x/codex', loggedIn: undefined, jobRunning: false, jobOutput: [] },
       'cli.install.status': { command: [], installed: true, jobRunning: false, jobOutput: [] },
-    })
-    render(<AgentHome bridge={bridge} onOpenWorkbench={() => undefined} />)
-    expect(await screen.findByText(/在左侧打开或创建一个项目/)).toBeInTheDocument()
-    const entry = screen.getByRole('button', { name: /进入 Codex 工作台/ })
-    expect(entry).toBeDisabled()
+    })} workspaceId="workspace-1" />)
+    expect(await screen.findByText(/正在确认登录状态/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '登录官方账号' })).toBeNull()
   })
 
-  it('saves a manual CLI path through the advanced fallback', async () => {
-    const bridge = bridgeFixture({
-      'provider.metadata.list': providers,
-      'cli.login.status': { installed: false, jobRunning: false, jobOutput: [] },
-      'cli.install.status': { command: [], installed: false, jobRunning: false, jobOutput: [] },
-    })
-    render(<AgentHome bridge={bridge} workspaceId="workspace-1" onOpenWorkbench={() => undefined} />)
+  it('全部就绪时提示到主聊天模型选择器使用', async () => {
+    render(<AgentHome bridge={bridgeFixture({
+      'cli.login.status': { installed: true, cliPath: '/x/codex', loggedIn: true, mode: '已登录 · ChatGPT 官方账号', jobRunning: false, jobOutput: [] },
+      'cli.install.status': { command: [], installed: true, jobRunning: false, jobOutput: [] },
+    })} workspaceId="workspace-1" />)
+    expect(await screen.findByText(/模型选择器里选择/)).toBeInTheDocument()
+    expect(await screen.findByText(/ChatGPT 官方账号/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /工作台/ })).toBeNull()
+  })
+
+  it('登录探测失败时展示人话原因', async () => {
+    render(<AgentHome bridge={bridgeFixture({
+      'cli.login.status': { installed: true, cliPath: '/x/codex', loggedIn: false, detail: '确认登录状态超时了。CLI 已安装，可以点「重新检测」再试，或直接进入工作台使用。', jobRunning: false, jobOutput: [] },
+      'cli.install.status': { command: [], installed: true, jobRunning: false, jobOutput: [] },
+    })} workspaceId="workspace-1" />)
+    expect(await screen.findByText(/确认登录状态超时/)).toBeInTheDocument()
+  })
+
+  it('无工作区时说明下一步并禁用工作台按钮', async () => {
+    render(<AgentHome bridge={bridgeFixture({
+      'cli.login.status': { installed: true, loggedIn: true, mode: '已登录', jobRunning: false, jobOutput: [] },
+      'cli.install.status': { command: [], installed: true, jobRunning: false, jobOutput: [] },
+    })} />)
+    expect(await screen.findByText(/在左侧打开或创建一个项目/)).toBeInTheDocument()
+  })
+
+  it('高级入口可保存手动 CLI 路径并反馈结果', async () => {
+    const bridge = bridgeFixture(notInstalled)
+    render(<AgentHome bridge={bridge} workspaceId="workspace-1" />)
     fireEvent.click(await screen.findByText('高级：自动检测不到 CLI？手动指定路径'))
-    const input = screen.getByPlaceholderText('/opt/homebrew/bin/codex')
-    fireEvent.change(input, { target: { value: '/opt/homebrew/bin/codex' } })
+    fireEvent.change(screen.getByPlaceholderText('/opt/homebrew/bin/codex'), { target: { value: '/opt/homebrew/bin/codex' } })
     fireEvent.click(screen.getByRole('button', { name: '保存并检测' }))
     await waitFor(() => expect(bridge.requestV2).toHaveBeenCalledWith('cli.path.select', undefined, { providerId: 'codex', path: '/opt/homebrew/bin/codex' }))
-    expect(await screen.findByText(/已保存/)).toBeInTheDocument()
-  })
-
-  it('shows the actionable message when a manual path is invalid', async () => {
-    const bridge = bridgeFixture({
-      'provider.metadata.list': providers,
-      'cli.login.status': { installed: false, jobRunning: false, jobOutput: [] },
-      'cli.install.status': { command: [], installed: false, jobRunning: false, jobOutput: [] },
-    })
-    render(<AgentHome bridge={bridge} workspaceId="workspace-1" onOpenWorkbench={() => undefined} />)
-    fireEvent.click(await screen.findByText('高级：自动检测不到 CLI？手动指定路径'))
-    const input = screen.getByPlaceholderText('/opt/homebrew/bin/codex')
-    fireEvent.change(input, { target: { value: '/not/a/cli' } })
-    fireEvent.click(screen.getByRole('button', { name: '保存并检测' }))
-    expect(await screen.findByText(/不是可用的 CLI/)).toBeInTheDocument()
+    expect(await screen.findByText(/已保存并检测通过/)).toBeInTheDocument()
   })
 })
