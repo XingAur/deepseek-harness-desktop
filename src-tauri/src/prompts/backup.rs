@@ -6,22 +6,28 @@ use crate::prompts::model::{PromptsError, Result};
 
 pub const MAX_BACKUPS_PER_TARGET: usize = 10;
 
-/// 备份 live 文件当前内容;文件不存在时返回 Ok(None)(无需备份)。
+/// 备份 live 文件当前内容;仅当文件不存在时返回 Ok(None)(无需备份),其余读取错误向上传播。
 pub fn backup_live_file(live_path: &Path, backup_root: &Path) -> Result<Option<PathBuf>> {
-    let Ok(bytes) = std::fs::read(live_path) else {
-        return Ok(None);
+    let bytes = match std::fs::read(live_path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(PromptsError::Io(error.to_string())),
     };
     std::fs::create_dir_all(backup_root).map_err(|error| PromptsError::Io(error.to_string()))?;
     let timestamp = chrono::Utc::now().format("%Y%m%dT%H%M%S%.3fZ");
     let mut digest = Sha256::new();
     digest.update(&bytes);
     let name = format!("{timestamp}-{}.md", &hex::encode(digest.finalize())[..8]);
-    let destination = backup_root.join(name);
-    std::fs::write(&destination, &bytes).map_err(|error| PromptsError::Io(error.to_string()))?;
+    let destination = backup_root.join(&name);
+    let temporary = backup_root.join(format!(".{name}.tmp"));
+    std::fs::write(&temporary, &bytes).map_err(|error| PromptsError::Io(error.to_string()))?;
+    std::fs::rename(&temporary, &destination).map_err(|error| PromptsError::Io(error.to_string()))?;
     rotate_backups(backup_root, MAX_BACKUPS_PER_TARGET)?;
     Ok(Some(destination))
 }
 
+/// 轮转依赖备份目录内文件名为定宽 `{UTC时间戳}-{sha256前8}.md`(字典序=时间序);
+/// 目录内不应混入其他文件。仅在进程内串行调用(服务层持锁)。
 pub fn rotate_backups(backup_root: &Path, keep: usize) -> Result<()> {
     let mut entries: Vec<PathBuf> = std::fs::read_dir(backup_root)
         .map_err(|error| PromptsError::Io(error.to_string()))?
@@ -30,7 +36,11 @@ pub fn rotate_backups(backup_root: &Path, keep: usize) -> Result<()> {
     entries.sort();
     while entries.len() > keep {
         let oldest = entries.remove(0);
-        std::fs::remove_file(&oldest).map_err(|error| PromptsError::Io(error.to_string()))?;
+        if let Err(error) = std::fs::remove_file(&oldest) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                return Err(PromptsError::Io(error.to_string()));
+            }
+        }
     }
     Ok(())
 }
@@ -79,5 +89,8 @@ mod tests {
         assert_eq!(remaining.len(), 10);
         assert!(remaining.iter().all(|name| name.contains("20260101T0000")), "保留的应是最新的 10 份");
         assert!(!remaining.iter().any(|name| name.starts_with("20260101T000000")), "最旧的 4 份应被删除");
+        let mut sorted = remaining.clone();
+        sorted.sort();
+        assert_eq!(sorted[0], "20260101T0000040Z-00000004.md", "留下的最旧一份应是 index 4");
     }
 }

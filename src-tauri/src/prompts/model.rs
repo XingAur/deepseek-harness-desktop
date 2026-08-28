@@ -19,6 +19,15 @@ impl PromptTarget {
             PromptTarget::Dsh => "dsh",
         }
     }
+
+    pub fn parse(value: &str) -> Option<PromptTarget> {
+        match value {
+            "claude" => Some(PromptTarget::Claude),
+            "codex" => Some(PromptTarget::Codex),
+            "dsh" => Some(PromptTarget::Dsh),
+            _ => None,
+        }
+    }
 }
 
 // PromptsError::TargetNotInstalled 使用 `{0}` 格式化,要求实现 Display

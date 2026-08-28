@@ -72,11 +72,15 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
         path.file_name().and_then(|name| name.to_str()).unwrap_or("prompt"),
         uuid::Uuid::new_v4()
     ));
-    std::fs::write(&temporary, bytes).map_err(|error| PromptsError::Io(error.to_string()))?;
-    let file =
-        std::fs::OpenOptions::new().write(true).open(&temporary).map_err(|error| PromptsError::Io(error.to_string()))?;
-    file.sync_all().map_err(|error| PromptsError::Io(error.to_string()))?;
-    drop(file);
+    let write_result = (|| {
+        std::fs::write(&temporary, bytes)?;
+        let file = std::fs::OpenOptions::new().write(true).open(&temporary)?;
+        file.sync_all()
+    })();
+    if let Err(error) = write_result {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(PromptsError::Io(error.to_string()));
+    }
     std::fs::rename(&temporary, path).map_err(|error| {
         let _ = std::fs::remove_file(&temporary);
         PromptsError::Io(error.to_string())

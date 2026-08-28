@@ -31,7 +31,7 @@ impl PromptsStore {
         Ok(Self { connection: Mutex::new(connection) })
     }
 
-    pub fn with_lock<T>(&self, operation: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
+    fn with_lock<T>(&self, operation: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
         let guard = self.connection.lock().map_err(|_| PromptsError::Store("存储锁中毒".into()))?;
         operation(&guard)
     }
@@ -57,6 +57,7 @@ impl PromptsStore {
                 )
                 .map_err(|error| PromptsError::Store(error.to_string()))?;
             if changed == 0 {
+                // 契约:更新不存在的预设视为参数错误;delete_preset 则为幂等静默成功(服务层自行前置校验)。
                 return Err(PromptsError::InvalidInput(format!("预设不存在: {id}")));
             }
             Ok(())
@@ -161,43 +162,19 @@ impl PromptsStore {
             let rows = statement
                 .query_map([preset_id], |row| {
                     let value: String = row.get(0)?;
-                    match value.as_str() {
-                        "claude" => Ok(PromptTarget::Claude),
-                        "codex" => Ok(PromptTarget::Codex),
-                        "dsh" => Ok(PromptTarget::Dsh),
-                        other => Err(rusqlite::Error::FromSqlConversionFailure(
+                    PromptTarget::parse(&value).ok_or_else(|| {
+                        rusqlite::Error::FromSqlConversionFailure(
                             0,
                             rusqlite::types::Type::Text,
-                            format!("未知目标 {other}").into(),
-                        )),
-                    }
+                            format!("未知目标 {value}").into(),
+                        )
+                    })
                 })
                 .map_err(|error| PromptsError::Store(error.to_string()))?;
             rows.collect::<std::result::Result<Vec<_>, _>>().map_err(|error| PromptsError::Store(error.to_string()))
         })
     }
 
-    pub fn all_activations(&self) -> Result<Vec<(PromptTarget, String)>> {
-        self.with_lock(|connection| {
-            let mut statement = connection
-                .prepare("SELECT target, preset_id FROM prompt_activations WHERE preset_id IS NOT NULL ORDER BY target")
-                .map_err(|error| PromptsError::Store(error.to_string()))?;
-            let rows = statement
-                .query_map([], |row| {
-                    let value: String = row.get(0)?;
-                    let preset_id: String = row.get(1)?;
-                    let target = match value.as_str() {
-                        "claude" => PromptTarget::Claude,
-                        "codex" => PromptTarget::Codex,
-                        "dsh" => PromptTarget::Dsh,
-                        other => unreachable!("CHECK 约束保证目标合法: {other}"),
-                    };
-                    Ok((target, preset_id))
-                })
-                .map_err(|error| PromptsError::Store(error.to_string()))?;
-            rows.collect::<std::result::Result<Vec<_>, _>>().map_err(|error| PromptsError::Store(error.to_string()))
-        })
-    }
 }
 
 #[cfg(test)]
@@ -205,9 +182,10 @@ mod tests {
     use super::PromptsStore;
     use crate::prompts::model::PromptTarget;
 
-    fn store() -> PromptsStore {
+    fn store() -> (tempfile::TempDir, PromptsStore) {
         let dir = tempfile::tempdir().unwrap();
-        PromptsStore::open(&dir.path().join("state/prompts.db")).unwrap()
+        let store = PromptsStore::open(&dir.path().join("state/prompts.db")).unwrap();
+        (dir, store)
     }
 
     #[test]
@@ -225,7 +203,7 @@ mod tests {
 
     #[test]
     fn preset_crud_roundtrip() {
-        let store = store();
+        let (_dir, store) = store();
         store.insert_preset("p1", "A", "old", 1, 1).unwrap();
         store.update_preset("p1", "A2", "new", 2).unwrap();
         let preset = store.get_preset("p1").unwrap().unwrap();
@@ -237,7 +215,7 @@ mod tests {
 
     #[test]
     fn activation_is_set_and_cleared_per_target() {
-        let store = store();
+        let (_dir, store) = store();
         store.insert_preset("p1", "A", "c", 1, 1).unwrap();
         store.set_activation(PromptTarget::Claude, "p1", 5).unwrap();
         store.set_activation(PromptTarget::Codex, "p1", 6).unwrap();
@@ -252,7 +230,7 @@ mod tests {
 
     #[test]
     fn deleting_preset_nulls_activation_reference() {
-        let store = store();
+        let (_dir, store) = store();
         store.insert_preset("p1", "A", "c", 1, 1).unwrap();
         store.set_activation(PromptTarget::Claude, "p1", 5).unwrap();
         store.delete_preset("p1").unwrap();
