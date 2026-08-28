@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react'
 import type { AppUpdateFailure, AppUpdateReceipt, AppUpdateState, GenerationPhase, LocalAppEvent, MigrationStatus, RecoveryStatus, RuntimeClient, RuntimeFailure, RuntimeFailureCode, RuntimePhase } from './runtime-contract'
 import { failureFromUnknown, initialRuntimeState, runtimeReducer } from './runtime-reducer'
-import { themeFromWorkbenchMessage } from './theme-message'
+import { initialDesktopColorScheme, persistDesktopColorScheme, themeFromWorkbenchMessage } from './theme-message'
 import type { DesktopColorScheme } from './theme-message'
 import { TitleBar } from './TitleBar'
 import { DeepSeekFishLogo } from './DeepSeekFishLogo'
@@ -208,7 +208,7 @@ export function AppUpdateBanner(props: AppUpdateBannerProps) {
 export function App({ runtime, windowControls }: AppProps) {
   const [state, dispatch] = useReducer(runtimeReducer, initialRuntimeState)
   const [detailsOpen, setDetailsOpen] = useState(false)
-  const [shellTheme, setShellTheme] = useState<DesktopColorScheme | undefined>()
+  const [shellTheme, setShellTheme] = useState<DesktopColorScheme>(initialDesktopColorScheme)
   const [migration, setMigration] = useState<MigrationStatus | null>(null)
   const [recovery, setRecovery] = useState<RecoveryStatus | null>(null)
   const [appUpdate, setAppUpdate] = useState<AppUpdateState>({ phase: 'idle' })
@@ -307,7 +307,10 @@ export function App({ runtime, windowControls }: AppProps) {
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       const nextTheme = themeFromWorkbenchMessage(event, iframeRef.current?.contentWindow ?? null)
-      if (nextTheme) setShellTheme((previous) => previous === nextTheme ? previous : nextTheme)
+      if (nextTheme) {
+        persistDesktopColorScheme(nextTheme)
+        setShellTheme((previous) => previous === nextTheme ? previous : nextTheme)
+      }
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
@@ -489,13 +492,24 @@ export function App({ runtime, windowControls }: AppProps) {
             />
             {activeApp !== null && (
               <section className="localAppSurface" aria-label="本地应用视图">
-                <div className="localAppStrip">
-                  <span className="localAppStripTitle">正在运行：{activeApp.title}</span>
-                  <div className="localAppStripActions">
-                    <button type="button" onClick={() => setActiveApp(null)}>返回工作台</button>
-                    <button type="button" className="localAppStripStop" onClick={() => void stopActiveApp()}>停止应用</button>
+                <header className="localAppStrip">
+                  <div className="localAppStripIdentity">
+                    <span className="localAppStripStatus" aria-hidden="true" />
+                    <div>
+                      <p>本地应用</p>
+                      <strong>{activeApp.title}</strong>
+                    </div>
+                    <span className="localAppStripRunning">运行中</span>
                   </div>
-                </div>
+                  <div className="localAppStripActions">
+                    <button type="button" className="localAppStripAction" aria-label="返回工作台" title="返回工作台" onClick={() => setActiveApp(null)}>
+                      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M6 5v5h5M6.5 10A7 7 0 1 1 5 15" /></svg>
+                    </button>
+                    <button type="button" className="localAppStripAction localAppStripStop" aria-label="停止应用" title="停止应用" onClick={() => void stopActiveApp()}>
+                      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="m7 7 10 10M17 7 7 17" /></svg>
+                    </button>
+                  </div>
+                </header>
                 <iframe
                   className="localAppFrame"
                   title={`本地应用 ${activeApp.title}`}

@@ -384,7 +384,9 @@ describe('App', () => {
     act(() => emitLocalApp({ kind: 'launched', workspaceId: 'w-1', origin: 'http://127.0.0.1:39123', title: '记账应用' }))
     const appFrame = screen.getByTitle('本地应用 记账应用')
     expect(appFrame).toHaveAttribute('src', 'http://127.0.0.1:39123')
-    expect(screen.getByText('正在运行：记账应用')).toBeVisible()
+    expect(screen.getByText('记账应用')).toBeVisible()
+    expect(screen.getByRole('button', { name: '返回工作台' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '停止应用' })).toBeVisible()
     expect(screen.getByTitle('DeepSeek Harness 工作台')).toHaveAttribute('data-hidden')
 
     act(() => emitLocalApp({ kind: 'exited', workspaceId: 'w-1', origin: 'http://127.0.0.1:39123', title: '记账应用' }))
@@ -427,6 +429,7 @@ describe('App', () => {
     const { container } = render(<App runtime={runtime} windowControls={fakeWindowControls()} />)
     const frame = await screen.findByTitle<HTMLIFrameElement>('DeepSeek Harness 工作台')
     const shell = container.querySelector('.windowShell')
+    expect(shell).toHaveAttribute('data-theme', 'light')
 
     window.dispatchEvent(new MessageEvent('message', {
       data: { type: 'dsh-desktop-theme', colorScheme: 'light' },

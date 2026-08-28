@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { themeFromWorkbenchMessage } from './theme-message'
+import { initialDesktopColorScheme, persistDesktopColorScheme, themeFromWorkbenchMessage } from './theme-message'
 
 describe('themeFromWorkbenchMessage', () => {
   const frameWindow = window
@@ -30,5 +30,16 @@ describe('themeFromWorkbenchMessage', () => {
       message({ type: 'dsh-desktop-theme', colorScheme: 'dark' }, otherWindow),
       frameWindow,
     )).toBeNull()
+  })
+
+  it('uses light for a first installation and persists a workbench selection', () => {
+    const values = new Map<string, string>()
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    }
+    expect(initialDesktopColorScheme(storage)).toBe('light')
+    persistDesktopColorScheme('dark', storage)
+    expect(initialDesktopColorScheme(storage)).toBe('dark')
   })
 })

@@ -47,9 +47,11 @@ export interface DesktopHarness {
 export class PackagedDesktopHarness implements DesktopHarness {
   private session?: WebdriverIO.Browser
   private ownsSession = false
+  private cdpEndpoint?: string
 
   constructor(session?: WebdriverIO.Browser) {
     this.session = session
+    if (session !== undefined) this.cdpEndpoint = configuredCdpEndpoint()
   }
 
   async launch(appBinary = process.env.DSH_E2E_APP_BINARY): Promise<void> {
@@ -57,6 +59,9 @@ export class PackagedDesktopHarness implements DesktopHarness {
       throw new Error('E2E 应用路径无效')
     }
     if (this.session === undefined) {
+      // E2E 构建在 WebView2 创建层固定配置 9229；不要依赖环境变量覆盖，
+      // 因为 WebView2 不保证从 Tauri/WebDriver 的子进程环境读取该配置。
+      this.cdpEndpoint = defaultCdpEndpoint
       const capabilities = createTauriCapabilities(appBinary, {
         driverProvider: 'embedded',
         logLevel: 'error',
@@ -68,10 +73,14 @@ export class PackagedDesktopHarness implements DesktopHarness {
         captureBackendLogs: true,
         captureFrontendLogs: true,
         logDir: resolve(process.env.DSH_E2E_ARTIFACTS ?? 'e2e-artifacts'),
-        env: e2eEnvironment(),
       }
-      this.session = await startWdioSession(capabilities)
-      this.ownsSession = true
+      try {
+        this.session = await startWdioSession(capabilities)
+        this.ownsSession = true
+      } catch (error) {
+        this.cdpEndpoint = undefined
+        throw error
+      }
     }
     const session = this.requireSession()
     await session.waitUntil(async () => (await session.getWindowHandles()).length > 0, {
@@ -154,13 +163,7 @@ export class PackagedDesktopHarness implements DesktopHarness {
   async createProject(input: { idea: string }): Promise<void> {
     await this.withWorkbenchTarget(async (page) => {
       await this.openLocalProjects(page)
-      const declarationContinue = visibleButtonTextExpression('继续')
-      if (await page.evaluate<boolean>(`(${declarationContinue}) !== null`)) {
-        await page.evaluate(`(() => { const button = ${declarationContinue}; button.click(); return true })()`)
-        await page.waitFor(`(${declarationContinue}) === null`, {
-          timeoutMs: 10_000,
-          message: '首次使用声明未关闭',
-        })
+      if (await this.dismissFirstUseNotice(page)) {
         await this.openLocalProjects(page)
       }
 
@@ -178,6 +181,19 @@ export class PackagedDesktopHarness implements DesktopHarness {
   async createConversation(prompt: string): Promise<void> {
     if (prompt.trim() === '') throw new Error('新会话消息不能为空')
     await this.withWorkbenchTarget(async (page) => {
+      // 首启声明在工作台 shell 就绪后异步挂载。不能只做一次即时检查，
+      // 否则它会在检查与点击「新建会话」之间出现，导致首个会话用例偶发失败。
+      const newSessionButton = 'document.querySelector(\'button[aria-label="新建会话"]\')'
+      const continueButton = firstUseContinueButtonExpression()
+      await page.waitFor(`(${newSessionButton}) !== null || (${continueButton}) !== null`, {
+        timeoutMs: 15_000,
+        message: '工作台未进入可创建会话或确认首启声明的状态',
+      })
+      await this.dismissFirstUseNotice(page)
+      await page.waitFor(`(${newSessionButton}) !== null`, {
+        timeoutMs: 15_000,
+        message: '关闭首次使用声明后未出现新建会话入口',
+      })
       await page.click('button[aria-label="新建会话"]')
       const composer = conversationComposerExpression()
       await page.waitFor(`${composer} !== null`, {
@@ -369,12 +385,19 @@ export class PackagedDesktopHarness implements DesktopHarness {
 
   async quit(): Promise<void> {
     const session = this.session
-    if (session === undefined) return
+    if (session === undefined) {
+      this.cdpEndpoint = undefined
+      return
+    }
     this.session = undefined
-    if (this.ownsSession) {
-      this.ownsSession = false
-      await session.tauri.execute(({ core }) => core.invoke('orderly_quit')).catch(() => undefined)
-      await cleanupWdioSession(session)
+    try {
+      if (this.ownsSession) {
+        this.ownsSession = false
+        await session.tauri.execute(({ core }) => core.invoke('orderly_quit')).catch(() => undefined)
+        await cleanupWdioSession(session)
+      }
+    } finally {
+      this.cdpEndpoint = undefined
     }
   }
 
@@ -418,7 +441,7 @@ export class PackagedDesktopHarness implements DesktopHarness {
 
   /** 主窗口（tauri 壳层，非工作台 iframe）上下文中执行；用于本地应用视图断言。 */
   private async withMainWindowTarget(run: (page: CdpPage) => Promise<void>): Promise<void> {
-    const targets = await this.cdpTargets()
+    const { targets } = await this.cdpTargets()
     const main = targets.find((target) => target.type === 'page' && !target.url.includes('127.0.0.1:'))
     if (main?.webSocketDebuggerUrl === undefined) throw new Error('找不到主窗口 CDP target')
     const page = await CdpPage.connect(main.webSocketDebuggerUrl)
@@ -429,22 +452,42 @@ export class PackagedDesktopHarness implements DesktopHarness {
     }
   }
 
-  /** 枚举 WebView2 暴露的 CDP targets；服务未就绪时返回空列表，由调用方决定是否重试。 */
-  private async cdpTargets(): Promise<CdpTarget[]> {
-    const response = await fetch('http://127.0.0.1:9229/json/list')
-    if (!response.ok) return []
-    return await response.json() as CdpTarget[]
+  /** 枚举当前 launch 的 WebView2 CDP targets；服务未就绪时把连接拒绝交由调用方重试。 */
+  private async cdpTargets(): Promise<CdpTargetLookup> {
+    const endpoint = this.cdpEndpoint
+    if (endpoint === undefined) throw new Error('当前 E2E 会话未配置 CDP endpoint')
+    let response: Response
+    try {
+      response = await fetch(new URL('/json/list', endpoint))
+    } catch (error) {
+      // 新进程启动时，WebView2 的 CDP 端口可能尚未开始监听；交由 findWorkbenchTarget 轮询。
+      if (isCdpConnectionRefused(error)) return { state: 'connection-refused', targets: [] }
+      throw error
+    }
+    if (!response.ok) throw new Error(`CDP target endpoint 返回 ${response.status}`)
+    return { state: 'ready', targets: await response.json() as CdpTarget[] }
   }
 
-  private async findWorkbenchTarget(frameUrl: string): Promise<CdpTarget> {
+  private requireCdpEndpoint(): string {
+    if (this.cdpEndpoint === undefined) throw new Error('当前 E2E 会话未配置 CDP endpoint')
+    return this.cdpEndpoint
+  }
+
+  private async findWorkbenchTarget(frameUrl: string): Promise<CdpTarget & { webSocketDebuggerUrl: string }> {
+    const endpoint = this.requireCdpEndpoint()
     const deadline = Date.now() + 30_000
+    let lastLookup: CdpTargetLookup = { state: 'connection-refused', targets: [] }
     while (Date.now() < deadline) {
-      const match = (await this.cdpTargets())
-        .find((target) => target.type === 'iframe' && target.url === frameUrl)
-      if (match?.webSocketDebuggerUrl !== undefined) return match
+      const lookup = await this.cdpTargets()
+      lastLookup = lookup
+      const { targets } = lookup
+      const match = selectWorkbenchCdpTarget(targets, frameUrl)
+      if (match !== undefined) return match
       await new Promise((resolveWait) => setTimeout(resolveWait, 100))
     }
-    throw new Error(`找不到工作台 CDP target：${frameUrl}`)
+    throw new Error(
+      `找不到工作台 CDP target：${summarizeCdpUrl(frameUrl)}；最后 CDP endpoint ${summarizeCdpUrl(endpoint)}：${summarizeCdpTargetLookup(lastLookup)}`,
+    )
   }
 
   private async openLocalProjects(page: CdpPage): Promise<void> {
@@ -457,6 +500,22 @@ export class PackagedDesktopHarness implements DesktopHarness {
       await page.click('button[aria-label="本地项目"]')
       await page.waitFor(pageOpen, { timeoutMs: 30_000, message: '本地项目页面未打开' })
     }
+  }
+
+  private async dismissFirstUseNotice(page: CdpPage): Promise<boolean> {
+    const continueButton = firstUseContinueButtonExpression()
+    if (!await page.evaluate<boolean>(`(${continueButton}) !== null`)) return false
+    await page.evaluate(`(() => {
+      const button = ${continueButton};
+      if (!(button instanceof HTMLElement)) throw new Error('首次使用声明确认按钮不可点击');
+      button.click();
+      return true;
+    })()`)
+    await page.waitFor(`(${continueButton}) === null`, {
+      timeoutMs: 10_000,
+      message: '首次使用声明未关闭',
+    })
+    return true
   }
 
   private async ensureSidebarExpanded(page: CdpPage): Promise<void> {
@@ -510,10 +569,54 @@ export function assertSessionRoundTripCoverage(markers: readonly string[], marke
   if (new Set(rows).size < 2) throw new Error('会话轮转未覆盖至少两个独立会话')
 }
 
-interface CdpTarget {
+export interface CdpTarget {
   type: string
   url: string
-  webSocketDebuggerUrl: string
+  webSocketDebuggerUrl?: string
+}
+
+export type CdpTargetLookup = {
+  state: 'connection-refused' | 'ready'
+  targets: readonly CdpTarget[]
+}
+
+export function selectWorkbenchCdpTarget(
+  targets: readonly CdpTarget[],
+  frameUrl: string,
+): (CdpTarget & { webSocketDebuggerUrl: string }) | undefined {
+  return targets.find((target): target is CdpTarget & { webSocketDebuggerUrl: string } => (
+    target.url === frameUrl && typeof target.webSocketDebuggerUrl === 'string' && target.webSocketDebuggerUrl !== ''
+  ))
+}
+
+export function summarizeCdpTargets(targets: readonly CdpTarget[]): string {
+  if (targets.length === 0) return '无'
+  return targets.map((target) => `${target.type} ${summarizeCdpUrl(target.url)}`).join(', ')
+}
+
+export function summarizeCdpTargetLookup(lookup: CdpTargetLookup): string {
+  if (lookup.state === 'connection-refused') {
+    return '连接被拒绝（请检查 WebView2 是否收到 --remote-debugging-port 参数）'
+  }
+  if (lookup.targets.length === 0) return 'endpoint HTTP 200，空 target 列表'
+  return `endpoint HTTP 200，targets：${summarizeCdpTargets(lookup.targets)}`
+}
+
+function summarizeCdpUrl(rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl)
+    const queryKeys = [...new Set(url.searchParams.keys())].sort()
+    return `${url.origin}${url.pathname}${queryKeys.length === 0 ? '' : `?${queryKeys.join('&')}`}`
+  } catch {
+    return '<无效 URL>'
+  }
+}
+
+function isCdpConnectionRefused(error: unknown): boolean {
+  if (!(error instanceof TypeError)) return false
+  const cause = (error as { cause?: unknown }).cause
+  if (typeof cause !== 'object' || cause === null) return false
+  return (cause as { code?: unknown }).code === 'ECONNREFUSED'
 }
 
 class CdpPage {
@@ -721,6 +824,10 @@ function visibleButtonTextExpression(text: string): string {
   return `Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.trim() === ${JSON.stringify(text)} && button.getClientRects().length > 0 && !button.disabled) ?? null`
 }
 
+function firstUseContinueButtonExpression(): string {
+  return `Array.from(document.querySelectorAll('button')).find((button) => ['继续', 'Continue'].includes(button.textContent?.trim() ?? '') && button.getClientRects().length > 0 && !button.disabled) ?? null`
+}
+
 function conversationContainsExpression(text: string): string {
   return `document.querySelector('[data-slot="conversation.session"]')?.textContent?.includes(${JSON.stringify(text)}) === true`
 }
@@ -768,17 +875,31 @@ function escapeCssAttribute(value: string): string {
   return value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')
 }
 
-function e2eEnvironment(): Record<string, string> {
-  return {
-    ...Object.fromEntries(Object.entries(process.env).filter(
-    ([name, value]) => (
-      name.startsWith('DSH_E2E_')
-      || name.startsWith('DSH_DESKTOP_E2E_')
-      || name === 'NODE_EXTRA_CA_CERTS'
-      || name === 'DEEPSEEK_BASE_URL'
-      || name === 'DEEPSEEK_API_KEY'
-    ) && value !== undefined,
-    )) as Record<string, string>,
-    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=9229',
+const defaultCdpEndpoint = 'http://127.0.0.1:9229'
+
+export function normalizeE2eCdpEndpoint(rawEndpoint: string): string {
+  let endpoint: URL
+  try {
+    endpoint = new URL(rawEndpoint)
+  } catch {
+    throw new Error('DSH_E2E_CDP_ENDPOINT 无效')
   }
+  if (
+    endpoint.protocol !== 'http:'
+    || !['127.0.0.1', '::1', '[::1]'].includes(endpoint.hostname)
+    || endpoint.port === ''
+    || endpoint.username !== ''
+    || endpoint.password !== ''
+    || endpoint.pathname !== '/'
+    || endpoint.search !== ''
+    || endpoint.hash !== ''
+  ) {
+    throw new Error('DSH_E2E_CDP_ENDPOINT 必须是无查询参数的 loopback HTTP 地址')
+  }
+  return endpoint.origin
+}
+
+function configuredCdpEndpoint(): string {
+  // 仅用于调用方自己已启动的 WebDriver session；内部 launch 固定使用 E2E 构建的 9229。
+  return normalizeE2eCdpEndpoint(process.env.DSH_E2E_CDP_ENDPOINT ?? defaultCdpEndpoint)
 }
