@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import {
   createCandidateSessionOperations,
+  installClientGlobals,
   resolveCandidateClientPaths,
 } from './runtime-session-contract-client.mjs'
 import type { CandidateSessionFace } from './runtime-session-contract-client.mjs'
@@ -66,6 +67,34 @@ describe('resolveCandidateClientPaths', () => {
 
       expect(() => resolveCandidateClientPaths(fixture.appDirectory)).toThrow(/候选 Runtime 缺少客户端契约包/)
     } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('installClientGlobals', () => {
+  it('uses the packaged ws transport in Node even when native WebSocket exists', () => {
+    const fixture = candidateFixture()
+    const wsDirectory = join(fixture.appDirectory, 'node_modules', 'ws')
+    mkdirSync(wsDirectory, { recursive: true })
+    writeFileSync(join(wsDirectory, 'package.json'), JSON.stringify({ main: 'index.cjs' }))
+    writeFileSync(join(wsDirectory, 'index.cjs'), [
+      'class PackagedWebSocket {',
+      '  on() {}',
+      '}',
+      'module.exports = { WebSocket: PackagedWebSocket }',
+      '',
+    ].join('\n'))
+    const previousWebSocket = globalThis.WebSocket
+
+    try {
+      const restore = installClientGlobals('http://127.0.0.1:45678', fixture.appDirectory)
+
+      expect(globalThis.WebSocket.name).toBe('RuntimeWebSocket')
+      restore()
+      expect(globalThis.WebSocket).toBe(previousWebSocket)
+    } finally {
+      globalThis.WebSocket = previousWebSocket
       rmSync(fixture.root, { recursive: true, force: true })
     }
   })

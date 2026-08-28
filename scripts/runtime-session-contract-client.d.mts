@@ -64,3 +64,4 @@ export function resolveCandidateClientPaths(appDirectory: string): Readonly<Cand
 export function createCandidateSessionOperations(options: CandidateSessionOperationsOptions): Readonly<CandidateSessionOperations>
 export function createCandidateSessionDriver(options: CandidateSessionDriverOptions): RuntimeSessionContractDriver
 export function loadCandidateClientModules(appDirectory: string): Promise<Readonly<Record<string, unknown>>>
+export function installClientGlobals(origin: string, appDirectory: string): () => void

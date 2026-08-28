@@ -325,13 +325,24 @@ async function cleanupCandidateClient({ ctx, loop, disposeRemotes, restoreGlobal
   if (failures.length > 0) throw new AggregateError(failures, '候选 Session 客户端清理失败')
 }
 
-function installClientGlobals(origin, appDirectory) {
+export function installClientGlobals(origin, appDirectory) {
   const restorers = [replaceGlobal('location', new URL(origin))]
-  if (typeof globalThis.WebSocket !== 'function') {
-    const require = createRequire(join(appDirectory, 'package.json'))
-    const ws = require('ws')
-    restorers.push(replaceGlobal('WebSocket', ws.WebSocket ?? ws))
+  // Node 22+ 的原生 WebSocket 在收到 Runtime 启动阶段的 503 时可能只触发
+  // error，不触发 close，导致连接循环一直等待。Runtime 自带的 ws 能正确结束
+  // 这类握手失败并按既有策略重连，因此契约客户端统一使用候选 Runtime 的依赖。
+  const require = createRequire(join(appDirectory, 'package.json'))
+  const ws = require('ws')
+  const PackagedWebSocket = ws.WebSocket ?? ws
+  // ws 将握手失败通过 EventEmitter 的 error 事件通知；未监听该事件时，Node
+  // 会把它当作未处理异常。契约客户端只关心后续 close/reconnect，所以这里
+  // 安装一个空监听器，把错误交给 ws 自己的 close 生命周期处理。
+  class RuntimeWebSocket extends PackagedWebSocket {
+    constructor(...args) {
+      super(...args)
+      this.on('error', () => undefined)
+    }
   }
+  restorers.push(replaceGlobal('WebSocket', RuntimeWebSocket))
   return () => {
     for (const restore of restorers.reverse()) restore()
   }

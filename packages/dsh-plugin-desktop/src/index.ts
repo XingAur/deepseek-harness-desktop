@@ -30,6 +30,11 @@ function createCodexAdapter(ctx: Any) {
       return { id: provider, name: 'Codex' }
     },
 
+    providerRetryPolicy(_provider: string) {
+      // 使用 DSH 的默认重试策略；Codex app-server 自己维护一轮请求的状态。
+      return undefined
+    },
+
     async listModels(provider: string): Promise<ModelInfo[]> {
       try {
         const models = await listCodexModels()

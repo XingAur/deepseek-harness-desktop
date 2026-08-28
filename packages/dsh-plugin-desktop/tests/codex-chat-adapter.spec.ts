@@ -124,11 +124,12 @@ describe('codex chat adapter（假 CLI 端到端）', () => {
     })
   })
 
-  it('满足注册契约：providerInfo/listModels/prepareCall', async () => {
+  it('满足注册契约：providerInfo/providerRetryPolicy/listModels/prepareCall', async () => {
     installFakeCli()
     const { adapter, providers } = await registerAdapter()
     expect(providers).toEqual(['codex'])
     expect(adapter.providerInfo('codex')).toEqual({ id: 'codex', name: 'Codex' })
+    expect(adapter.providerRetryPolicy('codex')).toBeUndefined()
     const models = await adapter.listModels('codex')
     expect(models[0]).toMatchObject({
       provider: 'codex', id: 'gpt-5.4', name: 'GPT-5.4',
