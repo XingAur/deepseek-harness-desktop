@@ -148,18 +148,21 @@ CREATE TABLE prompt_activations (
   ① 回填检查（见下）② 备份当前 live 文件 ③ temp 写 + 同卷 rename 原子替换为 P 内容
   ④ 写成功后才在 `prompt_activations` 落记录；任一步失败向上报错、不留半状态。
   同一目标原激活项自动被替换（单激活不变量）。
-- **回填保护**（激活/编辑前触发，读 live 文件）：
-  - 非空 + 该目标有激活项 + live 内容 ≠ DB 内容 → 外部修改生效：live 内容回填覆盖
-    该预设的 `content` / `updated_at`；
-  - 非空 + 无激活项 → 自动创建 `backup-{timestamp}` 备份预设（不入激活），再正常写入；
+- **回填保护**（激活/编辑前触发，读 live 文件；**实现语义以本条为准**）：
+  - **激活**（目标 X）：live 非空 + X 已有激活项 + live ≠ 该预设 DB 内容 → 外部修改回填覆盖
+    该激活预设；live 非空 + 无激活项 → 自动创建 `backup-{timestamp}` 备份预设（不激活）；
+    然后备份 + 原子写入新预设内容；
+  - **编辑保存**（`prompts.save`）：**用户提交内容为准**。激活目标的 live 分歧项按内容去重
+    （同内容多目标算一份）：恰 1 份分歧 → 先创建 `backup-{timestamp}` 备份预设吸收外部修改，
+    再以用户内容更新 DB；≥2 份不同分歧 → 返回
+    `{ kind: 'backfill-conflict', presetId, candidates }`（候选按内容去重；**此时 DB 未写入**），
+    UI 弹冲突对话框；
+  - **冲突收敛**（`resolve_save_conflict`，用户在对话框裁决后的唯一入口）：未选中的分歧
+    live 落 `backup-{timestamp}` 备份预设防丢 → 以选定内容更新 DB → **强制重投影**
+    （逐目标备份+原子写，不再比对），保证一次调用必然收敛，无乒乓；
   - live 为空 / 读取失败 → 跳过回填，不阻塞主流程（失败仅记录）；
-  - **多目标冲突（共享池特有）**：预设同时激活于 ≥2 个目标且各 live 内容互不一致时，
-    不静默选边——`prompts.activate` / `prompts.save` 返回
-    `{ kind: 'backfill-conflict', presetId, candidates: [{ target, content, updatedAt }] }`，
-    UI 弹冲突对话框由用户选择以哪个为准（或放弃回填）；用户选择后以
-    `prompts.save` 写入选定内容并重试原操作。单目标激活时静默回填。
-- **编辑已激活预设**（`prompts.save`）：先回填 → 更新 DB → 自动重投影到所有激活
-  该预设的目标（逐目标备份 + 原子写）。
+  - **编辑已激活预设**（`prompts.save`）：保存后自动**强制重投影**到所有激活该预设的目标
+    （逐目标备份 + 原子写）。
 - **停用**（`prompts.deactivate`）：清空对应 live 文件（写前备份），删除激活记录。
   对齐 cc-switch「禁用即清空」。
 - **删除预设**（`prompts.delete`）：仅当无任何目标激活时允许；有激活项返回明确错误，
