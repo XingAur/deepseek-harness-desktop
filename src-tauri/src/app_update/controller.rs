@@ -92,7 +92,7 @@ impl AppUpdateController {
         let result = update
             .download(|_, _| {}, || {})
             .await
-            .map_err(|cause| failure("download", cause));
+            .map_err(download_failure);
         match result {
             Ok(bytes) => {
                 let stored = {
@@ -277,14 +277,20 @@ impl AppUpdateController {
 
     #[cfg(not(target_os = "macos"))]
     async fn check_platform_update(&self) -> Result<Option<UpdateInfo>, AppUpdateFailure> {
-        let updater = self
-            .app
-            .updater()
+        let mut builder = self.app.updater_builder();
+        // tauri-plugin-updater 未启用 reqwest 的 system-proxy 特性，读不到
+        // Windows“系统代理”；这里读取注册表代理并显式注入，让检查与下载
+        // 都走该代理。设置显式代理后 reqwest 不再回退到环境变量代理。
+        if let Some(proxy) = crate::platform::updater_proxy() {
+            builder = builder.proxy(proxy);
+        }
+        let updater = builder
+            .build()
             .map_err(|cause| failure("configuration", cause))?;
         let Some(update) = updater
             .check()
             .await
-            .map_err(|cause| failure("check", cause))?
+            .map_err(check_failure)?
         else {
             *self.pending.lock().await = None;
             return Ok(None);
@@ -312,4 +318,105 @@ impl AppUpdateController {
 
 fn failure(code: &str, cause: impl std::fmt::Display) -> AppUpdateFailure {
     AppUpdateFailure::new(code, cause.to_string())
+}
+
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+fn check_failure(cause: tauri_plugin_updater::Error) -> AppUpdateFailure {
+    match cause {
+        tauri_plugin_updater::Error::Reqwest(_) => AppUpdateFailure::new(
+            "check-network",
+            format!("无法连接更新服务器，请检查网络或系统代理设置（{cause}）"),
+        ),
+        tauri_plugin_updater::Error::ReleaseNotFound | tauri_plugin_updater::Error::Serialization(_) => {
+            AppUpdateFailure::new(
+                "check-manifest",
+                format!("更新服务器返回的清单不可用，请稍后重试（{cause}）"),
+            )
+        }
+        _ => failure("check", cause),
+    }
+}
+
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+fn download_failure(cause: tauri_plugin_updater::Error) -> AppUpdateFailure {
+    match cause {
+        tauri_plugin_updater::Error::Reqwest(_) => AppUpdateFailure::new(
+            "download-network",
+            format!("无法下载更新，请检查网络或系统代理设置（{cause}）"),
+        ),
+        tauri_plugin_updater::Error::Network(_) => AppUpdateFailure::new(
+            "download-http",
+            format!("更新下载失败，请稍后重试（{cause}）"),
+        ),
+        tauri_plugin_updater::Error::Minisign(_)
+        | tauri_plugin_updater::Error::Base64(_)
+        | tauri_plugin_updater::Error::SignatureUtf8(_) => AppUpdateFailure::new(
+            "download-signature",
+            "更新包签名校验失败，为安全起见已中止安装",
+        ),
+        _ => failure("download", cause),
+    }
+}
+
+#[cfg(all(test, not(target_os = "macos")))]
+mod failure_tests {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    use minisign_verify::PublicKey;
+
+    use super::{check_failure, download_failure};
+
+    fn check_cause(cause: tauri_plugin_updater::Error) -> (String, String) {
+        let failure = check_failure(cause);
+        (failure.code, failure.message)
+    }
+
+    fn download_cause(cause: tauri_plugin_updater::Error) -> (String, String) {
+        let failure = download_failure(cause);
+        (failure.code, failure.message)
+    }
+
+    #[test]
+    fn manifest_failures_are_classified_separately() {
+        for cause in [
+            tauri_plugin_updater::Error::ReleaseNotFound,
+            tauri_plugin_updater::Error::Serialization(serde_json::from_str::<u8>("x").unwrap_err()),
+        ] {
+            let (code, _) = check_cause(cause);
+            assert_eq!(code, "check-manifest");
+        }
+    }
+
+    #[test]
+    fn download_status_failures_report_the_http_error() {
+        let (code, message) = download_cause(tauri_plugin_updater::Error::Network(
+            "Download request failed with status: 403".into(),
+        ));
+        assert_eq!(code, "download-http");
+        assert!(message.contains("下载失败"));
+    }
+
+    #[test]
+    fn signature_failures_abort_with_a_dedicated_code() {
+        for cause in [
+            tauri_plugin_updater::Error::SignatureUtf8("not-base64".into()),
+            tauri_plugin_updater::Error::Base64(STANDARD.decode("!!!").unwrap_err()),
+            tauri_plugin_updater::Error::Minisign(PublicKey::decode("garbage").unwrap_err()),
+        ] {
+            let (code, message) = download_cause(cause);
+            assert_eq!(code, "download-signature");
+            assert!(message.contains("签名校验失败"));
+        }
+    }
+
+    #[test]
+    fn unknown_causes_keep_the_existing_codes() {
+        assert_eq!(
+            check_cause(tauri_plugin_updater::Error::EmptyEndpoints).0,
+            "check"
+        );
+        assert_eq!(
+            download_cause(tauri_plugin_updater::Error::EmptyEndpoints).0,
+            "download"
+        );
+    }
 }

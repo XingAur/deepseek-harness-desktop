@@ -160,11 +160,95 @@ fn process_executable(pid: u32) -> Option<PathBuf> {
     Some(PathBuf::from(OsString::from_wide(&buffer)))
 }
 
+const INTERNET_SETTINGS_SUBKEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
+
+/// 读取用户在系统中配置的 HTTP 代理，供应用内更新器使用。
+/// tauri-plugin-updater 未启用 reqwest 的 system-proxy 特性，读不到
+/// Windows“系统代理”（Clash/v2rayN 等写入注册表的配置）。
+/// 这里只把更新器流量路由到用户自己配置的代理；更新端点、TLS 与
+/// minisign 签名校验全部保持不变。AutoConfigURL（PAC）无法在本地
+/// 求值，暂不支持、静默跳过。
+pub(crate) fn updater_proxy() -> Option<url::Url> {
+    let settings = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
+        .open_subkey(INTERNET_SETTINGS_SUBKEY)
+        .ok()?;
+    let enable: u32 = settings.get_value("ProxyEnable").ok()?;
+    let server: String = settings.get_value("ProxyServer").ok()?;
+    resolve_registry_proxy(enable, &server).and_then(|value| url::Url::parse(&value).ok())
+}
+
+fn resolve_registry_proxy(proxy_enable: u32, proxy_server: &str) -> Option<String> {
+    if proxy_enable == 0 {
+        return None;
+    }
+    parse_proxy_server(proxy_server)
+}
+
+fn parse_proxy_server(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    let lowered = value.to_ascii_lowercase();
+    // reqwest 未启用 socks 特性，纯 socks 代理用不了，回退为直连。
+    if lowered.starts_with("socks://")
+        || lowered.starts_with("socks4://")
+        || lowered.starts_with("socks5://")
+    {
+        return None;
+    }
+    if lowered.starts_with("http://") || lowered.starts_with("https://") {
+        return Some(value.to_string());
+    }
+    if value.contains('=') {
+        return parse_per_scheme_proxy(value);
+    }
+    parse_host_port(value)
+}
+
+/// ProxyServer 形如 `http=1.2.3.4:80;https=5.6.7.8:443` 时按协议挑选；
+/// 只支持 http/https 条目，代理 URL 统一用 http://（HTTP CONNECT）。
+fn parse_per_scheme_proxy(value: &str) -> Option<String> {
+    let mut http = None;
+    let mut https = None;
+    for entry in value.split(';') {
+        let entry = entry.trim();
+        if entry.is_empty() || entry.contains('<') {
+            continue;
+        }
+        let Some((scheme, authority)) = entry.split_once('=') else {
+            continue;
+        };
+        let validated = parse_host_port(authority);
+        match scheme.trim().to_ascii_lowercase().as_str() {
+            "https" => https = https.or(validated),
+            "http" => http = http.or(validated),
+            _ => {}
+        }
+    }
+    https.or(http)
+}
+
+fn parse_host_port(value: &str) -> Option<String> {
+    let value = value.trim();
+    let (host, port) = value.rsplit_once(':')?;
+    let port: u16 = port.trim().parse().ok()?;
+    let host = host.trim();
+    if host.is_empty() || (host.contains(':') && !host.starts_with('[')) {
+        // 未加方括号的 IPv6 无法表达为代理 URL。
+        return None;
+    }
+    Some(format!("http://{host}:{port}"))
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
-    use super::{PlatformAdapter, WindowsPlatformAdapter, process_inventory};
+    use super::{
+        PlatformAdapter, WindowsPlatformAdapter, parse_proxy_server, process_inventory,
+        resolve_registry_proxy,
+    };
 
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     struct EnvGuard(&'static str, Option<std::ffi::OsString>);
@@ -210,6 +294,59 @@ mod tests {
         std::fs::write(root.join(".dsh-e2e-documents-owned"), b"E2E-owned").unwrap();
         assert_eq!(WindowsPlatformAdapter.documents_dir().unwrap(), root);
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn parses_usable_proxy_server_values() {
+        assert_eq!(
+            parse_proxy_server("127.0.0.1:7890").as_deref(),
+            Some("http://127.0.0.1:7890")
+        );
+        assert_eq!(
+            parse_proxy_server(" 127.0.0.1:7890 ").as_deref(),
+            Some("http://127.0.0.1:7890")
+        );
+        assert_eq!(
+            parse_proxy_server("[::1]:8080").as_deref(),
+            Some("http://[::1]:8080")
+        );
+        assert_eq!(
+            parse_proxy_server("http://proxy.lan:8080").as_deref(),
+            Some("http://proxy.lan:8080")
+        );
+    }
+
+    #[test]
+    fn prefers_the_https_entry_in_per_scheme_proxy_lists() {
+        assert_eq!(
+            parse_proxy_server("http=1.2.3.4:80;https=5.6.7.8:443;ftp=9.9.9.9:21").as_deref(),
+            Some("http://5.6.7.8:443")
+        );
+        assert_eq!(
+            parse_proxy_server("https=;http=1.2.3.4:80").as_deref(),
+            Some("http://1.2.3.4:80")
+        );
+        assert_eq!(parse_proxy_server("ftp=9.9.9.9:21;<local>"), None);
+    }
+
+    #[test]
+    fn rejects_unusable_proxy_server_values() {
+        assert_eq!(parse_proxy_server(""), None);
+        assert_eq!(parse_proxy_server("   "), None);
+        assert_eq!(parse_proxy_server("localhost"), None);
+        assert_eq!(parse_proxy_server("abc:def"), None);
+        assert_eq!(parse_proxy_server("::1:8080"), None);
+        assert_eq!(parse_proxy_server("socks5://127.0.0.1:1080"), None);
+    }
+
+    #[test]
+    fn a_disabled_proxy_wins_over_the_server_value() {
+        assert_eq!(resolve_registry_proxy(0, "127.0.0.1:7890"), None);
+        assert_eq!(
+            resolve_registry_proxy(1, "127.0.0.1:7890").as_deref(),
+            Some("http://127.0.0.1:7890")
+        );
+        assert_eq!(resolve_registry_proxy(1, ""), None);
     }
 }
 
