@@ -112,9 +112,10 @@ CREATE TABLE prompt_activations (
 **新增**：
 
 - 在 `sidebar.footer.action` 槽位新增第二个注册（id `dsh-desktop-extension-center`，
-  order 20），与「本地项目」（order 10）同槽渲染——天然与「设置」对齐，修复原
-  Agent 按钮的错位；按钮复用 `LocalProjectsFooterAction` 的 `dshDesktopFooterAction`
-  样式与宽窄模式，图标改用扩展中心语义（拼图/网格，弃用星形）；
+  order 20），与「本地项目」（order 10）同槽渲染。**侧边栏 footer 顺序固定为：
+  本地项目 → 扩展中心 → 设置（官方自带，最底）**；按钮复用
+  `LocalProjectsFooterAction` 的 `dshDesktopFooterAction` 样式与宽窄模式，名称
+  「扩展中心」，图标用扩展中心语义（拼图/网格，弃用星形）；
 - 点击开合 overlay 面板，复用 `LocalProjectsPage` 的 overlay 模式；`AdvancedFrame`
   以 `extensionCenter` state 替代原 `agentHome` 注入，布局列计算中的
   `agentOpen` 同步替换；

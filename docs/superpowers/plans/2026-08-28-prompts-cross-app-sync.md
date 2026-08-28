@@ -2308,10 +2308,20 @@ export function PromptsPanel(_props: { bridge: DesktopBridgeLike }) {
 
 (具体选择器命名若与 styles.ts 现有 dsh 桌面类冲突,按文件内现有前缀约定微调;`dshModelAgentEyebrow` 直接复用。)
 
-- [ ] **Step 4: 跑测试与构建验证通过**
+- [ ] **Step 4: 跑测试与构建验证通过(含 footer 顺序断言)**
+
+在 `tests/advanced-frame.spec.tsx`(或 advanced-shell 相关 spec)追加顺序断言:
+
+```tsx
+it('footer 顺序为 本地项目 → 扩展中心(设置由官方渲染在其后)', () => {
+  const labels = Array.from(document.querySelectorAll('.dshDesktopFooterActionLabel'))
+    .map((node) => node.textContent)
+  expect(labels.indexOf('本地项目')).toBeLessThan(labels.indexOf('扩展中心'))
+})
+```
 
 Run: `npm run plugin:test -w @dsh/desktop-plugin && npm run build -w @dsh/desktop-plugin`
-Expected: 全部插件测试 PASS;构建无类型错误。
+Expected: 全部插件测试 PASS(含顺序断言);构建无类型错误。
 
 - [ ] **Step 5: Commit**
 
