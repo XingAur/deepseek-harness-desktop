@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
+import { useSyncExternalStore } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { AdvancedFrame } from '../src/client/AdvancedFrame'
 import { LocalProjectsFooterAction } from '../src/client/LocalProjectsFooterAction'
@@ -89,6 +90,36 @@ describe('advanced frame', () => {
 
     expect(screen.queryByRole('button', { name: '社区插件' })).toBeNull()
     expect(screen.getByTestId('sidebar-slot')).toBeInTheDocument()
+    expect(screen.getByTestId('conversation-slot')).toBeInTheDocument()
+  })
+
+  it('returns to the conversation when a session becomes current', () => {
+    const sessions = sessionFixture()
+    const localProjects = new LocalProjectsState()
+    const pluginCenter = new PluginCenterState()
+    renderFrame({
+      sessions,
+      localProjects,
+      pluginCenter,
+      useSessions: (selector) => useSyncExternalStore(
+        sessions.list.subscribe,
+        () => selector(sessions.list.getSnapshot()),
+      ),
+    })
+
+    act(() => localProjects.open())
+    expect(screen.getByRole('region', { name: '本地项目' })).toBeInTheDocument()
+    expect(screen.queryByTestId('conversation-slot')).toBeNull()
+
+    act(() => sessions.setCurrent('s-new'))
+    expect(localProjects.getSnapshot()).toBe(false)
+    expect(screen.queryByRole('region', { name: '本地项目' })).toBeNull()
+    expect(screen.getByTestId('conversation-slot')).toBeInTheDocument()
+
+    act(() => pluginCenter.open())
+    expect(screen.queryByTestId('conversation-slot')).toBeNull()
+    act(() => sessions.setCurrent('s-another'))
+    expect(pluginCenter.getSnapshot()).toBe(false)
     expect(screen.getByTestId('conversation-slot')).toBeInTheDocument()
   })
 })
