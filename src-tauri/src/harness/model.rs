@@ -33,6 +33,8 @@ pub struct HarnessTaskStart {
     pub archive_root: Option<PathBuf>,
     pub intake_source: Option<String>,
     pub intake_include_comments: Option<bool>,
+    pub chat_prompt: Option<String>,
+    pub chat_evidence_paths: Option<Vec<PathBuf>>,
     pub selected_model_id: Option<String>,
     pub yunxiao_profile_id: Option<String>,
     pub gitlab_profile_id: Option<String>,
@@ -80,8 +82,6 @@ impl HarnessTaskStart {
             }
         }
         for value in [
-            self.intake_source.as_deref(),
-            self.selected_model_id.as_deref(),
             self.yunxiao_profile_id.as_deref(),
             self.gitlab_profile_id.as_deref(),
             self.database_profile_id.as_deref(),
@@ -94,6 +94,21 @@ impl HarnessTaskStart {
             }) {
                 return Err(HarnessError::InvalidRequest);
             }
+        }
+        if let Some(model) = self.selected_model_id.as_deref()
+            && (model.is_empty() || model.len() > 256 || model != model.trim() || model.bytes().any(|byte| byte < 0x20 || byte == 0x7f))
+        {
+            return Err(HarnessError::InvalidRequest);
+        }
+        if let Some(prompt) = self.chat_prompt.as_deref()
+            && (prompt.trim().is_empty() || prompt.len() > 16 * 1024 || prompt.contains('\0'))
+        {
+            return Err(HarnessError::InvalidRequest);
+        }
+        if let Some(paths) = self.chat_evidence_paths.as_ref()
+            && (paths.len() > 20 || paths.iter().any(|path| !path.is_absolute() || path.to_string_lossy().contains('\0')))
+        {
+            return Err(HarnessError::InvalidRequest);
         }
         if let Some(source) = self.intake_source.as_deref()
             && !is_yunxiao_source(source)
@@ -139,6 +154,15 @@ impl HarnessTaskStart {
         }
         if let Some(include_comments) = self.intake_include_comments {
             object.insert("intake_include_comments".to_owned(), serde_json::json!(include_comments));
+        }
+        if let Some(prompt) = self.chat_prompt.as_ref() {
+            object.insert("chat_prompt".to_owned(), serde_json::json!(prompt));
+        }
+        if let Some(paths) = self.chat_evidence_paths.as_ref() {
+            object.insert(
+                "chat_evidence_paths".to_owned(),
+                serde_json::json!(paths.iter().map(|path| path.to_string_lossy().into_owned()).collect::<Vec<_>>()),
+            );
         }
         payload
     }

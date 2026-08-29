@@ -113,6 +113,8 @@ macro_rules! renderer_commands {
             commands::agent_extension_uninstall,
             commands::harness_status,
             commands::harness_start,
+            commands::harness_chat_start,
+            commands::harness_pick_evidence_files,
             commands::harness_intake,
             commands::harness_cancel,
             commands::harness_pick_archive_root,

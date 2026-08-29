@@ -64,6 +64,51 @@ class ExternalTaskSessionTests(unittest.TestCase):
         self.assertEqual("task.result", message["type"])
         self.assertEqual("/private/tmp/harness-intake-archive/DFHIS-39999/harness", message["payload"]["snapshot"]["package_dir"])
 
+    def test_jsonl_host_bridge_turns_main_chat_into_a_governed_task_with_source_selection(self):
+        inbound = io.StringIO(json.dumps({
+            "schema_version": "harness-host-session.v1",
+            "type": "task.start",
+            "request_id": "chat-1",
+            "payload": {
+                "schema_version": "harness-external-task.v1",
+                "archive_root": "/private/tmp/harness-chat-archive",
+                "chat_prompt": "按云效需求修复页面",
+                "intake_source": "DFHIS-12345",
+                "chat_evidence_paths": ["/private/tmp/需求.png"],
+                "workspace_id": "workspace-1",
+                "worktree_root": "/private/tmp/harness-chat-worktree",
+                "knowledge_home": "/private/tmp/harness-chat-knowledge",
+                "authorization_id": "harness-chat",
+                "selected_model_id": "gpt-5.6-sol",
+            },
+        }) + "\n")
+        outbound = io.StringIO()
+        package = {
+            "ticket_id": "DFHIS-12345",
+            "package_dir": "/private/tmp/harness-chat-archive/DFHIS-12345/harness",
+            "package_status": "partial",
+            "pending_count": 10,
+        }
+        with patch("tools.harness_host_server.prepare_chat_harness_package", return_value=package) as prepare, patch.object(
+            ExternalTaskSession,
+            "execute",
+            return_value={"status": "completed", "snapshot": {}},
+        ) as execute:
+            result = run_external_task_once(input_stream=inbound, output_stream=outbound)
+
+        self.assertEqual("completed", result["status"])
+        self.assertEqual("DFHIS-12345", result["snapshot"]["ticket_id"])
+        prepare.assert_called_once_with(
+            archive_root="/private/tmp/harness-chat-archive",
+            prompt="按云效需求修复页面",
+            workspace_id="workspace-1",
+            yunxiao_source="DFHIS-12345",
+            evidence_paths=["/private/tmp/需求.png"],
+        )
+        request = execute.call_args.args[0]
+        self.assertEqual("gpt-5.6-sol", request["selected_model_id"])
+        self.assertEqual("/private/tmp/harness-chat-archive/DFHIS-12345/harness", request["archive_root"])
+
     def test_archive_task_package_resolves_generated_contract_and_understanding_without_manual_paths(self):
         with tempfile.TemporaryDirectory(prefix="harness-archive-task-") as directory:
             package = Path(directory)

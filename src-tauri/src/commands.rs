@@ -1314,6 +1314,8 @@ pub async fn harness_start(
         archive_root: archive_root.map(PathBuf::from),
         intake_source: None,
         intake_include_comments: None,
+        chat_prompt: None,
+        chat_evidence_paths: None,
         selected_model_id,
         yunxiao_profile_id,
         gitlab_profile_id,
@@ -1355,6 +1357,8 @@ pub async fn harness_intake(
         archive_root: Some(PathBuf::from(archive_root)),
         intake_source: Some(source),
         intake_include_comments: Some(include_comments.unwrap_or(true)),
+        chat_prompt: None,
+        chat_evidence_paths: None,
         selected_model_id: selected_model_id.filter(|value| !value.trim().is_empty()),
         yunxiao_profile_id,
         gitlab_profile_id: None,
@@ -1364,6 +1368,129 @@ pub async fn harness_intake(
         .start(app, &foundation, Uuid::new_v4().to_string(), task)
         .await
         .map_err(|error| error.to_string())
+}
+
+/// 从主聊天创建 Harness 任务。归档目录默认落在当前 Profile 的任务目录，
+/// 用户只在需要时通过主聊天里的高级选项选择其他目录；内部 contract/understanding
+/// 路径由 Harness 自己生成，不暴露给用户。
+#[tauri::command]
+pub async fn harness_chat_start(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    foundation: State<'_, Arc<DesktopFoundation>>,
+    harness: State<'_, Arc<HarnessService>>,
+    app: AppHandle,
+    generation_id: String,
+    session_id: String,
+    prompt: String,
+    workspace_id: Option<String>,
+    archive_root: Option<String>,
+    intake_source: Option<String>,
+    chat_evidence_paths: Option<Vec<String>>,
+    selected_model_id: Option<String>,
+    yunxiao_profile_id: Option<String>,
+    gitlab_profile_id: Option<String>,
+    database_profile_id: Option<String>,
+) -> Result<HarnessStatus, String> {
+    coordinator
+        .validate_generation(&generation_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    if prompt.trim().is_empty() || prompt.len() > 16 * 1024 || prompt.contains('\0') {
+        return Err("Harness 任务描述无效".to_owned());
+    }
+    let evidence_paths = validate_harness_chat_evidence_paths(chat_evidence_paths)?;
+    let profile = active_profile(&foundation).map_err(|error| error.to_string())?;
+    let request_id = Uuid::new_v4().to_string();
+    let worktree_root = match workspace_id.as_deref() {
+        Some(workspace_id) => resolve_registered_workspace(&profile.data_root, workspace_id)
+            .map_err(|error| error.to_string())?,
+        None => std::env::temp_dir().join("deepseek-harness-chat-worktree"),
+    };
+    let root = archive_root
+        .map(PathBuf::from)
+        .unwrap_or_else(|| profile.data_root.join("harness").join("tasks").join(&request_id));
+    let task = HarnessTaskStart {
+        task_contract_path: None,
+        understanding_path: None,
+        worktree_root,
+        knowledge_home: profile.data_root.join("harness").join("knowledge"),
+        authorization_id: "harness-chat".to_owned(),
+        agent_backend: None,
+        archive_root: Some(root),
+        intake_source,
+        intake_include_comments: None,
+        chat_prompt: Some(prompt),
+        chat_evidence_paths: Some(evidence_paths),
+        selected_model_id,
+        yunxiao_profile_id,
+        gitlab_profile_id,
+        database_profile_id,
+    };
+    harness
+        .start(app, &foundation, request_id, task)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+fn validate_harness_chat_evidence_paths(paths: Option<Vec<String>>) -> Result<Vec<PathBuf>, String> {
+    let paths = paths.unwrap_or_default();
+    if paths.len() > 20 {
+        return Err("本地需求材料最多选择 20 个文件".to_owned());
+    }
+    let mut result = Vec::with_capacity(paths.len());
+    for raw in paths {
+        let path = PathBuf::from(raw);
+        if !path.is_absolute() || path.to_string_lossy().contains('\0') || path.is_symlink() {
+            return Err("本地需求材料路径无效".to_owned());
+        }
+        let canonical = path.canonicalize().map_err(|_| "本地需求材料不可读取".to_owned())?;
+        let metadata = std::fs::metadata(&canonical).map_err(|_| "本地需求材料不可读取".to_owned())?;
+        if !metadata.is_file() || metadata.len() > 100 * 1024 * 1024 {
+            return Err("本地需求材料必须是 100MB 以内的普通文件".to_owned());
+        }
+        result.push(canonical);
+    }
+    Ok(result)
+}
+
+/// 从主聊天选择本次需求的图片、文档或附件；实际内容只在用户点击开始任务后归档。
+#[tauri::command]
+pub async fn harness_pick_evidence_files(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    app: AppHandle,
+    generation_id: String,
+    session_id: String,
+) -> Result<Vec<String>, String> {
+    coordinator
+        .validate_generation(&generation_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    let handle = app.clone();
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        use tauri_plugin_dialog::DialogExt;
+        handle
+            .dialog()
+            .file()
+            .set_title("添加需求图片、文档或附件")
+            .blocking_pick_files()
+    })
+    .await
+    .map_err(|_| "需求材料选择器无法打开".to_owned())?;
+    let Some(files) = picked else {
+        return Ok(Vec::new());
+    };
+    let paths = files
+        .into_iter()
+        .map(|file| file.into_path().map_err(|_| "需求材料路径无效".to_owned()))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(validate_harness_chat_evidence_paths(Some(
+        paths.iter().map(|path| path.to_string_lossy().into_owned()).collect(),
+    ))?
+    .into_iter()
+    .map(|path| path.to_string_lossy().into_owned())
+    .collect())
 }
 
 /// 打开原生目录选择器，返回用户选择的 Harness 归档根目录。

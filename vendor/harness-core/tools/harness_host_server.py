@@ -17,7 +17,7 @@ from pathlib import Path
 from app.agent_backend_protocol import AgentBackendRequest, AgentBackendResult, request_hash
 from app.external_task_session import ExternalTaskSession
 from app.host_bridge_session import HostBridgeSession
-from app.requirement_archive import prepare_yunxiao_harness_package
+from app.requirement_archive import prepare_chat_harness_package, prepare_yunxiao_harness_package
 
 
 HOST_SESSION_SCHEMA_VERSION = "harness-host-session.v1"
@@ -76,6 +76,22 @@ def run_external_task_once(
             raise ValueError("external_task_request_invalid")
         request_id = str(start_message["request_id"])
         payload = start_message["payload"]
+        if "chat_prompt" in payload:
+            result = _run_chat_task(
+                payload,
+                input_stream=input_stream,
+                output_stream=output_stream,
+                runner_factory=runner_factory,
+                task_loader=task_loader,
+                preflight_factory=preflight_factory,
+            )
+            _write_message(output_stream, {
+                "schema_version": HOST_SESSION_SCHEMA_VERSION,
+                "type": "task.result",
+                "request_id": request_id,
+                "payload": result,
+            })
+            return result
         if "intake_source" in payload:
             result = _run_yunxiao_intake(
                 payload,
@@ -114,6 +130,64 @@ def run_external_task_once(
         "type": "task.result",
         "request_id": request_id,
         "payload": result,
+    })
+    return result
+
+
+def _run_chat_task(
+    payload: dict[str, object],
+    *,
+    input_stream: TextIO,
+    output_stream: TextIO,
+    runner_factory: Callable[..., object] | None = None,
+    task_loader: Callable[[Path], object] | None = None,
+    preflight_factory: Callable[..., object] | None = None,
+) -> dict[str, object]:
+    """Turn one main-chat submission into a governed task execution."""
+
+    prompt = payload.get("chat_prompt")
+    archive_root = payload.get("archive_root")
+    if not isinstance(prompt, str) or not prompt.strip() or not isinstance(archive_root, str) or not os.path.isabs(archive_root):
+        raise ValueError("external_task_chat_invalid")
+    package = prepare_chat_harness_package(
+        archive_root=archive_root,
+        prompt=prompt,
+        workspace_id=str(payload.get("workspace_id") or ""),
+        yunxiao_source=str(payload.get("intake_source") or ""),
+        evidence_paths=payload.get("chat_evidence_paths") if isinstance(payload.get("chat_evidence_paths"), list) else None,
+    )
+    session = ExternalTaskSession(
+        runner_factory=runner_factory or _default_runner_factory,
+        **({} if task_loader is None else {"task_loader": task_loader}),
+        **({} if preflight_factory is None else {"preflight_factory": preflight_factory}),
+    )
+
+    def host_handler(request: AgentBackendRequest, sink: object) -> AgentBackendResult:
+        return HostBridgeSession(
+            send=lambda message: _write_message(output_stream, message),
+            receive=lambda: _read_message(input_stream),
+        ).execute(request, sink)
+
+    request: dict[str, object] = {
+        "schema_version": "harness-external-task.v1",
+        "archive_root": str(package["package_dir"]),
+        "worktree_root": payload.get("worktree_root"),
+        "knowledge_home": payload.get("knowledge_home"),
+        "authorization_id": payload.get("authorization_id"),
+    }
+    for key in ("agent_backend", "selected_model_id"):
+        if key in payload:
+            request[key] = payload[key]
+    result = session.execute(request, host_handler=host_handler)
+    snapshot = result.get("snapshot")
+    if not isinstance(snapshot, dict):
+        snapshot = {}
+        result["snapshot"] = snapshot
+    snapshot.update({
+        "ticket_id": package["ticket_id"],
+        "package_dir": package["package_dir"],
+        "package_status": package["package_status"],
+        "pending_count": package["pending_count"],
     })
     return result
 

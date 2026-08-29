@@ -241,7 +241,20 @@ function bridgePayloadV2(
     requireId(payload.extensionId, 'Extension ID')
     return { extensionId: payload.extensionId }
   }
-  if (action === 'harness.status' || action === 'harness.cancel') return {}
+  if (action === 'harness.status' || action === 'harness.cancel' || action === 'harness.pick-archive-root' || action === 'harness.pick-evidence-files') return {}
+  if (action === 'harness.chat.start') {
+    return {
+      prompt: payload.prompt,
+      ...(payload.workspaceId === undefined ? {} : { workspaceId: payload.workspaceId }),
+      ...(payload.archiveRoot === undefined ? {} : { archiveRoot: payload.archiveRoot }),
+      ...(payload.yunxiaoSource === undefined ? {} : { intakeSource: payload.yunxiaoSource }),
+      ...(payload.evidencePaths === undefined ? {} : { chatEvidencePaths: payload.evidencePaths }),
+      ...(payload.selectedModelId === undefined ? {} : { selectedModelId: payload.selectedModelId }),
+      ...(payload.yunxiaoProfileId === undefined ? {} : { yunxiaoProfileId: payload.yunxiaoProfileId }),
+      ...(payload.gitlabProfileId === undefined ? {} : { gitlabProfileId: payload.gitlabProfileId }),
+      ...(payload.databaseProfileId === undefined ? {} : { databaseProfileId: payload.databaseProfileId }),
+    }
+  }
   if (action === 'harness.archive-answers') {
     if (typeof payload.archiveRoot !== 'string' || payload.archiveRoot.trim() === '') throw new Error('Harness 任务包目录无效')
     if (typeof payload.answers !== 'string' || payload.answers.trim() === '' || payload.answers.length > 8000) {

@@ -181,6 +181,8 @@ it('maps plugin market actions to dedicated commands with bounded payloads', () 
 
   it('accepts a read-only Yunxiao intake source without allowing credentials in the source', () => {
     expect(bridgeCommandByActionV2['harness.intake']).toBe('harness_intake')
+    expect(bridgeCommandByActionV2['harness.chat.start']).toBe('harness_chat_start')
+    expect(bridgeCommandByActionV2['harness.pick-evidence-files']).toBe('harness_pick_evidence_files')
     expect(isVersionedBridgePayload('harness.intake', {
       source: 'https://devops.aliyun.com/projex/req/DFHIS-39999',
       archiveRoot: '/Users/test/harness-archives',
@@ -196,7 +198,17 @@ it('maps plugin market actions to dedicated commands with bounded payloads', () 
     })).toBe(false)
   })
 
-  it('carries the selected model into the intake and rejects malformed backend ids', () => {
+  it('validates the main-chat source and evidence payload without exposing internal task paths', () => {
+    expect(isVersionedBridgePayload('harness.chat.start', {
+      prompt: '完成需求',
+      yunxiaoSource: 'DFHIS-12345',
+      evidencePaths: ['/tmp/需求.png'],
+    })).toBe(true)
+    expect(isVersionedBridgePayload('harness.chat.start', { prompt: '完成需求', yunxiaoSource: 'not-a-work-item' })).toBe(false)
+    expect(isVersionedBridgePayload('harness.pick-evidence-files', {})).toBe(true)
+  })
+
+  it('carries any provider-defined selected model into the intake and rejects malformed backend ids', () => {
     expect(isVersionedBridgePayload('harness.intake', {
       source: 'DFHIS-39999',
       archiveRoot: '/Users/test/harness-archives',
@@ -211,7 +223,12 @@ it('maps plugin market actions to dedicated commands with bounded payloads', () 
     expect(isVersionedBridgePayload('harness.intake', {
       source: 'DFHIS-39999',
       archiveRoot: '/Users/test/harness-archives',
-      selectedModelId: 'not a model id',
+      selectedModelId: 'openrouter/qwen/qwen3-235b-a22b:free',
+    })).toBe(true)
+    expect(isVersionedBridgePayload('harness.intake', {
+      source: 'DFHIS-39999',
+      archiveRoot: '/Users/test/harness-archives',
+      selectedModelId: 'model\u0000id',
     })).toBe(false)
   })
 

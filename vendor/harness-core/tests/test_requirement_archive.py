@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from app.requirement_archive import (
     archive_yunxiao_requirement,
+    prepare_chat_harness_package,
     prepare_yunxiao_harness_package,
     record_requirement_archive_run,
     sync_yunxiao_requirement_archive,
@@ -16,6 +17,53 @@ from app.requirement_archive import (
 
 
 class RequirementArchiveTests(unittest.TestCase):
+    def test_prepare_chat_harness_package_preserves_the_main_chat_prompt_as_source_evidence(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="harness-chat-package-") as directory:
+            result = prepare_chat_harness_package(
+                archive_root=directory,
+                prompt="修复结算页面金额显示，并补充测试。",
+                workspace_id="workspace-1",
+            )
+
+            package = Path(result["package_dir"])
+            self.assertTrue((package / "source" / "requirement.md").is_file())
+            self.assertIn("修复结算页面金额显示", (package / "source" / "requirement.md").read_text(encoding="utf-8"))
+            self.assertTrue((package / "analysis" / "prd.md").is_file())
+            self.assertTrue((package / "engineering" / "task_contract.json").is_file())
+            self.assertEqual("partial", result["package_status"])
+
+    def test_prepare_chat_harness_package_copies_selected_materials_with_hashes(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="harness-chat-evidence-") as directory:
+            root = Path(directory)
+            image = root / "需求截图.png"
+            image.write_bytes(b"chat-image")
+            with patch("app.requirement_archive.collect_yunxiao_evidence", return_value={
+                "status": "success",
+                "mode": "readonly",
+                "yunxiao_url": "https://devops.aliyun.com/projex/req/DFHIS-12345",
+                "work_item_id": "DFHIS-12345",
+                "work_item": {"title": "截图修复"},
+                "clean_text": "根据截图修复页面。",
+                "comments": [],
+                "attachments": [],
+                "file_details": [],
+                "inline_file_downloads": [],
+            }):
+                result = prepare_chat_harness_package(
+                    archive_root=root / "archive",
+                    prompt="根据截图修复页面。",
+                    yunxiao_source="https://devops.aliyun.com/projex/req/DFHIS-12345",
+                    evidence_paths=[image],
+                )
+
+            package = Path(result["package_dir"])
+            evidence_manifest = json.loads((package / "source/chat-evidence-manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(1, evidence_manifest["count"])
+            stored = package / "source" / evidence_manifest["items"][0]["path"]
+            self.assertEqual(b"chat-image", stored.read_bytes())
+            self.assertEqual(hashlib.sha256(b"chat-image").hexdigest(), evidence_manifest["items"][0]["sha256"])
+            self.assertIn("主聊天补充说明", (package / "source/requirement.md").read_text(encoding="utf-8"))
+
     def _evidence(self, *, ticket_id: str, source_path: Path) -> dict:
         return {
             "status": "success",

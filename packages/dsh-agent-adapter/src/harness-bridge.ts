@@ -56,6 +56,8 @@ export interface HarnessTaskStartPayload {
   archive_root?: string
   intake_source?: string
   intake_include_comments?: boolean
+  chat_prompt?: string
+  chat_evidence_paths?: string[]
   selected_model_id?: string
   yunxiao_profile_id?: string
   gitlab_profile_id?: string
@@ -374,7 +376,7 @@ function validateTaskStartPayload(value: unknown): Record<string, unknown> {
       'knowledge_home',
       'schema_version',
       'worktree_root',
-    ], ['task_contract_path', 'understanding_path', 'agent_backend', 'archive_root', 'intake_source', 'intake_include_comments', 'selected_model_id', 'yunxiao_profile_id', 'gitlab_profile_id', 'database_profile_id'])
+    ], ['task_contract_path', 'understanding_path', 'agent_backend', 'archive_root', 'intake_source', 'intake_include_comments', 'chat_prompt', 'chat_evidence_paths', 'selected_model_id', 'yunxiao_profile_id', 'gitlab_profile_id', 'database_profile_id'])
     || !['worktree_root', 'knowledge_home', 'authorization_id'].every((key) => typeof value[key] === 'string' && (value[key] as string).length > 0)
     || ((value.task_contract_path === undefined) !== (value.understanding_path === undefined))
     || (value.task_contract_path === undefined && value.archive_root === undefined)
@@ -382,11 +384,22 @@ function validateTaskStartPayload(value: unknown): Record<string, unknown> {
     || (value.understanding_path !== undefined && (typeof value.understanding_path !== 'string' || value.understanding_path.length === 0))
     || (value.agent_backend !== undefined && (typeof value.agent_backend !== 'string' || !/^[a-z][a-z0-9._-]{1,63}$/.test(value.agent_backend)))
     || (value.intake_source !== undefined && (typeof value.intake_source !== 'string' || !/^(?:[A-Za-z][A-Za-z0-9]{1,31}-\d{1,20}|https:\/\/[^/\s]+(?:\/[^\s]*)?)$/.test(value.intake_source)))
-    || (value.intake_include_comments !== undefined && typeof value.intake_include_comments !== 'boolean')) {
+    || (value.intake_include_comments !== undefined && typeof value.intake_include_comments !== 'boolean')
+    || (value.chat_prompt !== undefined && (typeof value.chat_prompt !== 'string' || value.chat_prompt.trim() === '' || value.chat_prompt.length > 16 * 1024))
+    || (value.selected_model_id !== undefined && !isModelId(value.selected_model_id))
+    || (value.chat_evidence_paths !== undefined && (!Array.isArray(value.chat_evidence_paths) || value.chat_evidence_paths.length > 20 || value.chat_evidence_paths.some((item) => typeof item !== 'string' || !isAbsolutePath(item))))) {
     throw new Error('Harness 任务参数无效')
   }
   if (containsSensitiveShape(value)) throw new Error('Harness 任务参数无效')
   return value
+}
+
+function isModelId(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.length > 0
+    && value.length <= 256
+    && value === value.trim()
+    && !/[\u0000-\u001f\u007f]/.test(value)
 }
 
 function validateAgentRequestPayload(value: unknown): HarnessAgentRequest {

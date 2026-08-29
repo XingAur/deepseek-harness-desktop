@@ -31,7 +31,7 @@ describe('model and agent center', () => {
     expect(screen.getByText('未配置')).toBeVisible()
     expect(screen.getByRole('tab', { name: 'API 模型' })).toBeVisible()
     expect(screen.getByRole('tab', { name: 'Agents' })).toBeVisible()
-    expect(screen.getByRole('tab', { name: 'Harness 任务' })).toBeVisible()
+    expect(screen.queryByRole('tab', { name: 'Harness 任务' })).toBeNull()
     expect(screen.getByRole('tab', { name: 'MCP 连接维护' })).toBeVisible()
     expect(screen.getByRole('tab', { name: '数据库维护' })).toBeVisible()
     expect(screen.getByRole('tab', { name: 'Diagnostics' })).toBeVisible()
@@ -46,7 +46,17 @@ describe('model and agent center', () => {
     render(<ModelAgentCenter bridge={bridge} />)
     fireEvent.click(await screen.findByRole('tab', { name: '数据库维护' }))
     expect(await screen.findByText('HIS 只读库')).toBeVisible()
-    expect(screen.getByText(/数据库 profile 独立维护/)).toBeVisible()
+    expect(screen.getByText(/数据库独立维护/)).toBeVisible()
+  })
+
+  it('maintains concrete Yunxiao and GitLab business connections instead of generic MCP links', async () => {
+    const bridge = bridgeFixture()
+    render(<ModelAgentCenter bridge={bridge} />)
+    fireEvent.click(await screen.findByRole('tab', { name: 'MCP 连接维护' }))
+    expect(await screen.findByText('云效需求读取')).toBeVisible()
+    expect(screen.getByText('GitLab 代码读取')).toBeVisible()
+    expect(screen.queryByText('其他 MCP')).toBeNull()
+    expect(screen.queryByLabelText('MCP 地址')).toBeNull()
   })
 
   it('opens the credential flow without rendering the secret', async () => {

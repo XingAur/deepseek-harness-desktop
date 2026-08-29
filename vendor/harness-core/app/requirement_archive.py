@@ -218,6 +218,132 @@ def prepare_yunxiao_harness_package(
     }
 
 
+def prepare_chat_harness_package(
+    *,
+    archive_root: str | Path,
+    prompt: str,
+    workspace_id: str = "",
+    yunxiao_source: str = "",
+    evidence_paths: list[str | Path] | None = None,
+) -> dict:
+    """Create a governed package from a task submitted in the main chat.
+
+    Chat tasks do not pretend to be Yunxiao work items.  They receive a stable
+    local task id and keep the original prompt as immutable source evidence;
+    the same package exporter then creates the full requirement, project,
+    engineering, execution and verification document set with explicit
+    pending markers until Harness has enough evidence to fill it.
+    """
+    if not prompt.strip() or len(prompt) > 16 * 1024 or "\x00" in prompt:
+        raise ValueError("主聊天任务描述无效")
+    root = _absolute_archive_root(archive_root)
+    if yunxiao_source.strip():
+        source_package = prepare_yunxiao_harness_package(
+            archive_root=root,
+            yunxiao_url=yunxiao_source.strip(),
+            include_comments=True,
+        )
+        ticket_id = str(source_package["ticket_id"])
+        ticket_dir = Path(str(source_package["ticket_dir"])).resolve()
+    else:
+        ticket_id = f"CHAT-{uuid4().hex[:12].upper()}"
+        ticket_dir = root / ticket_id
+        ticket_dir.mkdir(parents=True, exist_ok=False)
+    source_dir = ticket_dir / "source"
+    source_dir.mkdir(parents=True, exist_ok=True)
+    now = _now_iso()
+    requirement_path = ticket_dir / "requirement.md"
+    if yunxiao_source.strip() and requirement_path.is_file():
+        requirement = requirement_path.read_text(encoding="utf-8").rstrip() + "\n\n"
+        requirement += "## 主聊天补充说明\n\n"
+        requirement += f"- 来源：桌面端主聊天（{now}）\n- Workspace：{workspace_id or '未指定'}\n\n{prompt.strip()}\n"
+    else:
+        requirement = "\n".join([
+            "# 主聊天任务",
+            "",
+            f"- 来源：桌面端主聊天（{now}）",
+            f"- Workspace：{workspace_id or '未指定'}",
+            "- 归档模式：local-chat",
+            "",
+            "## 任务原文",
+            "",
+            prompt.strip(),
+            "",
+        ])
+    _atomic_write_text(requirement_path, requirement)
+    _atomic_write_text(source_dir / "conversation.md", prompt.strip() + "\n")
+    _atomic_write_json(source_dir / "chat-context.json", {
+        "schema": "harness-chat-source.v1",
+        "source": "main-chat",
+        "workspace_id": workspace_id,
+        "captured_at": now,
+        "yunxiao_source": yunxiao_source.strip() or None,
+    })
+    if evidence_paths:
+        _archive_chat_evidence(source_dir=source_dir, evidence_paths=evidence_paths)
+    from app.requirement_package import export_requirement_package
+
+    package = export_requirement_package(ticket_dir=ticket_dir, run_id=0)
+    package_dir = Path(package["package_dir"])
+    _atomic_write_text(package_dir / "source" / "conversation.md", prompt.strip() + "\n")
+    _atomic_write_json(package_dir / "source" / "chat-context.json", {
+        "schema": "harness-chat-source.v1",
+        "source": "main-chat",
+        "workspace_id": workspace_id,
+        "captured_at": now,
+        "yunxiao_source": yunxiao_source.strip() or None,
+    })
+    if evidence_paths:
+        _archive_chat_evidence(source_dir=package_dir / "source", evidence_paths=evidence_paths)
+    from app.requirement_package import rebuild_requirement_package_manifest
+
+    refreshed = rebuild_requirement_package_manifest(
+        package_dir=package_dir,
+        ticket_dir=ticket_dir,
+        run_id=0,
+    )
+    return {
+        "ticket_id": ticket_id,
+        "ticket_dir": str(ticket_dir),
+        "package_dir": str(package_dir),
+        "package_manifest_path": refreshed["manifest_path"],
+        "package_status": refreshed["status"],
+        "pending_count": refreshed["pending_count"],
+    }
+
+
+def _archive_chat_evidence(*, source_dir: Path, evidence_paths: list[str | Path]) -> None:
+    """Copy user-selected local materials into source without persisting secrets."""
+    if len(evidence_paths) > 20:
+        raise ValueError("主聊天需求材料最多 20 个")
+    attachment_dir = source_dir / "chat-attachments"
+    attachment_dir.mkdir(parents=True, exist_ok=True)
+    items: list[dict[str, object]] = []
+    for index, raw_path in enumerate(evidence_paths, start=1):
+        path = Path(raw_path).expanduser()
+        if not path.is_absolute() or path.is_symlink() or not path.is_file():
+            raise ValueError("主聊天需求材料必须是绝对路径普通文件")
+        resolved = path.resolve()
+        size = resolved.stat().st_size
+        if size > DEFAULT_MAX_ARCHIVE_FILE_BYTES:
+            raise ValueError("主聊天需求材料不能超过 100MB")
+        digest = _sha256_file(resolved)
+        name = _safe_filename(resolved.name) or f"evidence-{index}"
+        destination = attachment_dir / f"{index:02d}-{name}"
+        shutil.copyfile(resolved, destination)
+        items.append({
+            "original_name": resolved.name,
+            "path": destination.relative_to(source_dir).as_posix(),
+            "size": size,
+            "sha256": digest,
+        })
+    _atomic_write_json(source_dir / "chat-evidence-manifest.json", {
+        "schema": "harness-chat-evidence.v1",
+        "count": len(items),
+        "items": items,
+    })
+
+
 def update_requirement_archive_notes(
     *,
     ticket_dir: str | Path,

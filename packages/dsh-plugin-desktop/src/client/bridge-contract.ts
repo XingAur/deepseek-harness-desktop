@@ -33,6 +33,8 @@ export type VersionedBridgeAction =
   | 'extension.uninstall'
   | 'harness.status'
   | 'harness.start'
+  | 'harness.chat.start'
+  | 'harness.pick-evidence-files'
   | 'harness.intake'
   | 'harness.cancel'
   | 'harness.pick-archive-root'
