@@ -150,7 +150,8 @@ impl PromptsService {
         let Some(path) = self.prompt_file_for(target)? else {
             return Err(PromptsError::TargetNotInstalled(target));
         };
-        let live = targets::read_live_prompt(&path)?;
+        // 回填是附属步骤:live 读取失败(含非 UTF-8 编码/权限)降级为跳过,不阻塞激活(spec §5)。
+        let live = targets::read_live_prompt(&path).unwrap_or(None);
         if let Some(live_text) = live.filter(|text| !text.is_empty()) {
             match self.store.active_preset_id(target)? {
                 None => {
@@ -546,6 +547,25 @@ mod tests {
         let first_content = service.get(&first.id).unwrap().content;
         assert_eq!(first_content, "外部修改", "被换下的激活预设必须吸收外部修改");
         assert_eq!(read_live(&env, PromptTarget::Codex).unwrap(), "b1");
+    }
+
+    #[test]
+    fn activate_tolerates_non_utf8_live_file() {
+        let env = env();
+        let service = service(&env);
+        let path = service.prompt_file_for(PromptTarget::Claude).unwrap().unwrap();
+        std::fs::write(&path, b"\xc4\xe3\xba\xc3\xd6\xd0\xce\xc4").unwrap(); // GBK 字节,非 UTF-8
+        let saved = match service.save(None, "P", "v1").unwrap() {
+            Flow::Done(SaveOutcome::Saved { preset, .. }) => preset,
+            _ => panic!(),
+        };
+        let outcome = service.activate(&saved.id, PromptTarget::Claude).unwrap();
+        assert!(matches!(outcome, crate::prompts::model::ActivateOutcome::Ok { .. }));
+        assert_eq!(std::fs::read(&path).unwrap(), b"v1");
+        assert_eq!(
+            service.store.active_preset_id(PromptTarget::Claude).unwrap().as_deref(),
+            Some(saved.id.as_str())
+        );
     }
 
     #[test]
