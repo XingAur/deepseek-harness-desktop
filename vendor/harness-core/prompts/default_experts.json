@@ -1,0 +1,165 @@
+{
+  "team": {
+    "key": "his_requirement_workflow",
+    "name": "HIS需求研发专家团",
+    "description": "面向 HIS 需求的专家团 Workflow，覆盖需求分析、方案设计、质量审查、开发计划、测试验证和最终评审。"
+  },
+  "experts": [
+    {
+      "key": "demand_analysis",
+      "name": "云效需求分析专家",
+      "role": "需求分析",
+      "tags": "HIS研发质量,云效,需求分析",
+      "description": "把云效、钉钉或手工需求转成可研发、可验证的事实、目标、边界和风险清单。",
+      "prompt": "你是云效需求分析专家。请把输入的 HIS 需求拆成：业务目标、当前问题、期望结果、影响模块、已知事实、待确认问题、风险等级。不要编造不存在的信息；不确定的内容必须列入待确认。"
+    },
+    {
+      "key": "requirement_clarification_gate",
+      "name": "需求澄清闸门专家",
+      "role": "需求澄清",
+      "tags": "HIS研发质量,需求澄清,边界",
+      "description": "判断需求是否足够进入方案设计，识别缺失字段、异常路径和验收口径。",
+      "prompt": "你是需求澄清闸门专家。请基于上一步需求分析，判断是否可以进入方案设计。输出：是否建议继续、必须澄清的问题、可先按默认假设推进的事项、验收口径。"
+    },
+    {
+      "key": "architecture_plan",
+      "name": "全栈方案专家",
+      "role": "全栈方案",
+      "tags": "HIS研发质量,全栈方案,架构",
+      "description": "把需求拆成前端、后端、数据库、接口、测试的落地方案。",
+      "prompt": "你是全栈方案专家。请把需求转成研发方案，覆盖前端改动、后端改动、数据库/报表影响、接口契约、兼容性、执行顺序和主要风险。医保、结算、对账、报表类逻辑必须采用保守方案。"
+    },
+    {
+      "key": "frontend_quality",
+      "name": "前端质量专家",
+      "role": "前端质量",
+      "tags": "HIS研发质量,前端质量,接口一致性",
+      "description": "审查前端字段、交互状态、异常提示、兼容和接口一致性。",
+      "prompt": "你是前端质量专家。请审查方案中的前端影响，重点关注字段展示、必填/禁用、loading、空数据、错误态、权限状态、接口字段一致性和回归范围。"
+    },
+    {
+      "key": "backend_quality",
+      "name": "后端质量专家",
+      "role": "后端质量",
+      "tags": "HIS研发质量,后端质量,控制",
+      "description": "审查后端流程、事务、异常、SQL 风险、接口兼容和代码边界。",
+      "prompt": "你是后端质量专家。请审查方案中的后端影响，重点关注接口兼容、事务边界、异常处理、幂等、权限、SQL 风险、医保/结算敏感逻辑和历史兼容。"
+    },
+    {
+      "key": "database_report_quality",
+      "name": "数据库/报表专家",
+      "role": "数据库报表",
+      "tags": "数据报表,SQL,报表",
+      "description": "分析表结构、SQL、报表字段口径、性能和数据一致性风险。",
+      "prompt": "你是数据库/报表专家。请审查数据库和报表影响，重点关注字段来源、口径一致性、SQL 性能、索引、历史数据兼容、统计口径、报表展示和数据校验。"
+    },
+    {
+      "key": "development_execution",
+      "name": "开发执行专家",
+      "role": "开发执行",
+      "tags": "HIS研发质量,开发执行",
+      "description": "把方案转成安全、可审查的开发执行计划。第一版只输出计划，不实际改代码。",
+      "prompt": "你是开发执行专家。请把前面所有分析转成开发执行计划。输出：最小改动范围、建议文件/模块、执行顺序、判空和异常路径、兼容性注意点、需要人工确认的点。第一版不要输出真实补丁。"
+    },
+    {
+      "key": "test_validation",
+      "name": "测试验证专家",
+      "role": "测试验证",
+      "tags": "HIS研发质量,测试验证",
+      "description": "基于需求、方案和开发计划生成手工/接口/数据库/回归验证方案。",
+      "prompt": "你是测试验证专家。请基于需求和方案生成测试计划，覆盖正常路径、异常路径、边界值、权限、数据一致性、回归范围、验收标准和上线前检查。"
+    }
+  ],
+  "steps": [
+    {
+      "order": 1,
+      "step_key": "demand_analysis",
+      "step_name": "需求分析",
+      "expert_key": "demand_analysis",
+      "mode": "deep",
+      "timeout_seconds": 3600,
+      "retry_count": 0,
+      "stop_on_failure": true
+    },
+    {
+      "order": 2,
+      "step_key": "requirement_clarification_gate",
+      "step_name": "需求澄清闸门",
+      "expert_key": "requirement_clarification_gate",
+      "mode": "deep",
+      "timeout_seconds": 3600,
+      "retry_count": 0,
+      "stop_on_failure": true
+    },
+    {
+      "order": 3,
+      "step_key": "architecture_plan",
+      "step_name": "架构与方案设计",
+      "expert_key": "architecture_plan",
+      "mode": "deep",
+      "timeout_seconds": 3600,
+      "retry_count": 0,
+      "stop_on_failure": true
+    },
+    {
+      "order": 4,
+      "step_key": "frontend_quality",
+      "step_name": "前端质量审查",
+      "expert_key": "frontend_quality",
+      "mode": "deep",
+      "timeout_seconds": 3600,
+      "retry_count": 0,
+      "stop_on_failure": true
+    },
+    {
+      "order": 5,
+      "step_key": "backend_quality",
+      "step_name": "后端质量审查",
+      "expert_key": "backend_quality",
+      "mode": "deep",
+      "timeout_seconds": 3600,
+      "retry_count": 0,
+      "stop_on_failure": true
+    },
+    {
+      "order": 6,
+      "step_key": "database_report_quality",
+      "step_name": "数据库/报表审查",
+      "expert_key": "database_report_quality",
+      "mode": "deep",
+      "timeout_seconds": 3600,
+      "retry_count": 0,
+      "stop_on_failure": true
+    },
+    {
+      "order": 7,
+      "step_key": "execution_plan",
+      "step_name": "开发执行方案",
+      "expert_key": "development_execution",
+      "mode": "deep",
+      "timeout_seconds": 3600,
+      "retry_count": 0,
+      "stop_on_failure": true
+    },
+    {
+      "order": 8,
+      "step_key": "test_plan",
+      "step_name": "测试验证方案",
+      "expert_key": "test_validation",
+      "mode": "deep",
+      "timeout_seconds": 3600,
+      "retry_count": 0,
+      "stop_on_failure": true
+    },
+    {
+      "order": 9,
+      "step_key": "final_review",
+      "step_name": "最终评审",
+      "expert_key": "architecture_plan",
+      "mode": "deep",
+      "timeout_seconds": 3600,
+      "retry_count": 0,
+      "stop_on_failure": true
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "schema_version": "his-capabilities.v1",
+  "plugin": "yunxiao",
+  "plugin_version": "0.1.0",
+  "capabilities": [
+    {
+      "name": "workitem.read",
+      "provider": "yunxiao",
+      "contract_version": "workitem-evidence.v2",
+      "mutation_level": "L1",
+      "credential_class": "yunxiao_read",
+      "entrypoint": "scripts/workitem_read.py",
+      "enabled": true,
+      "scopes": ["workitem:read"]
+    }
+  ]
+}

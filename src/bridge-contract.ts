@@ -74,7 +74,14 @@ export type VersionedBridgeAction =
   | 'extension.uninstall'
   | 'harness.status'
   | 'harness.start'
+  | 'harness.intake'
   | 'harness.cancel'
+  | 'harness.pick-archive-root'
+  | 'harness.archive-answers'
+  | 'harness.connection.list'
+  | 'harness.connection.save'
+  | 'harness.connection.delete'
+  | 'harness.connection.test'
 
 export interface VersionedBridgeRequest {
   channel: typeof DESKTOP_BRIDGE_V2_CHANNEL
@@ -147,7 +154,14 @@ export const bridgeCommandByActionV2 = {
   'extension.uninstall': 'agent_extension_uninstall',
   'harness.status': 'harness_status',
   'harness.start': 'harness_start',
+  'harness.intake': 'harness_intake',
   'harness.cancel': 'harness_cancel',
+  'harness.pick-archive-root': 'harness_pick_archive_root',
+  'harness.archive-answers': 'harness_archive_answers',
+  'harness.connection.list': 'harness_connection_list',
+  'harness.connection.save': 'harness_connection_save',
+  'harness.connection.delete': 'harness_connection_delete',
+  'harness.connection.test': 'harness_connection_test',
 } as const satisfies Record<VersionedBridgeAction, string>
 
 export function isBridgeResponse(value: unknown): value is BridgeResponse {
@@ -224,16 +238,58 @@ export function isVersionedBridgePayload(action: VersionedBridgeAction, value: u
   if (['credential.delete', 'credential.status', 'credential.test'].includes(action)) return hasId('credentialId')
   if (['cli.path.status', 'cli.install.status', 'cli.install.start', 'cli.login.status', 'cli.login.start'].includes(action)) return hasId('providerId')
   if (['extension.install', 'extension.enable', 'extension.disable', 'extension.uninstall'].includes(action)) return hasId('extensionId')
-  if (action === 'harness.status' || action === 'harness.cancel') return Object.keys(value).length === 0
+  if (action === 'harness.status' || action === 'harness.cancel' || action === 'harness.pick-archive-root') return Object.keys(value).length === 0
+  if (action === 'harness.archive-answers') {
+    return isAbsolutePath(value.archiveRoot)
+      && typeof value.answers === 'string'
+      && value.answers.trim().length > 0
+      && value.answers.length <= 8000
+  }
+  if (action === 'harness.intake') {
+    return isYunxiaoSource(value.source)
+      && isAbsolutePath(value.archiveRoot)
+      && (value.includeComments === undefined || typeof value.includeComments === 'boolean')
+      && (value.yunxiaoProfileId === undefined || validRequestId(value.yunxiaoProfileId))
+      && (value.selectedModelId === undefined || hasId('selectedModelId'))
+      && (value.agentBackend === undefined
+        || (typeof value.agentBackend === 'string' && /^[a-z][a-z0-9._-]{0,63}$/.test(value.agentBackend)))
+  }
+  if (action === 'harness.connection.list') {
+    return value.kind === undefined || value.kind === 'mcp' || value.kind === 'database'
+  }
+  if (action === 'harness.connection.delete' || action === 'harness.connection.test') {
+    return hasId('profileId')
+  }
+  if (action === 'harness.connection.save') {
+    return hasId('profileId')
+      && (value.kind === 'mcp' || value.kind === 'database')
+      && (value.providerId === undefined || value.providerId === 'yunxiao' || value.providerId === 'gitlab' || value.providerId === 'generic')
+      && typeof value.displayName === 'string'
+      && value.displayName.trim().length > 0
+      && value.displayName.length <= 120
+      && typeof value.endpoint === 'string'
+      && value.endpoint.length <= 4096
+      && typeof value.readOnly === 'boolean'
+      && typeof value.enabled === 'boolean'
+      && (value.credentialId === undefined || hasId('credentialId'))
+  }
   if (action === 'harness.start') {
-    return isAbsolutePath(value.taskContractPath)
-      && isAbsolutePath(value.understandingPath)
+    const hasLegacyTaskPackage = isAbsolutePath(value.taskContractPath) && isAbsolutePath(value.understandingPath)
+    const hasArchiveTaskPackage = isAbsolutePath(value.archiveRoot)
+    return (hasLegacyTaskPackage || hasArchiveTaskPackage)
+      && (value.taskContractPath === undefined || isAbsolutePath(value.taskContractPath))
+      && (value.understandingPath === undefined || isAbsolutePath(value.understandingPath))
       && isAbsolutePath(value.worktreeRoot)
       && isAbsolutePath(value.knowledgeHome)
       && typeof value.authorizationId === 'string'
       && /^[A-Za-z0-9._-]{1,256}$/.test(value.authorizationId)
       && (value.agentBackend === undefined
         || (typeof value.agentBackend === 'string' && /^[a-z0-9._-]{1,64}$/.test(value.agentBackend)))
+      && (value.archiveRoot === undefined || isAbsolutePath(value.archiveRoot))
+      && (value.selectedModelId === undefined || hasId('selectedModelId'))
+      && (value.yunxiaoProfileId === undefined || hasId('yunxiaoProfileId'))
+      && (value.gitlabProfileId === undefined || hasId('gitlabProfileId'))
+      && (value.databaseProfileId === undefined || hasId('databaseProfileId'))
   }
   if (action === 'plugin.catalog.list') {
     return (value.query === undefined || (typeof value.query === 'string' && value.query.length <= 120))
@@ -253,6 +309,12 @@ function isAbsolutePath(value: unknown): value is string {
     && value.length > 0
     && value.length <= 4096
     && (value.startsWith('/') || /^[A-Za-z]:[\\/]/.test(value))
+}
+
+function isYunxiaoSource(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 4096 || /[?#\u0000]/.test(value)) return false
+  return /^[A-Za-z][A-Za-z0-9]{1,31}-\d{1,20}$/.test(value)
+    || /^https:\/\/[^/\s]+(?:\/[^\s]*)?$/.test(value)
 }
 
 export function isVersionedBridgeResponse(value: unknown): value is VersionedBridgeResponse {
@@ -361,8 +423,18 @@ const versionedPayloadKeys: Record<VersionedBridgeAction, string[]> = {
   'extension.disable': ['extensionId'],
   'extension.uninstall': ['extensionId'],
   'harness.status': [],
-  'harness.start': ['taskContractPath', 'understandingPath', 'worktreeRoot', 'knowledgeHome', 'authorizationId', 'agentBackend'],
+  'harness.start': [
+    'taskContractPath', 'understandingPath', 'worktreeRoot', 'knowledgeHome', 'authorizationId', 'agentBackend',
+    'archiveRoot', 'selectedModelId', 'yunxiaoProfileId', 'gitlabProfileId', 'databaseProfileId',
+  ],
+  'harness.intake': ['source', 'archiveRoot', 'includeComments', 'yunxiaoProfileId', 'selectedModelId', 'agentBackend'],
   'harness.cancel': [],
+  'harness.pick-archive-root': [],
+  'harness.archive-answers': ['archiveRoot', 'answers'],
+  'harness.connection.list': ['kind'],
+  'harness.connection.save': ['profileId', 'kind', 'providerId', 'displayName', 'endpoint', 'readOnly', 'enabled', 'credentialId'],
+  'harness.connection.delete': ['profileId'],
+  'harness.connection.test': ['profileId'],
 }
 
 function optionalRange(value: unknown, defaultValue: number): boolean {

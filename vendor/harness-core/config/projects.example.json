@@ -1,0 +1,15 @@
+{
+  "projects": [
+    {
+      "key": "his_local",
+      "name": "本地 HIS 项目",
+      "repo_path": "/absolute/path/to/his-project",
+      "frontend_dirs": ["frontend", "web"],
+      "backend_dirs": ["backend"],
+      "test_commands": [],
+      "build_commands": [],
+      "sensitive_keywords": ["医保", "结算", "收费", "报表", "对账", "政策校验"],
+      "exclude_dirs": ["node_modules", "dist", "target", ".git"]
+    }
+  ]
+}

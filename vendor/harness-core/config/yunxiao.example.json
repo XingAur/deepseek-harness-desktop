@@ -1,0 +1,190 @@
+{
+  "projects": [
+    {
+      "project_key": "default",
+      "name": "默认云效事务策略：只读/阻断写动作",
+      "policy": {
+        "enabled_actions": {
+          "read": true,
+          "comment": false,
+          "upload_attachment": false,
+          "assign": false,
+          "transition": false,
+          "update_iteration": false,
+          "update_service_change": false,
+          "create_task": false,
+          "link_artifact": false,
+          "close": false
+        },
+        "allowed_transitions": {
+          "待处理": ["分析中", "待澄清"],
+          "分析中": ["开发中", "待澄清", "待人工审核"],
+          "开发中": ["待测试", "待修复", "待人工审核"],
+          "待测试": ["测试中", "开发中", "待人工审核"],
+          "待人工审核": ["开发中", "待测试", "待发布"],
+          "待发布": ["已完成"]
+        },
+        "block_close_by_default": true,
+        "require_run_id_for_writes": true,
+        "require_evidence_for_writes": true,
+        "require_reason_for_writes": true,
+        "field_mappings": {},
+        "max_attachment_bytes": 10485760,
+        "high_risk_human_gate_actions": ["upload_attachment", "assign", "transition", "update_iteration", "update_service_change", "close"],
+        "note": "默认策略只允许读取。不要在配置里写云效 token；v0.8.2 write 模式也必须显式确认。"
+      }
+    },
+    {
+      "project_key": "his_local",
+      "name": "本地 HIS 云效项目策略示例",
+      "policy": {
+        "enabled_actions": {
+          "read": true,
+          "comment": false,
+          "upload_attachment": false,
+          "assign": false,
+          "transition": false,
+          "update_iteration": false,
+          "update_service_change": false,
+          "create_task": false,
+          "link_artifact": false,
+          "close": false
+        },
+        "allowed_transitions": {
+          "待处理": ["分析中", "待澄清"],
+          "分析中": ["开发中", "待澄清", "待人工审核"],
+          "开发中": ["待测试", "待修复", "待人工审核"],
+          "待测试": ["测试中", "开发中", "待人工审核"],
+          "待人工审核": ["开发中", "待测试", "待发布"],
+          "待发布": ["已完成"]
+        },
+        "block_close_by_default": true,
+        "require_run_id_for_writes": true,
+        "require_evidence_for_writes": true,
+        "require_reason_for_writes": true,
+        "field_mappings": {},
+        "max_attachment_bytes": 10485760,
+        "high_risk_human_gate_actions": ["upload_attachment", "assign", "transition", "update_iteration", "update_service_change", "close"],
+        "note": "不要在配置里写云效 token。v0.8.2 真实写入需要 write 模式、确认参数、写 token 和字段映射。"
+      }
+    },
+    {
+      "project_key": "his_dry_run_enabled",
+      "name": "dry-run 策略演示：开启部分写动作但不真实执行",
+      "policy": {
+        "enabled_actions": {
+          "read": true,
+          "comment": true,
+          "upload_attachment": true,
+          "assign": true,
+          "transition": true,
+          "update_iteration": true,
+          "update_service_change": true,
+          "create_task": false,
+          "link_artifact": true,
+          "close": false
+        },
+        "allowed_transitions": {
+          "待处理": ["分析中", "待澄清"],
+          "分析中": ["开发中", "待澄清", "待人工审核"],
+          "开发中": ["待测试", "待修复", "待人工审核"],
+          "待修复": ["开发中", "待测试"],
+          "待测试": ["测试中", "开发中", "待人工审核"],
+          "测试中": ["待发布", "开发中", "待人工审核"],
+          "待人工审核": ["开发中", "待测试", "待发布"],
+          "待发布": ["已完成"]
+        },
+        "block_close_by_default": true,
+        "require_run_id_for_writes": true,
+        "require_evidence_for_writes": true,
+        "require_reason_for_writes": true,
+        "field_mappings": {
+          "assign": {"propertyKey": "assignedTo", "fieldType": "user"},
+          "transition": {"propertyKey": "status", "fieldType": "status"},
+          "close": {"propertyKey": "status", "fieldType": "status"},
+          "update_iteration": {"propertyKey": "sprintIdentifier", "fieldType": "sprint"},
+          "update_service_change": {"fieldIdentifier": "custom_service_change"},
+          "link_artifact": {"fieldIdentifier": "custom_harness_artifacts"}
+        },
+        "max_attachment_bytes": 10485760,
+        "high_risk_human_gate_actions": ["upload_attachment", "assign", "transition", "update_iteration", "update_service_change", "close"],
+        "note": "用于 dry-run 和 fake write 验证。真实云效字段标识必须按项目实际字段调整，配置文件禁止写 token。"
+      }
+    },
+    {
+      "project_key": "his_comment_write_enabled",
+      "name": "v0.8.5 真实写评论策略：只允许 comment",
+      "policy": {
+        "enabled_actions": {
+          "read": true,
+          "comment": true,
+          "upload_attachment": false,
+          "assign": false,
+          "transition": false,
+          "update_iteration": false,
+          "update_service_change": false,
+          "create_task": false,
+          "link_artifact": false,
+          "close": false
+        },
+        "allowed_transitions": {
+          "待处理": ["分析中", "待澄清"],
+          "分析中": ["开发中", "待澄清", "待人工审核"],
+          "开发中": ["待测试", "待修复", "待人工审核"],
+          "待修复": ["开发中", "待测试"],
+          "待测试": ["测试中", "开发中", "待人工审核"],
+          "测试中": ["待发布", "开发中", "待人工审核"],
+          "待人工审核": ["开发中", "待测试", "待发布"],
+          "待发布": ["已完成"]
+        },
+        "block_close_by_default": true,
+        "require_run_id_for_writes": true,
+        "require_evidence_for_writes": true,
+        "require_reason_for_writes": true,
+        "field_mappings": {},
+        "max_attachment_bytes": 10485760,
+        "high_risk_human_gate_actions": ["upload_attachment", "assign", "transition", "update_iteration", "update_service_change", "close"],
+        "note": "v0.8.5 首次真实云效写入只允许 comment；不要在配置里写云效 token。"
+      }
+    },
+    {
+      "project_key": "his_transition_fake_enabled",
+      "name": "v0.8.6 状态流转 fake 验证策略：只允许 comment + transition",
+      "policy": {
+        "enabled_actions": {
+          "read": true,
+          "comment": true,
+          "upload_attachment": false,
+          "assign": false,
+          "transition": true,
+          "update_iteration": false,
+          "update_service_change": false,
+          "create_task": false,
+          "link_artifact": false,
+          "close": false
+        },
+        "allowed_transitions": {
+          "待处理": ["分析中", "待澄清"],
+          "待开发": ["开发中", "待澄清", "待测试", "待人工审核"],
+          "分析中": ["开发中", "待澄清", "待人工审核"],
+          "开发中": ["待测试", "待修复", "待人工审核"],
+          "待修复": ["开发中", "待测试"],
+          "待测试": ["测试中", "开发中", "待人工审核"],
+          "测试中": ["待发布", "开发中", "待人工审核"],
+          "待人工审核": ["开发中", "待测试", "待发布"],
+          "待发布": ["已完成"]
+        },
+        "block_close_by_default": true,
+        "require_run_id_for_writes": true,
+        "require_evidence_for_writes": true,
+        "require_reason_for_writes": true,
+        "field_mappings": {
+          "transition": {"propertyKey": "status", "fieldType": "status"}
+        },
+        "max_attachment_bytes": 10485760,
+        "high_risk_human_gate_actions": ["upload_attachment", "assign", "transition", "update_iteration", "update_service_change", "close"],
+        "note": "仅用于 dry-run/fake 验证状态流转策略和审计链路；真实项目状态机必须以后按云效实际流程确认，不要在配置里写云效 token。"
+      }
+    }
+  ]
+}

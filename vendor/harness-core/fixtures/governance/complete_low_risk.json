@@ -1,0 +1,58 @@
+{
+  "fixture_id": "complete_low_risk",
+  "inputs": {
+    "title": "挂号病人查询保留页签状态",
+    "user_instruction": "切换页签后保留已输入的查询条件和结果；未命中缓存时保持原查询行为。",
+    "normalized_requirement_evidence": {
+      "readonly": true,
+      "external_writes_enabled": false,
+      "source_type": "manual",
+      "title": "挂号病人查询保留页签状态",
+      "description_text": "切换页签后保留已输入的查询条件和结果。",
+      "comments": [{"content": "验收口径已确认"}],
+      "attachments": [{"name": "验收说明.md", "status": "available"}],
+      "warnings": []
+    },
+    "requirement_calibration": {
+      "status": "ready_for_development",
+      "decision": {"can_enter_development": true},
+      "resolved_parameters": [{
+        "name": "top_tab_state",
+        "allowed_values": {
+          "tab_switch": "切换页签时保留状态",
+          "default": "未命中状态时保持原查询行为"
+        }
+      }],
+      "resolved_scope": {"do": "仅保留页签状态", "do_not": ["不修改查询接口"]},
+      "warnings": [],
+      "must_confirm": []
+    },
+    "technical_decision": {
+      "selected_projects": [{"name": "df-web-guahaosf", "path": "/tmp/df-web-guahaosf", "exists": true, "role": "frontend"}],
+      "implementation_decision": {"can_patch": true, "blockers": []},
+      "recommended_allowed_paths": ["src/pages/guaHaoChaXun/index.vue"],
+      "recommended_verify_commands": ["npm test -- tab-state"],
+      "contract_verification": {"required": false, "status": "not_required", "blockers": []},
+      "field_provenance": {"evidence": [{"project": "df-web-guahaosf", "path": "src/pages/guaHaoChaXun/index.vue"}]}
+    },
+    "change_ownership": {
+      "status": "ready",
+      "rows": [
+        {"layer": "frontend", "status": "required", "reason": "源码已定位"},
+        {"layer": "backend", "status": "not_required", "reason": "无服务端变更"},
+        {"layer": "database", "status": "not_required", "reason": "无数据库变更"},
+        {"layer": "configuration", "status": "not_required", "reason": "无配置变更"}
+      ],
+      "blockers": []
+    },
+    "acceptance_matrix": {
+      "risk": {"level": "low", "reasons": []},
+      "blockers": [],
+      "auto_verification": [{"command": "npm test -- tab-state", "source": "explicit", "execute_policy": "只作为验证数据", "expected_result": "页签状态回归通过"}],
+      "requirement_acceptance": [{"scenario": "切换页签后返回"}],
+      "manual_acceptance": [{"scenario": "人工确认查询条件和结果保留"}],
+      "sibling_impact": {"required": false, "status": "not_required", "blockers": []}
+    },
+    "available_capabilities": ["source.read", "local.patch"]
+  }
+}

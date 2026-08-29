@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0-dynamic-planning-config",
+  "features": {
+    "dynamic_team_planning": false,
+    "dag_execution": false,
+    "agent_worktree_execution": false
+  },
+  "thresholds": {
+    "simple_max": 5,
+    "medium_max": 11,
+    "large_max": 24
+  },
+  "hard_guards": {
+    "force_high_risk_for_sensitive_his_business": true,
+    "require_independent_review": true,
+    "require_human_gate_for_high_risk": true,
+    "block_execution_without_allowed_paths": true,
+    "external_actions_enabled": false
+  }
+}

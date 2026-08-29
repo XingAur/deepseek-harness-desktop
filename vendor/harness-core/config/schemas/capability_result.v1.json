@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "his-capability-result.v1.json",
+  "title": "HIS Capability Result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "request_id",
+    "capability",
+    "provider",
+    "status",
+    "mutation_level",
+    "changed",
+    "summary",
+    "data",
+    "evidence",
+    "warnings",
+    "blockers",
+    "audit"
+  ],
+  "properties": {
+    "schema_version": {"const": "his-capability-result.v1"},
+    "request_id": {"type": "string", "minLength": 1},
+    "capability": {"type": "string", "minLength": 1},
+    "provider": {"type": "string", "minLength": 1},
+    "status": {"enum": ["success", "blocked", "failed", "partial", "unsupported"]},
+    "mutation_level": {"enum": ["L0", "L1", "L2", "L3", "L4", "L5"]},
+    "changed": {"type": "boolean"},
+    "summary": {"type": "string"},
+    "data": {"type": "object"},
+    "evidence": {"type": "array", "items": {"type": "object"}},
+    "warnings": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "blockers": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "audit": {"type": "object"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"changed": {"const": true}}},
+      "then": {"properties": {"audit": {"minProperties": 1}}}
+    }
+  ]
+}

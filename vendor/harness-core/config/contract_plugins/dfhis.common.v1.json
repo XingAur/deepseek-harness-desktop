@@ -1,0 +1,133 @@
+{
+  "schema_version": "1.0-contract-plugin-pack",
+  "pack_id": "dfhis-common-contracts",
+  "version": "1.0.0",
+  "plugins": [
+    {
+      "id": "dfhis.schedule-mode-route-param",
+      "version": "1.0.0",
+      "match": {
+        "all": ["paiBanMs"],
+        "any_groups": [
+          ["医生为空", "空的排班"],
+          ["有医生", "医生的排班"]
+        ]
+      },
+      "outputs": {
+        "parameters": [
+          {
+            "name": "paiBanMs",
+            "default_location": "unknown",
+            "location_rules": [
+              {
+                "when_any": ["路由", "菜单参数"],
+                "value": "route_menu_param"
+              }
+            ],
+            "source": "demand_text",
+            "source_when_user_overrides": true,
+            "contract_plugin": "dfhis.schedule-mode-route-param",
+            "allowed_values": {
+              "1": "只过滤医生为空的排班",
+              "2": "只过滤有医生的排班",
+              "empty": "为空、空值或其他情况时保持默认当前模式"
+            }
+          }
+        ],
+        "scope": {
+          "do": "使用菜单/路由参数 paiBanMs 控制排班过滤模式：1 过滤医生为空，2 过滤有医生，空值或其他值保持默认模式。",
+          "do_not_when_user_overrides": ["不按需求图推断额外科室过滤规则"]
+        }
+      }
+    },
+    {
+      "id": "dfhis.request-sort-field",
+      "version": "1.0.0",
+      "match": {
+        "all": ["sortField"],
+        "any_groups": []
+      },
+      "outputs": {
+        "parameters": [
+          {
+            "name": "sortField",
+            "default_location": "request_param",
+            "source": "demand_text",
+            "contract_plugin": "dfhis.request-sort-field",
+            "allowed_values": {
+              "configured_column": "使用表格当前配置的排序字段"
+            },
+            "conditional_allowed_values": [
+              {
+                "when_any": ["未设置排序", "默认排序", "保持当前默认", "不传排序", "未传时"],
+                "values": {
+                  "empty": "未设置排序时保持当前默认排序"
+                }
+              }
+            ]
+          }
+        ],
+        "scope": {}
+      }
+    },
+    {
+      "id": "dfhis.request-sort-order",
+      "version": "1.0.0",
+      "match": {
+        "all": ["sortOrder"],
+        "any_groups": []
+      },
+      "outputs": {
+        "parameters": [
+          {
+            "name": "sortOrder",
+            "default_location": "request_param",
+            "source": "demand_text",
+            "contract_plugin": "dfhis.request-sort-order",
+            "allowed_values": {
+              "desc": "排序方式 desc",
+              "asc": "排序方式 asc"
+            },
+            "conditional_allowed_values": [
+              {
+                "when_any": ["未设置排序", "默认排序", "保持当前默认", "不传排序", "未传时"],
+                "values": {
+                  "empty": "未设置排序时保持当前默认排序"
+                }
+              }
+            ]
+          }
+        ],
+        "scope": {}
+      }
+    },
+    {
+      "id": "dfhis.top-tab-state-retention",
+      "version": "1.0.0",
+      "match": {
+        "all": [],
+        "any_groups": [
+          ["切换标签页", "切换页签", "切换菜单", "切换业务页签", "切换顶部业务页签"],
+          ["不要刷新", "不刷新", "内容刷掉", "内容清空", "条件清空"]
+        ]
+      },
+      "outputs": {
+        "parameters": [
+          {
+            "name": "top_tab_state",
+            "default_location": "route_component_cache",
+            "source": "demand_text",
+            "contract_plugin": "dfhis.top-tab-state-retention",
+            "allowed_values": {
+              "tab_switch": "切换业务页签后保留当前查询条件、结果和分页状态。",
+              "default": "首次进入或页面已关闭后，保持当前组件的初始化行为。"
+            }
+          }
+        ],
+        "scope": {
+          "do": "切换业务页签时保留当前页面状态，并保持首次进入和页面关闭后的原初始化行为。"
+        }
+      }
+    }
+  ]
+}

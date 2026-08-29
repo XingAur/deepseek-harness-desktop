@@ -282,6 +282,81 @@ describe('workbench bridge', () => {
     }), 'http://127.0.0.1:39000')
   })
 
+  it('forwards Harness connection maintenance actions with provider ownership', async () => {
+    const invoke = vi.fn().mockResolvedValue({ profileId: 'yunxiao-readonly' })
+    const contentWindow = { postMessage: vi.fn() } as unknown as Window
+    const bridge = createWorkbenchBridge({
+      frame: () => ({ contentWindow }) as HTMLIFrameElement,
+      active: () => ({ generationId: 'generation-1', sessionId: 'session-1', origin: 'http://127.0.0.1:39000' }),
+      invoke,
+    })
+    await bridge.onMessage({
+      source: contentWindow,
+      origin: 'http://127.0.0.1:39000',
+      data: {
+        channel: DESKTOP_BRIDGE_V2_CHANNEL,
+        requestId: 'request-profile',
+        generationId: 'generation-1',
+        sessionId: 'session-1',
+        action: 'harness.connection.save',
+        payload: {
+          kind: 'mcp', providerId: 'yunxiao', displayName: '云效', endpoint: 'https://example.test',
+          readOnly: true, enabled: true,
+        },
+      },
+    } as MessageEvent)
+    expect(invoke).toHaveBeenCalledWith('harness_connection_save', expect.objectContaining({
+      generationId: 'generation-1', sessionId: 'session-1', kind: 'mcp', providerId: 'yunxiao', readOnly: true,
+    }))
+  })
+
+  it('forwards the intake model selection and the native archive-root picker', async () => {
+    const invoke = vi.fn().mockResolvedValue({ state: 'running' })
+    const contentWindow = { postMessage: vi.fn() } as unknown as Window
+    const bridge = createWorkbenchBridge({
+      frame: () => ({ contentWindow }) as HTMLIFrameElement,
+      active: () => ({ generationId: 'generation-1', sessionId: 'session-1', origin: 'http://127.0.0.1:39000' }),
+      invoke,
+    })
+    await bridge.onMessage({
+      source: contentWindow,
+      origin: 'http://127.0.0.1:39000',
+      data: {
+        channel: DESKTOP_BRIDGE_V2_CHANNEL,
+        requestId: 'request-intake',
+        generationId: 'generation-1',
+        sessionId: 'session-1',
+        action: 'harness.intake',
+        payload: {
+          source: 'DFHIS-39999',
+          archiveRoot: '/Users/test/harness-archives',
+          selectedModelId: 'deepseek-reasoner',
+          agentBackend: 'deepseek',
+        },
+      },
+    } as MessageEvent)
+    expect(invoke).toHaveBeenCalledWith('harness_intake', expect.objectContaining({
+      generationId: 'generation-1', sessionId: 'session-1',
+      source: 'DFHIS-39999', selectedModelId: 'deepseek-reasoner', agentBackend: 'deepseek',
+    }))
+    await bridge.onMessage({
+      source: contentWindow,
+      origin: 'http://127.0.0.1:39000',
+      data: {
+        channel: DESKTOP_BRIDGE_V2_CHANNEL,
+        requestId: 'request-pick',
+        generationId: 'generation-1',
+        sessionId: 'session-1',
+        action: 'harness.pick-archive-root',
+        payload: {},
+      },
+    } as MessageEvent)
+    expect(invoke).toHaveBeenCalledWith('harness_pick_archive_root', {
+      generationId: 'generation-1',
+      sessionId: 'session-1',
+    })
+  })
+
   it('forwards validated agent events only to the active iframe session', () => {
     const postMessage = vi.fn()
     const contentWindow = { postMessage } as unknown as Window

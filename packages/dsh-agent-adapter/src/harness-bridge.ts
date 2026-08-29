@@ -1,4 +1,5 @@
 import { spawn as spawnProcess, type ChildProcessWithoutNullStreams, type SpawnOptions } from 'node:child_process'
+import { isAbsolute } from 'node:path'
 
 export const HARNESS_HOST_SESSION_SCHEMA = 'harness-host-session.v1' as const
 export const HARNESS_BRIDGE_MAX_BYTES = 256 * 1024
@@ -46,12 +47,19 @@ export interface HarnessTransport {
 
 export interface HarnessTaskStartPayload {
   schema_version: 'harness-external-task.v1'
-  task_contract_path: string
-  understanding_path: string
+  task_contract_path?: string
+  understanding_path?: string
   worktree_root: string
   knowledge_home: string
   authorization_id: string
   agent_backend?: string
+  archive_root?: string
+  intake_source?: string
+  intake_include_comments?: boolean
+  selected_model_id?: string
+  yunxiao_profile_id?: string
+  gitlab_profile_id?: string
+  database_profile_id?: string
 }
 
 export interface HarnessTaskResult {
@@ -365,12 +373,16 @@ function validateTaskStartPayload(value: unknown): Record<string, unknown> {
       'authorization_id',
       'knowledge_home',
       'schema_version',
-      'task_contract_path',
-      'understanding_path',
       'worktree_root',
-    ], ['agent_backend'])
-    || !['task_contract_path', 'understanding_path', 'worktree_root', 'knowledge_home', 'authorization_id'].every((key) => typeof value[key] === 'string' && (value[key] as string).length > 0)
-    || (value.agent_backend !== undefined && (typeof value.agent_backend !== 'string' || !/^[a-z][a-z0-9._-]{1,63}$/.test(value.agent_backend)))) {
+    ], ['task_contract_path', 'understanding_path', 'agent_backend', 'archive_root', 'intake_source', 'intake_include_comments', 'selected_model_id', 'yunxiao_profile_id', 'gitlab_profile_id', 'database_profile_id'])
+    || !['worktree_root', 'knowledge_home', 'authorization_id'].every((key) => typeof value[key] === 'string' && (value[key] as string).length > 0)
+    || ((value.task_contract_path === undefined) !== (value.understanding_path === undefined))
+    || (value.task_contract_path === undefined && value.archive_root === undefined)
+    || (value.task_contract_path !== undefined && (typeof value.task_contract_path !== 'string' || value.task_contract_path.length === 0))
+    || (value.understanding_path !== undefined && (typeof value.understanding_path !== 'string' || value.understanding_path.length === 0))
+    || (value.agent_backend !== undefined && (typeof value.agent_backend !== 'string' || !/^[a-z][a-z0-9._-]{1,63}$/.test(value.agent_backend)))
+    || (value.intake_source !== undefined && (typeof value.intake_source !== 'string' || !/^(?:[A-Za-z][A-Za-z0-9]{1,31}-\d{1,20}|https:\/\/[^/\s]+(?:\/[^\s]*)?)$/.test(value.intake_source)))
+    || (value.intake_include_comments !== undefined && typeof value.intake_include_comments !== 'boolean')) {
     throw new Error('Harness 任务参数无效')
   }
   if (containsSensitiveShape(value)) throw new Error('Harness 任务参数无效')
@@ -436,7 +448,13 @@ function byteSize(value: unknown): number {
 }
 
 function buildHarnessSidecarEnv(input: NodeJS.ProcessEnv | undefined): NodeJS.ProcessEnv {
-  const allowed = ['HOME', 'PATH', 'LANG', 'LC_ALL', 'TZ', 'TMPDIR', 'USER', 'HARNESS_DB_PATH']
+  // 凭证只经进程环境变量传入（与 DSH_DEEPSEEK_API_KEY 同一受信通道），
+  // 永远不会进入 JSONL 协议帧；敏感键名在协议层仍被整体拒绝。
+  const allowed = [
+    'HOME', 'PATH', 'LANG', 'LC_ALL', 'TZ', 'TMPDIR', 'USER', 'HARNESS_DB_PATH',
+    'ALIYUN_DEVOPS_PAT', 'ALIYUN_DEVOPS_ORGANIZATION_ID', 'ALIYUN_DEVOPS_PROJECT_ID',
+    'DSH_GITLAB_TOKEN', 'DSH_DATABASE_DSN',
+  ]
   const output: NodeJS.ProcessEnv = {}
   for (const key of allowed) {
     const value = input?.[key] ?? process.env[key]
@@ -447,5 +465,5 @@ function buildHarnessSidecarEnv(input: NodeJS.ProcessEnv | undefined): NodeJS.Pr
 }
 
 function isAbsolutePath(value: unknown): value is string {
-  return typeof value === 'string' && value.startsWith('/') && value.length > 1 && !value.includes('\u0000')
+  return typeof value === 'string' && isAbsolute(value) && value.length > 1 && !value.includes('\u0000')
 }

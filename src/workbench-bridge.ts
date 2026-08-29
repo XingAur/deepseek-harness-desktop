@@ -242,14 +242,69 @@ function bridgePayloadV2(
     return { extensionId: payload.extensionId }
   }
   if (action === 'harness.status' || action === 'harness.cancel') return {}
+  if (action === 'harness.archive-answers') {
+    if (typeof payload.archiveRoot !== 'string' || payload.archiveRoot.trim() === '') throw new Error('Harness 任务包目录无效')
+    if (typeof payload.answers !== 'string' || payload.answers.trim() === '' || payload.answers.length > 8000) {
+      throw new Error('业务答复内容无效（需 1-8000 字符）')
+    }
+    return { archiveRoot: payload.archiveRoot, answers: payload.answers }
+  }
+  if (action === 'harness.intake') {
+    if (typeof payload.source !== 'string' || payload.source.trim() === '') throw new Error('云效需求 URL 或工作项 ID 无效')
+    if (typeof payload.archiveRoot !== 'string' || payload.archiveRoot.trim() === '') throw new Error('Harness 归档根目录无效')
+    if (payload.agentBackend !== undefined
+      && (typeof payload.agentBackend !== 'string' || !/^[a-z][a-z0-9._-]{0,63}$/.test(payload.agentBackend))) {
+      throw new Error('模型执行后端无效')
+    }
+    return {
+      source: payload.source,
+      archiveRoot: payload.archiveRoot,
+      includeComments: payload.includeComments !== false,
+      ...(payload.yunxiaoProfileId === undefined ? {} : { yunxiaoProfileId: payload.yunxiaoProfileId }),
+      ...(payload.selectedModelId === undefined || payload.selectedModelId === '' ? {} : { selectedModelId: payload.selectedModelId }),
+      ...(payload.agentBackend === undefined || payload.agentBackend === '' ? {} : { agentBackend: payload.agentBackend }),
+    }
+  }
+  if (action === 'harness.connection.list') {
+    if (payload.kind !== undefined && payload.kind !== 'mcp' && payload.kind !== 'database') throw new Error('Harness 连接类型无效')
+    return payload.kind === undefined ? {} : { kind: payload.kind }
+  }
+  if (action === 'harness.connection.delete' || action === 'harness.connection.test') {
+    requireId(payload.profileId, '连接 Profile ID')
+    return { profileId: payload.profileId }
+  }
+  if (action === 'harness.connection.save') {
+    if (payload.profileId !== undefined) requireId(payload.profileId, '连接 Profile ID')
+    if (payload.kind !== 'mcp' && payload.kind !== 'database') throw new Error('Harness 连接类型无效')
+    if (payload.providerId !== undefined && !['yunxiao', 'gitlab', 'generic'].includes(String(payload.providerId))) throw new Error('Harness 连接归属无效')
+    if (typeof payload.displayName !== 'string' || payload.displayName.trim() === '' || payload.displayName.length > 120) throw new Error('连接 Profile 名称无效')
+    if (typeof payload.endpoint !== 'string' || payload.endpoint.length > 4096 || payload.endpoint.includes('@')) throw new Error('连接地址无效')
+    if (typeof payload.readOnly !== 'boolean' || typeof payload.enabled !== 'boolean') throw new Error('连接 Profile 开关无效')
+    if (payload.credentialId !== undefined) requireId(payload.credentialId, 'Credential ID')
+    return {
+      ...(payload.profileId === undefined ? {} : { profileId: payload.profileId }),
+      kind: payload.kind,
+      ...(payload.providerId === undefined ? {} : { providerId: payload.providerId }),
+      displayName: payload.displayName,
+      endpoint: payload.endpoint,
+      readOnly: payload.readOnly,
+      enabled: payload.enabled,
+      ...(payload.credentialId === undefined ? {} : { credentialId: payload.credentialId }),
+    }
+  }
   if (action === 'harness.start') {
     return {
-      taskContractPath: payload.taskContractPath,
-      understandingPath: payload.understandingPath,
       worktreeRoot: payload.worktreeRoot,
       knowledgeHome: payload.knowledgeHome,
       authorizationId: payload.authorizationId,
+      ...(payload.taskContractPath === undefined ? {} : { taskContractPath: payload.taskContractPath }),
+      ...(payload.understandingPath === undefined ? {} : { understandingPath: payload.understandingPath }),
       ...(payload.agentBackend === undefined ? {} : { agentBackend: payload.agentBackend }),
+      ...(payload.archiveRoot === undefined ? {} : { archiveRoot: payload.archiveRoot }),
+      ...(payload.selectedModelId === undefined ? {} : { selectedModelId: payload.selectedModelId }),
+      ...(payload.yunxiaoProfileId === undefined ? {} : { yunxiaoProfileId: payload.yunxiaoProfileId }),
+      ...(payload.gitlabProfileId === undefined ? {} : { gitlabProfileId: payload.gitlabProfileId }),
+      ...(payload.databaseProfileId === undefined ? {} : { databaseProfileId: payload.databaseProfileId }),
     }
   }
   return {}

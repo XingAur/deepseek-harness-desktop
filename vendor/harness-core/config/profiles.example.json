@@ -1,0 +1,67 @@
+{
+  "version": "0.22",
+  "purpose": "HIS Harness profile 示例。Profile 只引用规则包和凭证 key，不保存真实 token。",
+  "default_profile": "dfhis-local-example",
+  "profiles": [
+    {
+      "key": "dfhis-local-example",
+      "display_name": "DFHIS 本地开发示例",
+      "rule_pack_id": "dfhis-default",
+      "project_root": "/absolute/path/to/dfcode",
+      "output_root": "/tmp/his_harness_tasks",
+      "requirement_provider": {
+        "type": "yunxiao",
+        "name": "云效只读需求来源",
+        "credential_keys": ["aliyun_devops_pat", "aliyun_devops_organization_id"],
+        "readonly": true
+      },
+      "enabled_features": [
+        "readonly_requirement_fetch",
+        "precommit_verify",
+        "task_manager_workspace",
+        "config_summary"
+      ],
+      "notes": "复制到 ~/.his-harness/profiles.json 后按本机项目路径调整。不要把真实 token 写进 profile。"
+    },
+    {
+      "key": "team-share-example",
+      "display_name": "团队分享示例",
+      "rule_pack_id": "dfhis-default",
+      "project_root": "/absolute/path/to/team/project/root",
+      "output_root": "/tmp/his_harness_team_tasks",
+      "requirement_provider": {
+        "type": "manual",
+        "name": "手工粘贴需求",
+        "credential_keys": [],
+        "readonly": true
+      },
+      "enabled_features": [
+        "manual_requirement_input",
+        "precommit_verify",
+        "task_manager_workspace",
+        "config_summary"
+      ],
+      "notes": "团队分享时默认使用 manual provider，避免绑定任何人的云效/TAPD 凭证。"
+    },
+    {
+      "key": "tapd-future-example",
+      "display_name": "TAPD 需求来源预留示例",
+      "rule_pack_id": "dfhis-default",
+      "project_root": "/absolute/path/to/project/root",
+      "output_root": "/tmp/his_harness_tapd_tasks",
+      "requirement_provider": {
+        "type": "tapd",
+        "name": "TAPD 只读需求来源",
+        "credential_keys": ["tapd_api_token"],
+        "readonly": true
+      },
+      "enabled_features": [
+        "readonly_requirement_fetch",
+        "precommit_verify",
+        "task_manager_workspace",
+        "config_summary"
+      ],
+      "notes": "v0.22 只建立 provider 配置结构，TAPD 真实读取适配器后续实现。"
+    }
+  ]
+}

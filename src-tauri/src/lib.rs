@@ -113,7 +113,14 @@ macro_rules! renderer_commands {
             commands::agent_extension_uninstall,
             commands::harness_status,
             commands::harness_start,
+            commands::harness_intake,
             commands::harness_cancel,
+            commands::harness_pick_archive_root,
+            commands::harness_archive_answers,
+            commands::harness_connection_list,
+            commands::harness_connection_save,
+            commands::harness_connection_delete,
+            commands::harness_connection_test,
             commands::orderly_quit,
             commands::hide_window,
             commands::minimize_window,
@@ -408,6 +415,7 @@ fn run_desktop() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();

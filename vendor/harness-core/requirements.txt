@@ -1,0 +1,5 @@
+# Runtime dependencies stay small; PostgreSQL evidence adds its isolated driver.
+cryptography>=42,<46
+# PostgreSQL evidence is optional at import time but required for an explicit
+# database.inspect execute in the isolated Harness environment.
+psycopg[binary]>=3.2,<4

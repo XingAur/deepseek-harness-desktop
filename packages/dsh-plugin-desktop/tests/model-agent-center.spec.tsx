@@ -15,6 +15,7 @@ function bridgeFixture(): DesktopBridgeLike {
       if (action === 'capability.inventory') return [{ id: 'file-read', displayName: '读取文件', mutating: false, approvalRequired: false }]
       if (action === 'extension.inventory') return []
       if (action === 'cli.path.status') return { provider: 'codex', selected: null, candidates: [], diagnostics: [] }
+      if (action === 'harness.connection.list') return [{ profileId: 'his-db', kind: 'database', providerId: 'generic', displayName: 'HIS 只读库', endpoint: 'db.internal', readOnly: true, enabled: true }]
       return { credentialId: 'credential-1', status: 'configured' }
     }) as DesktopBridgeLike['requestV2'],
     dispose: vi.fn(),
@@ -31,11 +32,21 @@ describe('model and agent center', () => {
     expect(screen.getByRole('tab', { name: 'API 模型' })).toBeVisible()
     expect(screen.getByRole('tab', { name: 'Agents' })).toBeVisible()
     expect(screen.getByRole('tab', { name: 'Harness 任务' })).toBeVisible()
+    expect(screen.getByRole('tab', { name: 'MCP 连接维护' })).toBeVisible()
+    expect(screen.getByRole('tab', { name: '数据库维护' })).toBeVisible()
     expect(screen.getByRole('tab', { name: 'Diagnostics' })).toBeVisible()
     expect(screen.queryByRole('tab', { name: 'Extensions' })).toBeNull()
 
     fireEvent.click(screen.getByRole('tab', { name: 'Diagnostics' }))
     expect(await screen.findByText('读取文件')).toBeVisible()
+  })
+
+  it('keeps database maintenance separate from the Harness task selector', async () => {
+    const bridge = bridgeFixture()
+    render(<ModelAgentCenter bridge={bridge} />)
+    fireEvent.click(await screen.findByRole('tab', { name: '数据库维护' }))
+    expect(await screen.findByText('HIS 只读库')).toBeVisible()
+    expect(screen.getByText(/数据库 profile 独立维护/)).toBeVisible()
   })
 
   it('opens the credential flow without rendering the secret', async () => {

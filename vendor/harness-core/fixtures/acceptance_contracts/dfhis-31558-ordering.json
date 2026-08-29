@@ -1,0 +1,51 @@
+{
+  "schema_version": "1.0-acceptance-contract",
+  "id": "department-tree-matches-schedule-cards",
+  "kind": "ordering_relation",
+  "source": {
+    "collection": "schedule_rows",
+    "department_key": "keShiId",
+    "order_keys": ["shunXuHao", "sourceIndex"],
+    "deduplicate": "first_department_occurrence",
+    "unsorted_behavior": "preserve_relative_order"
+  },
+  "target": {
+    "collection": "department_tree",
+    "leaf_key": "keShiId",
+    "parent_order": "earliest_descendant_source_key",
+    "comparison": "flattened_leaf_order"
+  },
+  "implementation_evidence": {
+    "all_of": ["paiBanSortIndex", "getPaiBanSortKey"]
+  },
+  "required_checks": [
+    "same_sequence_uses_source_index",
+    "parent_uses_earliest_descendant",
+    "unsorted_preserves_relative_order"
+  ],
+  "verify_command": "node src/pages/yeWuGn/guaHaoSf/js/paiBanSort.test.js",
+  "fixture": {
+    "schedule_rows": [
+      {"keShiId": "31", "keShiMc": "心血管内科门诊", "shunXuHao": 1, "sourceIndex": 0},
+      {"keShiId": "174", "keShiMc": "高血压病科门诊", "shunXuHao": 1, "sourceIndex": 1},
+      {"keShiId": "25162", "keShiMc": "肾病科门诊", "shunXuHao": 2, "sourceIndex": 2},
+      {"keShiId": "85", "keShiMc": "泌尿外科门诊", "shunXuHao": 4, "sourceIndex": 3},
+      {"keShiId": "26429", "keShiMc": "呼吸与危重症医学科门诊", "shunXuHao": 9, "sourceIndex": 4},
+      {"keShiId": "999", "keShiMc": "B", "shunXuHao": null, "sourceIndex": 5},
+      {"keShiId": "998", "keShiMc": "A", "shunXuHao": null, "sourceIndex": 6}
+    ],
+    "department_tree": {
+      "keShiId": "",
+      "keShiMc": "全部",
+      "children": [
+        {"keShiId": "26429", "keShiMc": "呼吸与危重症医学科门诊"},
+        {"keShiId": "nei-ke", "keShiMc": "内科", "children": [{"keShiId": "31", "keShiMc": "心血管内科门诊"}]},
+        {"keShiId": "zhong-yi-ke", "keShiMc": "中医科门诊", "children": [{"keShiId": "174", "keShiMc": "高血压病科门诊"}]},
+        {"keShiId": "chang-yong", "keShiMc": "常用", "children": [{"keShiId": "25162", "keShiMc": "肾病科门诊"}]},
+        {"keShiId": "wai-ke", "keShiMc": "外科", "children": [{"keShiId": "85", "keShiMc": "泌尿外科门诊"}]},
+        {"keShiId": "999", "keShiMc": "B"},
+        {"keShiId": "998", "keShiMc": "A"}
+      ]
+    }
+  }
+}

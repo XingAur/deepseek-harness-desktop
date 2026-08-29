@@ -27,7 +27,6 @@ use crate::{
     apps::{AppLauncher, AppStatusReply, LaunchReply},
     credentials::{
         model::{CredentialId, CredentialMetadata, CredentialStatus, SecretValue},
-        vault::CredentialVault,
     },
     desktop::DesktopCoordinator,
     harness::{HarnessService, HarnessStatus, HarnessTaskStart},
@@ -74,6 +73,10 @@ pub(crate) const VERSIONED_AGENT_COMMAND_NAMES: &[&str] = &[
     "agent_extension_enable",
     "agent_extension_disable",
     "agent_extension_uninstall",
+    "harness_connection_list",
+    "harness_connection_save",
+    "harness_connection_delete",
+    "harness_connection_test",
 ];
 
 #[derive(Deserialize)]
@@ -355,6 +358,7 @@ pub struct AgentProviderMetadataReply {
     provider_id: String,
     display_name: String,
     cli_command: String,
+    kind: String,
     adapter_protocol: String,
     credential_supported: bool,
     developer_only: bool,
@@ -380,11 +384,12 @@ pub async fn agent_provider_metadata(
         .ok_or_else(|| "Agent 数据服务当前不可用".to_owned())?;
     let connection = store.reader().map_err(|error| error.to_string())?;
     [
-        ("codex", "Codex", "codex", false),
-        ("claude", "Claude", "claude", false),
+        ("codex", "Codex", "codex", "cli", false),
+        ("claude", "Claude", "claude", "cli", false),
+        ("deepseek", "DeepSeek", "api", "api", false),
     ]
     .into_iter()
-    .map(|(provider_id, display_name, cli_command, developer_only)| {
+    .map(|(provider_id, display_name, cli_command, kind, developer_only)| {
         let credential: Option<(Option<String>, Option<String>)> = connection
             .query_row(
                 "SELECT providers.credential_id, credential_metadata.status
@@ -400,6 +405,7 @@ pub async fn agent_provider_metadata(
             provider_id: provider_id.to_owned(),
             display_name: display_name.to_owned(),
             cli_command: cli_command.to_owned(),
+            kind: kind.to_owned(),
             adapter_protocol: crate::agents::model::ADAPTER_PROTOCOL_VERSION.to_owned(),
             credential_supported: true,
             developer_only,
@@ -445,7 +451,7 @@ pub async fn agent_credential_put(
     let provider_id = provider_id
         .map(|value| {
             validate_agent_identifier(&value, "Provider ID")?;
-            parse_provider(&value).map(|_| value)
+            validate_credential_provider(&value).map(|_| value)
         })
         .transpose()?;
     if secret.is_empty() || secret.len() > 16 * 1024 {
@@ -585,13 +591,12 @@ fn bind_provider_credential(
         .ok_or_else(|| "Agent 数据服务当前不可用".to_owned())?;
     let writer = store.writer().map_err(|error| error.to_string())?;
     let now = Utc::now().to_rfc3339();
-    let provider = parse_provider(provider_id)?;
     writer
         .connection()
         .execute(
             "INSERT OR IGNORE INTO providers (provider_id, provider_kind, display_name, status, created_at, updated_at)
              VALUES (?1, ?1, ?2, 'available', ?3, ?3)",
-            params![provider_id, provider_display_name(provider), now],
+            params![provider_id, credential_provider_display_name(provider_id)?, now],
         )
         .map_err(|_| "Provider 凭证关联失败".to_owned())?;
     writer
@@ -767,6 +772,23 @@ fn parse_provider(value: &str) -> Result<AgentProvider, String> {
     match value {
         "codex" => Ok(AgentProvider::Codex),
         "claude" => Ok(AgentProvider::Claude),
+        _ => Err("Provider 不受支持".to_owned()),
+    }
+}
+
+fn validate_credential_provider(value: &str) -> Result<(), String> {
+    match value {
+        "codex" | "claude" | "deepseek" | "openai-compatible" => Ok(()),
+        _ => Err("Provider 不受支持".to_owned()),
+    }
+}
+
+fn credential_provider_display_name(value: &str) -> Result<&'static str, String> {
+    match value {
+        "codex" => Ok("Codex"),
+        "claude" => Ok("Claude"),
+        "deepseek" => Ok("DeepSeek"),
+        "openai-compatible" => Ok("OpenAI 兼容"),
         _ => Err("Provider 不受支持".to_owned()),
     }
 }
@@ -1265,11 +1287,57 @@ pub async fn harness_start(
     app: AppHandle,
     generation_id: String,
     session_id: String,
-    task_contract_path: String,
-    understanding_path: String,
+    task_contract_path: Option<String>,
+    understanding_path: Option<String>,
     worktree_root: String,
     knowledge_home: String,
     authorization_id: String,
+    agent_backend: Option<String>,
+    archive_root: Option<String>,
+    selected_model_id: Option<String>,
+    yunxiao_profile_id: Option<String>,
+    gitlab_profile_id: Option<String>,
+    database_profile_id: Option<String>,
+) -> Result<HarnessStatus, String> {
+    coordinator
+        .validate_generation(&generation_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    let task = HarnessTaskStart {
+        task_contract_path: task_contract_path.map(PathBuf::from),
+        understanding_path: understanding_path.map(PathBuf::from),
+        worktree_root: PathBuf::from(worktree_root),
+        knowledge_home: PathBuf::from(knowledge_home),
+        authorization_id,
+        agent_backend,
+        archive_root: archive_root.map(PathBuf::from),
+        intake_source: None,
+        intake_include_comments: None,
+        selected_model_id,
+        yunxiao_profile_id,
+        gitlab_profile_id,
+        database_profile_id,
+    };
+    harness
+        .start(app, &foundation, Uuid::new_v4().to_string(), task)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn harness_intake(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    foundation: State<'_, Arc<DesktopFoundation>>,
+    harness: State<'_, Arc<HarnessService>>,
+    app: AppHandle,
+    generation_id: String,
+    session_id: String,
+    source: String,
+    archive_root: String,
+    include_comments: Option<bool>,
+    yunxiao_profile_id: Option<String>,
+    selected_model_id: Option<String>,
     agent_backend: Option<String>,
 ) -> Result<HarnessStatus, String> {
     coordinator
@@ -1278,17 +1346,395 @@ pub async fn harness_start(
         .map_err(|error| error.to_string())?;
     validate_agent_identifier(&session_id, "Session ID")?;
     let task = HarnessTaskStart {
-        task_contract_path: PathBuf::from(task_contract_path),
-        understanding_path: PathBuf::from(understanding_path),
-        worktree_root: PathBuf::from(worktree_root),
-        knowledge_home: PathBuf::from(knowledge_home),
-        authorization_id,
-        agent_backend,
+        task_contract_path: None,
+        understanding_path: None,
+        worktree_root: std::env::temp_dir().join("deepseek-harness-intake-worktree"),
+        knowledge_home: std::env::temp_dir().join("deepseek-harness-intake-knowledge"),
+        authorization_id: "harness-intake".to_owned(),
+        agent_backend: agent_backend.filter(|value| !value.trim().is_empty()),
+        archive_root: Some(PathBuf::from(archive_root)),
+        intake_source: Some(source),
+        intake_include_comments: Some(include_comments.unwrap_or(true)),
+        selected_model_id: selected_model_id.filter(|value| !value.trim().is_empty()),
+        yunxiao_profile_id,
+        gitlab_profile_id: None,
+        database_profile_id: None,
     };
     harness
         .start(app, &foundation, Uuid::new_v4().to_string(), task)
         .await
         .map_err(|error| error.to_string())
+}
+
+/// 打开原生目录选择器，返回用户选择的 Harness 归档根目录。
+///
+/// 返回 `None` 表示用户取消；返回的路径始终是已存在目录的规范化绝对路径，
+/// 供任务包直接落盘，不允许通过该命令选取文件或符号链接。
+#[tauri::command]
+pub async fn harness_pick_archive_root(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    app: AppHandle,
+    generation_id: String,
+    session_id: String,
+) -> Result<Option<String>, String> {
+    coordinator
+        .validate_generation(&generation_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    let handle = app.clone();
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        use tauri_plugin_dialog::DialogExt;
+        handle
+            .dialog()
+            .file()
+            .set_title("选择 Harness 归档根目录")
+            .set_can_create_directories(true)
+            .blocking_pick_folder()
+    })
+    .await
+    .map_err(|_| "Harness 归档目录选择器无法打开".to_owned())?;
+    let Some(file_path) = picked else {
+        return Ok(None);
+    };
+    let path = file_path
+        .into_path()
+        .map_err(|_| "选择的目录路径无效".to_owned())?;
+    if !path.is_absolute() || path.to_string_lossy().contains('\0') {
+        return Err("选择的目录路径无效".to_owned());
+    }
+    let canonical = path
+        .canonicalize()
+        .map_err(|_| "选择的目录不可读取".to_owned())?;
+    if !canonical.is_dir() {
+        return Err("选择的路径不是目录".to_owned());
+    }
+    Ok(Some(canonical.to_string_lossy().into_owned()))
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessConnectionProfileReply {
+    profile_id: String,
+    kind: String,
+    provider_id: String,
+    display_name: String,
+    endpoint: String,
+    read_only: bool,
+    enabled: bool,
+    credential_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessConnectionTestReply {
+    profile_id: String,
+    tested: bool,
+    test_kind: String,
+    message: String,
+}
+
+fn validate_harness_connection_kind(value: &str) -> Result<(), String> {
+    if matches!(value, "mcp" | "database") {
+        Ok(())
+    } else {
+        Err("Harness 连接类型无效，只支持 mcp 或 database".to_owned())
+    }
+}
+
+fn validate_harness_connection_provider(value: &str, kind: &str) -> Result<(), String> {
+    let valid = match kind {
+        "database" => value == "generic",
+        "mcp" => matches!(value, "yunxiao" | "gitlab" | "generic"),
+        _ => false,
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err("Harness 连接归属无效：数据库使用 generic，MCP 使用 yunxiao、gitlab 或 generic".to_owned())
+    }
+}
+
+fn validate_harness_connection_endpoint(value: &str) -> Result<(), String> {
+    if value.len() > 4096 || value.contains('\0') || value.contains("@") {
+        return Err("连接地址无效，不能包含用户密码信息".to_owned());
+    }
+    Ok(())
+}
+
+pub(crate) fn ensure_harness_connection_table(connection: &rusqlite::Connection) -> Result<(), String> {
+    connection
+        .execute_batch(
+            "CREATE TABLE IF NOT EXISTS harness_connection_profiles (
+                profile_id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL CHECK(kind IN ('mcp', 'database')),
+                provider_id TEXT NOT NULL DEFAULT 'generic',
+                display_name TEXT NOT NULL,
+                endpoint TEXT NOT NULL DEFAULT '',
+                read_only INTEGER NOT NULL CHECK(read_only IN (0, 1)),
+                enabled INTEGER NOT NULL CHECK(enabled IN (0, 1)),
+                credential_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )",
+        )
+        .map_err(|_| "Harness 连接配置表不可用".to_owned())?;
+    let _ = connection.execute(
+        "ALTER TABLE harness_connection_profiles ADD COLUMN provider_id TEXT NOT NULL DEFAULT 'generic'",
+        [],
+    );
+    Ok(())
+}
+
+fn validate_harness_profile_id(value: &str) -> Result<(), String> {
+    validate_agent_identifier(value, "连接 Profile ID")
+}
+
+#[tauri::command]
+pub async fn harness_connection_list(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    foundation: State<'_, Arc<DesktopFoundation>>,
+    generation_id: String,
+    session_id: String,
+    kind: Option<String>,
+) -> Result<Vec<HarnessConnectionProfileReply>, String> {
+    coordinator
+        .validate_generation(&generation_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    if let Some(kind) = kind.as_deref() {
+        validate_harness_connection_kind(kind)?;
+    }
+    let store = foundation
+        .agent_store
+        .as_ref()
+        .ok_or_else(|| "Agent 数据服务当前不可用".to_owned())?;
+    let writer = store.writer().map_err(|error| error.to_string())?;
+    ensure_harness_connection_table(writer.connection())?;
+    drop(writer);
+    let connection = store.reader().map_err(|error| error.to_string())?;
+    let mut statement = connection
+        .prepare(
+            "SELECT profile_id, kind, provider_id, display_name, endpoint, read_only, enabled, credential_id
+             FROM harness_connection_profiles
+             WHERE (?1 IS NULL OR kind = ?1)
+             ORDER BY kind, display_name, profile_id",
+        )
+        .map_err(|_| "Harness 连接配置读取失败".to_owned())?;
+    let rows = statement
+        .query_map([kind.as_deref()], |row| {
+            Ok(HarnessConnectionProfileReply {
+                profile_id: row.get(0)?,
+                kind: row.get(1)?,
+                provider_id: row.get(2)?,
+                display_name: row.get(3)?,
+                endpoint: row.get(4)?,
+                read_only: row.get::<_, i64>(5)? != 0,
+                enabled: row.get::<_, i64>(6)? != 0,
+                credential_id: row.get(7)?,
+            })
+        })
+        .map_err(|_| "Harness 连接配置读取失败".to_owned())?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(|_| "Harness 连接配置读取失败".to_owned())
+}
+
+#[tauri::command]
+pub async fn harness_connection_save(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    foundation: State<'_, Arc<DesktopFoundation>>,
+    generation_id: String,
+    session_id: String,
+    profile_id: Option<String>,
+    kind: String,
+    provider_id: Option<String>,
+    display_name: String,
+    endpoint: String,
+    read_only: bool,
+    enabled: bool,
+    credential_id: Option<String>,
+) -> Result<HarnessConnectionProfileReply, String> {
+    coordinator
+        .validate_generation(&generation_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    validate_harness_connection_kind(&kind)?;
+    let provider_id = provider_id.unwrap_or_else(|| "generic".to_owned());
+    validate_harness_connection_provider(&provider_id, &kind)?;
+    if display_name.trim().is_empty() || display_name.len() > 120 || display_name.contains('\0') {
+        return Err("连接 Profile 名称无效".to_owned());
+    }
+    validate_harness_connection_endpoint(&endpoint)?;
+    let profile_id = profile_id.unwrap_or_else(|| Uuid::new_v4().to_string());
+    validate_harness_profile_id(&profile_id)?;
+    if let Some(credential_id) = credential_id.as_deref() {
+        validate_agent_identifier(credential_id, "Credential ID")?;
+    }
+    let store = foundation
+        .agent_store
+        .as_ref()
+        .ok_or_else(|| "Agent 数据服务当前不可用".to_owned())?;
+    let read_only = read_only || kind == "database";
+    let mut writer = store.writer().map_err(|error| error.to_string())?;
+    ensure_harness_connection_table(writer.connection())?;
+    let now = Utc::now().to_rfc3339();
+    writer
+        .connection_mut()
+        .execute(
+            "INSERT INTO harness_connection_profiles
+                (profile_id, kind, provider_id, display_name, endpoint, read_only, enabled, credential_id, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)
+             ON CONFLICT(profile_id) DO UPDATE SET
+                kind = excluded.kind, provider_id = excluded.provider_id, display_name = excluded.display_name,
+                endpoint = excluded.endpoint, read_only = excluded.read_only,
+                enabled = excluded.enabled, credential_id = excluded.credential_id,
+                updated_at = excluded.updated_at",
+            rusqlite::params![profile_id, kind, provider_id, display_name.trim(), endpoint, read_only as i64, enabled as i64, credential_id, now],
+        )
+        .map_err(|_| "Harness 连接配置保存失败".to_owned())?;
+    Ok(HarnessConnectionProfileReply {
+        profile_id,
+        kind,
+        provider_id,
+        display_name: display_name.trim().to_owned(),
+        endpoint,
+        read_only,
+        enabled,
+        credential_id,
+    })
+}
+
+#[tauri::command]
+pub async fn harness_connection_delete(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    foundation: State<'_, Arc<DesktopFoundation>>,
+    generation_id: String,
+    session_id: String,
+    profile_id: String,
+) -> Result<(), String> {
+    coordinator
+        .validate_generation(&generation_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    validate_harness_profile_id(&profile_id)?;
+    let store = foundation.agent_store.as_ref().ok_or_else(|| "Agent 数据服务当前不可用".to_owned())?;
+    let mut writer = store.writer().map_err(|error| error.to_string())?;
+    ensure_harness_connection_table(writer.connection())?;
+    writer.connection_mut().execute("DELETE FROM harness_connection_profiles WHERE profile_id = ?1", [&profile_id]).map_err(|_| "Harness 连接配置删除失败".to_owned())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn harness_connection_test(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    foundation: State<'_, Arc<DesktopFoundation>>,
+    generation_id: String,
+    session_id: String,
+    profile_id: String,
+) -> Result<HarnessConnectionTestReply, String> {
+    coordinator
+        .validate_generation(&generation_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    validate_harness_profile_id(&profile_id)?;
+    let profiles = harness_connection_list(coordinator, foundation, generation_id, session_id, None).await?;
+    let profile = profiles
+        .iter()
+        .find(|profile| profile.profile_id == profile_id)
+        .ok_or_else(|| "连接 Profile 不存在".to_owned())?;
+    let probe = tokio::time::timeout(
+        std::time::Duration::from_secs(6),
+        probe_endpoint_reachability(&profile.endpoint),
+    )
+    .await
+    .unwrap_or(Err("探测超时".to_owned()));
+    let (test_kind, message) = match probe {
+        Ok(elapsed) => (
+            "network-reachability",
+            format!(
+                "已真实连通 {endpoint}（TCP {ms}ms）；认证级验证（云效 PAT/数据库只读查询）由 Harness 只读探测阶段执行。",
+                endpoint = profile.endpoint,
+                ms = elapsed.as_millis()
+            ),
+        ),
+        Err(reason) => (
+            "network-unreachable",
+            format!("无法连通 {endpoint}：{reason}", endpoint = profile.endpoint),
+        ),
+    };
+    Ok(HarnessConnectionTestReply {
+        profile_id,
+        tested: true,
+        test_kind: test_kind.to_owned(),
+        message,
+    })
+}
+
+/// 对 profile endpoint 做一次真实的 TCP 可达性探测（不发送凭证）。
+async fn probe_endpoint_reachability(endpoint: &str) -> Result<std::time::Duration, String> {
+    let (host, port) = parse_host_port(endpoint).ok_or_else(|| "地址格式无效".to_owned())?;
+    let started = std::time::Instant::now();
+    let stream = tokio::net::TcpStream::connect((host.as_str(), port))
+        .await
+        .map_err(|error| error.to_string())?;
+    drop(stream);
+    Ok(started.elapsed())
+}
+
+fn parse_host_port(endpoint: &str) -> Option<(String, u16)> {
+    let url = url::Url::parse(endpoint).ok()?;
+    let port = url.port_or_known_default()?;
+    let host = url.host_str()?.to_owned();
+    if host.is_empty() {
+        return None;
+    }
+    Some((host, port))
+}
+
+/// 把用户对业务问题的答复写入任务包（analysis/business_answers.md）。
+///
+/// 答复是用户已确认的业务口径：下一次执行的理解补齐会把它作为最高
+/// 优先级证据，已答复的问题不得再次向用户重复提问。
+#[tauri::command]
+pub async fn harness_archive_answers(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    foundation: State<'_, Arc<DesktopFoundation>>,
+    generation_id: String,
+    session_id: String,
+    archive_root: String,
+    answers: String,
+) -> Result<String, String> {
+    coordinator
+        .validate_generation(&generation_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    let root = std::path::PathBuf::from(&archive_root);
+    if !root.is_absolute()
+        || root.to_string_lossy().contains('\0')
+        || !root.is_dir()
+        || root.is_symlink()
+    {
+        return Err("Harness 任务包目录无效".to_owned());
+    }
+    let answers = answers.trim().to_owned();
+    if answers.is_empty() || answers.len() > 8_000 || answers.contains('\0') {
+        return Err("业务答复内容无效（需 1-8000 字符）".to_owned());
+    }
+    let answers_dir = root.join("analysis");
+    std::fs::create_dir_all(&answers_dir).map_err(|_| "任务包目录不可写".to_owned())?;
+    let path = answers_dir.join("business_answers.md");
+    let content = format!(
+        "# 业务答复（用户已确认）\n\n- 记录时间：{}\n- 说明：以下为用户对理解门禁所提业务问题的答复，是最高优先级的业务口径。\n\n{}\n",
+        Utc::now().to_rfc3339(),
+        answers
+    );
+    std::fs::write(&path, content).map_err(|_| "业务答复写入失败".to_owned())?;
+    let _ = &foundation.paths;
+    Ok(path.to_string_lossy().into_owned())
 }
 
 #[tauri::command]
@@ -2279,7 +2725,10 @@ pub fn start_drag(window: WebviewWindow) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{VERSIONED_AGENT_COMMAND_NAMES, parse_agent_selection};
+    use super::{
+        VERSIONED_AGENT_COMMAND_NAMES, credential_provider_display_name, parse_agent_selection,
+        validate_credential_provider,
+    };
 
     #[test]
     fn agent_selection_defaults_to_codex_and_rejects_mismatched_ids() {
@@ -2323,11 +2772,22 @@ mod tests {
             "agent_extension_enable",
             "agent_extension_disable",
             "agent_extension_uninstall",
+            "harness_connection_list",
+            "harness_connection_save",
+            "harness_connection_delete",
+            "harness_connection_test",
         ] {
             assert!(
                 VERSIONED_AGENT_COMMAND_NAMES.contains(&command),
                 "missing {command}"
             );
         }
+    }
+
+    #[test]
+    fn deepseek_is_a_credential_provider_but_not_a_cli_agent_provider() {
+        assert!(validate_credential_provider("deepseek").is_ok());
+        assert_eq!(credential_provider_display_name("deepseek"), Ok("DeepSeek"));
+        assert!(super::parse_provider("deepseek").is_err());
     }
 }

@@ -119,4 +119,25 @@ describe('HarnessBridgeClient', () => {
 
     await expect(pending).resolves.toEqual({ status: 'completed', error_code: '' })
   })
+
+  it('accepts a read-only Yunxiao intake task through the normal task protocol', () => {
+    const transport = new FakeTransport()
+    const client = new HarnessBridgeClient(transport)
+    const payload = {
+      schema_version: 'harness-external-task.v1' as const,
+      archive_root: '/private/tmp/harness-archive',
+      intake_source: 'DFHIS-39999',
+      intake_include_comments: true,
+      worktree_root: '/private/tmp/harness-worktree',
+      knowledge_home: '/private/tmp/harness-knowledge',
+      authorization_id: 'harness-intake',
+    }
+
+    expect(() => client.startTask(payload, 'intake-1')).not.toThrow()
+    expect(transport.sent[0]).toMatchObject({
+      type: 'task.start',
+      request_id: 'intake-1',
+      payload,
+    })
+  })
 })

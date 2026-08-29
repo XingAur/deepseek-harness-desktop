@@ -33,7 +33,14 @@ export type VersionedBridgeAction =
   | 'extension.uninstall'
   | 'harness.status'
   | 'harness.start'
+  | 'harness.intake'
   | 'harness.cancel'
+  | 'harness.pick-archive-root'
+  | 'harness.archive-answers'
+  | 'harness.connection.list'
+  | 'harness.connection.save'
+  | 'harness.connection.delete'
+  | 'harness.connection.test'
 
 interface VersionedBridgeResponse {
   channel: typeof DESKTOP_BRIDGE_V2_CHANNEL

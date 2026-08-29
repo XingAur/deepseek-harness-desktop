@@ -13,6 +13,8 @@ import {
   type HarnessTransport,
 } from '@dsh/agent-adapter/harness-bridge'
 import type { HarnessAgentExecutor } from '@dsh/agent-adapter/harness-host-handler'
+import { createDeepSeekExecutor } from '@dsh/agent-adapter/deepseek-harness-executor'
+import { createDeepSeekAdapter, createOpenAICompatibleAdapter } from '@dsh/agent-adapter/providers/openai-compatible'
 import { runCodexTurn } from './codex-chat'
 import { selectHarnessExecutor } from './harness-executor-selection'
 
@@ -44,11 +46,13 @@ export async function runDesktopHarnessHost(options: DesktopHarnessHostOptions):
   const transport = (options.createTransport ?? createHarnessProcessTransport)(options.sidecar)
   const selectedExecutor = options.execute === undefined
     ? selectHarnessExecutor({
-      requestedExecutor: start.payload.agent_backend,
+      requestedExecutor: start.payload.agent_backend ?? executorHintForModel(start.payload.selected_model_id),
       configuredExecutor: process.env.DSH_HARNESS_EXECUTOR,
       defaultExecutor: options.defaultExecutor ?? 'codex',
       executors: {
-        codex: (request, context) => executeWithCodex(request, context.signal, options),
+        codex: (request, context) => executeWithCodex(request, context.signal, options, start.payload.selected_model_id),
+        ...configuredDeepSeekExecutor(process.env, start.payload.selected_model_id),
+        ...configuredOpenAICompatibleExecutor(process.env, start.payload.selected_model_id),
         ...options.executors,
       },
     })
@@ -84,16 +88,76 @@ export async function runDesktopHarnessHost(options: DesktopHarnessHostOptions):
   }
 }
 
+/**
+ * Register the selected DeepSeek model for every Harness role. Credentials
+ * arrive from the Tauri secure vault through a host-only env var; they are
+ * never put into the Harness sidecar protocol.
+ */
+export function configuredDeepSeekExecutor(
+  env: NodeJS.ProcessEnv = process.env,
+  selectedModelId?: string,
+): Record<string, HarnessAgentExecutor> {
+  const apiKey = env.DSH_DEEPSEEK_API_KEY?.trim()
+  if (apiKey === undefined || apiKey.length === 0) return {}
+  return {
+    deepseek: createDeepSeekExecutor({
+      adapter: createDeepSeekAdapter(),
+      apiKey,
+      model: selectedModelId?.trim() || env.DSH_DEEPSEEK_MODEL?.trim() || 'deepseek-chat',
+    }),
+  }
+}
+
+/** Compatibility export for older host integrations. */
+export const configuredDeepSeekReviewerExecutor = configuredDeepSeekExecutor
+
+/**
+ * Register an OpenAI-compatible executor for any provider exposing the
+ * /chat/completions protocol (OpenAI, Qwen, GLM, Kimi, local gateways …).
+ * The base URL comes from the desktop host environment; the model id is the
+ * task-selected model. No hardcoded allowlist: any model the configured
+ * endpoint serves can be selected.
+ */
+export function configuredOpenAICompatibleExecutor(
+  env: NodeJS.ProcessEnv = process.env,
+  selectedModelId?: string,
+): Record<string, HarnessAgentExecutor> {
+  const apiKey = env.DSH_OPENAI_API_KEY?.trim()
+  const baseUrl = env.DSH_OPENAI_BASE_URL?.trim() || 'https://api.openai.com/v1'
+  const model = selectedModelId?.trim()
+  if (apiKey === undefined || apiKey.length === 0 || model === undefined || model.length === 0) return {}
+  return {
+    'openai-compatible': createDeepSeekExecutor({
+      adapter: createOpenAICompatibleAdapter({ baseUrl }),
+      apiKey,
+      model,
+    }),
+  }
+}
+
+/**
+ * Bind a provider-namespaced model id to its executor when the task did not
+ * pick a backend explicitly.  This is provider routing, not a product
+ * restriction: any other model keeps the configured/default executor.
+ */
+export function executorHintForModel(selectedModelId: string | undefined): string | undefined {
+  const model = selectedModelId?.trim().toLowerCase()
+  if (model === undefined || model === '') return undefined
+  if (model.startsWith('deepseek')) return 'deepseek'
+  return undefined
+}
+
 async function executeWithCodex(
   request: HarnessAgentRequest,
   signal: AbortSignal,
   options: DesktopHarnessHostOptions,
+  selectedModelId?: string,
 ): Promise<{ finalResponse: Record<string, unknown> }> {
   const turn = await runCodexTurn({
     sessionId: `harness-${request.role}-${request.worktree_path.split('/').at(-1) ?? 'task'}`,
     prompt: request.prompt,
     cwd: request.worktree_path,
-    model: options.model,
+    model: selectedModelId?.trim() || options.model,
     reasoningEffort: options.reasoningEffort,
     system: '你是 Harness 的执行模型。只执行当前请求中的已确认步骤，不重新规划、不扩大范围、不改变目标项目之外的内容。遇到不确定性只报告事实。',
     signal,
@@ -103,8 +167,10 @@ async function executeWithCodex(
     },
   })
   const response = request.output_contract.schema_version === 'none'
-    ? { text: turn.text, thread_id: turn.threadId }
-    : { schema_version: request.output_contract.schema_version, text: turn.text, thread_id: turn.threadId }
+    // The Harness side rejects opaque provider keys (thread_id etc.) in
+    // final_response; only the plain text crosses the bridge.
+    ? { text: turn.text }
+    : { schema_version: request.output_contract.schema_version, text: turn.text }
   return { finalResponse: response }
 }
 

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { isAbsolute } from 'node:path'
 import {
   HARNESS_BRIDGE_MAX_BYTES,
   type HarnessAgentRequest,
@@ -116,7 +117,7 @@ export function validateHarnessAgentRequest(value: unknown): HarnessAgentRequest
     || value.schema_version !== 'his-agent-backend-request.v1'
     || !['worker', 'reviewer'].includes(String(value.role))
     || typeof value.worktree_path !== 'string'
-    || !value.worktree_path.startsWith('/')
+    || !isAbsolute(String(value.worktree_path))
     || typeof value.prompt !== 'string'
     || value.prompt.trim() === ''
     || Buffer.byteLength(value.prompt, 'utf8') > MAX_PROMPT_BYTES

@@ -21,6 +21,10 @@
       "types": "./lib/types/adapters/index.d.ts",
       "default": "./lib/adapters.js"
     },
+    "./providers/openai-compatible": {
+      "types": "./lib/types/providers/openai-compatible.d.ts",
+      "default": "./lib/providers/openai-compatible.js"
+    },
     "./mcp": {
       "types": "./lib/types/mcp/client.d.ts",
       "default": "./lib/mcp.js"
@@ -44,6 +48,10 @@
     "./harness-capability-map": {
       "types": "./lib/types/harness-capability-map.d.ts",
       "default": "./lib/harness-capability-map.js"
+    },
+    "./deepseek-harness-executor": {
+      "types": "./lib/types/deepseek-harness-executor.d.ts",
+      "default": "./lib/deepseek-harness-executor.js"
     }
   },
   "files": ["lib/**"],

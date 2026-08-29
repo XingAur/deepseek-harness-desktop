@@ -4,6 +4,7 @@ export interface ProviderMetadata {
   providerId: string
   displayName: string
   cliCommand: string
+  kind?: 'cli' | 'api'
   adapterProtocol: string
   credentialSupported: boolean
   developerOnly: boolean

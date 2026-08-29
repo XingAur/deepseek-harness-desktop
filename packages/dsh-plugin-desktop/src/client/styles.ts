@@ -97,6 +97,20 @@ export function installAdvancedStyles(): () => void {
     .dshModelAgentDialogHint { margin: 0; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 12px; line-height: 1.55; }
     .dshModelAgentField { display: grid; gap: 6px; color: var(--dsw-alias-label-secondary, #b7b7bf); font-size: 12px; }
     .dshModelAgentField input { box-sizing: border-box; width: 100%; min-height: 39px; padding: 0 10px; border: 1px solid var(--dsh-desktop-divider); border-radius: 8px; color: inherit; background: var(--dsw-alias-bg-layer-2, #29292e); }
+    .dshModelAgentField textarea { box-sizing: border-box; width: 100%; padding: 8px 10px; border: 1px solid var(--dsh-desktop-divider); border-radius: 8px; color: inherit; background: var(--dsw-alias-bg-layer-2, #29292e); font: inherit; resize: vertical; }
+    .dshModelAgentWarning ul { margin: 8px 0 0; padding-left: 18px; }
+    .dshModelAgentFieldRow { display: flex; align-items: end; gap: 8px; }
+    .dshModelAgentFieldRow .dshModelAgentField { flex: 1; min-width: 0; }
+    .dshModelAgentSecondary { min-height: 39px; align-self: end; padding: 0 12px; border: 1px solid var(--dsh-desktop-divider); border-radius: 8px; color: inherit; background: var(--dsw-alias-bg-layer-2, #29292e); cursor: pointer; white-space: nowrap; }
+    .dshModelAgentSecondary:hover { border-color: color-mix(in srgb, #7196ff 45%, var(--dsh-desktop-divider)); }
+    .dshModelAgentSecondary:disabled { opacity: 0.55; cursor: default; }
+    .dshModelAgentFormGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+    .dshModelAgentListRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--dsh-desktop-divider); }
+    .dshModelAgentListRow > div:first-child { min-width: 0; }
+    .dshModelAgentListRow .dshModelAgentMuted { overflow-wrap: anywhere; }
+    .dshModelAgentSuccess { color: #8fd2ae; font-size: 11px; }
+    .dshModelAgentAdvanced { display: grid; gap: 10px; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 12px; }
+    .dshModelAgentAdvanced summary { cursor: pointer; }
     .dshModelAgentDialog footer { display: flex; justify-content: flex-end; gap: 8px; }
     .dshModelAgentDialog footer .dshModelAgentPrimary { border-color: transparent; color: white; background: #5877cf; }
     .dshExtensionReviewFacts { display: grid; gap: 8px; margin: 0; }

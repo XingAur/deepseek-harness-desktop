@@ -154,4 +154,83 @@ it('maps plugin market actions to dedicated commands with bounded payloads', () 
       unexpected: true,
     })).toBe(false)
   })
+
+  it('routes maintainable MCP and database profiles without allowing secrets in profile payloads', () => {
+    expect(bridgeCommandByActionV2['harness.connection.list']).toBe('harness_connection_list')
+    expect(bridgeCommandByActionV2['harness.connection.save']).toBe('harness_connection_save')
+    expect(isVersionedBridgePayload('harness.connection.list', { kind: 'database' })).toBe(true)
+    expect(isVersionedBridgePayload('harness.connection.save', {
+      profileId: 'his-db-readonly', kind: 'database', providerId: 'generic', displayName: 'HIS 只读库',
+      endpoint: 'postgresql://db.internal:5432/his', readOnly: true, enabled: true,
+      credentialId: 'credential-1',
+    })).toBe(true)
+    expect(isVersionedBridgePayload('harness.connection.save', {
+      kind: 'database', displayName: 'HIS 只读库', password: 'must-not-cross',
+    })).toBe(false)
+  })
+
+  it('accepts a selected Harness package without requiring generated file paths', () => {
+    expect(isVersionedBridgePayload('harness.start', {
+      archiveRoot: '/Users/test/harness/DFHIS-32178/harness',
+      worktreeRoot: '/Users/test/project',
+      knowledgeHome: '/Users/test/knowledge',
+      authorizationId: 'DFHIS-32178-change-1',
+      selectedModelId: 'gpt-5.6-sol',
+    })).toBe(true)
+  })
+
+  it('accepts a read-only Yunxiao intake source without allowing credentials in the source', () => {
+    expect(bridgeCommandByActionV2['harness.intake']).toBe('harness_intake')
+    expect(isVersionedBridgePayload('harness.intake', {
+      source: 'https://devops.aliyun.com/projex/req/DFHIS-39999',
+      archiveRoot: '/Users/test/harness-archives',
+      includeComments: true,
+    })).toBe(true)
+    expect(isVersionedBridgePayload('harness.intake', {
+      source: 'DFHIS-39999',
+      archiveRoot: '/Users/test/harness-archives',
+    })).toBe(true)
+    expect(isVersionedBridgePayload('harness.intake', {
+      source: 'https://devops.aliyun.com/projex/req/DFHIS-39999?token=secret',
+      archiveRoot: '/Users/test/harness-archives',
+    })).toBe(false)
+  })
+
+  it('carries the selected model into the intake and rejects malformed backend ids', () => {
+    expect(isVersionedBridgePayload('harness.intake', {
+      source: 'DFHIS-39999',
+      archiveRoot: '/Users/test/harness-archives',
+      selectedModelId: 'deepseek-reasoner',
+      agentBackend: 'deepseek',
+    })).toBe(true)
+    expect(isVersionedBridgePayload('harness.intake', {
+      source: 'DFHIS-39999',
+      archiveRoot: '/Users/test/harness-archives',
+      agentBackend: 'HOST-BRIDGE',
+    })).toBe(false)
+    expect(isVersionedBridgePayload('harness.intake', {
+      source: 'DFHIS-39999',
+      archiveRoot: '/Users/test/harness-archives',
+      selectedModelId: 'not a model id',
+    })).toBe(false)
+  })
+
+  it('exposes the native archive-root picker without any payload fields', () => {
+    expect(bridgeCommandByActionV2['harness.pick-archive-root']).toBe('harness_pick_archive_root')
+    expect(isVersionedBridgePayload('harness.pick-archive-root', {})).toBe(true)
+    expect(isVersionedBridgePayload('harness.pick-archive-root', { path: '/tmp' })).toBe(false)
+  })
+
+  it('carries bounded business answers into the task package', () => {
+    expect(bridgeCommandByActionV2['harness.archive-answers']).toBe('harness_archive_answers')
+    expect(isVersionedBridgePayload('harness.archive-answers', {
+      archiveRoot: '/Users/test/harness-archives/DFHIS-39999/harness',
+      answers: '重打记录按操作员过滤。',
+    })).toBe(true)
+    expect(isVersionedBridgePayload('harness.archive-answers', {
+      archiveRoot: '/Users/test/harness-archives/DFHIS-39999/harness',
+      answers: 'x'.repeat(8001),
+    })).toBe(false)
+    expect(isVersionedBridgePayload('harness.archive-answers', { answers: '有效答复' })).toBe(false)
+  })
 })

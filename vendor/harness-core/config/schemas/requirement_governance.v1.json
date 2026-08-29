@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "requirement-governance.v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "status", "can_modify", "can_complete_in_single_pass", "risk_level", "checks", "blockers", "missing_information", "unsupported_reasons", "required_capabilities", "evidence_refs"],
+  "properties": {
+    "schema_version": {"const": "requirement-governance.v1"},
+    "status": {"enum": ["ready_for_local_change", "review_only", "blocked_needs_requirement", "blocked_needs_business_decision", "blocked_unsupported"]},
+    "can_modify": {"type": "boolean"},
+    "can_complete_in_single_pass": {"type": "boolean"},
+    "risk_level": {"enum": ["low", "medium", "high", "critical", "unknown"]},
+    "checks": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "prefixItems": [
+        {"allOf": [{"$ref": "#/$defs/check"}, {"properties": {"name": {"const": "source_integrity"}}}]},
+        {"allOf": [{"$ref": "#/$defs/check"}, {"properties": {"name": {"const": "reasonableness"}}}]},
+        {"allOf": [{"$ref": "#/$defs/check"}, {"properties": {"name": {"const": "compliance"}}}]},
+        {"allOf": [{"$ref": "#/$defs/check"}, {"properties": {"name": {"const": "completeness"}}}]},
+        {"allOf": [{"$ref": "#/$defs/check"}, {"properties": {"name": {"const": "changeability"}}}]},
+        {"allOf": [{"$ref": "#/$defs/check"}, {"properties": {"name": {"const": "impact"}}}]},
+        {"allOf": [{"$ref": "#/$defs/check"}, {"properties": {"name": {"const": "verification"}}}]},
+        {"allOf": [{"$ref": "#/$defs/check"}, {"properties": {"name": {"const": "single_pass_readiness"}}}]}
+      ],
+      "items": false
+    },
+    "blockers": {"type": "array", "items": {"type": "string"}},
+    "missing_information": {"type": "array", "items": {"type": "string"}},
+    "unsupported_reasons": {"type": "array", "items": {"type": "string"}},
+    "required_capabilities": {"type": "array", "items": {"type": "string", "pattern": "^[a-z][a-z0-9_.:-]{0,127}$"}},
+    "evidence_refs": {"type": "array", "items": {"type": "object"}}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "ready_for_local_change"}}, "required": ["status"]},
+      "then": {
+        "properties": {
+          "can_modify": {"const": true},
+          "can_complete_in_single_pass": {"const": true},
+          "blockers": {"maxItems": 0},
+          "missing_information": {"maxItems": 0},
+          "unsupported_reasons": {"maxItems": 0},
+          "checks": {"prefixItems": [
+            {"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "pass"}}},
+            {"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "pass"}}},
+            {"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "pass"}}},
+            {"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "pass"}}}
+          ]}
+        }
+      }
+    },
+    {"if": {"properties": {"can_modify": {"const": true}}, "required": ["can_modify"]}, "then": {"properties": {"status": {"const": "ready_for_local_change"}}}},
+    {"if": {"properties": {"can_complete_in_single_pass": {"const": true}}, "required": ["can_complete_in_single_pass"]}, "then": {"properties": {"status": {"const": "ready_for_local_change"}}}},
+    {"if": {"properties": {"status": {"not": {"const": "ready_for_local_change"}}}, "required": ["status"]}, "then": {"properties": {"can_modify": {"const": false}, "can_complete_in_single_pass": {"const": false}, "blockers": {"minItems": 1}}}},
+    {"if": {"properties": {"checks": {"contains": {"properties": {"status": {"enum": ["blocked", "warning"]}}, "required": ["status"]}}}, "required": ["checks"]}, "then": {"properties": {"blockers": {"minItems": 1}}}},
+    {"if": {"properties": {"blockers": {"maxItems": 0}, "missing_information": {"maxItems": 0}, "unsupported_reasons": {"maxItems": 0}, "checks": {"prefixItems": [
+      {"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "pass"}}},
+      {"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "pass"}}},
+      {"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "pass"}}},
+      {"properties": {"status": {"const": "pass"}}}, {"properties": {"status": {"const": "pass"}}}
+    ]}}, "required": ["blockers", "missing_information", "unsupported_reasons", "checks"]}, "then": {"properties": {"status": {"const": "ready_for_local_change"}}}}
+  ],
+  "$defs": {
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "status", "summary", "evidence_refs", "blockers", "warnings"],
+      "properties": {
+        "name": {"enum": ["source_integrity", "reasonableness", "compliance", "completeness", "changeability", "impact", "verification", "single_pass_readiness"]},
+        "status": {"enum": ["pass", "warning", "blocked", "not_applicable"]},
+        "summary": {"type": "string"},
+        "evidence_refs": {"type": "array", "items": {"type": "object"}},
+        "blockers": {"type": "array", "items": {"type": "string"}},
+        "warnings": {"type": "array", "items": {"type": "string"}}
+      },
+      "allOf": [
+        {"if": {"properties": {"status": {"const": "pass"}}, "required": ["status"]}, "then": {"properties": {"blockers": {"maxItems": 0}, "warnings": {"maxItems": 0}}}},
+        {"if": {"properties": {"status": {"const": "blocked"}}, "required": ["status"]}, "then": {"properties": {"blockers": {"minItems": 1}}}},
+        {"if": {"properties": {"status": {"const": "warning"}}, "required": ["status"]}, "then": {"properties": {"blockers": {"maxItems": 0}, "warnings": {"minItems": 1}}}}
+      ]
+    }
+  }
+}
