@@ -28,19 +28,19 @@ describe('harness core assembly', () => {
 
   it('prefers the bundled runtime layout and falls back to a venv layout', () => {
     const coreRoot = temporary()
-    expect(bundledPythonExecutable(coreRoot)).toBe('')
+    expect(bundledPythonExecutable(coreRoot, 'darwin')).toBe('')
     mkdirSync(join(coreRoot, 'runtime', 'bin'), { recursive: true })
     writeFileSync(join(coreRoot, 'runtime', 'bin', 'python3'), '#!/bin/sh\n')
-    expect(bundledPythonExecutable(coreRoot).endsWith(join('runtime', 'bin', 'python3'))).toBe(true)
+    expect(bundledPythonExecutable(coreRoot, 'darwin').endsWith(join('runtime', 'bin', 'python3'))).toBe(true)
 
     const venvRoot = temporary()
     mkdirSync(join(venvRoot, '.venv', 'bin'), { recursive: true })
     writeFileSync(join(venvRoot, '.venv', 'bin', 'python'), '#!/bin/sh\n')
-    expect(bundledPythonExecutable(venvRoot).endsWith(join('.venv', 'bin', 'python'))).toBe(true)
+    expect(bundledPythonExecutable(venvRoot, 'darwin').endsWith(join('.venv', 'bin', 'python'))).toBe(true)
   })
 
   it('offers platform specific embedded python candidates for the host entrypoint', () => {
-    const darwin = embeddedPythonCandidates('/opt/harness/core', 'darwin')
+    const darwin = embeddedPythonCandidates('/opt/harness/core', 'darwin').map((candidate) => candidate.replaceAll('\\', '/'))
     expect(darwin[0].endsWith('runtime/bin/python3')).toBe(true)
     expect(darwin.some((candidate) => candidate.endsWith('.venv/bin/python'))).toBe(true)
     const windows = embeddedPythonCandidates('C:\\Harness\\core', 'win32').map((candidate) => candidate.replaceAll('\\', '/'))
