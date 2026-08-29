@@ -39,6 +39,16 @@ impl PromptsService {
         })
     }
 
+    /// 内存库兜底构造:主库不可用时的降级路径(预设不持久)。
+    pub fn open_ephemeral(paths: &crate::storage::app_paths::AppPaths) -> Result<Self> {
+        Ok(Self {
+            store: PromptsStore::open_ephemeral()?,
+            backup_root: paths.backups.join("prompts"),
+            home: targets::detect_home(),
+            profiles_root: paths.profiles.clone(),
+        })
+    }
+
     fn now_ms() -> i64 {
         chrono::Utc::now().timestamp_millis()
     }

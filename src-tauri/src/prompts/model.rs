@@ -77,14 +77,14 @@ pub struct ConflictCandidate {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
+#[serde(tag = "kind", rename_all = "kebab-case", rename_all_fields = "camelCase")]
 pub enum SaveOutcome {
     Saved { preset: PromptPreset, projected: Vec<TargetStatus> },
     BackfillConflict { preset_id: String, candidates: Vec<ConflictCandidate> },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
+#[serde(tag = "kind", rename_all = "kebab-case", rename_all_fields = "camelCase")]
 pub enum ActivateOutcome {
     Ok { status: TargetStatus },
     BackfillConflict { preset_id: String, candidates: Vec<ConflictCandidate> },
@@ -158,6 +158,8 @@ mod tests {
         })
         .unwrap();
         assert_eq!(conflict["kind"], "backfill-conflict");
+        assert_eq!(conflict["presetId"], "p1");
+        assert!(conflict.get("preset_id").is_none(), "字段必须是 camelCase");
     }
 
     #[test]

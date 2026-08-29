@@ -2215,8 +2215,8 @@ fn parse_prompt_target(value: &str) -> Result<crate::prompts::model::PromptTarge
         .ok_or_else(|| format!("未知提示词目标: {value}"))
 }
 
-fn flow_to_outcome_value<T: serde::Serialize>(
-    flow: crate::prompts::model::Flow<T>,
+fn flow_to_outcome_value(
+    flow: crate::prompts::model::Flow<crate::prompts::model::SaveOutcome>,
 ) -> Result<serde_json::Value, String> {
     match flow {
         crate::prompts::model::Flow::Done(outcome) => {

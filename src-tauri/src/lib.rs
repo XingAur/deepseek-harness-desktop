@@ -473,8 +473,17 @@ fn run_desktop() {
             });
             app.manage(Arc::new(agents::cli_ops::AgentCliJobState::new()));
             app.manage(Arc::new(plugin_market::PluginMarketState::new()));
-            let prompts_service = prompts::service::PromptsService::open(&foundation.paths)
-                .map_err(|cause| Box::<dyn std::error::Error>::from(cause.to_string()))?;
+            // 提示词库打不开(迁移拒绝/库损坏)时降级为内存库兜底:预设不持久,但应用与
+            // 三目标功能仍可用——辅助功能不应在 setup 阶段砖掉整个应用。
+            let prompts_service = match prompts::service::PromptsService::open(&foundation.paths) {
+                Ok(service) => service,
+                Err(cause) => prompts::service::PromptsService::open_ephemeral(&foundation.paths)
+                    .map_err(|fallback| {
+                        Box::<dyn std::error::Error>::from(format!(
+                            "prompts 库打开失败 {cause}; 内存兜底也失败: {fallback}"
+                        ))
+                    })?,
+            };
             app.manage(Arc::new(prompts_service));
             let runtime_services = if foundation.runtime_allowed().is_ok() {
                 let runtime_paths = RuntimePaths::from_app_paths(&foundation.paths)

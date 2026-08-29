@@ -31,6 +31,21 @@ impl PromptsStore {
         Ok(Self { connection: Mutex::new(connection) })
     }
 
+    /// 内存库兜底:主库打不开时使用,生命周期仅限本次进程。
+    pub fn open_ephemeral() -> Result<Self> {
+        let connection = Connection::open_in_memory()
+            .map_err(|error| PromptsError::Store(error.to_string()))?;
+        connection
+            .pragma_update(None, "foreign_keys", true)
+            .map_err(|error| PromptsError::Store(error.to_string()))?;
+        let mut connection = connection;
+        migrations::migrate_to_current(&mut connection)
+            .map_err(|error| PromptsError::Store(error.to_string()))?;
+        migrations::validate_current_schema(&connection)
+            .map_err(|error| PromptsError::Store(error.to_string()))?;
+        Ok(Self { connection: Mutex::new(connection) })
+    }
+
     fn with_lock<T>(&self, operation: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
         let guard = self.connection.lock().map_err(|_| PromptsError::Store("存储锁中毒".into()))?;
         operation(&guard)
@@ -235,5 +250,14 @@ mod tests {
         store.set_activation(PromptTarget::Claude, "p1", 5).unwrap();
         store.delete_preset("p1").unwrap();
         assert_eq!(store.active_preset_id(PromptTarget::Claude).unwrap(), None);
+    }
+
+    #[test]
+    fn ephemeral_store_supports_full_crud_in_memory() {
+        let store = PromptsStore::open_ephemeral().unwrap();
+        store.insert_preset("p1", "A", "c", 1, 1).unwrap();
+        assert_eq!(store.list_presets().unwrap().len(), 1);
+        store.set_activation(PromptTarget::Claude, "p1", 5).unwrap();
+        assert_eq!(store.active_preset_id(PromptTarget::Claude).unwrap().as_deref(), Some("p1"));
     }
 }
