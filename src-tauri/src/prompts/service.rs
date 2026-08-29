@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::prompts::backup::backup_live_file;
 use crate::prompts::model::{
-    ConflictCandidate, Flow, PresetSummary, PromptPreset, PromptTarget, PromptsError, Result,
+    ActivateOutcome, ConflictCandidate, Flow, PresetSummary, PromptPreset, PromptTarget, PromptsError, Result,
     SaveOutcome, TargetStatus, MAX_PROMPT_BYTES,
 };
 use crate::prompts::store::PromptsStore;
@@ -139,6 +139,50 @@ impl PromptsService {
             return Err(PromptsError::PresetActive(preset_id.to_owned()));
         }
         self.store.delete_preset(preset_id)
+    }
+
+    /// 激活(目标 X ← 预设 P,spec §5 修订版):单目标就地回填,无冲突对话框。
+    /// ① live 非空且 X 已有激活项 Q:外部修改回填覆盖 Q(Q==P 时跳过,随②覆盖);
+    ///    live 非空且无激活项:外部内容落 backup-{ms} 备份预设;
+    /// ② 备份 live → 原子写 P 内容 → 落激活记录。
+    pub fn activate(&self, preset_id: &str, target: PromptTarget) -> Result<ActivateOutcome> {
+        let preset = self.get(preset_id)?;
+        let Some(path) = self.prompt_file_for(target)? else {
+            return Err(PromptsError::TargetNotInstalled(target));
+        };
+        let live = targets::read_live_prompt(&path)?;
+        if let Some(live_text) = live.filter(|text| !text.is_empty()) {
+            match self.store.active_preset_id(target)? {
+                None => {
+                    let now = Self::now_ms();
+                    let backup_id = uuid::Uuid::new_v4().to_string();
+                    self.store.insert_preset(&backup_id, &format!("backup-{now}"), &live_text, now, now)?;
+                }
+                Some(previous_id) => {
+                    if previous_id != preset.id {
+                        if let Some(previous) = self.store.get_preset(&previous_id)? {
+                            if previous.content != live_text {
+                                self.store.update_preset(&previous.id, &previous.title, &live_text, Self::now_ms())?;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        backup_live_file(&path, &self.backup_root.join(target.as_str()))?;
+        targets::atomic_write(&path, preset.content.as_bytes())?;
+        self.store.set_activation(target, preset_id, Self::now_ms())?;
+        Ok(ActivateOutcome::Ok { status: self.status_of(target)? })
+    }
+
+    /// 停用:清空目标 live 文件(写前备份),删除激活记录。对齐 cc-switch「禁用即清空」。
+    pub fn deactivate(&self, target: PromptTarget) -> Result<TargetStatus> {
+        if let Some(path) = self.prompt_file_for(target)? {
+            backup_live_file(&path, &self.backup_root.join(target.as_str()))?;
+            targets::atomic_write(&path, b"")?;
+        }
+        self.store.clear_activation(target)?;
+        self.status_of(target)
     }
 
     /// 收集激活目标 live 内容与 DB 的分歧项,按内容去重(同内容保留最先目标,target 升序)。
@@ -445,5 +489,119 @@ mod tests {
             .find(|summary| summary.title.starts_with("backup-"))
             .expect("应有备份预设");
         assert_eq!(service.get(&backup.id).unwrap().content, "外部修改");
+    }
+
+    pub(crate) fn write_live(env: &Env, target: PromptTarget, content: &str) {
+        let service = service(env);
+        let path = service.prompt_file_for(target).unwrap().unwrap();
+        std::fs::write(path, content).unwrap();
+    }
+
+    pub(crate) fn read_live(env: &Env, target: PromptTarget) -> Option<String> {
+        let service = service(env);
+        let path = service.prompt_file_for(target).unwrap().unwrap();
+        std::fs::read_to_string(path).ok()
+    }
+
+    #[test]
+    fn activate_writes_file_records_activation_and_backs_up_live() {
+        let env = env();
+        let service = service(&env);
+        write_live(&env, PromptTarget::Claude, "外部原有内容");
+        let saved = match service.save(None, "P", "新内容").unwrap() {
+            Flow::Done(SaveOutcome::Saved { preset, .. }) => preset,
+            _ => panic!(),
+        };
+        match service.activate(&saved.id, PromptTarget::Claude).unwrap() {
+            crate::prompts::model::ActivateOutcome::Ok { status } => {
+                assert_eq!(status.active_preset_id.as_deref(), Some(saved.id.as_str()));
+                assert!(status.matches_active_preset);
+            }
+            crate::prompts::model::ActivateOutcome::BackfillConflict { .. } => panic!("activate 无冲突路径"),
+        }
+        assert_eq!(read_live(&env, PromptTarget::Claude).unwrap(), "新内容");
+        assert_eq!(
+            service.store.active_preset_id(PromptTarget::Claude).unwrap().as_deref(),
+            Some(saved.id.as_str())
+        );
+        let backups = std::fs::read_dir(env.backups.join("claude")).unwrap().count();
+        assert_eq!(backups, 1, "激活前必须留一份外部内容备份");
+    }
+
+    #[test]
+    fn activate_backfills_external_edit_into_previous_active_preset() {
+        let env = env();
+        let service = service(&env);
+        let first = match service.save(None, "A", "a1").unwrap() {
+            Flow::Done(SaveOutcome::Saved { preset, .. }) => preset,
+            _ => panic!(),
+        };
+        service.activate(&first.id, PromptTarget::Codex).unwrap();
+        write_live(&env, PromptTarget::Codex, "外部修改");
+        let second = match service.save(None, "B", "b1").unwrap() {
+            Flow::Done(SaveOutcome::Saved { preset, .. }) => preset,
+            _ => panic!(),
+        };
+        service.activate(&second.id, PromptTarget::Codex).unwrap();
+        let first_content = service.get(&first.id).unwrap().content;
+        assert_eq!(first_content, "外部修改", "被换下的激活预设必须吸收外部修改");
+        assert_eq!(read_live(&env, PromptTarget::Codex).unwrap(), "b1");
+    }
+
+    #[test]
+    fn activate_skips_uninstalled_target() {
+        let env = env();
+        let service = service(&env);
+        let saved = match service.save(None, "P", "v1").unwrap() {
+            Flow::Done(SaveOutcome::Saved { preset, .. }) => preset,
+            _ => panic!(),
+        };
+        let error = service.activate(&saved.id, PromptTarget::Dsh).unwrap_err();
+        assert!(matches!(error, PromptsError::TargetNotInstalled(PromptTarget::Dsh)));
+    }
+
+    #[test]
+    fn deactivate_clears_file_and_record() {
+        let env = env();
+        let service = service(&env);
+        let saved = match service.save(None, "P", "v1").unwrap() {
+            Flow::Done(SaveOutcome::Saved { preset, .. }) => preset,
+            _ => panic!(),
+        };
+        service.activate(&saved.id, PromptTarget::Claude).unwrap();
+        service.deactivate(PromptTarget::Claude).unwrap();
+        assert_eq!(read_live(&env, PromptTarget::Claude), Some(String::new()));
+        assert_eq!(service.store.active_preset_id(PromptTarget::Claude).unwrap(), None);
+    }
+
+    #[test]
+    fn switching_activation_replaces_previous_preset() {
+        let env = env();
+        let service = service(&env);
+        let first = match service.save(None, "A", "a").unwrap() {
+            Flow::Done(SaveOutcome::Saved { preset, .. }) => preset,
+            _ => panic!(),
+        };
+        let second = match service.save(None, "B", "b").unwrap() {
+            Flow::Done(SaveOutcome::Saved { preset, .. }) => preset,
+            _ => panic!(),
+        };
+        service.activate(&first.id, PromptTarget::Claude).unwrap();
+        service.activate(&second.id, PromptTarget::Claude).unwrap();
+        assert_eq!(service.store.active_preset_id(PromptTarget::Claude).unwrap().as_deref(), Some(second.id.as_str()));
+        assert!(service.store.activated_targets(&first.id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn delete_is_rejected_while_any_target_activates_the_preset() {
+        let env = env();
+        let service = service(&env);
+        let saved = match service.save(None, "A", "C").unwrap() {
+            Flow::Done(SaveOutcome::Saved { preset, .. }) => preset,
+            _ => panic!(),
+        };
+        service.activate(&saved.id, PromptTarget::Claude).unwrap();
+        let error = service.delete(&saved.id).unwrap_err();
+        assert!(matches!(error, PromptsError::PresetActive(_)));
     }
 }
