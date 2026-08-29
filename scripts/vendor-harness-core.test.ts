@@ -90,29 +90,37 @@ describe('harness core vendoring', () => {
   it('auto-syncs vendor from a local Harness source without any manual command', () => {
     const repositoryRoot = temporary()
     const source = temporary()
-    for (const name of ['app', 'tools']) mkdirSync(join(source, name), { recursive: true })
-    writeFileSync(join(source, 'app', 'core.py'), 'print("v1")\n')
-    mkdirSync(join(source, 'tools'), { recursive: true })
-    writeFileSync(join(source, 'tools', 'harness_host_server.py'), 'entry = 1\n')
-    writeFileSync(join(source, 'requirements.txt'), 'cryptography>=42\n')
+    const originalCiFlag = process.env.CI
+    try {
+      // 该用例验证本机开发态同步；CI 行为由下一个用例单独覆盖。
+      delete process.env.CI
+      for (const name of ['app', 'tools']) mkdirSync(join(source, name), { recursive: true })
+      writeFileSync(join(source, 'app', 'core.py'), 'print("v1")\n')
+      mkdirSync(join(source, 'tools'), { recursive: true })
+      writeFileSync(join(source, 'tools', 'harness_host_server.py'), 'entry = 1\n')
+      writeFileSync(join(source, 'requirements.txt'), 'cryptography>=42\n')
 
-    const first = syncVendorFromSource(repositoryRoot, { source })
-    expect(first.synced).toBe(true)
-    expect(first.changed).toBe(true)
-    const vendor = join(repositoryRoot, 'vendor', 'harness-core')
-    expect(readFileSync(join(vendor, 'app', 'core.py'), 'utf8')).toContain('v1')
+      const first = syncVendorFromSource(repositoryRoot, { source })
+      expect(first.synced).toBe(true)
+      expect(first.changed).toBe(true)
+      const vendor = join(repositoryRoot, 'vendor', 'harness-core')
+      expect(readFileSync(join(vendor, 'app', 'core.py'), 'utf8')).toContain('v1')
 
-    // 源码未变：再次同步报告一致；源码变了：自动带入。
-    const second = syncVendorFromSource(repositoryRoot, { source })
-    expect(second.synced).toBe(true)
-    expect(second.changed).toBe(false)
-    writeFileSync(join(source, 'app', 'core.py'), 'print("v2")\n')
-    const third = syncVendorFromSource(repositoryRoot, { source })
-    expect(third.synced).toBe(true)
-    expect(third.changed).toBe(true)
-    expect(readFileSync(join(vendor, 'app', 'core.py'), 'utf8')).toContain('v2')
-    // 记录的源路径成为后续解析的默认来源（无需再次显式传参）
-    expect(resolveHarnessCoreSource(repositoryRoot)).toBe(source)
+      // 源码未变：再次同步报告一致；源码变了：自动带入。
+      const second = syncVendorFromSource(repositoryRoot, { source })
+      expect(second.synced).toBe(true)
+      expect(second.changed).toBe(false)
+      writeFileSync(join(source, 'app', 'core.py'), 'print("v2")\n')
+      const third = syncVendorFromSource(repositoryRoot, { source })
+      expect(third.synced).toBe(true)
+      expect(third.changed).toBe(true)
+      expect(readFileSync(join(vendor, 'app', 'core.py'), 'utf8')).toContain('v2')
+      // 记录的源路径成为后续解析的默认来源（无需再次显式传参）
+      expect(resolveHarnessCoreSource(repositoryRoot)).toBe(source)
+    } finally {
+      if (originalCiFlag === undefined) delete process.env.CI
+      else process.env.CI = originalCiFlag
+    }
   })
 
   it('skips auto-sync in CI, without a source, or when the source is the vendor itself', () => {
