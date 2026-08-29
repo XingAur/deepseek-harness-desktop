@@ -55,6 +55,15 @@ macro_rules! renderer_commands {
             commands::restart_runtime,
             commands::switch_profile,
             commands::list_profiles,
+            commands::prompts_list,
+            commands::prompts_get,
+            commands::prompts_save,
+            commands::prompts_resolve_conflict,
+            commands::prompts_delete,
+            commands::prompts_activate,
+            commands::prompts_deactivate,
+            commands::prompts_status,
+            commands::prompts_import,
             commands::list_project_metadata,
             commands::patch_project_metadata,
             commands::remove_project_metadata,
@@ -166,6 +175,29 @@ mod renderer_command_tests {
             super::E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS,
             "--remote-debugging-port=9229"
         );
+    }
+
+    #[test]
+    fn prompts_commands_are_registered() {
+        // stringify! 经 renderer_commands! 转发的路径会带空格(commands :: prompts_list),
+        // 统一归一化后再比对。
+        let normalize = |name: &str| name.replace(" :: ", "::");
+        for name in [
+            "commands::prompts_list",
+            "commands::prompts_get",
+            "commands::prompts_save",
+            "commands::prompts_resolve_conflict",
+            "commands::prompts_delete",
+            "commands::prompts_activate",
+            "commands::prompts_deactivate",
+            "commands::prompts_status",
+            "commands::prompts_import",
+        ] {
+            assert!(
+                super::RENDERER_COMMAND_NAMES.iter().any(|registered| normalize(registered) == name),
+                "缺少 {name}"
+            );
+        }
     }
 }
 
@@ -441,6 +473,9 @@ fn run_desktop() {
             });
             app.manage(Arc::new(agents::cli_ops::AgentCliJobState::new()));
             app.manage(Arc::new(plugin_market::PluginMarketState::new()));
+            let prompts_service = prompts::service::PromptsService::open(&foundation.paths)
+                .map_err(|cause| Box::<dyn std::error::Error>::from(cause.to_string()))?;
+            app.manage(Arc::new(prompts_service));
             let runtime_services = if foundation.runtime_allowed().is_ok() {
                 let runtime_paths = RuntimePaths::from_app_paths(&foundation.paths)
                     .map_err(|cause| Box::<dyn std::error::Error>::from(cause))?;

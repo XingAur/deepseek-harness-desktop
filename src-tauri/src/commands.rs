@@ -2210,6 +2210,153 @@ pub fn start_drag(window: WebviewWindow) -> Result<(), String> {
     window.start_dragging().map_err(|cause| cause.to_string())
 }
 
+fn parse_prompt_target(value: &str) -> Result<crate::prompts::model::PromptTarget, String> {
+    crate::prompts::model::PromptTarget::parse(value)
+        .ok_or_else(|| format!("未知提示词目标: {value}"))
+}
+
+fn flow_to_outcome_value<T: serde::Serialize>(
+    flow: crate::prompts::model::Flow<T>,
+) -> Result<serde_json::Value, String> {
+    match flow {
+        crate::prompts::model::Flow::Done(outcome) => {
+            serde_json::to_value(outcome).map_err(|error| error.to_string())
+        }
+        crate::prompts::model::Flow::Conflict { preset_id, candidates } => serde_json::to_value(
+            crate::prompts::model::SaveOutcome::BackfillConflict { preset_id, candidates },
+        )
+        .map_err(|error| error.to_string()),
+    }
+}
+
+#[tauri::command]
+pub async fn prompts_list(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    service: State<'_, Arc<crate::prompts::service::PromptsService>>,
+    generation_id: String,
+    session_id: String,
+) -> Result<Vec<crate::prompts::model::PresetSummary>, String> {
+    coordinator.validate_generation(&generation_id).await.map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    service.list().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn prompts_get(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    service: State<'_, Arc<crate::prompts::service::PromptsService>>,
+    generation_id: String,
+    session_id: String,
+    preset_id: String,
+) -> Result<crate::prompts::model::PromptPreset, String> {
+    coordinator.validate_generation(&generation_id).await.map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    service.get(&preset_id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn prompts_save(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    service: State<'_, Arc<crate::prompts::service::PromptsService>>,
+    generation_id: String,
+    session_id: String,
+    preset_id: Option<String>,
+    title: String,
+    content: String,
+) -> Result<serde_json::Value, String> {
+    coordinator.validate_generation(&generation_id).await.map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    let flow = service.save(preset_id.as_deref(), &title, &content).map_err(|error| error.to_string())?;
+    flow_to_outcome_value(flow)
+}
+
+#[tauri::command]
+pub async fn prompts_resolve_conflict(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    service: State<'_, Arc<crate::prompts::service::PromptsService>>,
+    generation_id: String,
+    session_id: String,
+    preset_id: String,
+    title: String,
+    content: String,
+) -> Result<serde_json::Value, String> {
+    coordinator.validate_generation(&generation_id).await.map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    let flow = service.resolve_save_conflict(&preset_id, &title, &content).map_err(|error| error.to_string())?;
+    flow_to_outcome_value(flow)
+}
+
+#[tauri::command]
+pub async fn prompts_delete(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    service: State<'_, Arc<crate::prompts::service::PromptsService>>,
+    generation_id: String,
+    session_id: String,
+    preset_id: String,
+) -> Result<(), String> {
+    coordinator.validate_generation(&generation_id).await.map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    service.delete(&preset_id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn prompts_activate(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    service: State<'_, Arc<crate::prompts::service::PromptsService>>,
+    generation_id: String,
+    session_id: String,
+    preset_id: String,
+    target: String,
+) -> Result<crate::prompts::model::ActivateOutcome, String> {
+    coordinator.validate_generation(&generation_id).await.map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    let target = parse_prompt_target(&target)?;
+    service.activate(&preset_id, target).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn prompts_deactivate(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    service: State<'_, Arc<crate::prompts::service::PromptsService>>,
+    generation_id: String,
+    session_id: String,
+    target: String,
+) -> Result<crate::prompts::model::TargetStatus, String> {
+    coordinator.validate_generation(&generation_id).await.map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    let target = parse_prompt_target(&target)?;
+    service.deactivate(target).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn prompts_status(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    service: State<'_, Arc<crate::prompts::service::PromptsService>>,
+    generation_id: String,
+    session_id: String,
+) -> Result<Vec<crate::prompts::model::TargetStatus>, String> {
+    coordinator.validate_generation(&generation_id).await.map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    service.status().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn prompts_import(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    service: State<'_, Arc<crate::prompts::service::PromptsService>>,
+    generation_id: String,
+    session_id: String,
+    targets: Vec<String>,
+) -> Result<Vec<crate::prompts::model::PresetSummary>, String> {
+    coordinator.validate_generation(&generation_id).await.map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    let parsed = targets
+        .iter()
+        .map(|value| parse_prompt_target(value))
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    service.import(&parsed).map_err(|error| error.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{VERSIONED_AGENT_COMMAND_NAMES, parse_agent_selection};
