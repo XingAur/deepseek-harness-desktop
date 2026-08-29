@@ -41,10 +41,11 @@ describe('harness core assembly', () => {
 
   it('keeps dependency markers beside both Unix and Windows bundled runtimes', () => {
     const coreRoot = '/opt/harness/core'
-    expect(pythonEnvironmentRoot(coreRoot, '/opt/harness/core/runtime/bin/python3')).toBe('/opt/harness/core/runtime')
+    const normalize = (value: string) => value.replaceAll('\\', '/')
+    expect(normalize(pythonEnvironmentRoot(coreRoot, '/opt/harness/core/runtime/bin/python3'))).toBe('/opt/harness/core/runtime')
     const windowsRoot = 'C:\\Harness\\core'
-    expect(pythonEnvironmentRoot(windowsRoot, 'C:\\Harness\\core\\runtime\\python.exe')).toBe(join(windowsRoot, 'runtime'))
-    expect(pythonEnvironmentRoot(coreRoot, '/opt/harness/core/.venv/bin/python')).toBe('/opt/harness/core/.venv')
+    expect(normalize(pythonEnvironmentRoot(windowsRoot, 'C:\\Harness\\core\\runtime\\python.exe'))).toBe('C:/Harness/core/runtime')
+    expect(normalize(pythonEnvironmentRoot(coreRoot, '/opt/harness/core/.venv/bin/python'))).toBe('/opt/harness/core/.venv')
   })
 
   it('offers platform specific embedded python candidates for the host entrypoint', () => {
