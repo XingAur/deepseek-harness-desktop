@@ -1,8 +1,9 @@
-use std::time::Duration;
+use std::{path::{Path, PathBuf}, time::Duration};
 
 use reqwest::redirect::{Attempt, Policy};
 use semver::Version;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use url::Url;
 
 use super::model::{AppUpdateFailure, AppUpdateMode, UpdateInfo};
@@ -198,11 +199,107 @@ pub fn manual_update_from_json(
         version: manifest.version,
         notes: Some(manifest.notes).filter(|notes| !notes.trim().is_empty()),
         size: Some(dmg.size),
+        sha256: Some(dmg.sha256),
         mode: AppUpdateMode::ManualDmg,
         download_url: Some(download_url.to_string()),
         developer_id_signed: Some(false),
         notarized: Some(false),
     }))
+}
+
+/// 下载并校验已在更新清单中验证过的 macOS DMG。macOS 当前发布物仍是
+/// 手动替换安装，因此这里先落到应用数据目录，再交给 Finder 打开，避免
+/// 把未经校验的网络响应直接交给系统。
+pub async fn download_manual_dmg(
+    url: &Url,
+    expected_sha256: &str,
+    expected_size: u64,
+    target_dir: &Path,
+) -> Result<PathBuf, AppUpdateFailure> {
+    if !valid_sha256(expected_sha256) || expected_size == 0 {
+        return Err(AppUpdateFailure::new("manifest", "macOS DMG 校验信息无效"));
+    }
+    let filename = url
+        .path_segments()
+        .and_then(|segments| segments.last())
+        .filter(|value| !value.is_empty() && !value.contains('/') && value.ends_with(".dmg"))
+        .ok_or_else(|| AppUpdateFailure::new("manifest", "macOS DMG 文件名无效"))?;
+    let target = target_dir.join(filename);
+    let temporary = target.with_extension("dmg.part");
+    tokio::fs::create_dir_all(target_dir)
+        .await
+        .map_err(|cause| failure("download-file", cause))?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30 * 60))
+        .http1_only()
+        .redirect(Policy::custom(restrict_redirect))
+        .build()
+        .map_err(|cause| failure("configuration", cause))?;
+    tokio::fs::create_dir_all(target_dir)
+        .await
+        .map_err(|cause| failure("download-file", cause))?;
+    let result = async {
+        let response = client
+            .get(url.clone())
+            .header(reqwest::header::ACCEPT, "application/octet-stream")
+            .send()
+            .await
+            .map_err(|cause| failure("download-network", cause))?;
+        if !response.status().is_success() {
+            return Err(AppUpdateFailure::new(
+                "download-http",
+                format!("macOS DMG 下载失败: HTTP {}", response.status()),
+            ));
+        }
+        if response.content_length().is_some_and(|size| size > expected_size) {
+            return Err(AppUpdateFailure::new("download-size", "macOS DMG 超过清单声明大小"));
+        }
+        let mut file = tokio::fs::File::create(&temporary)
+            .await
+            .map_err(|cause| failure("download-file", cause))?;
+        let mut hasher = Sha256::new();
+        let mut size = 0_u64;
+        let mut response = response;
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|cause| failure("download-network", cause))?
+        {
+            size = size.saturating_add(chunk.len() as u64);
+            if size > expected_size {
+                return Err(AppUpdateFailure::new("download-size", "macOS DMG 超过清单声明大小"));
+            }
+            hasher.update(&chunk);
+            tokio::io::AsyncWriteExt::write_all(&mut file, &chunk)
+                .await
+                .map_err(|cause| failure("download-file", cause))?;
+        }
+        tokio::io::AsyncWriteExt::flush(&mut file)
+            .await
+            .map_err(|cause| failure("download-file", cause))?;
+        if size != expected_size {
+            return Err(AppUpdateFailure::new(
+                "download-size",
+                format!("macOS DMG 大小校验失败（收到 {size} 字节，清单声明 {expected_size} 字节）"),
+            ));
+        }
+        let actual = hex::encode(hasher.finalize());
+        if !actual.eq_ignore_ascii_case(expected_sha256) {
+            return Err(AppUpdateFailure::new(
+                "download-integrity",
+                "macOS DMG SHA-256 校验失败，已阻止打开",
+            ));
+        }
+        tokio::fs::rename(&temporary, &target)
+            .await
+            .map_err(|cause| failure("download-file", cause))?;
+        Ok(target)
+    }
+    .await;
+    if result.is_err() {
+        let _ = tokio::fs::remove_file(&temporary).await;
+    }
+    result
 }
 
 fn validate_dmg_url(url: &str, tag: &str, version: &str) -> Result<Url, AppUpdateFailure> {
@@ -329,6 +426,7 @@ mod tests {
         assert!(update.download_url.as_deref().unwrap().ends_with(".dmg"));
         assert_eq!(update.developer_id_signed, Some(false));
         assert_eq!(update.notarized, Some(false));
+        assert_eq!(update.sha256, Some("a".repeat(64)));
     }
 
     #[test]

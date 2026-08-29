@@ -30,6 +30,7 @@ use crate::{
         vault::CredentialVault,
     },
     desktop::DesktopCoordinator,
+    harness::{HarnessService, HarnessStatus, HarnessTaskStart},
     profile::model::{
         PermissionMode, ProfileDraft, ProfileListSnapshot, ProfilePatch, ProfileRecord,
     },
@@ -831,6 +832,7 @@ pub async fn agent_plugin_catalog(
     category: Option<String>,
     offset: Option<u64>,
     limit: Option<u64>,
+    refresh: Option<bool>,
 ) -> Result<crate::plugin_market::CatalogPage, String> {
     coordinator
         .validate_generation(&generation_id)
@@ -849,6 +851,7 @@ pub async fn agent_plugin_catalog(
         category.as_deref().unwrap_or(""),
         offset.unwrap_or(0).min(10_000) as usize,
         limit.unwrap_or(30).min(crate::plugin_market::CATALOG_PAGE_MAX as u64) as usize,
+        refresh.unwrap_or(false),
     )
 }
 
@@ -1237,6 +1240,70 @@ pub async fn agent_task_cancel(
     }
     runtime.cancel_task(task_id).await?;
     task_reply(&foundation, task_id, &generation_id, &session_id)
+}
+
+#[tauri::command]
+pub async fn harness_status(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    harness: State<'_, Arc<HarnessService>>,
+    generation_id: String,
+    session_id: String,
+) -> Result<HarnessStatus, String> {
+    coordinator
+        .validate_generation(&generation_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    Ok(harness.status().await)
+}
+
+#[tauri::command]
+pub async fn harness_start(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    foundation: State<'_, Arc<DesktopFoundation>>,
+    harness: State<'_, Arc<HarnessService>>,
+    app: AppHandle,
+    generation_id: String,
+    session_id: String,
+    task_contract_path: String,
+    understanding_path: String,
+    worktree_root: String,
+    knowledge_home: String,
+    authorization_id: String,
+    agent_backend: Option<String>,
+) -> Result<HarnessStatus, String> {
+    coordinator
+        .validate_generation(&generation_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    let task = HarnessTaskStart {
+        task_contract_path: PathBuf::from(task_contract_path),
+        understanding_path: PathBuf::from(understanding_path),
+        worktree_root: PathBuf::from(worktree_root),
+        knowledge_home: PathBuf::from(knowledge_home),
+        authorization_id,
+        agent_backend,
+    };
+    harness
+        .start(app, &foundation, Uuid::new_v4().to_string(), task)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn harness_cancel(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    harness: State<'_, Arc<HarnessService>>,
+    generation_id: String,
+    session_id: String,
+) -> Result<HarnessStatus, String> {
+    coordinator
+        .validate_generation(&generation_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    harness.cancel().await.map_err(|error| error.to_string())
 }
 
 /// 每个数据根（Profile）独立一份隔离 Codex 目录，随 Profile 切换自然分离。

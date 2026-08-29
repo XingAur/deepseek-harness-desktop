@@ -10,6 +10,7 @@ mod data_cleanup;
 mod desktop;
 mod extensions;
 mod generation;
+mod harness;
 mod migration;
 mod mcp;
 mod navigation;
@@ -110,6 +111,9 @@ macro_rules! renderer_commands {
             commands::agent_extension_enable,
             commands::agent_extension_disable,
             commands::agent_extension_uninstall,
+            commands::harness_status,
+            commands::harness_start,
+            commands::harness_cancel,
             commands::orderly_quit,
             commands::hide_window,
             commands::minimize_window,
@@ -440,6 +444,7 @@ fn run_desktop() {
             });
             app.manage(Arc::new(agents::cli_ops::AgentCliJobState::new()));
             app.manage(Arc::new(plugin_market::PluginMarketState::new()));
+            app.manage(harness::HarnessService::new());
             let runtime_services = if foundation.runtime_allowed().is_ok() {
                 let runtime_paths = RuntimePaths::from_app_paths(&foundation.paths)
                     .map_err(|cause| Box::<dyn std::error::Error>::from(cause))?;
@@ -507,7 +512,13 @@ fn run_desktop() {
             let app_launcher = app_handle
                 .try_state::<Arc<apps::AppLauncher>>()
                 .map(|state| Arc::clone(state.inner()));
+            let harness = app_handle
+                .try_state::<Arc<harness::HarnessService>>()
+                .map(|state| Arc::clone(state.inner()));
             tauri::async_runtime::block_on(async move {
+                if let Some(harness) = harness {
+                    let _ = harness.cancel().await;
+                }
                 // 退出前先停掉所有本地应用，再关闭受管运行时。
                 if let Some(app_launcher) = app_launcher {
                     app_launcher.stop_all().await;

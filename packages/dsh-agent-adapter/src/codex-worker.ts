@@ -281,6 +281,7 @@ async function startSession(
     await channel.request('initialize', {
       clientInfo: { name: CODEX_APP_SERVER_CLIENT_NAME, version: '0.1.0' },
     })
+    channel.notify('initialized')
     const threadOptions = permissionToCodexThreadOptions(frame.payload.permission)
     const thread = await channel.request('thread/start', {
       cwd,

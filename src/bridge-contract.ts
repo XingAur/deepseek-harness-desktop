@@ -72,6 +72,9 @@ export type VersionedBridgeAction =
   | 'extension.enable'
   | 'extension.disable'
   | 'extension.uninstall'
+  | 'harness.status'
+  | 'harness.start'
+  | 'harness.cancel'
 
 export interface VersionedBridgeRequest {
   channel: typeof DESKTOP_BRIDGE_V2_CHANNEL
@@ -142,6 +145,9 @@ export const bridgeCommandByActionV2 = {
   'extension.enable': 'agent_extension_enable',
   'extension.disable': 'agent_extension_disable',
   'extension.uninstall': 'agent_extension_uninstall',
+  'harness.status': 'harness_status',
+  'harness.start': 'harness_start',
+  'harness.cancel': 'harness_cancel',
 } as const satisfies Record<VersionedBridgeAction, string>
 
 export function isBridgeResponse(value: unknown): value is BridgeResponse {
@@ -218,16 +224,35 @@ export function isVersionedBridgePayload(action: VersionedBridgeAction, value: u
   if (['credential.delete', 'credential.status', 'credential.test'].includes(action)) return hasId('credentialId')
   if (['cli.path.status', 'cli.install.status', 'cli.install.start', 'cli.login.status', 'cli.login.start'].includes(action)) return hasId('providerId')
   if (['extension.install', 'extension.enable', 'extension.disable', 'extension.uninstall'].includes(action)) return hasId('extensionId')
+  if (action === 'harness.status' || action === 'harness.cancel') return Object.keys(value).length === 0
+  if (action === 'harness.start') {
+    return isAbsolutePath(value.taskContractPath)
+      && isAbsolutePath(value.understandingPath)
+      && isAbsolutePath(value.worktreeRoot)
+      && isAbsolutePath(value.knowledgeHome)
+      && typeof value.authorizationId === 'string'
+      && /^[A-Za-z0-9._-]{1,256}$/.test(value.authorizationId)
+      && (value.agentBackend === undefined
+        || (typeof value.agentBackend === 'string' && /^[a-z0-9._-]{1,64}$/.test(value.agentBackend)))
+  }
   if (action === 'plugin.catalog.list') {
     return (value.query === undefined || (typeof value.query === 'string' && value.query.length <= 120))
       && (value.category === undefined || (typeof value.category === 'string' && value.category.length <= 64))
       && optionalNonNegativeInteger(value.offset, 0)
       && optionalRange(value.limit ?? 50, 50)
+      && (value.refresh === undefined || typeof value.refresh === 'boolean')
   }
   if (action === 'plugin.install.start' || action === 'plugin.install.status') {
     return typeof value.pluginId === 'string' && validPluginId(value.pluginId)
   }
   return Object.keys(value).length === 0
+}
+
+function isAbsolutePath(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.length > 0
+    && value.length <= 4096
+    && (value.startsWith('/') || /^[A-Za-z]:[\\/]/.test(value))
 }
 
 export function isVersionedBridgeResponse(value: unknown): value is VersionedBridgeResponse {
@@ -318,7 +343,7 @@ const versionedPayloadKeys: Record<VersionedBridgeAction, string[]> = {
   'cli.install.start': ['providerId'],
   'cli.login.status': ['providerId'],
   'cli.login.start': ['providerId'],
-  'plugin.catalog.list': ['query', 'category', 'offset', 'limit'],
+  'plugin.catalog.list': ['query', 'category', 'offset', 'limit', 'refresh'],
   'plugin.install.start': ['pluginId'],
   'plugin.install.status': ['pluginId'],
   'task.create': ['workspaceId', 'prompt', 'permission', 'providerId', 'agentId'],
@@ -335,6 +360,9 @@ const versionedPayloadKeys: Record<VersionedBridgeAction, string[]> = {
   'extension.enable': ['extensionId'],
   'extension.disable': ['extensionId'],
   'extension.uninstall': ['extensionId'],
+  'harness.status': [],
+  'harness.start': ['taskContractPath', 'understandingPath', 'worktreeRoot', 'knowledgeHome', 'authorizationId', 'agentBackend'],
+  'harness.cancel': [],
 }
 
 function optionalRange(value: unknown, defaultValue: number): boolean {

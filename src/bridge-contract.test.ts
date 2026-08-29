@@ -132,4 +132,26 @@ it('maps plugin market actions to dedicated commands with bounded payloads', () 
     expect(isVersionedBridgePayload('credential.put', { providerId: 'codex', secret: 'private-value' })).toBe(true)
     expect(isVersionedBridgePayload('credential.put', { providerId: '../escape', secret: 'private-value' })).toBe(false)
   })
+
+  it('routes Harness lifecycle actions and requires its generated task evidence paths', () => {
+    expect(bridgeCommandByActionV2['harness.status']).toBe('harness_status')
+    expect(bridgeCommandByActionV2['harness.cancel']).toBe('harness_cancel')
+    expect(isVersionedBridgePayload('harness.status', {})).toBe(true)
+    expect(isVersionedBridgePayload('harness.start', {
+      taskContractPath: '/tmp/task-contract.json',
+      understandingPath: '/tmp/understanding.json',
+      worktreeRoot: '/tmp/project',
+      knowledgeHome: '/tmp/knowledge',
+      authorizationId: 'DFHIS-32178-change-1',
+      agentBackend: 'host-bridge',
+    })).toBe(true)
+    expect(isVersionedBridgePayload('harness.start', {
+      taskContractPath: '/tmp/task-contract.json',
+      understandingPath: '/tmp/understanding.json',
+      worktreeRoot: '/tmp/project',
+      knowledgeHome: '/tmp/knowledge',
+      authorizationId: 'DFHIS-32178-change-1',
+      unexpected: true,
+    })).toBe(false)
+  })
 })

@@ -1,7 +1,7 @@
 use std::{path::PathBuf, sync::Arc};
 
 use chrono::Utc;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_updater::Update;
 #[cfg(not(target_os = "macos"))]
@@ -10,6 +10,7 @@ use tokio::sync::Mutex;
 
 #[cfg(target_os = "macos")]
 use super::manual::fetch_manual_update;
+use super::manual::download_manual_dmg;
 use super::model::{
     AppUpdateAction, AppUpdateEvent, AppUpdateFailure, AppUpdateMode, AppUpdateReceipt,
     AppUpdateSource, AppUpdateState, UpdateInfo,
@@ -155,7 +156,7 @@ impl AppUpdateController {
     }
 
     pub async fn open_manual_download(&self) -> Result<(), AppUpdateFailure> {
-        let url = self
+        let (info, url) = self
             .pending
             .lock()
             .await
@@ -164,16 +165,36 @@ impl AppUpdateController {
                 PendingUpdate::ManualDmg { info, download_url }
                     if info.mode == AppUpdateMode::ManualDmg =>
                 {
-                    Some(download_url.clone())
+                    Some((info.clone(), download_url.clone()))
                 }
                 _ => None,
             })
             .ok_or_else(|| {
                 AppUpdateFailure::new("missing-manual-update", "没有经过校验的 macOS DMG 下载地址")
             })?;
+        let expected_sha256 = info
+            .sha256
+            .as_deref()
+            .ok_or_else(|| AppUpdateFailure::new("manifest", "macOS 更新缺少 SHA-256"))?;
+        let expected_size = info
+            .size
+            .ok_or_else(|| AppUpdateFailure::new("manifest", "macOS 更新缺少文件大小"))?;
+        let update_dir = self
+            .app
+            .path()
+            .app_data_dir()
+            .map_err(|cause| failure("download-file", cause))?
+            .join("updates");
+        let local_path = download_manual_dmg(
+            &url,
+            expected_sha256,
+            expected_size,
+            &update_dir,
+        )
+        .await?;
         self.app
             .opener()
-            .open_url(url.as_str(), None::<&str>)
+            .open_path(local_path.to_string_lossy().into_owned(), None::<&str>)
             .map_err(|cause| failure("open-download", cause))
     }
 
@@ -299,6 +320,7 @@ impl AppUpdateController {
             version: update.version.clone(),
             notes: update.body.clone(),
             size: update.raw_json.get("size").and_then(|size| size.as_u64()),
+            sha256: None,
             mode: AppUpdateMode::InApp,
             download_url: None,
             developer_id_signed: None,

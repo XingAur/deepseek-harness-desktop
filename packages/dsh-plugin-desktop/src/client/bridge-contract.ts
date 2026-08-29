@@ -31,6 +31,9 @@ export type VersionedBridgeAction =
   | 'extension.enable'
   | 'extension.disable'
   | 'extension.uninstall'
+  | 'harness.status'
+  | 'harness.start'
+  | 'harness.cancel'
 
 interface VersionedBridgeResponse {
   channel: typeof DESKTOP_BRIDGE_V2_CHANNEL

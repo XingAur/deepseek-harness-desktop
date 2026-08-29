@@ -7,11 +7,12 @@ import { openCodexAppServerChannel, type CodexAppServerChannel, type CodexAppSer
 interface ScriptedChannel {
   channel: CodexAppServerChannel
   requests: Array<{ method: string; params: Record<string, unknown>; resolve(result: Record<string, unknown>): void; reject(error: Error): void }>
+  notifications: Array<{ method: string; params: Record<string, unknown> }>
   responses: Array<{ serverRequest: CodexServerRequest; result: Record<string, unknown> }>
 }
 
 function scriptedChannel(script: { notifications: CodexNotification[]; serverRequests?: CodexServerRequest[]; threadId?: string }): ScriptedChannel {
-  const state: ScriptedChannel = { channel: null as unknown as CodexAppServerChannel, requests: [], responses: [] }
+  const state: ScriptedChannel = { channel: null as unknown as CodexAppServerChannel, requests: [], notifications: [], responses: [] }
   const threadId = script.threadId ?? 'thread-1'
   let notificationListener: ((notification: CodexNotification) => void) | null = null
   let serverRequestListener: ((serverRequest: CodexServerRequest) => void) | null = null
@@ -37,6 +38,7 @@ function scriptedChannel(script: { notifications: CodexNotification[]; serverReq
         }
       })
     },
+    notify(method, params = {}) { state.notifications.push({ method, params }) },
     respond(serverRequest, result) { state.responses.push({ serverRequest, result }) },
     async close() { /* scripted channel has no process */ },
     exited: new Promise<void>(() => undefined),
@@ -103,6 +105,7 @@ describe('codex worker protocol loop', () => {
     expect(types).toContain('message.delta')
     expect(types).toContain('message.completed')
     expect(types).toContain('session.completed')
+    expect(scripted.notifications).toContainEqual({ method: 'initialized', params: {} })
     const startRequest = scripted.requests.find((request) => request.method === 'thread/start')
     expect(startRequest?.params).toMatchObject({ sandbox: 'workspace-write', approvalPolicy: 'untrusted' })
     const turnRequest = scripted.requests.find((request) => request.method === 'turn/start')
@@ -178,6 +181,7 @@ describe('codex worker protocol loop', () => {
     const pending: Array<{ reject(error: Error): void }> = []
     const channel: CodexAppServerChannel = {
       request: () => new Promise((_resolve, reject) => { pending.push({ reject }) }),
+      notify: () => undefined,
       respond: () => undefined,
       async close() { /* no process */ },
       exited: new Promise<void>((resolve) => {

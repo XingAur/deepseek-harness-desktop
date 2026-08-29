@@ -28,6 +28,22 @@
     "./mcp/oauth": {
       "types": "./lib/types/mcp/oauth.d.ts",
       "default": "./lib/mcp-oauth.js"
+    },
+    "./harness-bridge": {
+      "types": "./lib/types/harness-bridge.d.ts",
+      "default": "./lib/harness-bridge.js"
+    },
+    "./harness-host-handler": {
+      "types": "./lib/types/harness-host-handler.d.ts",
+      "default": "./lib/harness-host-handler.js"
+    },
+    "./harness-task-session": {
+      "types": "./lib/types/harness-task-session.d.ts",
+      "default": "./lib/harness-task-session.js"
+    },
+    "./harness-capability-map": {
+      "types": "./lib/types/harness-capability-map.d.ts",
+      "default": "./lib/harness-capability-map.js"
     }
   },
   "files": ["lib/**"],

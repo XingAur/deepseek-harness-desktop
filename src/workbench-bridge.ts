@@ -241,6 +241,17 @@ function bridgePayloadV2(
     requireId(payload.extensionId, 'Extension ID')
     return { extensionId: payload.extensionId }
   }
+  if (action === 'harness.status' || action === 'harness.cancel') return {}
+  if (action === 'harness.start') {
+    return {
+      taskContractPath: payload.taskContractPath,
+      understandingPath: payload.understandingPath,
+      worktreeRoot: payload.worktreeRoot,
+      knowledgeHome: payload.knowledgeHome,
+      authorizationId: payload.authorizationId,
+      ...(payload.agentBackend === undefined ? {} : { agentBackend: payload.agentBackend }),
+    }
+  }
   return {}
 }
 

@@ -76,7 +76,7 @@ export function PluginMarket({ bridge }: PluginMarketProps) {
     return () => { if (searchTimer.current !== null) clearTimeout(searchTimer.current) }
   }, [query])
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (forceReload = false) => {
     setBusy(true)
     try {
       const reply = await bridge.requestV2<CatalogPage>('plugin.catalog.list', undefined, {
@@ -84,6 +84,7 @@ export function PluginMarket({ bridge }: PluginMarketProps) {
         category: category === '' ? undefined : category,
         offset,
         limit: PAGE_SIZE,
+        ...(forceReload ? { refresh: true } : {}),
       })
       // 桥返回的页面形状异常时降级为错误状态，绝不让整个页签崩溃。
       if (!isCatalogPage(reply)) throw new Error('插件目录响应异常，请刷新重试')
@@ -165,7 +166,7 @@ export function PluginMarket({ bridge }: PluginMarketProps) {
           <h3>插件市场</h3>
           <p>{page?.total !== undefined ? `${page.total} 个社区插件` : '社区插件'} · 来自 awesome-dsh-plugin 精选目录 · 经官方 CLI 安装进当前 Profile</p>
         </div>
-        <button type="button" className="dshAgentGhostButton" disabled={busy} onClick={() => { void load() }}>
+        <button type="button" className="dshAgentGhostButton" disabled={busy} onClick={() => { void load(true) }}>
           {busy ? '加载中…' : '刷新'}
         </button>
       </header>

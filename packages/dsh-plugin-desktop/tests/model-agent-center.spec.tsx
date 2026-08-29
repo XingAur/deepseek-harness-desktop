@@ -22,7 +22,7 @@ function bridgeFixture(): DesktopBridgeLike {
 }
 
 describe('model and agent center', () => {
-  it('loads providers and exposes the three bounded management tabs', async () => {
+  it('loads providers and exposes the bounded management tabs', async () => {
     const bridge = bridgeFixture()
     render(<ModelAgentCenter bridge={bridge} />)
 
@@ -30,6 +30,7 @@ describe('model and agent center', () => {
     expect(screen.getByText('未配置')).toBeVisible()
     expect(screen.getByRole('tab', { name: 'API 模型' })).toBeVisible()
     expect(screen.getByRole('tab', { name: 'Agents' })).toBeVisible()
+    expect(screen.getByRole('tab', { name: 'Harness 任务' })).toBeVisible()
     expect(screen.getByRole('tab', { name: 'Diagnostics' })).toBeVisible()
     expect(screen.queryByRole('tab', { name: 'Extensions' })).toBeNull()
 
