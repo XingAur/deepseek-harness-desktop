@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { bundledPythonExecutable, pythonAssetName, pythonDownloadUrl } from './assemble-harness-core.mjs'
+import { bundledPythonExecutable, pythonAssetName, pythonDownloadUrl, pythonEnvironmentRoot } from './assemble-harness-core.mjs'
 import { embeddedPythonCandidates } from './harness-host.mjs'
 
 const directories: string[] = []
@@ -37,6 +37,14 @@ describe('harness core assembly', () => {
     mkdirSync(join(venvRoot, '.venv', 'bin'), { recursive: true })
     writeFileSync(join(venvRoot, '.venv', 'bin', 'python'), '#!/bin/sh\n')
     expect(bundledPythonExecutable(venvRoot, 'darwin').endsWith(join('.venv', 'bin', 'python'))).toBe(true)
+  })
+
+  it('keeps dependency markers beside both Unix and Windows bundled runtimes', () => {
+    const coreRoot = '/opt/harness/core'
+    expect(pythonEnvironmentRoot(coreRoot, '/opt/harness/core/runtime/bin/python3')).toBe('/opt/harness/core/runtime')
+    const windowsRoot = 'C:\\Harness\\core'
+    expect(pythonEnvironmentRoot(windowsRoot, 'C:\\Harness\\core\\runtime\\python.exe')).toBe(join(windowsRoot, 'runtime'))
+    expect(pythonEnvironmentRoot(coreRoot, '/opt/harness/core/.venv/bin/python')).toBe('/opt/harness/core/.venv')
   })
 
   it('offers platform specific embedded python candidates for the host entrypoint', () => {

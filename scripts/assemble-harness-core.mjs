@@ -53,6 +53,15 @@ export function bundledPythonExecutable(coreRoot, platform = process.platform) {
   return candidates.find((candidate) => existsSync(candidate)) ?? ''
 }
 
+export function pythonEnvironmentRoot(coreRoot, executable) {
+  const runtimeRoot = join(coreRoot, 'runtime')
+  const normalizedRuntimeRoot = runtimeRoot.replaceAll('\\', '/')
+  const normalizedExecutable = executable.replaceAll('\\', '/')
+  return normalizedExecutable.startsWith(`${normalizedRuntimeRoot}/`)
+    ? runtimeRoot
+    : join(coreRoot, '.venv')
+}
+
 function probePython(executable) {
   if (executable === '' || !existsSync(executable)) return false
   const probe = spawnSync(executable, ['-c', 'import sys; print(sys.version_info[0])'], {
@@ -195,9 +204,7 @@ async function main() {
       }
       if (!probePython(executable)) throw new Error(`Harness Python 不可执行：${executable}`)
       // marker 跟随解释器实际所在环境（runtime/ 或遗留 .venv/），避免分支错配。
-      const environmentRoot = executable.includes(join('runtime', 'bin')) || executable.includes(join('runtime', 'Scripts'))
-        ? join(out, 'runtime')
-        : join(out, '.venv')
+      const environmentRoot = pythonEnvironmentRoot(out, executable)
       installRequirements(executable, environmentRoot, requirementsPath)
       asset = pythonAssetName()
     }
