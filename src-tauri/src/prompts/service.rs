@@ -301,13 +301,18 @@ impl PromptsService {
         let mut imported = Vec::new();
         for target in targets_to_import.iter().copied() {
             let Some(path) = self.prompt_file_for(target)? else { continue };
-            let Some(content) = targets::read_live_prompt(&path)?.filter(|text| !text.is_empty()) else { continue };
+            // 读失败(非 UTF-8/权限)按缺失跳过,不阻塞整批导入(与 activate 容错口径一致)。
+            let content = match targets::read_live_prompt(&path) {
+                Ok(text) => text.filter(|text| !text.is_empty()),
+                Err(_) => None,
+            };
+            let Some(content) = content else { continue };
             if content.len() > MAX_PROMPT_BYTES {
                 continue;
             }
             let id = uuid::Uuid::new_v4().to_string();
             let now = Self::now_ms();
-            let title = format!("导入-{}-{}", target.as_str(), chrono::Utc::now().format("%m%d%H%M%S"));
+            let title = format!("导入-{}-{}", target.as_str(), chrono::Local::now().format("%m%d%H%M%S"));
             self.store.insert_preset(&id, &title, &content, now, now)?;
             self.store.set_activation(target, &id, now)?;
             imported.push(PresetSummary { id, title, updated_at: now, activated_targets: vec![target] });
@@ -708,5 +713,16 @@ mod tests {
         write_live(&env, PromptTarget::Claude, &"x".repeat(MAX_PROMPT_BYTES + 1));
         let imported = service.import(&[PromptTarget::Claude, PromptTarget::Codex]).unwrap();
         assert!(imported.is_empty(), "超限文件跳过;不存在的文件跳过;空文件跳过");
+    }
+
+    #[test]
+    fn import_skips_unreadable_and_empty_live_files() {
+        let env = env();
+        let service = service(&env);
+        let claude_path = service.prompt_file_for(PromptTarget::Claude).unwrap().unwrap();
+        std::fs::write(&claude_path, b"\xc4\xe3\xba\xc3\xd6\xd0\xce\xc4").unwrap(); // GBK,非 UTF-8
+        let codex_path = service.prompt_file_for(PromptTarget::Codex).unwrap().unwrap();
+        std::fs::write(&codex_path, "").unwrap();
+        assert!(service.import(&[PromptTarget::Claude, PromptTarget::Codex]).unwrap().is_empty());
     }
 }
