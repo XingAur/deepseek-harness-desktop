@@ -288,6 +288,32 @@ impl PromptsService {
             oversized,
         })
     }
+
+    /// 三目标状态聚合(单目标实现见 status_of)。
+    pub fn status(&self) -> Result<Vec<TargetStatus>> {
+        PromptTarget::ALL.iter().map(|target| self.status_of(*target)).collect()
+    }
+
+    /// 首启/手动导入:把目标 live 文件内容导入为预设并激活到对应目标。
+    /// 跳过:目标未安装、文件缺失、内容为空、内容超限(> MAX_PROMPT_BYTES)。
+    /// 导入是只读吸收:绝不改动 live 文件本身。
+    pub fn import(&self, targets_to_import: &[PromptTarget]) -> Result<Vec<PresetSummary>> {
+        let mut imported = Vec::new();
+        for target in targets_to_import.iter().copied() {
+            let Some(path) = self.prompt_file_for(target)? else { continue };
+            let Some(content) = targets::read_live_prompt(&path)?.filter(|text| !text.is_empty()) else { continue };
+            if content.len() > MAX_PROMPT_BYTES {
+                continue;
+            }
+            let id = uuid::Uuid::new_v4().to_string();
+            let now = Self::now_ms();
+            let title = format!("导入-{}-{}", target.as_str(), chrono::Utc::now().format("%m%d%H%M%S"));
+            self.store.insert_preset(&id, &title, &content, now, now)?;
+            self.store.set_activation(target, &id, now)?;
+            imported.push(PresetSummary { id, title, updated_at: now, activated_targets: vec![target] });
+        }
+        Ok(imported)
+    }
 }
 
 #[cfg(test)]
@@ -623,5 +649,64 @@ mod tests {
         service.activate(&saved.id, PromptTarget::Claude).unwrap();
         let error = service.delete(&saved.id).unwrap_err();
         assert!(matches!(error, PromptsError::PresetActive(_)));
+    }
+
+    #[test]
+    fn status_reports_installed_hash_and_mismatch() {
+        let env = env();
+        let service = service(&env);
+        let saved = match service.save(None, "P", "v1").unwrap() {
+            Flow::Done(SaveOutcome::Saved { preset, .. }) => preset,
+            _ => panic!(),
+        };
+        service.activate(&saved.id, PromptTarget::Claude).unwrap();
+        let statuses = service.status().unwrap();
+        let claude = statuses.iter().find(|status| status.target == PromptTarget::Claude).unwrap();
+        assert!(claude.installed && claude.live_file_exists && claude.matches_active_preset);
+        write_live(&env, PromptTarget::Claude, "外部改了");
+        let statuses = service.status().unwrap();
+        let claude = statuses.iter().find(|status| status.target == PromptTarget::Claude).unwrap();
+        assert!(!claude.matches_active_preset);
+        assert!(claude.live_content_sha256.is_some());
+        let codex = statuses.iter().find(|status| status.target == PromptTarget::Codex).unwrap();
+        assert!(codex.installed && !codex.live_file_exists && codex.active_preset_id.is_none());
+        let dsh = statuses.iter().find(|status| status.target == PromptTarget::Dsh).unwrap();
+        assert!(!dsh.installed, "无活动 profile 时 DSH 目标视为未安装");
+    }
+
+    #[test]
+    fn status_marks_oversized_live_file() {
+        let env = env();
+        let service = service(&env);
+        write_live(&env, PromptTarget::Claude, &"x".repeat(MAX_PROMPT_BYTES + 1));
+        let statuses = service.status().unwrap();
+        let claude = statuses.iter().find(|status| status.target == PromptTarget::Claude).unwrap();
+        assert!(claude.oversized);
+        assert!(!claude.matches_active_preset);
+    }
+
+    #[test]
+    fn import_pulls_live_files_into_presets_and_activates() {
+        let env = env();
+        let service = service(&env);
+        write_live(&env, PromptTarget::Claude, "claude 既有提示词");
+        write_live(&env, PromptTarget::Codex, "codex 既有提示词");
+        let imported = service.import(&[PromptTarget::Claude, PromptTarget::Codex]).unwrap();
+        assert_eq!(imported.len(), 2);
+        assert_eq!(
+            service.store.active_preset_id(PromptTarget::Claude).unwrap().as_deref(),
+            Some(imported[0].id.as_str())
+        );
+        assert_eq!(imported[0].activated_targets, vec![PromptTarget::Claude]);
+        assert_eq!(read_live(&env, PromptTarget::Claude).unwrap(), "claude 既有提示词", "导入不得改动 live 文件");
+    }
+
+    #[test]
+    fn import_skips_empty_missing_and_oversized_files() {
+        let env = env();
+        let service = service(&env);
+        write_live(&env, PromptTarget::Claude, &"x".repeat(MAX_PROMPT_BYTES + 1));
+        let imported = service.import(&[PromptTarget::Claude, PromptTarget::Codex]).unwrap();
+        assert!(imported.is_empty(), "超限文件跳过;不存在的文件跳过;空文件跳过");
     }
 }
