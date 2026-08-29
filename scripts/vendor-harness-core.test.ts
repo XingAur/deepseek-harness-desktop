@@ -117,20 +117,21 @@ describe('harness core vendoring', () => {
 
   it('skips auto-sync in CI, without a source, or when the source is the vendor itself', () => {
     const repositoryRoot = temporary()
-    const ciFlag = process.env.CI
-    process.env.CI = 'true'
+    const originalCiFlag = process.env.CI
     try {
+      process.env.CI = 'true'
       expect(syncVendorFromSource(repositoryRoot).synced).toBe(false)
+      delete process.env.CI
+      expect(syncVendorFromSource(repositoryRoot, { source: '/definitely-not-a-harness-source' }).reason).toBe('source-unavailable')
+      const vendor = join(repositoryRoot, 'vendor', 'harness-core')
+      mkdirSync(join(vendor, 'app'), { recursive: true })
+      mkdirSync(join(vendor, 'tools'), { recursive: true })
+      writeFileSync(join(vendor, 'tools', 'harness_host_server.py'), 'x = 1\n')
+      writeFileSync(join(vendor, 'requirements.txt'), '')
+      expect(syncVendorFromSource(repositoryRoot, { source: vendor }).reason).toBe('source-is-vendor')
     } finally {
-      if (ciFlag === undefined) delete process.env.CI
-      else process.env.CI = ciFlag
+      if (originalCiFlag === undefined) delete process.env.CI
+      else process.env.CI = originalCiFlag
     }
-    expect(syncVendorFromSource(repositoryRoot, { source: '/definitely-not-a-harness-source' }).reason).toBe('source-unavailable')
-    const vendor = join(repositoryRoot, 'vendor', 'harness-core')
-    mkdirSync(join(vendor, 'app'), { recursive: true })
-    mkdirSync(join(vendor, 'tools'), { recursive: true })
-    writeFileSync(join(vendor, 'tools', 'harness_host_server.py'), 'x = 1\n')
-    writeFileSync(join(vendor, 'requirements.txt'), '')
-    expect(syncVendorFromSource(repositoryRoot, { source: vendor }).reason).toBe('source-is-vendor')
   })
 })
