@@ -67,6 +67,15 @@ export type VersionedBridgeAction =
   | 'approval.list'
   | 'approval.resolve'
   | 'content-reference.read'
+  | 'prompts.list'
+  | 'prompts.get'
+  | 'prompts.save'
+  | 'prompts.resolve-conflict'
+  | 'prompts.delete'
+  | 'prompts.activate'
+  | 'prompts.deactivate'
+  | 'prompts.status'
+  | 'prompts.import'
   | 'extension.inventory'
   | 'extension.install'
   | 'extension.enable'
@@ -137,6 +146,15 @@ export const bridgeCommandByActionV2 = {
   'approval.list': 'agent_pending_approvals',
   'approval.resolve': 'agent_resolve_approval',
   'content-reference.read': 'agent_content_reference_read',
+  'prompts.list': 'prompts_list',
+  'prompts.get': 'prompts_get',
+  'prompts.save': 'prompts_save',
+  'prompts.resolve-conflict': 'prompts_resolve_conflict',
+  'prompts.delete': 'prompts_delete',
+  'prompts.activate': 'prompts_activate',
+  'prompts.deactivate': 'prompts_deactivate',
+  'prompts.status': 'prompts_status',
+  'prompts.import': 'prompts_import',
   'extension.inventory': 'agent_extension_inventory',
   'extension.install': 'agent_extension_install',
   'extension.enable': 'agent_extension_enable',
@@ -218,6 +236,30 @@ export function isVersionedBridgePayload(action: VersionedBridgeAction, value: u
   if (['credential.delete', 'credential.status', 'credential.test'].includes(action)) return hasId('credentialId')
   if (['cli.path.status', 'cli.install.status', 'cli.install.start', 'cli.login.status', 'cli.login.start'].includes(action)) return hasId('providerId')
   if (['extension.install', 'extension.enable', 'extension.disable', 'extension.uninstall'].includes(action)) return hasId('extensionId')
+  if (action === 'prompts.get' || action === 'prompts.delete') {
+    return Object.hasOwn(value, 'presetId') && validRequestId(value.presetId)
+  }
+  if (action === 'prompts.activate') {
+    return Object.hasOwn(value, 'presetId') && validRequestId(value.presetId) && isPromptTarget(value.target)
+  }
+  if (action === 'prompts.deactivate') return isPromptTarget(value.target)
+  if (action === 'prompts.save' || action === 'prompts.resolve-conflict') {
+    return (action === 'prompts.save'
+      ? !Object.hasOwn(value, 'presetId') || value.presetId === undefined || validRequestId(value.presetId)
+      : Object.hasOwn(value, 'presetId') && validRequestId(value.presetId))
+      && typeof value.title === 'string'
+      && value.title.trim().length > 0
+      && value.title.length <= 200
+      && typeof value.content === 'string'
+      && value.content.length <= 24 * 1024
+  }
+  if (action === 'prompts.import') {
+    return Array.isArray(value.targets)
+      && value.targets.length >= 1
+      && value.targets.length <= 3
+      && value.targets.every((entry) => isPromptTarget(entry))
+      && new Set(value.targets.map(String)).size === value.targets.length
+  }
   if (action === 'plugin.catalog.list') {
     return (value.query === undefined || (typeof value.query === 'string' && value.query.length <= 120))
       && (value.category === undefined || (typeof value.category === 'string' && value.category.length <= 64))
@@ -265,6 +307,10 @@ export function containsSecretShape(value: unknown): boolean {
 
 function validPluginId(value: string): boolean {
   return /^[A-Za-z0-9][A-Za-z0-9._/-]{0,159}$/.test(value)
+}
+
+function isPromptTarget(value: unknown): value is 'claude' | 'codex' | 'dsh' {
+  return value === 'claude' || value === 'codex' || value === 'dsh'
 }
 
 export function validRequestId(value: unknown): value is string {
@@ -330,6 +376,15 @@ const versionedPayloadKeys: Record<VersionedBridgeAction, string[]> = {
   'approval.list': ['taskId'],
   'approval.resolve': ['approvalId', 'taskId', 'decision'],
   'content-reference.read': ['contentRefId', 'taskId', 'offset', 'length'],
+  'prompts.list': [],
+  'prompts.get': ['presetId'],
+  'prompts.save': ['presetId', 'title', 'content'],
+  'prompts.resolve-conflict': ['presetId', 'title', 'content'],
+  'prompts.delete': ['presetId'],
+  'prompts.activate': ['presetId', 'target'],
+  'prompts.deactivate': ['target'],
+  'prompts.status': [],
+  'prompts.import': ['targets'],
   'extension.inventory': [],
   'extension.install': ['extensionId'],
   'extension.enable': ['extensionId'],
