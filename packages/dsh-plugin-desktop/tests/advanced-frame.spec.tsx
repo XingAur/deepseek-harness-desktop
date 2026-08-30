@@ -49,9 +49,9 @@ describe('advanced frame', () => {
     expect(state.getSnapshot()).toBe(true)
   })
 
-  it('侧边栏不再渲染 Agent 按钮', () => {
+  it('侧边栏不再渲染被替换的插件入口按钮', () => {
     renderFrame()
-    expect(screen.queryByRole('button', { name: 'Agent' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '插件' })).not.toBeInTheDocument()
   })
 
   it('扩展中心按钮开合对话面', () => {

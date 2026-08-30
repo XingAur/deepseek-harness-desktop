@@ -266,7 +266,8 @@ export function installAdvancedStyles(): () => void {
     .dshExtCenterHeader h2 { margin: 0; font-size: 22px; letter-spacing: .2px; }
     .dshExtCenterHeader p { margin: 5px 0 0; max-width: 62ch; color: var(--dsw-alias-label-secondary, #b7b7bf); font-size: 13px; line-height: 1.65; }
     .dshExtCenterTabs { display: flex; gap: 8px; border-bottom: 1px solid var(--dsw-alias-border-secondary, rgba(127,127,127,.25)); padding-bottom: 10px; }
-    .dshExtCenterTabs button[aria-selected='true'] { color: var(--dsw-alias-text-primary); border-color: var(--dsw-alias-border-strong, currentColor); }
+    .dshExtCenterTabs button { min-height: 28px; padding: 4px 12px; border: 0; background: transparent; color: var(--dsw-alias-label-secondary, #b7b7bf); cursor: pointer; }
+    .dshExtCenterTabs button[aria-selected='true'] { color: var(--dsw-alias-label-primary, #ececf0); border-color: var(--dsw-alias-border-strong, currentColor); }
     .dshExtCenterPlaceholder { color: var(--dsw-alias-label-secondary, #b7b7bf); padding: 32px 0; text-align: center; }
     .dshPluginMarket { display: grid; gap: 16px; margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--dsh-desktop-divider); }
     .dshPluginMarketHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
