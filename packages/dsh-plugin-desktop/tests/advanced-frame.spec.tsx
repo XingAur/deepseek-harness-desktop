@@ -2,11 +2,12 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { AdvancedFrame } from '../src/client/AdvancedFrame'
+import { ExtensionCenterFooterAction } from '../src/client/ExtensionCenterFooterAction'
 import { LocalProjectsFooterAction } from '../src/client/LocalProjectsFooterAction'
 import { bridgeFixture, renderFrame, sessionFixture, workspaceFixture } from './fixtures'
 import { DesktopLayoutState } from '../src/client/layout-state'
+import { ExtensionCenterState } from '../src/client/extension-center-state'
 import { LocalProjectsState } from '../src/client/local-projects-state'
-import { PluginCenterState } from '../src/client/plugin-center-state'
 
 class ResizeObserverStub {
   observe() {}
@@ -48,6 +49,74 @@ describe('advanced frame', () => {
     expect(state.getSnapshot()).toBe(true)
   })
 
+  it('侧边栏不再渲染 Agent 按钮', () => {
+    renderFrame()
+    expect(screen.queryByRole('button', { name: 'Agent' })).not.toBeInTheDocument()
+  })
+
+  it('扩展中心按钮开合对话面', () => {
+    const state = new ExtensionCenterState()
+    renderFrame({ extensionCenter: state })
+    expect(screen.queryByRole('complementary', { name: '扩展中心' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '扩展中心' }))
+    expect(state.getSnapshot()).toBe(true)
+    expect(screen.getByRole('complementary', { name: '扩展中心' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '提示词' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByText('MCP')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'MCP' }))
+    expect(screen.getByText('即将推出')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '扩展中心' }))
+    expect(state.getSnapshot()).toBe(false)
+    expect(screen.queryByRole('complementary', { name: '扩展中心' })).not.toBeInTheDocument()
+    expect(screen.getByTestId('conversation-slot')).toBeInTheDocument()
+  })
+
+  it('扩展中心与本地项目互斥并占用对话面', () => {
+    const localProjects = new LocalProjectsState()
+    const extensionCenter = new ExtensionCenterState()
+    renderFrame({ localProjects, extensionCenter })
+
+    act(() => localProjects.open())
+    expect(screen.getByRole('region', { name: '本地项目' })).toBeInTheDocument()
+    act(() => extensionCenter.open())
+    expect(localProjects.getSnapshot()).toBe(false)
+    expect(screen.getByRole('complementary', { name: '扩展中心' })).toBeInTheDocument()
+    expect(screen.queryByTestId('conversation-slot')).toBeNull()
+
+    act(() => localProjects.open())
+    expect(extensionCenter.getSnapshot()).toBe(false)
+    expect(screen.getByRole('region', { name: '本地项目' })).toBeInTheDocument()
+  })
+
+  it('footer 顺序为 本地项目 → 扩展中心(设置由官方渲染在其后)', () => {
+    renderFrame()
+    const labels = Array.from(document.querySelectorAll('.dshDesktopFooterActionLabel'))
+      .map((node) => node.textContent)
+    expect(labels).toContain('本地项目')
+    expect(labels).toContain('扩展中心')
+    expect(labels.indexOf('本地项目')).toBeLessThan(labels.indexOf('扩展中心'))
+  })
+
+  it('matches the extension center footer geometry in wide and rail states', () => {
+    const state = new ExtensionCenterState()
+    const { rerender } = render(<ExtensionCenterFooterAction wide state={state} />)
+    let entry = screen.getByRole('button', { name: '扩展中心' })
+    expect(entry).toBeVisible()
+    expect(entry.querySelector('svg')).toBeInTheDocument()
+    expect(entry).toHaveClass('dshDesktopFooterAction')
+    expect(screen.getByText('扩展中心')).toHaveClass('dshDesktopFooterActionLabel')
+
+    rerender(<ExtensionCenterFooterAction wide={false} state={state} />)
+    entry = screen.getByRole('button', { name: '扩展中心' })
+    expect(entry).toHaveClass('dshDesktopFooterAction', 'is-rail')
+    expect(screen.queryByText('扩展中心')).not.toBeInTheDocument()
+    fireEvent.click(entry)
+    expect(state.getSnapshot()).toBe(true)
+  })
+
   for (const platform of ['win32', 'darwin'] as const) {
     it(`does not reserve an inner ${platform} caption row`, () => {
       const { container } = render(
@@ -61,7 +130,7 @@ describe('advanced frame', () => {
           sessions={sessionFixture()}
           bridge={bridgeFixture()}
           localProjects={new LocalProjectsState()}
-          pluginCenter={new PluginCenterState()}
+          extensionCenter={new ExtensionCenterState()}
         />,
       )
 
@@ -84,7 +153,7 @@ describe('advanced frame', () => {
         sessions={sessionFixture()}
         bridge={bridgeFixture()}
         localProjects={new LocalProjectsState()}
-        pluginCenter={new PluginCenterState()}
+        extensionCenter={new ExtensionCenterState()}
       />,
     )
 
@@ -96,11 +165,11 @@ describe('advanced frame', () => {
   it('returns to the conversation when a session becomes current', () => {
     const sessions = sessionFixture()
     const localProjects = new LocalProjectsState()
-    const pluginCenter = new PluginCenterState()
+    const extensionCenter = new ExtensionCenterState()
     renderFrame({
       sessions,
       localProjects,
-      pluginCenter,
+      extensionCenter,
       useSessions: (selector) => useSyncExternalStore(
         sessions.list.subscribe,
         () => selector(sessions.list.getSnapshot()),
@@ -116,10 +185,10 @@ describe('advanced frame', () => {
     expect(screen.queryByRole('region', { name: '本地项目' })).toBeNull()
     expect(screen.getByTestId('conversation-slot')).toBeInTheDocument()
 
-    act(() => pluginCenter.open())
+    act(() => extensionCenter.open())
     expect(screen.queryByTestId('conversation-slot')).toBeNull()
     act(() => sessions.setCurrent('s-another'))
-    expect(pluginCenter.getSnapshot()).toBe(false)
+    expect(extensionCenter.getSnapshot()).toBe(false)
     expect(screen.getByTestId('conversation-slot')).toBeInTheDocument()
   })
 })

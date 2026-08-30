@@ -9,8 +9,9 @@ import type {
 import type { DesktopBridgeAction, DesktopBridgeLike } from '../src/client/desktop-bridge'
 import { DesktopLayoutState } from '../src/client/layout-state'
 import { LocalProjectsState } from '../src/client/local-projects-state'
-import { PluginCenterState } from '../src/client/plugin-center-state'
+import { ExtensionCenterState } from '../src/client/extension-center-state'
 import { LocalProjectsFooterAction } from '../src/client/LocalProjectsFooterAction'
+import { ExtensionCenterFooterAction } from '../src/client/ExtensionCenterFooterAction'
 
 export function workspaceFixture(items: WorkspaceView[] = []) {
   let snapshot: WorkspaceListState = {
@@ -124,7 +125,7 @@ export function renderFrame(overrides: Partial<AdvancedFrameProps> = {}) {
   const workspaces = overrides.workspaces ?? workspaceFixture()
   const sessions = overrides.sessions ?? sessionFixture()
   const localProjects = overrides.localProjects ?? new LocalProjectsState()
-  const pluginCenter = overrides.pluginCenter ?? new PluginCenterState()
+  const extensionCenter = overrides.extensionCenter ?? new ExtensionCenterState()
   const props: AdvancedFrameProps = {
     layout: new DesktopLayoutState(),
     platform: 'win32',
@@ -132,6 +133,7 @@ export function renderFrame(overrides: Partial<AdvancedFrameProps> = {}) {
       ? createElement('div', {},
           createElement('div', { 'data-testid': `${name}-slot` }),
           createElement(LocalProjectsFooterAction, { wide: slotProps.collapsed !== true, state: localProjects }),
+          createElement(ExtensionCenterFooterAction, { wide: slotProps.collapsed !== true, state: extensionCenter }),
         )
       : createElement('div', { 'data-testid': `${name}-slot` }),
     useSessions: (selector) => selector({ byId: {} }),
@@ -140,7 +142,7 @@ export function renderFrame(overrides: Partial<AdvancedFrameProps> = {}) {
     sessions,
     bridge: bridgeFixture(),
     localProjects,
-    pluginCenter,
+    extensionCenter,
     ...overrides,
   }
   return { ...render(createElement(AdvancedFrame, props)), props, workspaces, sessions }

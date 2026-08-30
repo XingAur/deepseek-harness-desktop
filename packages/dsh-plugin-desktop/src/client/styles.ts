@@ -11,7 +11,6 @@ export function installAdvancedStyles(): () => void {
     .dshDesktopFrame { position: relative; display: grid; width: 100%; height: 100%; min-width: 0; background: var(--dsw-alias-bg-base, #151517); }
     .dshDesktopSidebarSurface, .dshDesktopConversationSurface, .dshDesktopDetailsSurface { min-width: 0; min-height: 0; overflow: hidden; border-color: var(--dsh-desktop-divider); }
     .dshDesktopSidebarSurface { position: relative; display: flex; flex-direction: column; background: var(--dsw-specific-sidebar-fill, var(--dsw-alias-bg-layer-2, #2c2c2f)); border-right: 1px solid var(--dsh-desktop-divider); }
-    .dshDesktopSidebarEntries { display: flex; flex-direction: column; padding: 6px 8px 10px; }
     .dshDesktopUpstreamSidebar { flex: 1; min-height: 0; }
     .dshDesktopFooterAction { box-sizing: border-box; display: flex; align-items: center; width: calc(100% + 4px); height: 42px; margin: 4px -2px; padding: 0 10px 0 8px; gap: 8px; border: 0; border-radius: 12px; color: var(--dsw-alias-label-primary, #e8edf2); background: transparent; font: 400 14px/22px var(--dsw-font-family, system-ui, sans-serif); text-align: left; cursor: pointer; overflow: hidden; transition: background-color .15s ease; }
     .dshDesktopFooterAction svg { width: 18px; height: 18px; flex: 0 0 18px; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -262,11 +261,13 @@ export function installAdvancedStyles(): () => void {
     .dshAgentWorkbenchDiff pre { max-height: 260px; margin: 8px 0 0; overflow: auto; color: #cbd7ff; font: 11px/1.5 ui-monospace, SFMono-Regular, monospace; white-space: pre-wrap; }
     .dshModelAgentWorkbenchHint { margin: 4px 0 0; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 12.5px; line-height: 1.7; }
     .dshModelAgentWorkbenchHint strong { color: var(--dsw-alias-label-secondary, #b7b7bf); }
-    .dshPluginCenterPage { display: grid; gap: 18px; max-width: 980px; margin: 0 auto; }
-    .dshPluginCenterHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-    .dshPluginCenterHead h2 { margin: 0 0 5px; font-size: 22px; }
-    .dshPluginCenterHead p { margin: 0; max-width: 62ch; color: var(--dsw-alias-label-secondary, #b7b7bf); font-size: 13px; line-height: 1.65; }
-    .dshPluginCenterPage .dshPluginMarket { margin-top: 0; padding-top: 0; border-top: 0; }
+    .dshExtCenter { display: grid; gap: 18px; max-width: 1080px; margin: 0 auto; padding: 4px 2px; }
+    .dshExtCenterHeader { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; }
+    .dshExtCenterHeader h2 { margin: 0; font-size: 22px; letter-spacing: .2px; }
+    .dshExtCenterHeader p { margin: 5px 0 0; max-width: 62ch; color: var(--dsw-alias-label-secondary, #b7b7bf); font-size: 13px; line-height: 1.65; }
+    .dshExtCenterTabs { display: flex; gap: 8px; border-bottom: 1px solid var(--dsw-alias-border-secondary, rgba(127,127,127,.25)); padding-bottom: 10px; }
+    .dshExtCenterTabs button[aria-selected='true'] { color: var(--dsw-alias-text-primary); border-color: var(--dsw-alias-border-strong, currentColor); }
+    .dshExtCenterPlaceholder { color: var(--dsw-alias-label-secondary, #b7b7bf); padding: 32px 0; text-align: center; }
     .dshPluginMarket { display: grid; gap: 16px; margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--dsh-desktop-divider); }
     .dshPluginMarketHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
     .dshPluginMarketHead h3 { margin: 0 0 4px; font-size: 16px; }
