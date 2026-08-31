@@ -282,6 +282,68 @@ describe('workbench bridge', () => {
     }), 'http://127.0.0.1:39000')
   })
 
+  it('forwards prompts payloads with whitelisted fields for v2 requests', async () => {
+    const invoke = vi.fn().mockResolvedValue({ ok: true })
+    const postMessage = vi.fn()
+    const contentWindow = { postMessage } as unknown as Window
+    const bridge = createWorkbenchBridge({
+      frame: () => ({ contentWindow }) as HTMLIFrameElement,
+      active: () => ({
+        generationId: 'generation-1',
+        sessionId: 'session-1',
+        origin: 'http://127.0.0.1:39000',
+      }),
+      invoke,
+    })
+    const send = (requestId: string, action: string, payload: unknown) => bridge.onMessage({
+      source: contentWindow,
+      origin: 'http://127.0.0.1:39000',
+      data: {
+        channel: DESKTOP_BRIDGE_V2_CHANNEL,
+        requestId,
+        generationId: 'generation-1',
+        sessionId: 'session-1',
+        action,
+        payload,
+      },
+    } as MessageEvent)
+
+    await send('request-prompts-save', 'prompts.save', { presetId: 'preset-1', title: '审查提示词', content: '请审查代码' })
+    await send('request-prompts-save-new', 'prompts.save', { title: '新提示词', content: '内容' })
+    await send('request-prompts-activate', 'prompts.activate', { presetId: 'preset-1', target: 'claude' })
+    await send('request-prompts-status', 'prompts.status', {})
+
+    expect(invoke).toHaveBeenNthCalledWith(1, 'prompts_save', {
+      generationId: 'generation-1',
+      sessionId: 'session-1',
+      presetId: 'preset-1',
+      title: '审查提示词',
+      content: '请审查代码',
+    })
+    expect(invoke).toHaveBeenNthCalledWith(2, 'prompts_save', {
+      generationId: 'generation-1',
+      sessionId: 'session-1',
+      title: '新提示词',
+      content: '内容',
+    })
+    expect(invoke).toHaveBeenNthCalledWith(3, 'prompts_activate', {
+      generationId: 'generation-1',
+      sessionId: 'session-1',
+      presetId: 'preset-1',
+      target: 'claude',
+    })
+    expect(invoke).toHaveBeenNthCalledWith(4, 'prompts_status', {
+      generationId: 'generation-1',
+      sessionId: 'session-1',
+    })
+    expect(postMessage).toHaveBeenCalledTimes(4)
+    expect(postMessage).toHaveBeenNthCalledWith(4, expect.objectContaining({
+      channel: DESKTOP_BRIDGE_V2_CHANNEL,
+      requestId: 'request-prompts-status',
+      ok: true,
+    }), 'http://127.0.0.1:39000')
+  })
+
   it('forwards validated agent events only to the active iframe session', () => {
     const postMessage = vi.fn()
     const contentWindow = { postMessage } as unknown as Window

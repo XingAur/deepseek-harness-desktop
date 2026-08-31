@@ -1,7 +1,7 @@
 import type { ComponentType, ReactNode } from 'react'
 import type { DesktopBridgeLike } from './desktop-bridge'
 import type { LocalProjectsState } from './local-projects-state'
-import type { PluginCenterState } from './plugin-center-state'
+import type { ExtensionCenterState } from './extension-center-state'
 
 export type DesktopPlatform = 'win32' | 'darwin'
 
@@ -117,5 +117,5 @@ export interface AdvancedFrameProps {
   sessions: SessionsLike
   bridge: DesktopBridgeLike
   localProjects: LocalProjectsState
-  pluginCenter: PluginCenterState
+  extensionCenter: ExtensionCenterState
 }

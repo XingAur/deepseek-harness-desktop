@@ -31,6 +31,15 @@ export type VersionedBridgeAction =
   | 'extension.enable'
   | 'extension.disable'
   | 'extension.uninstall'
+  | 'prompts.list'
+  | 'prompts.get'
+  | 'prompts.save'
+  | 'prompts.resolve-conflict'
+  | 'prompts.delete'
+  | 'prompts.activate'
+  | 'prompts.deactivate'
+  | 'prompts.status'
+  | 'prompts.import'
 
 interface VersionedBridgeResponse {
   channel: typeof DESKTOP_BRIDGE_V2_CHANNEL

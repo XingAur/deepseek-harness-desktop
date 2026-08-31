@@ -9,8 +9,8 @@ import type { DesktopBridgeLike } from './desktop-bridge'
 import { ProfileSettingsSection } from './ProfileSettingsSection'
 import { LocalProjectsFooterAction } from './LocalProjectsFooterAction'
 import { LocalProjectsState } from './local-projects-state'
-import { PluginCenterState } from './plugin-center-state'
-import { PluginCenterFooterAction } from './PluginCenterFooterAction'
+import { ExtensionCenterState } from './extension-center-state'
+import { ExtensionCenterFooterAction } from './ExtensionCenterFooterAction'
 import { ModelAgentCenter } from './model-agent/ModelAgentCenter'
 import { installNewSessionTransition } from './new-session-transition'
 
@@ -28,7 +28,7 @@ export function applyAdvancedShell(
   const bridge = options.bridge ?? desktopBridgeForWindow(options.parentOrigin, options.context)
   const layout = new DesktopLayoutState()
   const localProjects = new LocalProjectsState()
-  const pluginCenter = new PluginCenterState()
+  const extensionCenter = new ExtensionCenterState()
   ctx.effect(
     () => installNewSessionTransition(ctx.workspaces, ctx.sessions),
     'desktop: new session transition',
@@ -69,10 +69,10 @@ export function applyAdvancedShell(
   }, LocalProjectsFooterAction))
   ctx.slots.inject?.('sidebar.footer.action', () => ctx.slots.register({
     name: 'sidebar.footer.action',
-    id: 'dsh-desktop-plugin-center',
+    id: 'dsh-desktop-extension-center',
     order: 20,
-    inject: () => ({ state: pluginCenter }),
-  }, PluginCenterFooterAction))
+    inject: () => ({ state: extensionCenter }),
+  }, ExtensionCenterFooterAction))
   ctx.effect(() => {
     const disposeService = provideDesktopLayout(ctx, layout)
     const disposeRegistration = ctx.slots.register({
@@ -83,7 +83,7 @@ export function applyAdvancedShell(
         details: { kind: 'single', scope: 'session' },
         'shell.overlay': { kind: 'list', scope: 'root' },
       },
-      inject: () => ({ layout, platform, workspaces: ctx.workspaces, sessions: ctx.sessions, bridge, localProjects, pluginCenter }),
+      inject: () => ({ layout, platform, workspaces: ctx.workspaces, sessions: ctx.sessions, bridge, localProjects, extensionCenter }),
     }, AdvancedFrame)
     return () => { disposeRegistration(); disposeService(); bridge.dispose() }
   }, 'desktop: layout service + advanced root slot')

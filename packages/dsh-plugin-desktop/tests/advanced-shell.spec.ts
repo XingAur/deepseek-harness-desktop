@@ -107,6 +107,42 @@ describe('advanced shell', () => {
     expect(action?.definition.inject().state).toBe(root?.definition.inject().localProjects)
   })
 
+  it('orders the sidebar footer actions as 本地项目 → 扩展中心 (settings renders after them)', () => {
+    const registrations: Array<{ definition: any; component: unknown }> = []
+    const callbacks: Array<{ name: string; setup: () => void | (() => void) }> = []
+    const context = {
+      effect: (setup: () => void | (() => void)) => { setup() },
+      reflect: { provide: vi.fn(() => () => undefined) },
+      slots: {
+        register: vi.fn((definition, component) => {
+          registrations.push({ definition, component })
+          return () => undefined
+        }),
+        inject: vi.fn((name: string, setup: () => void | (() => void)) => {
+          callbacks.push({ name, setup })
+          return () => undefined
+        }),
+      },
+      workspaces: { list: {} },
+      sessions: { list: {} },
+    } as unknown as ClientContextLike
+
+    applyAdvancedShell(context, 'win32')
+    callbacks.filter((callback) => callback.name === 'sidebar.footer.action')
+      .forEach((callback) => callback.setup())
+    const actions = registrations
+      .filter(({ definition }) => definition.name === 'sidebar.footer.action')
+      .sort((left, right) => left.definition.order - right.definition.order)
+
+    expect(actions.map(({ definition }) => definition.id)).toEqual([
+      'dsh-desktop-local-projects',
+      'dsh-desktop-extension-center',
+    ])
+    expect(actions.map(({ definition }) => definition.order)).toEqual([10, 20])
+    expect(actions[1]?.definition.inject().state)
+      .toBe(registrations.find(({ definition }) => definition.name === 'root')?.definition.inject().extensionCenter)
+  })
+
   it('does not assign undeclared services onto the host context', () => {
     const register = vi.fn(() => () => undefined)
     const provide = vi.fn(() => () => undefined)

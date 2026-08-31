@@ -5,15 +5,15 @@ import {
   SIDEBAR_COLLAPSED, SIDEBAR_DEFAULT,
 } from './layout-state'
 import { LocalProjectsPage } from './LocalProjectsPage'
-import { PluginCenterPage } from './PluginCenterPage'
+import { ExtensionCenterPanel } from './extension-center/ExtensionCenterPanel'
 
-export function AdvancedFrame({ layout, platform, renderSlot, useSessions, useWorkspaces, workspaces, sessions, bridge, localProjects, pluginCenter }: AdvancedFrameProps) {
+export function AdvancedFrame({ layout, platform, renderSlot, useSessions, useWorkspaces, workspaces, sessions, bridge, localProjects, extensionCenter }: AdvancedFrameProps) {
   const subscribe = useCallback((listener: () => void) => layout.subscribe(listener), [layout])
   const panels = useSyncExternalStore(subscribe, layout.getSnapshot)
   const frameRef = useRef<HTMLDivElement>(null)
   const [viewport, setViewport] = useState(() => window.innerWidth)
   const projectsOpen = useSyncExternalStore(localProjects.subscribe, localProjects.getSnapshot)
-  const pluginsOpen = useSyncExternalStore(pluginCenter.subscribe, pluginCenter.getSnapshot)
+  const centerOpen = useSyncExternalStore(extensionCenter.subscribe, extensionCenter.getSnapshot)
   const workspaceState = useWorkspaces((state) => state)
   const detailsSession = useSessions((state) => {
     const current = state.current
@@ -33,23 +33,23 @@ export function AdvancedFrame({ layout, platform, renderSlot, useSessions, useWo
 
   const narrow = viewport < SIDEBAR_AUTO_COLLAPSE
   useEffect(() => layout.setNarrow(narrow), [layout, narrow])
-  useEffect(() => { if (projectsOpen || pluginsOpen) layout.closeDetails() }, [layout, projectsOpen, pluginsOpen])
-  useEffect(() => { if (pluginsOpen) localProjects.close() }, [pluginsOpen, localProjects])
-  useEffect(() => { if (projectsOpen) pluginCenter.close() }, [projectsOpen, pluginCenter])
+  useEffect(() => { if (projectsOpen || centerOpen) layout.closeDetails() }, [layout, projectsOpen, centerOpen])
+  useEffect(() => { if (centerOpen) localProjects.close() }, [centerOpen, localProjects])
+  useEffect(() => { if (projectsOpen) extensionCenter.close() }, [projectsOpen, extensionCenter])
   // 侧栏“新会话”/会话切换只改会话状态，不会碰下面两个全屏页面；
   // 会话成为当前会话时必须回到工作台，否则页面会一直盖住会话视图。
   useEffect(() => {
     if (currentSessionId === undefined) return
     localProjects.close()
-    pluginCenter.close()
-  }, [currentSessionId, localProjects, pluginCenter])
+    extensionCenter.close()
+  }, [currentSessionId, localProjects, extensionCenter])
 
   const collapsed = panels.narrow ? !panels.narrowExpanded : panels.sidebar === 0
   const sidebarPreference = collapsed ? 0 : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
   const columns = computeDesktopColumns(
     viewport,
     sidebarPreference,
-    projectsOpen || pluginsOpen || detailsSession === undefined ? 0 : panels.details,
+    projectsOpen || centerOpen || detailsSession === undefined ? 0 : panels.details,
     platform === 'darwin' ? MACOS_SIDEBAR_COLLAPSED : SIDEBAR_COLLAPSED,
   )
 
@@ -67,8 +67,8 @@ export function AdvancedFrame({ layout, platform, renderSlot, useSessions, useWo
       <main className="dshDesktopConversationSurface">
         {projectsOpen
           ? <LocalProjectsPage state={workspaceState} workspaces={workspaces} sessions={sessions} bridge={bridge} onClose={() => localProjects.close()} />
-          : pluginsOpen
-            ? <div className="dshAgentPage"><PluginCenterPage bridge={bridge} onClose={() => pluginCenter.close()} /></div>
+          : centerOpen
+            ? <div className="dshAgentPage"><ExtensionCenterPanel bridge={bridge} /></div>
             : renderSlot('conversation', {})}
       </main>
       <aside className="dshDesktopDetailsSurface">{renderSlot('details', {})}</aside>

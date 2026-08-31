@@ -133,3 +133,49 @@ it('maps plugin market actions to dedicated commands with bounded payloads', () 
     expect(isVersionedBridgePayload('credential.put', { providerId: '../escape', secret: 'private-value' })).toBe(false)
   })
 })
+
+describe('prompts v2 actions', () => {
+  it('accepts prompts.save with bounded title and content', () => {
+    expect(isVersionedBridgePayload('prompts.save', { presetId: undefined, title: '标题', content: '正文' })).toBe(true)
+    expect(isVersionedBridgePayload('prompts.save', { title: '标题', content: '正文' })).toBe(true)
+    expect(isVersionedBridgePayload('prompts.save', { presetId: 'p1', title: '标题', content: 'x'.repeat(24 * 1024) })).toBe(true)
+    expect(isVersionedBridgePayload('prompts.save', { title: '标题', content: 'x'.repeat(24 * 1024 + 1) })).toBe(false)
+    expect(isVersionedBridgePayload('prompts.save', { title: '', content: '正文' })).toBe(false)
+    expect(isVersionedBridgePayload('prompts.save', { title: 'x'.repeat(201), content: '正文' })).toBe(false)
+    expect(isVersionedBridgePayload('prompts.save', { title: '标题', content: '正文', extra: 1 })).toBe(false)
+  })
+
+  it('accepts prompts.resolve-conflict with the same bounds as save', () => {
+    expect(isVersionedBridgePayload('prompts.resolve-conflict', { presetId: 'p1', title: '标题', content: '正文' })).toBe(true)
+    expect(isVersionedBridgePayload('prompts.resolve-conflict', { presetId: 'p1', title: '标题', content: 'x'.repeat(24 * 1024 + 1) })).toBe(false)
+    expect(isVersionedBridgePayload('prompts.resolve-conflict', { title: '标题', content: '正文' })).toBe(false)
+  })
+
+  it('accepts prompts.activate/deactivate with known targets only', () => {
+    expect(isVersionedBridgePayload('prompts.activate', { presetId: 'p1', target: 'claude' })).toBe(true)
+    expect(isVersionedBridgePayload('prompts.activate', { presetId: 'p1', target: 'gemini' })).toBe(false)
+    expect(isVersionedBridgePayload('prompts.deactivate', { target: 'dsh' })).toBe(true)
+    expect(isVersionedBridgePayload('prompts.deactivate', {})).toBe(false)
+  })
+
+  it('accepts prompts.import with a deduplicated target list', () => {
+    expect(isVersionedBridgePayload('prompts.import', { targets: ['claude', 'codex'] })).toBe(true)
+    expect(isVersionedBridgePayload('prompts.import', { targets: ['claude', 'claude'] })).toBe(false)
+    expect(isVersionedBridgePayload('prompts.import', { targets: [] })).toBe(false)
+    expect(isVersionedBridgePayload('prompts.import', { targets: ['claude', 'codex'], extra: 1 })).toBe(false)
+  })
+
+  it('accepts prompts.get/delete/status/list payloads', () => {
+    expect(isVersionedBridgePayload('prompts.get', { presetId: 'p1' })).toBe(true)
+    expect(isVersionedBridgePayload('prompts.delete', { presetId: 'p1' })).toBe(true)
+    expect(isVersionedBridgePayload('prompts.status', {})).toBe(true)
+    expect(isVersionedBridgePayload('prompts.list', {})).toBe(true)
+    expect(isVersionedBridgePayload('prompts.get', {})).toBe(false)
+  })
+
+  it('maps prompts actions to tauri commands', () => {
+    expect(bridgeCommandByActionV2['prompts.list']).toBe('prompts_list')
+    expect(bridgeCommandByActionV2['prompts.resolve-conflict']).toBe('prompts_resolve_conflict')
+    expect(bridgeCommandByActionV2['prompts.import']).toBe('prompts_import')
+  })
+})

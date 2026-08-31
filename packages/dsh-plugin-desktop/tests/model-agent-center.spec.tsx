@@ -37,6 +37,17 @@ describe('model and agent center', () => {
     expect(await screen.findByText('读取文件')).toBeVisible()
   })
 
+  it('Agents 页签渲染 AgentHome(安装/登录入口随其可用)', async () => {
+    const bridge = bridgeFixture()
+    render(<ModelAgentCenter bridge={bridge} />)
+
+    await screen.findByText('Codex')
+    fireEvent.click(screen.getByRole('tab', { name: 'Agents' }))
+    expect(await screen.findByRole('button', { name: '安装 Codex CLI' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '重新检测' })).toBeVisible()
+    expect(screen.getByText('Codex 在你的项目里真实执行任务；写文件、跑命令等操作都会先请求你的批准。')).toBeVisible()
+  })
+
   it('opens the credential flow without rendering the secret', async () => {
     const bridge = bridgeFixture()
     render(<ModelAgentCenter bridge={bridge} />)

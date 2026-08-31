@@ -10,13 +10,22 @@
     "./client": "./lib/client.js",
     "./package.json": "./package.json"
   },
-  "files": ["lib/**", "cordis.patch.yml", "THIRD_PARTY_NOTICES.md"],
+  "files": [
+    "lib/**",
+    "cordis.patch.yml",
+    "THIRD_PARTY_NOTICES.md"
+  ],
   "dsh": {
     "client": {
-      "inject": ["@deepseek-ai/dsh-client-runtime", "@deepseek-ai/dsh-client-ui-theme"],
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-theme"
+      ],
       "platform": "web"
     },
-    "bundle": { "patch": "./cordis.patch.yml" }
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
   },
   "scripts": {
     "build": "tsdown && tsc -p tsconfig.json --emitDeclarationOnly",
@@ -27,8 +36,8 @@
     "react": "18.3.1"
   },
   "devDependencies": {
-    "@testing-library/jest-dom": "6.9.1",
     "@testing-library/dom": "10.4.1",
+    "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.2",
     "@types/node": "26.2.0",
     "@types/react": "18.3.28",
@@ -39,5 +48,9 @@
     "tsdown": "0.22.14",
     "typescript": "6.0.3",
     "vitest": "4.1.10"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.14",
+    "marked": "^18.0.11"
   }
 }
