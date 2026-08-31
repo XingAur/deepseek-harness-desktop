@@ -7,22 +7,12 @@ import { spawnSync } from 'node:child_process'
 import { loadReleaseVersions } from './release-versions.mjs'
 import { runtimeReleaseAssetNames } from './runtime-release-manifest.mjs'
 
-// 发布桌面版之前,校验被钉住的 runtime release 内打包的桌面插件与当前仓库一致,
-// 防止 CI 复用旧运行时导致用户侧拿到旧插件(0.1.37 事故)。任一 target 不一致即失败,
-// 并给出"请升 runtimeVersion"的指引;release 尚不存在时视为通过(新运行时会被构建)。
+// 发布桌面版之前,校验将被复用的 runtime release 内打包的桌面插件与当前仓库一致,
+// 防止 CI 复用旧运行时导致用户侧拿到旧插件(0.1.37 事故)。manifest 缺少插件指纹
+// 或指纹不一致时,提示必须 bump release/versions.json 的 runtimeVersion 重新发布;
+// runtime release 尚不存在时视为通过(本次发布会构建新运行时,不会复用旧插件)。
 
-export const SUPPORTED_TARGETS = ['windows-x86_64', 'darwin-aarch64']
-
-export function compareManifest(expectedSha, manifest) {
-  const actual = manifest && typeof manifest === 'object' ? manifest.desktopPluginSha256 : undefined
-  if (typeof actual !== 'string' || actual === '') {
-    return { ok: false, reason: 'stale-manifest' }
-  }
-  if (actual.toLowerCase() !== expectedSha.toLowerCase()) {
-    return { ok: false, reason: 'plugin-drift', expected: expectedSha, actual }
-  }
-  return { ok: true }
-}
+const repositoryRoot = () => resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 export function sha256File(path) {
   // 与 build-runtime.mjs 计算打包 tgz 指纹同算法:对文件字节流取 SHA-256。
@@ -30,18 +20,92 @@ export function sha256File(path) {
 }
 
 // 重建当前仓库的桌面插件 tgz 指纹:plugin:build + npm pack 到临时目录后对 tgz 取哈希。
-// runNpmCommand 可注入,便于单测跳过真实 npm 调用。
-export function resolveExpectedSha(repositoryRoot, runNpmCommand = runNpm) {
+// 与 --dependency-cache 复用路径无关(那条路径不经过 npm pack)。runNpmCommand 可注入,
+// 便于单测跳过真实 npm 调用。
+export function currentPluginSha256(root = repositoryRoot(), runNpmCommand = runNpm) {
   const packDirectory = mkdtempSync(join(tmpdir(), 'dsh-plugin-pack-'))
   try {
-    runNpmCommand(repositoryRoot, ['run', 'plugin:build'])
-    runNpmCommand(repositoryRoot, ['pack', './packages/dsh-plugin-desktop', '--pack-destination', packDirectory])
+    runNpmCommand(root, ['run', 'plugin:build'])
+    runNpmCommand(root, ['pack', './packages/dsh-plugin-desktop', '--pack-destination', packDirectory])
     const tarballName = readdirSync(packDirectory).find((file) => file.endsWith('.tgz'))
     if (!tarballName) throw new Error('npm pack 未产出桌面插件 tgz')
     return sha256File(join(packDirectory, tarballName))
   } finally {
     rmSync(packDirectory, { recursive: true, force: true })
   }
+}
+
+// 比对已发布 runtime manifest 内的插件指纹与当前仓库指纹。
+// 缺字段 → runtime-manifest-stale(该运行时发布于指纹机制引入之前,必属旧插件);
+// 不一致 → plugin-drift。两种情况都要求 bump runtimeVersion,因为 runtime release 资产不可变。
+export function compareManifest(currentSha, manifest, runtimeTag) {
+  const publishedSha = manifest && typeof manifest === 'object' ? manifest.desktopPluginSha256 : undefined
+  if (typeof publishedSha !== 'string' || publishedSha.trim() === '') {
+    return {
+      ok: false,
+      reason: 'runtime-manifest-stale',
+      message: `运行时 ${runtimeTag} 的 manifest 缺少插件 sha(运行时过旧),必须 bump runtimeVersion 重新发布`,
+    }
+  }
+  if (publishedSha.toLowerCase() !== String(currentSha).toLowerCase()) {
+    return {
+      ok: false,
+      reason: 'plugin-drift',
+      message: `运行时 ${runtimeTag} 内插件与当前仓库不一致:manifest=${publishedSha} 当前=${currentSha},必须 bump runtimeVersion`,
+    }
+  }
+  return { ok: true }
+}
+
+const sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms))
+
+// 拉取已发布 runtime manifest;release 或 manifest 资产不存在时返回 null(将构建新运行时)。
+// GitHub 偶发连接重置:网络错误与 5xx 最多重试 3 次,指数退避 1s/2s/4s;404 不重试。
+export async function fetchRuntimeManifest(target, runtimeTag, token, options = {}) {
+  const {
+    repository = resolveRepository(),
+    retryDelayMs = 1000,
+    sleepImpl = sleep,
+    fetchImpl = fetch,
+  } = options
+  const { manifestName } = runtimeReleaseAssetNames(target)
+  const url = `https://github.com/${repository}/releases/download/${runtimeTag}/${manifestName}`
+  const headers = token ? { Authorization: `Bearer ${token}` } : {}
+  const maxRetries = 3
+  for (let attempt = 0; ; attempt += 1) {
+    let response
+    try {
+      // fetch 规范会在跨源重定向时剥掉 Authorization,跟随重定向不会把 token 泄给资产 CDN。
+      response = await fetchImpl(url, { headers, redirect: 'follow' })
+    } catch (cause) {
+      if (attempt >= maxRetries) {
+        throw new Error(`下载 ${url} 失败(已重试 ${maxRetries} 次): ${cause instanceof Error ? cause.message : String(cause)}`)
+      }
+      await sleepImpl(retryDelayMs * 2 ** attempt)
+      continue
+    }
+    if (response.status === 404) return null
+    if (response.status >= 500) {
+      if (attempt >= maxRetries) throw new Error(`下载 ${url} 失败: HTTP ${response.status}(已重试 ${maxRetries} 次)`)
+      await sleepImpl(retryDelayMs * 2 ** attempt)
+      continue
+    }
+    if (!response.ok) throw new Error(`下载 ${url} 失败: HTTP ${response.status}`)
+    return parseManifestJson(await response.text(), url)
+  }
+}
+
+function parseManifestJson(text, label) {
+  let value
+  try {
+    value = JSON.parse(text)
+  } catch {
+    throw new Error(`${label} 不是有效的 JSON 清单`)
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${label} 不是 JSON 对象`)
+  }
+  return value
 }
 
 function runNpm(cwd, commandArgs) {
@@ -66,125 +130,57 @@ function runNpm(cwd, commandArgs) {
   }
 }
 
-function ghApi(args) {
-  const result = spawnSync('gh', ['api', ...args], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
-  if (result.error?.code === 'ENOENT') return { status: 'gh-missing' }
-  if (result.status !== 0) {
-    throw new Error(`gh api 失败: ${(result.stderr ?? '').trim() || result.error?.message || '未知错误'}`)
-  }
-  return { status: 'ok', value: result.stdout }
-}
-
-// 返回 { status: 'found', manifest } | { status: 'missing' }。
-// 优先 gh api:列表接口在带 token 时可见 draft release,避免"草稿运行时被跳过校验后复用"。
-// gh 不可用时回退到公开的 release download 直链(看不到 draft,但本地开发场景足够)。
-// ghApiFn 可注入,便于单测覆盖 shell 逻辑而不触网。
-export async function loadPublishedManifest({ repository, runtimeVersion, target }, ghApiFn = ghApi) {
-  const tagName = `runtime-v${runtimeVersion}`
-  const { manifestName } = runtimeReleaseAssetNames(target)
-
-  const releases = ghApiFn([`repos/${repository}/releases?per_page=100`])
-  if (releases.status === 'ok') {
-    let parsed
-    try {
-      parsed = JSON.parse(releases.value)
-    } catch {
-      throw new Error('gh api 返回的 release 列表不是有效 JSON')
-    }
-    if (!Array.isArray(parsed)) throw new Error('gh api 返回的 release 列表格式无效')
-    const release = parsed.find((item) => item?.tag_name === tagName)
-    if (!release) return { status: 'missing' }
-    const assets = Array.isArray(release.assets) ? release.assets : []
-    const asset = assets.find((item) => item?.name === manifestName)
-    if (!asset || asset.id === undefined) return { status: 'missing' }
-    const body = ghApiFn(['-H', 'Accept: application/octet-stream', `repos/${repository}/releases/assets/${asset.id}`])
-    if (body.status !== 'ok') return { status: 'missing' }
-    return { status: 'found', manifest: parseManifestJson(body.value, `${tagName}/${manifestName}`) }
-  }
-
-  const url = `https://github.com/${repository}/releases/download/${tagName}/${manifestName}`
-  const response = await fetch(url, { redirect: 'follow' })
-  if (response.status === 404) return { status: 'missing' }
-  if (!response.ok) throw new Error(`下载 ${url} 失败: HTTP ${response.status}`)
-  return { status: 'found', manifest: parseManifestJson(await response.text(), url) }
-}
-
-function parseManifestJson(text, label) {
-  let value
-  try {
-    value = JSON.parse(text)
-  } catch {
-    throw new Error(`${label} 不是有效的 JSON 清单`)
-  }
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`${label} 不是 JSON 对象`)
-  }
-  return value
-}
-
-function resolveRepository() {
+function resolveRepository(explicit) {
+  if (explicit) return explicit
   if (process.env.GITHUB_REPOSITORY) return process.env.GITHUB_REPOSITORY
+  // 本机直跑兜底:从 origin 远端推断 owner/repo(CI 一定有 GITHUB_REPOSITORY)。
   const remote = spawnSync('git', ['config', '--get', 'remote.origin.url'], { encoding: 'utf8' })
   const url = remote.status === 0 ? remote.stdout.trim() : ''
   const match = /github\.com[:/](.+?)(?:\.git)?$/.exec(url)
-  if (!match) throw new Error('无法确定 GitHub 仓库:请设置 GITHUB_REPOSITORY=<owner>/<repo>')
+  if (!match) throw new Error('无法确定 GitHub 仓库:请用 --repo=<owner>/<repo> 或设置 GITHUB_REPOSITORY')
   return match[1]
 }
 
-function cliTargets(argv) {
-  const targets = new Set()
-  for (const argument of argv) {
-    const match = /^--target=(.+)$/.exec(argument)
-    if (!match) throw new Error(`无效参数: ${argument}(仅支持 --target=windows-x86_64 或 --target=darwin-aarch64)`)
-    if (!SUPPORTED_TARGETS.includes(match[1])) throw new Error(`不支持的 Runtime target: ${match[1]}`)
-    targets.add(match[1])
+function cliOptions() {
+  const allowed = new Set(['target', 'runtime-tag', 'repo'])
+  const options = {}
+  for (const argument of process.argv.slice(2)) {
+    const match = /^--([^=]+)=(.*)$/.exec(argument)
+    if (!match || !allowed.has(match[1]) || Object.hasOwn(options, match[1])) {
+      throw new Error(`无效或重复参数: ${argument}(仅支持 --target/--runtime-tag/--repo)`)
+    }
+    options[match[1]] = match[2]
   }
-  return targets.size > 0 ? [...targets] : [...SUPPORTED_TARGETS]
-}
-
-function reportFailure(tag, target, verdict) {
-  if (verdict.reason === 'stale-manifest') {
-    process.stderr.write(`::error::运行时 ${tag}(${target})的清单缺少 desktopPluginSha256 字段:该运行时发布于插件指纹校验引入之前,内部打包的桌面插件可能已过时。运行时 ${tag} 内的插件已过时:请升 release/versions.json 的 runtimeVersion 后重发。\n`)
-    return
+  if (!options.target) throw new Error('缺少 --target=<windows-x86_64|darwin-aarch64>')
+  if (options.target !== 'windows-x86_64' && options.target !== 'darwin-aarch64') {
+    throw new Error(`不支持的 Runtime target: ${options.target}`)
   }
-  process.stderr.write(`::error::运行时 ${tag}(${target})打包的桌面插件 sha256=${verdict.actual} 与当前仓库插件 sha256=${verdict.expected} 不一致。运行时 ${tag} 内的插件已过时:请升 release/versions.json 的 runtimeVersion 后重发。\n`)
+  return options
 }
 
 async function main() {
-  const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-  const targets = cliTargets(process.argv.slice(2))
-  const versions = loadReleaseVersions(repositoryRoot)
-  const repository = resolveRepository()
-  const tag = `runtime-v${versions.runtimeVersion}`
-  const expectedSha = resolveExpectedSha(repositoryRoot)
-  process.stdout.write(`当前仓库桌面插件 tgz sha256: ${expectedSha}\n`)
-  process.stdout.write(`校验 ${repository} ${tag} 内的桌面插件指纹(target: ${targets.join(', ')})...\n`)
+  const root = repositoryRoot()
+  const options = cliOptions()
+  const target = options.target
+  const runtimeTag = options['runtime-tag'] || `runtime-v${loadReleaseVersions(root).runtimeVersion}`
+  const repository = resolveRepository(options.repo)
+  const token = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN
+  const currentSha = currentPluginSha256(root)
+  process.stdout.write(`当前仓库桌面插件 tgz sha256: ${currentSha}\n`)
+  process.stdout.write(`校验 ${repository} ${runtimeTag} 内的桌面插件指纹(target: ${target})...\n`)
 
-  let verified = 0
-  let failed = false
-  for (const target of targets) {
-    const published = await loadPublishedManifest({ repository, runtimeVersion: versions.runtimeVersion, target })
-    if (published.status === 'missing') {
-      process.stdout.write(`- ${target}: ${tag} 尚未发布或缺少 ${runtimeReleaseAssetNames(target).manifestName},跳过校验(本次发布会构建新运行时,不会复用旧插件)。\n`)
-      continue
-    }
-    const verdict = compareManifest(expectedSha, published.manifest)
-    if (verdict.ok) {
-      verified += 1
-      process.stdout.write(`- ${target}: 插件指纹一致(${expectedSha})。\n`)
-    } else {
-      failed = true
-      reportFailure(tag, target, verdict)
-    }
+  const manifest = await fetchRuntimeManifest(target, runtimeTag, token, { repository })
+  if (!manifest) {
+    process.stdout.write(`- ${target}: ${runtimeTag} 尚未发布或缺少 manifest,视为通过(本次发布会构建新运行时,不会复用旧插件)。\n`)
+    return
   }
-
-  if (failed) {
-    process.exitCode = 1
-  } else if (verified > 0) {
-    process.stdout.write(`运行时插件指纹校验通过: ${verified}/${targets.length} 个 target 复用已验证的运行时。\n`)
-  } else {
-    process.stdout.write('无需校验已发布运行时(全部缺失,将构建新运行时)。\n')
+  const verdict = compareManifest(currentSha, manifest, runtimeTag)
+  if (verdict.ok) {
+    process.stdout.write(`- ${target}: 插件指纹一致(${currentSha}),可以复用该运行时。\n`)
+    return
   }
+  console.error(verdict.message)
+  process.exitCode = 1
 }
 
 const invokedPath = process.argv[1] ? resolve(process.argv[1]) : ''
