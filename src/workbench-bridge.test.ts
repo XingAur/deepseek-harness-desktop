@@ -372,6 +372,70 @@ describe('workbench bridge', () => {
     }))
   })
 
+  it('forwards only bounded generalized connection fields to the native host', async () => {
+    const invoke = vi.fn().mockResolvedValue({ profileId: 'project-memory' })
+    const contentWindow = { postMessage: vi.fn() } as unknown as Window
+    const bridge = createWorkbenchBridge({
+      frame: () => ({ contentWindow }) as HTMLIFrameElement,
+      active: () => ({ generationId: 'generation-1', sessionId: 'session-1', origin: 'http://127.0.0.1:39000' }),
+      invoke,
+    })
+    await bridge.onMessage({
+      source: contentWindow,
+      origin: 'http://127.0.0.1:39000',
+      data: {
+        channel: DESKTOP_BRIDGE_V2_CHANNEL,
+        requestId: 'request-custom-profile',
+        generationId: 'generation-1',
+        sessionId: 'session-1',
+        action: 'harness.connection.save',
+        payload: {
+          kind: 'mcp', transport: 'stdio', templateId: 'custom', displayName: '项目记忆',
+          endpoint: '', command: 'node', args: ['server.js'], environmentKeys: ['PROJECT_ROOT'],
+          workingDirectoryPolicy: 'workspace', healthPath: '', readOnly: true, enabled: true,
+        },
+      },
+    } as MessageEvent)
+    expect(invoke).toHaveBeenCalledWith('harness_connection_save', expect.objectContaining({
+      generationId: 'generation-1', sessionId: 'session-1', kind: 'mcp', transport: 'stdio',
+      templateId: 'custom', command: 'node', args: ['server.js'], environmentKeys: ['PROJECT_ROOT'],
+      workingDirectoryPolicy: 'workspace',
+    }))
+  })
+
+  it('forwards structured database fields and local skill actions without renderer-owned paths', async () => {
+    const invoke = vi.fn().mockResolvedValue({ extensionId: 'skill.code-review' })
+    const contentWindow = { postMessage: vi.fn() } as unknown as Window
+    const bridge = createWorkbenchBridge({
+      frame: () => ({ contentWindow }) as HTMLIFrameElement,
+      active: () => ({ generationId: 'generation-1', sessionId: 'session-1', origin: 'http://127.0.0.1:39000' }),
+      invoke,
+    })
+    const send = (requestId: string, action: string, payload: unknown) => bridge.onMessage({
+      source: contentWindow,
+      origin: 'http://127.0.0.1:39000',
+      data: { channel: DESKTOP_BRIDGE_V2_CHANNEL, requestId, generationId: 'generation-1', sessionId: 'session-1', action, payload },
+    } as MessageEvent)
+
+    await send('request-database', 'harness.connection.save', {
+      kind: 'database', transport: 'database', templateId: 'custom', providerId: 'generic', displayName: 'HIS 只读库',
+      endpoint: 'postgresql://db.internal:5432/his', databaseType: 'postgresql', host: 'db.internal', port: 5432,
+      databaseName: 'his', username: 'readonly_user', encoding: 'UTF-8', testQuery: 'SELECT 1', readOnly: true, enabled: true,
+    })
+    await send('request-skill-create', 'skill.create', {
+      skillId: 'code-review', displayName: '代码审查', description: '', instructions: '检查代码。',
+    })
+    await send('request-skill-import', 'skill.import', {})
+
+    expect(invoke).toHaveBeenNthCalledWith(1, 'harness_connection_save', expect.objectContaining({
+      databaseType: 'postgresql', host: 'db.internal', port: 5432, databaseName: 'his', username: 'readonly_user',
+    }))
+    expect(invoke).toHaveBeenNthCalledWith(2, 'agent_skill_create', expect.objectContaining({ skillId: 'code-review' }))
+    expect(invoke).toHaveBeenNthCalledWith(3, 'agent_skill_import', {
+      generationId: 'generation-1', sessionId: 'session-1',
+    })
+  })
+
   it('forwards the intake model selection and the native archive-root picker', async () => {
     const invoke = vi.fn().mockResolvedValue({ state: 'running' })
     const contentWindow = { postMessage: vi.fn() } as unknown as Window

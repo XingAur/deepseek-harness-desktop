@@ -1,0 +1,19 @@
+{
+  "name": "his-engineering",
+  "version": "0.1.0+codex.20260830-phase1d",
+  "description": "His Engineering plugin",
+  "author": {
+    "name": "Local developer"
+  },
+  "mcpServers": "./.mcp.json",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "His Engineering",
+    "shortDescription": "Use His Engineering in Codex.",
+    "longDescription": "His Engineering adds a local Codex plugin scaffold.",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Help me use His Engineering."
+  }
+}

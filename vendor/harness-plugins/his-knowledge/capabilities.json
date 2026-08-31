@@ -1,0 +1,88 @@
+{
+  "schema_version": "his-capabilities.v1",
+  "plugin": "his-knowledge",
+  "plugin_version": "0.3.0+codex.20260823093214",
+  "capabilities": [
+    {
+      "name": "knowledge.retrieve",
+      "provider": "his-knowledge",
+      "contract_version": "knowledge-retrieve.v1",
+      "mutation_level": "L0",
+      "credential_class": "none",
+      "entrypoint": "scripts/knowledge_retrieve.py",
+      "dependencies": [
+        "scripts/knowledge_store.py",
+        "scripts/knowledge_capability.py"
+      ],
+      "enabled": true,
+      "scopes": [
+        "knowledge:retrieve"
+      ]
+    },
+    {
+      "name": "knowledge.answer",
+      "provider": "his-knowledge",
+      "contract_version": "knowledge-answer.v1",
+      "mutation_level": "L0",
+      "credential_class": "none",
+      "entrypoint": "scripts/knowledge_answer.py",
+      "dependencies": [
+        "scripts/knowledge_retrieve.py",
+        "scripts/knowledge_store.py",
+        "scripts/knowledge_capability.py"
+      ],
+      "enabled": true,
+      "scopes": [
+        "knowledge:answer"
+      ]
+    },
+    {
+      "name": "knowledge.candidate.create",
+      "provider": "his-knowledge",
+      "contract_version": "knowledge-candidate-create.v1",
+      "mutation_level": "L2",
+      "credential_class": "none",
+      "entrypoint": "scripts/knowledge_maintain.py",
+      "dependencies": [
+        "scripts/knowledge_store.py",
+        "scripts/knowledge_capability.py"
+      ],
+      "enabled": true,
+      "scopes": [
+        "knowledge:candidate:create"
+      ]
+    },
+    {
+      "name": "knowledge.candidate.review",
+      "provider": "his-knowledge",
+      "contract_version": "knowledge-candidate-review.v1",
+      "mutation_level": "L2",
+      "credential_class": "none",
+      "entrypoint": "scripts/knowledge_maintain.py",
+      "dependencies": [
+        "scripts/knowledge_store.py",
+        "scripts/knowledge_capability.py"
+      ],
+      "enabled": true,
+      "scopes": [
+        "knowledge:candidate:review"
+      ]
+    },
+    {
+      "name": "knowledge.item.promote",
+      "provider": "his-knowledge",
+      "contract_version": "knowledge-item-promote.v1",
+      "mutation_level": "L2",
+      "credential_class": "none",
+      "entrypoint": "scripts/knowledge_maintain.py",
+      "dependencies": [
+        "scripts/knowledge_store.py",
+        "scripts/knowledge_capability.py"
+      ],
+      "enabled": true,
+      "scopes": [
+        "knowledge:item:promote"
+      ]
+    }
+  ]
+}

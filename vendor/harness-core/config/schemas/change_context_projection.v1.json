@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "change_context_projection.v1.json",
+  "title": "Change Context Projection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "pack_id", "role", "tier0", "tier1", "opened_evidence_refs", "projection_hash"],
+  "properties": {
+    "schema_version": {"const": "change-context-projection.v1"},
+    "pack_id": {"type": "string", "pattern": "^ccp:sha256:[0-9a-f]{64}$"},
+    "role": {"enum": ["manager", "analysis", "implementation", "review", "knowledge_answer"]},
+    "tier0": {"$ref": "#/$defs/tier0"},
+    "tier1": {"$ref": "#/$defs/tier1"},
+    "opened_evidence_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^((evidence|artifact)://|mcp-evidence:)[A-Za-z0-9][A-Za-z0-9._:/@+\\-]{0,511}$"}},
+    "projection_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  },
+  "$defs": {
+    "bounded_value": {
+      "oneOf": [
+        {"type": ["string", "number", "integer", "boolean", "null"]},
+        {"type": "array", "maxItems": 256}
+      ]
+    },
+    "tier0": {
+      "type": "object",
+      "additionalProperties": false,
+      "maxProperties": 9,
+      "properties": {
+        "pack_id": {"$ref": "#/$defs/bounded_value"},
+        "gate_status": {"$ref": "#/$defs/bounded_value"},
+        "gate_code": {"$ref": "#/$defs/bounded_value"},
+        "required_layers": {"$ref": "#/$defs/bounded_value"},
+        "missing": {"$ref": "#/$defs/bounded_value"},
+        "conflicts": {"$ref": "#/$defs/bounded_value"},
+        "version_delta": {"$ref": "#/$defs/bounded_value"},
+        "risk": {"$ref": "#/$defs/bounded_value"},
+        "gate": {"$ref": "#/$defs/bounded_value"}
+      }
+    },
+    "tier1": {
+      "type": "object",
+      "additionalProperties": false,
+      "maxProperties": 15,
+      "properties": {
+        "project_relationships": {"$ref": "#/$defs/bounded_value"},
+        "requirement_scope": {"$ref": "#/$defs/bounded_value"},
+        "entry_points": {"$ref": "#/$defs/bounded_value"},
+        "allowed_paths": {"$ref": "#/$defs/bounded_value"},
+        "call_chain": {"$ref": "#/$defs/bounded_value"},
+        "data_contracts": {"$ref": "#/$defs/bounded_value"},
+        "boundaries": {"$ref": "#/$defs/bounded_value"},
+        "tests": {"$ref": "#/$defs/bounded_value"},
+        "change_contract": {"$ref": "#/$defs/bounded_value"},
+        "diff_evidence_refs": {"$ref": "#/$defs/bounded_value"},
+        "verification_evidence_refs": {"$ref": "#/$defs/bounded_value"},
+        "knowledge_summary": {"$ref": "#/$defs/bounded_value"},
+        "evidence_refs": {"$ref": "#/$defs/bounded_value"}
+      }
+    }
+  }
+}

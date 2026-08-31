@@ -794,7 +794,7 @@ OPERATING_CONSOLE_SECTIONS = (
     {
         "id": "transaction-plans",
         "title": "执行计划",
-        "summary": "云效写、Git push 和 GitLab 写必须先生成 dry-run transaction plan；数据库永久只读，只生成 SQL 草案交给人工执行。",
+        "summary": "云效写、Git push 和 GitLab 写必须先生成 dry-run transaction plan；数据库修改/删除默认禁止，当前只生成 SQL 草案，只有用户明确授权精确范围后才可进入独立变更流程。",
         "readiness": ("external_writes",),
         "next_action": "下一步补 last_dry_run、plan hash、目标对象和回滚说明。",
     },
@@ -835,7 +835,7 @@ def render_operating_console(
         for section in OPERATING_CONSOLE_SECTIONS
     )
     pipeline = "云效/Git/GitLab 写动作：dry-run -> review -> explicit confirmation -> execute -> audit"
-    database_policy = "数据库永久只读：Harness 只生成 SQL 草案，由人工在 Harness 外执行；绝不提供数据库执行按钮、API、任务队列或执行流程。"
+    database_policy = "数据库修改/删除默认绝对禁止：当前 Harness 只生成 SQL 草案且没有写 executor；只有用户明确授权精确对象、操作、条件和影响范围后才可进入独立变更流程。"
     return f"""
     <section class="panel">
       <div class="row-between">
@@ -1488,7 +1488,7 @@ def _manager_action_readiness(provider: str) -> dict[str, object]:
             "read_only_select",
             "sql_draft",
         ]
-        write_policy = "permanently_disabled"
+        write_policy = "disabled_until_explicit_scoped_authorization"
     elif provider == "model":
         supported_actions = ["configuration_preflight", "controlled_single_node_smoke"]
         write_policy = "model_cannot_authorize_external_writes"
@@ -2292,7 +2292,7 @@ def _render_provider_profile_row(
               <input type="hidden" name="provider" value="{escape(provider)}" />
               <input type="hidden" name="profile_key" value="{escape(profile.get("profile_key") or "")}" />
               <input type="hidden" name="requested_by" value="manager" />
-              <input type="hidden" name="confirmation_text" value="只允许本地记录，不允许读取凭证或联网" />
+              <input type="hidden" name="confirmation_text" value="" />
               <button type="submit">执行测试连接记录</button>
             </form>
             <p class="meta">本地只读 smoke：{escape(smoke_item.get("status") or "blocked")}</p>
@@ -2300,8 +2300,7 @@ def _render_provider_profile_row(
               <input type="hidden" name="_csrf_token" value="{escape(_MANAGER_FORM_CSRF_TOKEN)}" />
               <input type="hidden" name="provider" value="{escape(provider)}" />
               <input type="hidden" name="profile_key" value="{escape(profile.get("profile_key") or "")}" />
-              <label>确认本地只读 smoke</label>
-              <input name="confirmation_text" required placeholder="确认仅执行本地、只读、免凭证且离线的 Git smoke 检查" />
+              <input type="hidden" name="confirmation_text" value="" />
               <button type="submit">执行本地只读 smoke</button>
             </form>
           </td>

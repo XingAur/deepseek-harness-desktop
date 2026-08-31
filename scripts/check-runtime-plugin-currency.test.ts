@@ -8,11 +8,13 @@ import { compareManifest, loadPublishedManifest, resolveExpectedSha, sha256File 
 const expectedSha = createHash('sha256').update('desktop-plugin').digest('hex')
 const manifestAssetArgs = ['repos/o/r/releases/assets/42']
 
-function ghApiStub(releases, assetBody) {
-  const calls = []
+type GhResponse = { status: string; value?: string }
+
+function ghApiStub(releases: unknown, assetBody: string): { calls: string[][]; ghApi: (args: string[]) => GhResponse } {
+  const calls: string[][] = []
   return {
     calls,
-    ghApi(args) {
+    ghApi(args: string[]) {
       calls.push(args)
       if (args[0] === 'repos/o/r/releases?per_page=100') return { status: 'ok', value: JSON.stringify(releases) }
       if (args[1] === 'Accept: application/octet-stream' && args[2] === manifestAssetArgs[0]) {
@@ -54,9 +56,9 @@ describe('compareManifest', () => {
 describe('resolveExpectedSha', () => {
   it('hashes the plugin tarball produced in the injected pack destination without network access', () => {
     const repositoryRoot = mkdtempSync(join(tmpdir(), 'dsh-plugin-currency-root-'))
-    const calls = []
+    const calls: Array<{ cwd: string; args: string[] }> = []
     const tarballBytes = 'fake-plugin-tarball'
-    const runNpm = (cwd, args) => {
+    const runNpm = (cwd: string, args: string[]) => {
       calls.push({ cwd, args })
       if (args[0] === 'pack') {
         const packDestination = args[args.indexOf('--pack-destination') + 1]
@@ -111,7 +113,7 @@ describe('loadPublishedManifest', () => {
 
   it('falls back to the public release download URL when gh is unavailable', async () => {
     const originalFetch = globalThis.fetch
-    const fetchedUrls = []
+    const fetchedUrls: string[] = []
     globalThis.fetch = (async (url) => {
       fetchedUrls.push(String(url))
       return new Response(JSON.stringify({ desktopPluginSha256: expectedSha }), { status: 200 })

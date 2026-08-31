@@ -59,10 +59,10 @@ class CodeEvidenceRepositoryTests(unittest.TestCase):
             link_count=1,
         )
 
-    def test_fresh_database_is_v72_and_contains_all_evidence_tables(self) -> None:
-        self.assertEqual(72, database.HARNESS_SCHEMA_VERSION)
+    def test_fresh_database_is_v73_and_contains_all_evidence_tables(self) -> None:
+        self.assertEqual(73, database.HARNESS_SCHEMA_VERSION)
         with database.connect() as connection:
-            self.assertEqual(72, int(connection.execute("pragma user_version").fetchone()[0]))
+            self.assertEqual(73, int(connection.execute("pragma user_version").fetchone()[0]))
             tables = {
                 str(row[0])
                 for row in connection.execute(
@@ -80,7 +80,7 @@ class CodeEvidenceRepositoryTests(unittest.TestCase):
             }.issubset(tables)
         )
 
-    def test_v69_database_migrates_to_v72_with_auditable_marker(self) -> None:
+    def test_v69_database_migrates_to_v73_with_auditable_marker(self) -> None:
         path = Path(self.temp_dir.name) / "legacy-v69.sqlite"
         database.DB_PATH = path
         with closing(sqlite3.connect(path)) as connection, connection:
@@ -92,12 +92,12 @@ class CodeEvidenceRepositoryTests(unittest.TestCase):
 
         with database.connect() as connection:
             self.assertEqual("preserved", connection.execute("select value from legacy_sentinel").fetchone()[0])
-            self.assertEqual(72, int(connection.execute("pragma user_version").fetchone()[0]))
+            self.assertEqual(73, int(connection.execute("pragma user_version").fetchone()[0]))
             marker = connection.execute(
-                "select migration_name from harness_schema_migrations where from_version = 69 and to_version = 72"
+                "select migration_name from harness_schema_migrations where from_version = 69 and to_version = 73"
             ).fetchone()
         self.assertIsNotNone(marker)
-        self.assertEqual("v0.72-flux-opd-lite-learning", str(marker[0]))
+        self.assertEqual("v0.73-change-context-pack", str(marker[0]))
 
     def test_bundle_artifacts_events_review_and_seal_are_append_only(self) -> None:
         bundle = self._bundle()

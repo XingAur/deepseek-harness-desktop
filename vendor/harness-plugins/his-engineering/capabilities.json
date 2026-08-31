@@ -1,0 +1,270 @@
+{
+  "schema_version": "his-capabilities.v1",
+  "plugin": "his-engineering",
+  "plugin_version": "0.1.0+codex.20260830-phase1d",
+  "capabilities": [
+    {
+      "name": "git.inspect",
+      "provider": "his-engineering",
+      "contract_version": "git-inspect.v1",
+      "mutation_level": "L0",
+      "credential_class": "none",
+      "entrypoint": "scripts/git_local.py",
+      "dependencies": [
+        ".codex-plugin/plugin.json"
+      ],
+      "enabled": true,
+      "scopes": [
+        "repository:inspect"
+      ]
+    },
+    {
+      "name": "git.diff",
+      "provider": "his-engineering",
+      "contract_version": "git-diff-evidence.v1",
+      "mutation_level": "L0",
+      "credential_class": "none",
+      "entrypoint": "scripts/git_local.py",
+      "dependencies": [
+        ".codex-plugin/plugin.json"
+      ],
+      "enabled": true,
+      "scopes": [
+        "repository:diff:read"
+      ]
+    },
+    {
+      "name": "source.read",
+      "provider": "his-engineering",
+      "contract_version": "source-read-evidence.v1",
+      "mutation_level": "L0",
+      "credential_class": "none",
+      "entrypoint": "scripts/git_local.py",
+      "dependencies": [
+        ".codex-plugin/plugin.json"
+      ],
+      "enabled": true,
+      "scopes": [
+        "repository:source:read"
+      ]
+    },
+    {
+      "name": "source.search",
+      "provider": "his-engineering",
+      "contract_version": "source-search-evidence.v1",
+      "mutation_level": "L0",
+      "credential_class": "none",
+      "entrypoint": "scripts/git_local.py",
+      "dependencies": [
+        ".codex-plugin/plugin.json"
+      ],
+      "enabled": true,
+      "scopes": [
+        "repository:search:read"
+      ]
+    },
+    {
+      "name": "git.history",
+      "provider": "his-engineering",
+      "contract_version": "git-history-evidence.v1",
+      "mutation_level": "L0",
+      "credential_class": "none",
+      "entrypoint": "scripts/git_local.py",
+      "dependencies": [
+        ".codex-plugin/plugin.json"
+      ],
+      "enabled": true,
+      "scopes": [
+        "repository:history:read"
+      ]
+    },
+    {
+      "name": "verification.run-local",
+      "provider": "his-engineering",
+      "contract_version": "verification-run-local.v1",
+      "mutation_level": "L0",
+      "credential_class": "none",
+      "entrypoint": "scripts/git_local.py",
+      "dependencies": [
+        ".codex-plugin/plugin.json"
+      ],
+      "enabled": true,
+      "scopes": [
+        "repository:verification:run-local"
+      ]
+    },
+    {
+      "name": "code.review-local",
+      "provider": "his-engineering",
+      "contract_version": "code-review-local.v1",
+      "mutation_level": "L0",
+      "credential_class": "codex_model_access",
+      "entrypoint": "scripts/git_local.py",
+      "dependencies": [
+        ".codex-plugin/plugin.json"
+      ],
+      "enabled": true,
+      "scopes": [
+        "repository:review:local"
+      ]
+    },
+    {
+      "name": "git.apply-local",
+      "provider": "his-engineering",
+      "contract_version": "git-apply-local.v1",
+      "mutation_level": "L2",
+      "credential_class": "none",
+      "entrypoint": "scripts/git_local.py",
+      "dependencies": [
+        ".codex-plugin/plugin.json"
+      ],
+      "enabled": true,
+      "scopes": [
+        "repository:apply-local"
+      ]
+    },
+    {
+      "name": "git.commit-local",
+      "provider": "his-engineering",
+      "contract_version": "git-commit-local.v1",
+      "mutation_level": "L3",
+      "credential_class": "none",
+      "entrypoint": "scripts/git_delivery.py",
+      "dependencies": [
+        "scripts/delivery_closure.py",
+        "scripts/delivery_store.py"
+      ],
+      "enabled": true,
+      "scopes": [
+        "repository:commit-local"
+      ]
+    },
+    {
+      "name": "git.push",
+      "provider": "his-engineering",
+      "contract_version": "git-push.v1",
+      "mutation_level": "L4",
+      "credential_class": "git_remote_write",
+      "entrypoint": "scripts/git_push.py",
+      "dependencies": [
+        "scripts/delivery_closure.py",
+        "scripts/delivery_store.py",
+        "scripts/git_delivery.py"
+      ],
+      "enabled": true,
+      "scopes": [
+        "repository:push"
+      ]
+    },
+    {
+      "name": "gitlab.read",
+      "provider": "gitlab",
+      "contract_version": "gitlab-read.v1",
+      "mutation_level": "L1",
+      "credential_class": "gitlab_read",
+      "entrypoint": "scripts/gitlab_mcp_server.py",
+      "dependencies": [
+        ".codex-plugin/plugin.json",
+        ".mcp.json",
+        "scripts/mcp_readonly_common.py"
+      ],
+      "enabled": true,
+      "scopes": [
+        "gitlab:read"
+      ]
+    },
+    {
+      "name": "gitlab.write",
+      "provider": "his-engineering",
+      "contract_version": "gitlab-write.v1",
+      "mutation_level": "L4",
+      "credential_class": "gitlab_write",
+      "entrypoint": "scripts/gitlab_write.py",
+      "dependencies": [
+        "scripts/delivery_closure.py",
+        "scripts/delivery_store.py",
+        "scripts/git_delivery.py"
+      ],
+      "enabled": true,
+      "scopes": [
+        "gitlab:write"
+      ]
+    },
+    {
+      "name": "github.read",
+      "provider": "his-engineering",
+      "contract_version": "github-read.v1",
+      "mutation_level": "L1",
+      "credential_class": "github_read",
+      "entrypoint": "scripts/github_read.py",
+      "dependencies": [
+        ".codex-plugin/plugin.json"
+      ],
+      "enabled": true,
+      "scopes": [
+        "github:read"
+      ]
+    },
+    {
+      "name": "github.write",
+      "provider": "his-engineering",
+      "contract_version": "github-write.v1",
+      "mutation_level": "L4",
+      "credential_class": "github_write",
+      "entrypoint": "scripts/github_write.py",
+      "dependencies": [
+        "scripts/delivery_closure.py",
+        "scripts/delivery_store.py",
+        "scripts/git_delivery.py"
+      ],
+      "enabled": true,
+      "scopes": [
+        "github:write"
+      ]
+    },
+    {
+      "name": "database.inspect",
+      "provider": "postgresql",
+      "contract_version": "pg-evidence.v2",
+      "mutation_level": "L1",
+      "credential_class": "database_readonly",
+      "entrypoint": "scripts/postgresql_mcp_server.py",
+      "dependencies": [
+        ".codex-plugin/plugin.json",
+        ".mcp.json",
+        "scripts/mcp_readonly_common.py"
+      ],
+      "enabled": true,
+      "scopes": [
+        "database:inspect"
+      ]
+    },
+    {
+      "name": "database.change-plan",
+      "provider": "postgresql",
+      "contract_version": "database-change-plan.v1",
+      "mutation_level": "L0",
+      "credential_class": "none",
+      "entrypoint": "scripts/database_change.py",
+      "dependencies": [
+        ".codex-plugin/plugin.json"
+      ],
+      "enabled": true,
+      "scopes": [
+        "database:change:plan"
+      ]
+    },
+    {
+      "name": "database.change",
+      "provider": "postgresql",
+      "contract_version": "database-change.v1",
+      "mutation_level": "L5",
+      "credential_class": "database_write",
+      "enabled": false,
+      "disabled_reason": "数据库真实写入、迁移和生产操作不在首版授权范围。",
+      "scopes": [
+        "database:change:apply"
+      ]
+    }
+  ]
+}

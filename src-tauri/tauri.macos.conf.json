@@ -1,16 +1,22 @@
 {
   "app": {
+    "macOSPrivateApi": false,
     "windows": [
       {
         "label": "main",
         "create": false,
-        "title": "",
-        "decorations": false,
-        "windowEffects": {
-          "effects": ["sidebar"],
-          "state": "followsWindowActiveState",
-          "radius": 12
-        }
+        "url": "index.html",
+        "title": "DeepSeek Harness Desktop",
+        "width": 1280,
+        "height": 840,
+        "minWidth": 900,
+        "minHeight": 640,
+        "visible": false,
+        "transparent": false,
+        "decorations": true,
+        "shadow": true,
+        "center": true,
+        "windowEffects": null
       }
     ]
   },

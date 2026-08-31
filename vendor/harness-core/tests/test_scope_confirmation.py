@@ -37,6 +37,8 @@ class ScopeConfirmationTests(unittest.TestCase):
             "governance": {"status": "ready_for_local_change", "can_modify": True},
             "single_pass_contract": {
                 "status": "ready",
+                "change_context_pack_id": "ccp:sha256:" + "a" * 64,
+                "change_context_projection_hash": "sha256:" + "b" * 64,
                 "allowed_paths": ["src/views/demo.vue", "src/api/Demo.java"],
                 "verify_commands": ["npm test", "./gradlew test"],
                 "repositories": [
@@ -107,6 +109,24 @@ class ScopeConfirmationTests(unittest.TestCase):
                 changed_binding["scope_hash"],
             )
         )
+
+    def test_pack_or_projection_change_invalidates_confirmation(self) -> None:
+        binding = build_scope_confirmation_binding(**self._inputs())
+        for field, replacement in (
+            ("change_context_pack_id", "ccp:sha256:" + "c" * 64),
+            ("change_context_projection_hash", "sha256:" + "d" * 64),
+        ):
+            with self.subTest(field=field):
+                changed = self._inputs()
+                changed["single_pass_contract"][field] = replacement
+                changed_binding = build_scope_confirmation_binding(**changed)
+                self.assertNotEqual(binding["scope_hash"], changed_binding["scope_hash"])
+                self.assertFalse(
+                    validate_scope_confirmation(
+                        binding["confirmation_token"],
+                        changed_binding["scope_hash"],
+                    )
+                )
 
 
 if __name__ == "__main__":

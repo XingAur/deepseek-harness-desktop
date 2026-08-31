@@ -52,6 +52,7 @@ export interface DesktopBridgeOptions {
 }
 
 export interface DesktopBridgeLike {
+  readonly mode?: 'managed' | 'preview'
   request<T = unknown>(action: DesktopBridgeAction, payload?: Record<string, unknown>): Promise<T>
   requestV2<T = unknown>(
     action: VersionedBridgeAction,
@@ -102,6 +103,7 @@ export function createDesktopBridge(options: DesktopBridgeOptions = {}): Desktop
   host.addEventListener('message', onMessage)
 
   return {
+    mode: 'managed',
     request<T = unknown>(action: DesktopBridgeAction, payload: Record<string, unknown> = {}): Promise<T> {
       if (disposed) return Promise.reject(new Error('桌面桥已关闭'))
       if (targetOrigin === null) return Promise.reject(new Error('无法确定桌面壳层来源'))

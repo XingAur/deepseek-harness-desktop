@@ -8,6 +8,12 @@ import { inspectAssembledRuntimeCapabilities } from './runtime-build-capabilitie
 
 const dshVersion = '0.1.1-rc.2'
 const desktopPluginVersion = '0.3.2'
+const upstreamDependencies = {
+  '@deepseek-ai/dsh-base': `^${dshVersion}`,
+  '@deepseek-ai/dsh-web-app': `^${dshVersion}`,
+  '@deepseek-ai/dsh-skill': `^${dshVersion}`,
+  '@deepseek-ai/dsh-mcp-client': `^${dshVersion}`,
+}
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const npmCliPath = process.platform === 'win32'
   ? [process.env.npm_execpath, join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js')]
@@ -58,7 +64,7 @@ function writeCompatibleAssembledApp(appDirectory: string) {
 }
 
 function writeUpstreamPackages(appDirectory: string) {
-  writePackage(appDirectory, '@deepseek-ai/dsh', { version: dshVersion, type: 'module', license: 'MIT', bin: { dsh: 'lib/bin.js' } })
+  writePackage(appDirectory, '@deepseek-ai/dsh', { version: dshVersion, type: 'module', license: 'MIT', bin: { dsh: 'lib/bin.js' }, dependencies: upstreamDependencies })
   writePackage(appDirectory, '@deepseek-ai/dsh-base', bundleManifest())
   writePackage(appDirectory, '@deepseek-ai/dsh-web-app', bundleManifest({ './startup': { default: './lib/startup.js', types: './lib/types/startup.d.ts' } }))
   for (const name of ['@deepseek-ai/dsh-llm-pi-ai', '@deepseek-ai/dsh-skill', '@deepseek-ai/dsh-mcp-client']) {
@@ -87,7 +93,7 @@ describe('inspectAssembledRuntimeCapabilities', () => {
   it('cleans an assembled fixture when capability inspection rejects', () => {
     const appDirectory = mkdtempSync(join(tmpdir(), 'dsh-assembled-runtime-failure-'))
     try {
-      expect(() => inspectAssembledRuntimeCapabilities(appDirectory, { dshVersion, desktopPluginVersion })).toThrow(/capability report/i)
+      expect(() => inspectAssembledRuntimeCapabilities(appDirectory, { dshVersion, desktopPluginVersion })).toThrow(/capability|official CLI manifest/i)
     } finally {
       rmSync(appDirectory, { recursive: true, force: true })
     }

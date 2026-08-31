@@ -121,6 +121,8 @@ macro_rules! renderer_commands {
             commands::agent_extension_enable,
             commands::agent_extension_disable,
             commands::agent_extension_uninstall,
+            commands::agent_skill_create,
+            commands::agent_skill_import,
             commands::harness_status,
             commands::harness_start,
             commands::harness_chat_start,
@@ -538,11 +540,19 @@ fn run_desktop() {
             let window_builder = WebviewWindowBuilder::from_config(app, config)?
                 .on_navigation(navigation::NavigationPolicy::desktop_webview)
                 .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
-                .on_download(|_, _| false);
+                .on_download(|_, _| false)
+                .on_page_load(|_, payload| {
+                    eprintln!(
+                        "DeepSeek Harness page load: event={:?} url={}",
+                        payload.event(),
+                        payload.url()
+                    );
+                });
             #[cfg(feature = "e2e")]
             let window_builder =
                 window_builder.additional_browser_args(E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS);
             let window = window_builder.build()?;
+            eprintln!("DeepSeek Harness main window built: url={:?}", window.url());
             if let Some((app_launcher, coordinator)) = runtime_services {
                 app.manage(Arc::clone(&app_launcher));
                 app.manage(Arc::clone(&coordinator));

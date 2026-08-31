@@ -10,6 +10,29 @@ afterEach(() => { for (const root of temporaryRoots.splice(0)) rmSync(root, { re
 
 const dshVersion = '0.1.1-rc.2'
 const desktopPluginVersion = '0.3.2'
+const officialRange = `^${dshVersion}`
+const directDependencies = {
+  '@deepseek-ai/dsh-base': officialRange,
+  '@deepseek-ai/dsh-web-app': officialRange,
+  '@deepseek-ai/dsh-session': officialRange,
+  '@deepseek-ai/dsh-plan-mode': officialRange,
+  '@deepseek-ai/dsh-goal': officialRange,
+  '@deepseek-ai/dsh-jobs-local': officialRange,
+  '@deepseek-ai/dsh-schedule': officialRange,
+  '@deepseek-ai/dsh-skill': officialRange,
+  '@deepseek-ai/dsh-mcp-client': officialRange,
+  '@deepseek-ai/dsh-tool-subagent': officialRange,
+  '@deepseek-ai/dsh-tool-workflow': officialRange,
+  '@deepseek-ai/dsh-user-approval': officialRange,
+  '@deepseek-ai/dsh-tool-ask-user': officialRange,
+  '@deepseek-ai/dsh-tool-fs': officialRange,
+  '@deepseek-ai/dsh-tool-bash': officialRange,
+  '@deepseek-ai/dsh-tool-web': officialRange,
+  '@deepseek-ai/dsh-hooks-codex': officialRange,
+  '@deepseek-ai/dsh-webhook': officialRange,
+  '@deepseek-ai/dsh-settings': officialRange,
+  commander: '^15.0.0',
+}
 
 function runtimeFixture() {
   const root = mkdtempSync(join(tmpdir(), 'dsh-runtime-capabilities-'))
@@ -60,8 +83,12 @@ function optionalManifest() {
   return { ...withoutDsh, exports }
 }
 
+function genericManifest(version = dshVersion) {
+  return { version, type: 'module', license: 'MIT', exports: { '.': './lib/index.js' } }
+}
+
 function compatibleRuntime(root: string, missingOptionalPackage?: string) {
-  writePackage(root, '@deepseek-ai/dsh', { version: dshVersion, type: 'module', license: 'MIT', bin: { dsh: 'lib/bin.js' } })
+  writePackage(root, '@deepseek-ai/dsh', { version: dshVersion, type: 'module', license: 'MIT', bin: { dsh: 'lib/bin.js' }, dependencies: directDependencies })
   writePackage(root, '@deepseek-ai/dsh-base', bundleManifest())
   writePackage(root, '@deepseek-ai/dsh-web-app', bundleManifest({ './startup': { default: './lib/startup.js', types: './lib/types/startup.d.ts' } }))
   writePackage(root, '@dsh/desktop-plugin', {
@@ -73,6 +100,10 @@ function compatibleRuntime(root: string, missingOptionalPackage?: string) {
   })
   for (const name of ['@deepseek-ai/dsh-llm-pi-ai', '@deepseek-ai/dsh-skill', '@deepseek-ai/dsh-mcp-client']) {
     if (name !== missingOptionalPackage) writePackage(root, name, optionalManifest())
+  }
+  for (const name of Object.keys(directDependencies)) {
+    if (name === missingOptionalPackage || ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-llm-pi-ai', '@deepseek-ai/dsh-skill', '@deepseek-ai/dsh-mcp-client'].includes(name)) continue
+    writePackage(root, name, genericManifest(name === 'commander' ? '15.0.1' : dshVersion))
   }
 }
 
@@ -108,7 +139,7 @@ describe('inspectRuntimeCapabilities', () => {
 
     const report = inspect(root)
 
-    expect(report).toMatchObject({ schemaVersion: 1, profileBundles: DESKTOP_BUNDLES })
+    expect(report).toMatchObject({ schemaVersion: 2, profileBundles: DESKTOP_BUNDLES })
     expect(report.packages).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: '@deepseek-ai/dsh', observedVersion: dshVersion, status: 'compatible', entrypoints: { bin: 'lib/bin.js' } }),
       expect.objectContaining({ name: '@deepseek-ai/dsh-base', status: 'compatible', bundlePatch: './cordis.patch.yml', entrypoints: expect.objectContaining({ '.': expect.objectContaining({ default: './lib/index.js', types: './lib/types/index.d.ts' }), './invariant': expect.objectContaining({ default: './lib/invariant.js', types: './lib/types/invariant.d.ts' }) }) }),
@@ -120,6 +151,58 @@ describe('inspectRuntimeCapabilities', () => {
       skill: { package: '@deepseek-ai/dsh-skill', available: true },
       mcp: { package: '@deepseek-ai/dsh-mcp-client', available: true },
     })
+    expect(report.officialClosure.packages.map((record) => record.name)).toEqual(Object.keys(directDependencies).sort())
+    expect(report.officialClosure.packages.some((record) => record.name === '@deepseek-ai/dsh-llm-pi-ai')).toBe(false)
+    expect(report.officialClosure.digest).toMatch(/^[0-9a-f]{64}$/)
+    expect(report.featureGroups).toEqual(expect.objectContaining({
+      modelProvider: expect.objectContaining({ available: true }),
+      sessionTrajectory: expect.objectContaining({ available: true }),
+      planGoal: expect.objectContaining({ available: true }),
+      jobsScheduling: expect.objectContaining({ available: true }),
+      skill: expect.objectContaining({ available: true }),
+      mcp: expect.objectContaining({ available: true }),
+      subagent: expect.objectContaining({ available: true }),
+      workflow: expect.objectContaining({ available: true }),
+      approvalQuestions: expect.objectContaining({ available: true }),
+      filesystemShell: expect.objectContaining({ available: true }),
+      webTools: expect.objectContaining({ available: true }),
+      hooksWebhooks: expect.objectContaining({ available: true }),
+      sessionsSettings: expect.objectContaining({ available: true }),
+      officialWebUi: expect.objectContaining({ available: true }),
+    }))
+  })
+
+  it('fails compatibility when any CLI-declared direct dependency is missing', () => {
+    const root = runtimeFixture()
+    compatibleRuntime(root)
+    rmSync(join(root, 'node_modules', '@deepseek-ai', 'dsh-tool-workflow'), { recursive: true, force: true })
+
+    const report = inspect(root)
+
+    expect(report.officialClosure.packages.find((record) => record.name === '@deepseek-ai/dsh-tool-workflow')).toMatchObject({ status: 'missing', reasonCode: 'MISSING_PACKAGE_JSON' })
+    expect(() => assertRuntimeCapabilities(report, { dshVersion, desktopPluginVersion })).toThrow(/official dependency closure/i)
+  })
+
+  it('fails compatibility when an official direct dependency has the wrong version', () => {
+    const root = runtimeFixture()
+    compatibleRuntime(root)
+    writePackage(root, '@deepseek-ai/dsh-tool-workflow', genericManifest('0.1.1-rc.999'))
+
+    const report = inspect(root)
+
+    expect(report.officialClosure.packages.find((record) => record.name === '@deepseek-ai/dsh-tool-workflow')).toMatchObject({ status: 'incompatible', reasonCode: 'VERSION_MISMATCH' })
+    expect(() => assertRuntimeCapabilities(report, { dshVersion, desktopPluginVersion })).toThrow(/official dependency closure/i)
+  })
+
+  it('keeps the closure digest stable when dependency keys use a different order', () => {
+    const first = runtimeFixture()
+    const second = runtimeFixture()
+    compatibleRuntime(first)
+    compatibleRuntime(second)
+    const reversed = Object.fromEntries(Object.entries(directDependencies).reverse())
+    writePackage(second, '@deepseek-ai/dsh', { version: dshVersion, type: 'module', license: 'MIT', bin: { dsh: 'lib/bin.js' }, dependencies: reversed })
+
+    expect(inspect(first).officialClosure.digest).toBe(inspect(second).officialClosure.digest)
   })
 
   it('accepts public export maps whose object keys use a different order', () => {
@@ -234,8 +317,12 @@ describe('inspectRuntimeCapabilities', () => {
       rmSync(manifest)
       symlinkSync(outsideManifest, manifest)
     }
-    const record = inspect(root).packages.find((value) => value.name === '@deepseek-ai/dsh-skill')
-    expect(record).toMatchObject({ status: 'incompatible', observedVersion: null, entrypoints: {}, reasonCode: 'PACKAGE_PATH_INVALID' })
+    if (kind === 'node_modules root' || kind === 'scope directory') {
+      expect(() => inspect(root)).toThrow(/official CLI manifest is unavailable/)
+    } else {
+      const record = inspect(root).packages.find((value) => value.name === '@deepseek-ai/dsh-skill')
+      expect(record).toMatchObject({ status: 'incompatible', observedVersion: null, entrypoints: {}, reasonCode: 'PACKAGE_PATH_INVALID' })
+    }
   })
 
   it('keeps canonical containment testable with Windows path semantics', () => {

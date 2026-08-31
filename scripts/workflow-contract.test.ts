@@ -6,10 +6,29 @@ function normalizeLineEndings(value: string) {
 }
 
 describe('automated upstream release workflows', () => {
-  it('runs a non-cancelling daily sync with recoverable release state', () => {
+  it('prepares tested upstream pull requests and keeps publication manual', () => {
+    const watch = normalizeLineEndings(readFileSync('.github/workflows/upstream-watch.yml', 'utf8'))
     const sync = normalizeLineEndings(readFileSync('.github/workflows/upstream-sync.yml', 'utf8'))
 
-    expect(sync).toContain("cron: '30 2 * * *'")
+    expect(watch).toContain("cron: '17 */4 * * *'")
+    expect(watch.slice(0, watch.indexOf('jobs:'))).toContain('contents: read')
+    expect(watch).toContain('cancel-in-progress: false')
+    expect(watch).toContain('node scripts/prepare-upstream-release.mjs')
+    expect(watch).toContain('npm run release:versions:check')
+    expect(watch).toContain('npm run check')
+    expect(watch).toContain('automation/deepseek-harness-upstream')
+    expect(watch).toContain('contents: write')
+    expect(watch).toContain('pull-requests: write')
+    expect(watch).toMatch(/gh pr (create|edit)/)
+    expect(watch).not.toContain('gh pr merge')
+    expect(watch).not.toContain('gh release create')
+    expect(watch).not.toContain('git tag')
+    expect(watch).not.toContain('HEAD:${DEFAULT_BRANCH}')
+
+    const syncTrigger = sync.slice(0, sync.indexOf('permissions:'))
+    expect(syncTrigger).toContain('workflow_dispatch:')
+    expect(syncTrigger).not.toContain('schedule:')
+    expect(syncTrigger).not.toContain('cron:')
     expect(sync.slice(0, sync.indexOf('jobs:'))).toContain('contents: read')
     expect(sync).toContain('contents: write')
     expect(sync).toContain('actions: write')

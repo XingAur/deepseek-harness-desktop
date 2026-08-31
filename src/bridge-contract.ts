@@ -81,6 +81,8 @@ export type VersionedBridgeAction =
   | 'extension.enable'
   | 'extension.disable'
   | 'extension.uninstall'
+  | 'skill.create'
+  | 'skill.import'
   | 'harness.status'
   | 'harness.start'
   | 'harness.chat.start'
@@ -172,6 +174,8 @@ export const bridgeCommandByActionV2 = {
   'extension.enable': 'agent_extension_enable',
   'extension.disable': 'agent_extension_disable',
   'extension.uninstall': 'agent_extension_uninstall',
+  'skill.create': 'agent_skill_create',
+  'skill.import': 'agent_skill_import',
   'harness.status': 'harness_status',
   'harness.start': 'harness_start',
   'harness.chat.start': 'harness_chat_start',
@@ -314,20 +318,56 @@ export function isVersionedBridgePayload(action: VersionedBridgeAction, value: u
         || (typeof value.agentBackend === 'string' && /^[a-z][a-z0-9._-]{0,63}$/.test(value.agentBackend)))
   }
   if (action === 'harness.connection.list') {
-    return value.kind === undefined || value.kind === 'mcp' || value.kind === 'database'
+    return value.kind === undefined || isConnectionKind(value.kind)
+  }
+  if (action === 'skill.import') return Object.keys(value).length === 0
+  if (action === 'skill.create') {
+    return typeof value.skillId === 'string'
+      && /^[a-z0-9][a-z0-9._-]{1,63}$/.test(value.skillId)
+      && typeof value.displayName === 'string'
+      && value.displayName.trim().length > 0
+      && value.displayName.length <= 120
+      && typeof value.description === 'string'
+      && value.description.length <= 500
+      && typeof value.instructions === 'string'
+      && value.instructions.trim().length > 0
+      && value.instructions.length <= 16 * 1024
   }
   if (action === 'harness.connection.delete' || action === 'harness.connection.test') {
     return hasId('profileId')
   }
   if (action === 'harness.connection.save') {
     return hasId('profileId')
-      && (value.kind === 'mcp' || value.kind === 'database')
-      && (value.providerId === undefined || value.providerId === 'yunxiao' || value.providerId === 'gitlab' || value.providerId === 'generic')
+      && isConnectionKind(value.kind)
+      && (value.transport === undefined || isConnectionTransportForKind(value.kind, value.transport))
+      && (value.providerId === undefined || validRequestId(value.providerId))
+      && (value.templateId === undefined || validRequestId(value.templateId))
       && typeof value.displayName === 'string'
       && value.displayName.trim().length > 0
       && value.displayName.length <= 120
       && typeof value.endpoint === 'string'
-      && value.endpoint.length <= 4096
+      && isConnectionEndpoint(value.endpoint, value.transport)
+      && (value.command === undefined || isBoundedCommand(value.command))
+      && (value.args === undefined || isBoundedStringList(value.args, 32, 512))
+      && (value.environmentKeys === undefined || isEnvironmentKeys(value.environmentKeys))
+      && (value.workingDirectoryPolicy === undefined || ['workspace', 'inherit', 'none'].includes(String(value.workingDirectoryPolicy)))
+      && (value.healthPath === undefined || isHealthPath(value.healthPath))
+      && (value.databaseType === undefined || ['postgresql', 'mysql', 'sqlserver', 'oracle'].includes(String(value.databaseType)))
+      && (value.host === undefined || (typeof value.host === 'string' && value.host.trim().length > 0 && value.host.length <= 253 && !/[\0/@]/.test(value.host)))
+      && (value.port === undefined || (Number.isSafeInteger(value.port) && Number(value.port) >= 1 && Number(value.port) <= 65535))
+      && (value.databaseName === undefined || (typeof value.databaseName === 'string' && value.databaseName.trim().length > 0 && value.databaseName.length <= 256 && !/[\0/?#]/.test(value.databaseName)))
+      && (value.username === undefined || (typeof value.username === 'string' && value.username.trim().length > 0 && value.username.length <= 256 && !value.username.includes('\0')))
+      && (value.encoding === undefined || (typeof value.encoding === 'string' && /^[A-Za-z0-9._-]{1,32}$/.test(value.encoding)))
+      && (value.testQuery === undefined || (typeof value.testQuery === 'string' && value.testQuery.trim().length > 0 && value.testQuery.length <= 1024 && !value.testQuery.includes('\0')))
+      && (value.kind !== 'database' || (
+        value.transport === 'database'
+        && ['postgresql', 'mysql', 'sqlserver', 'oracle'].includes(String(value.databaseType))
+        && typeof value.host === 'string'
+        && Number.isSafeInteger(value.port)
+        && typeof value.databaseName === 'string'
+        && typeof value.username === 'string'
+      ))
+      && (value.transport !== 'stdio' || (typeof value.command === 'string' && value.command.trim().length > 0))
       && typeof value.readOnly === 'boolean'
       && typeof value.enabled === 'boolean'
       && (value.credentialId === undefined || hasId('credentialId'))
@@ -380,6 +420,55 @@ function isEvidencePaths(value: unknown): value is string[] {
   return Array.isArray(value)
     && value.length <= 20
     && value.every((item) => isAbsolutePath(item))
+}
+
+function isConnectionKind(value: unknown): value is 'mcp' | 'http-api' | 'database' {
+  return value === 'mcp' || value === 'http-api' || value === 'database'
+}
+
+function isConnectionTransportForKind(kind: unknown, transport: unknown): boolean {
+  if (kind === 'mcp') return transport === 'stdio' || transport === 'http' || transport === 'sse'
+  if (kind === 'http-api') return transport === 'http'
+  return kind === 'database' && transport === 'database'
+}
+
+function isConnectionEndpoint(value: string, transport: unknown): boolean {
+  if (value.length > 4096 || /[\u0000-\u001f\u007f]/.test(value)) return false
+  if (transport === 'stdio') return value.length === 0
+  if (value.length === 0) return transport === undefined
+  try {
+    const parsed = new URL(value)
+    if (parsed.username !== '' || parsed.password !== '') return false
+    if (transport === 'http' || transport === 'sse') {
+      const loopback = parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost' || parsed.hostname === '::1'
+      return parsed.protocol === 'https:' || (parsed.protocol === 'http:' && loopback)
+    }
+    return true
+  } catch {
+    return transport === undefined && !value.includes('@')
+  }
+}
+
+function isBoundedCommand(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= 4096 && !/[\u0000\r\n]/.test(value)
+}
+
+function isBoundedStringList(value: unknown, maxItems: number, maxLength: number): value is string[] {
+  return Array.isArray(value)
+    && value.length <= maxItems
+    && value.every((item) => typeof item === 'string' && item.length <= maxLength && !/[\u0000\r\n]/.test(item))
+}
+
+function isEnvironmentKeys(value: unknown): value is string[] {
+  return Array.isArray(value)
+    && value.length <= 32
+    && value.every((item) => typeof item === 'string' && /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(item))
+}
+
+function isHealthPath(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.length <= 512
+    && (value.length === 0 || (value.startsWith('/') && !/[\u0000-\u001f\u007f]/.test(value)))
 }
 
 /** Model identifiers are provider-defined; only transport-unsafe values are rejected. */
@@ -509,6 +598,8 @@ const versionedPayloadKeys: Record<VersionedBridgeAction, string[]> = {
   'extension.enable': ['extensionId'],
   'extension.disable': ['extensionId'],
   'extension.uninstall': ['extensionId'],
+  'skill.create': ['skillId', 'displayName', 'description', 'instructions'],
+  'skill.import': [],
   'harness.status': [],
   'harness.start': [
     'taskContractPath', 'understandingPath', 'worktreeRoot', 'knowledgeHome', 'authorizationId', 'agentBackend',
@@ -521,7 +612,11 @@ const versionedPayloadKeys: Record<VersionedBridgeAction, string[]> = {
   'harness.pick-evidence-files': [],
   'harness.archive-answers': ['archiveRoot', 'answers'],
   'harness.connection.list': ['kind'],
-  'harness.connection.save': ['profileId', 'kind', 'providerId', 'displayName', 'endpoint', 'readOnly', 'enabled', 'credentialId'],
+  'harness.connection.save': [
+    'profileId', 'kind', 'transport', 'templateId', 'providerId', 'displayName', 'endpoint', 'command', 'args',
+    'environmentKeys', 'workingDirectoryPolicy', 'healthPath', 'databaseType', 'host', 'port', 'databaseName',
+    'username', 'encoding', 'testQuery', 'readOnly', 'enabled', 'credentialId',
+  ],
   'harness.connection.delete': ['profileId'],
   'harness.connection.test': ['profileId'],
 }

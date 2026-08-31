@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "change_context_layer.v1.json",
+  "title": "Change Context Layer",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "layer_type",
+    "layer_id",
+    "status",
+    "content_hash",
+    "source_fingerprint",
+    "artifact_ref",
+    "evidence_refs",
+    "policy_rule_ids",
+    "blockers"
+  ],
+  "properties": {
+    "schema_version": {"const": "change-context-layer.v1"},
+    "layer_type": {"enum": ["project_graph", "change_scope", "code_graph", "data_graph"]},
+    "layer_id": {"type": "string", "pattern": "^ccl:sha256:[0-9a-f]{64}$"},
+    "status": {"enum": ["complete", "incomplete", "not_applicable", "stale"]},
+    "content_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "source_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "artifact_ref": {"type": "string", "pattern": "^artifact://[A-Za-z0-9][A-Za-z0-9._:/@+\\-]{0,511}$"},
+    "evidence_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^((evidence|artifact)://|mcp-evidence:)[A-Za-z0-9][A-Za-z0-9._:/@+\\-]{0,511}$"}
+    },
+    "policy_rule_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9-]{2,63}$"}
+    },
+    "blockers": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 512}
+    }
+  }
+}

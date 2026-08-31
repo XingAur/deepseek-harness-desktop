@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from app.enterprise_gate import scan_source_secrets
+from app.version import VERSION as SOURCE_VERSION
 
 
 RELEASE_MANIFEST_SCHEMA_VERSION = "1.0-reproducible-release-manifest"
@@ -29,6 +30,7 @@ RELEASE_ROOT_FILES = (
     "CHANGELOG.md",
     "HANDOFF.md",
     "README.md",
+    "VERSION",
     "real_precommit_trial_template.md",
     "requirements.txt",
     "run.py",
@@ -71,6 +73,7 @@ def build_release_bundle(
     manifest = {
         "schema_version": RELEASE_MANIFEST_SCHEMA_VERSION,
         "version": normalized_version,
+        "source_version": SOURCE_VERSION,
         "bundle_name": bundle_name,
         "archive_name": archive_path.name,
         "archive_sha256": archive_sha256,
@@ -95,6 +98,7 @@ def build_release_bundle(
     return {
         "status": "passed",
         "version": normalized_version,
+        "source_version": SOURCE_VERSION,
         "archive_path": str(archive_path),
         "archive_sha256": archive_sha256,
         "manifest_path": str(manifest_path),

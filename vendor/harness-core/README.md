@@ -1,6 +1,85 @@
-# HIS AI Harness v0.66
+# HIS AI Harness
 
 HIS AI Harness 是一个面向 HIS 需求研发的专家团 Workflow 原型。
+
+当前代码版本由根目录 `VERSION` 文件唯一维护；Core、发布包和 CI 均从该文件读取，历史版本制品可通过显式版本参数重建。
+
+### 当前验证基线（2026-08-30）
+
+使用统一入口执行验证：
+
+```bash
+./scripts/verify.sh unit
+./scripts/verify.sh offline
+```
+
+当前 `compile`、`replay`、`secret` 短门禁已通过；完整离线门禁的 `unit` 阶段仍有超时/失败，未达到发布准入。这里的离线门禁只证明本地技术链路，不代表真实模型、运行时、HIS 业务验收或发布许可，必须继续保持：`business_valid=false`、`runtime_verified=false`、`promotion_enabled=false`。
+
+### Enterprise MCP control plane status（Phase 0 + Phase 1A/1B runtime + Phase 1C authority + Phase 1D primary）
+
+当前已交付外部 I/O 资产清单、稳定指纹和“禁止新增未分类直连”的架构门禁，可通过
+`./scripts/verify.sh architecture` 验证。Phase 1A 已实现严格 MCP Capability Registry、
+输入/结果合同、Gateway、单次调用限制、结果大小与敏感信息拦截，以及接入既有
+`CapabilityService` 的兼容适配层。Phase 1B runtime 已增加哈希钉死、无 shell、单进程单调用的
+stdio transport，以及独立于主库的 `mcp.sqlite`：Evidence 按请求和内容哈希幂等保存，Audit
+使用只追加触发器和 SHA-256 链，重启后重新验哈希再恢复。离线 fixture 已通过
+Runtime → Gateway → stdio → 合同校验 → 持久化的真实子进程链路。
+
+Phase 1D 已启用云效 `workitem.read`、GitLab `gitlab.read`、PostgreSQL `database.inspect` 三个
+L1 只读 MCP 描述符，并将 Manager 默认执行路由切换为持久 MCP Runtime。插件版本、MCP
+入口点、依赖和 SHA-256 已冻结；MCP 失败会 fail closed，绝不静默回退到 Provider、浏览器、
+直连客户端或另一份 token。旧 Provider 直连路径继续标记为 `compatibility_quarantine` 债务，
+只有调用方显式选择 `provider_rollback` 才可使用，不能由环境状态或 MCP 错误自动触发。
+离线合同、Server、路由和安全门禁已通过；真实 GitLab 连通性仍缺少已配置个人只读 token。
+已配置 PostgreSQL 目标的 schema-only MCP smoke 当前返回可重试的
+`DATABASE_NETWORK_UNREACHABLE`，未生成证据，因此真实 PostgreSQL 目录读取尚未验收通过，
+不得描述为生产实连；该结果不授权 Provider、直连驱动或其他凭证回退。
+
+这里的职责边界固定为：**Skill = 说明书、约束和工作方法；MCP = 外部系统连接、执行和证据回执**。
+本地源码读取、Git、本地构建与测试仍属于受控 Worker sandbox，不强行包装为 MCP。
+其余 Provider-to-MCP 逐能力迁移、有限重试、Token Governor 和 Supervisor 恢复编排仍属于
+后续阶段，当前不得提前宣称具备。`ChangeContextPack` 已按下一节的明确边界交付。当前
+Gateway 只向上返回紧凑 `CapabilityResult + evidence_ref`，完整 envelope 按需从 `mcp.sqlite`
+恢复，为后续减少重复上下文和 token 消耗提供基础；尚不能宣称已经实现跨任务经验自动压缩。
+
+Phase 1C 已进一步固定“技术权限”与“Harness 治理”的边界：云效/GitLab/GitHub 的只读调用
+是否成功由对应个人 token 的权限决定，数据库只读调用由只读 endpoint/credential 的权限决定；
+Harness 不再为已注册只读动作制造第二个人工确认。Harness 仍必须绑定 Profile、目标、请求人、
+精确参数和一次性计划，并在执行 MCP 前原子消费计划和写审计；endpoint 与凭证只由对应 MCP
+Server 在连接边界内解析，Harness 不接收或转发 secret。
+
+数据库修改和删除默认绝对禁止。只有用户明确要求并授权精确对象、操作、条件和影响范围后，
+才允许进入独立数据库变更设计；删除、`DROP`、`TRUNCATE` 还必须单独绑定破坏性范围。当前
+`ACTION_DESCRIPTORS` 不登记数据库 DML/DDL/删除动作，`database.change` 仍不可外部执行，
+因此本阶段没有任何数据库写入口。
+
+### Enterprise ChangeContextPack（schema v73）
+
+每条代码修改路径现在都必须先形成不可变、可追溯的 `ChangeContextPack`，通过 gate 后才能创建
+`SinglePassChangeContract` 或进入 worker。四层固定为：`ProjectGraph`（项目、仓库、服务与依赖）、
+`ChangeScope`（目标、范围内外、允许路径与验收）、`CodeGraph`（入口、调用链、接口、异常路径与测试）、
+`DataGraph`（表、字段、主外键、索引、实体映射和读写路径）。前三层始终必需；只有确定性的适用性规则
+证明不涉及数据契约或持久化时，`DataGraph` 才能标记为 `not_applicable`，不确定时保守要求当前证据。
+
+云效、GitLab、PostgreSQL 外部证据只允许由 MCP 连接器读取，Skill 只说明如何选择能力和解释结果。
+PostgreSQL 仅开放 catalog 读取；Harness 内的旧直连适配器已永久 fail closed，不提供 SQL 文本、业务行、
+Provider、浏览器、驱动或备用 token 回退。数据库写、删除、DDL、迁移和权限能力仍未注册。
+
+Pack、Layer、适用性决策、gate、事件和投影指标使用内容哈希与 append-only 元数据；完整证据保留在独立
+artifact/MCP evidence store。相同上下文可复用，需求修正或人工否决必须创建显式 superseding 版本；
+中断的同一 collection 可恢复，变化后的 collection 必须先淘汰旧快照。稳定阻断码区分 incomplete、stale、
+conflict、source unavailable、hash mismatch、projection budget 和 version mismatch。
+
+worker 只接收原始有界需求文本和角色投影，不复制完整源码、MCP envelope 或治理大对象。Tier 0 上限
+2 KiB、Tier 1 上限 12 KiB；确定性 110 KiB fixture 要求至少减少 80%。pack ID、投影哈希和四层哈希
+同时绑定 scope confirmation、worktree/full-stack/multi-service manifest，并在 workspace access 与最终
+apply 前重新校验。正式 `his-harness-core` 插件版本为
+`0.3.1+codex.20260830-change-context-pack`，身份和审阅源码哈希以冻结 inventory 为准。
+
+`./scripts/verify.sh unit|offline|manager-static|architecture` 会在导入 Harness 前强制创建新的
+`/private/tmp/his-harness-verify.*` 控制库和知识目录，禁止测试默认写入正式 `data/harness.sqlite`。
+离线回归只证明技术合同；真实数据库 MCP、HIS 业务、运行时与发布状态仍必须分别验收，不能据此把
+`business_valid`、`runtime_verified` 或 `promotion_enabled` 提升为 true。
 
 ## 命令运行环境
 
@@ -29,7 +108,7 @@ GitLab、数据库和知识库的 provider 实现。默认 `routing_mode` 为 `e
 | --- | --- | --- |
 | `his-harness-core` | `canonical` | HIS/DFHIS 编排、工作项接入、任务历史和真实改码前的需求合理性、合规性、完整性、可修改性与一次修改合同门禁 |
 | `yunxiao` | `canonical` | 云效工作项详情、评论、内联文件和附件的只读证据；写能力只声明边界，当前禁用 |
-| `his-engineering` | `canonical` | 本地 Git 检查/应用/受控交付、GitLab 受控读取及结构化写入计划、数据库只读证据和数据库变更计划；普通改码不写远端，明确交付计划可连续执行任务分支/RC，GitLab 以 Provider 的核验回执闭环 |
+| `his-engineering` | `canonical` | 本地 Git 检查/应用/受控交付、GitLab MCP 只读连接、数据库 MCP 目录证据和数据库变更计划；普通改码不写远端，外部写入仍走独立受控交付计划，MCP 失败不回退 Provider |
 | `his-knowledge` | `canonical` | 有作用域和证据等级的检索、客服式问答、候选记忆、独立审核与显式推广；不承诺“什么都能答” |
 
 表中的 `canonical` 表示当前正式插件目录中的权威能力实现。当前
@@ -136,16 +215,16 @@ Host Bridge 合同接入，需要它自身提供 handler。
   不能修时说明具体原因并停止。
 - 普通咨询的云效状态为 `not_applicable`；没有云效工作项的需求记录为 `unlinked` 并
   继续需求流程。Provider 缺失或失败不得把需求降级为普通咨询。分类结果不是外部写授权，
-  云效写仍需明确动作；Git/RC/GitLab 则由一次明确的交付计划绑定动作、目标和计划哈希，数据库永久只读。
+  云效写仍需明确动作；Git/RC/GitLab 由一次明确的交付计划绑定动作、目标和计划哈希；数据库
+  默认禁止修改和删除，只有用户明确授权精确变更范围后才可进入独立变更流程，当前无写执行器。
 
 ### 数据库与知识边界
 
-数据库只有在静态代码和云效证据不足、且请求提供结构化查询文件时才进入流程：
-`--database-inspect-file` 先做只读 preview，`--database-execute` 还必须同时提供
-`--database-credentials-file`。凭证文件只接受
-`pg_*_readonly_{dsn,user,password}`，只传给 `database.inspect/postgresql`；
-报告、审计和持久化结果不得包含凭证值。数据库修改只允许
-`--database-change-file` 生成 `database.change-plan`，不会调用真实变更能力。
+数据库只有在静态代码和云效证据不足时才进入流程。可执行只读查询由 PostgreSQL MCP
+连接器完成；Harness 只传递目标别名、目录操作和范围预算，不读取、注入或持久化 DSN、账号、
+密码。旧参数 `--database-credentials-file` 已禁用，凭证只能由 MCP 连接器根据
+`HARNESS_CREDENTIALS_FILE` 或连接器专用环境变量解析。数据库修改只允许
+`--database-change-file` 生成 `database.change-plan`，当前没有真实变更执行器。
 
 本机 152 开发环境的非敏感策略在
 `config/pg_evidence_profiles.local.json`：它使用 `his_152` Profile 和
@@ -301,10 +380,12 @@ API 只返回凭证是否已配置，从不回显密钥值、尾号或派生请�
 失败学习候选审核、知识库优先检索和 HIS 业务验收证据。配置完成只说明
 `configured`；本地 fake 测试、外部连通验证和业务验收必须分层显示，互不推导。
 当前只有已注册动作可进入受控 executor，**正常 Agent DAG 仍冻结**。任何
-**真实调用**都必须同时具备所需凭证、通过一次性授权与目标/参数校验，并在结果上单独
-完成**外部验收**；本地 fake 结果不能代替这些条件。**外部写动作默认禁用**；
+**真实调用**都必须同时具备所需技术凭证，并通过一次性计划的 Profile、目标、请求人和参数
+校验；已注册只读动作无需 Harness 人工确认，非只读动作仍需一次性明确授权。结果必须单独
+完成**外部验收**，本地 fake 结果不能代替这些条件。**外部写动作默认禁用**；
 若某一已注册动作经专项验证和明确开放，仍必须逐次展示差异、确认、执行一次并回读。
-**数据库永久只读**，不存在开放写 executor 的阶段。
+数据库修改和删除默认绝对禁止；只有用户明确要求精确变更范围后才允许单独设计。
+当前不存在数据库写 executor。
 
 Manager `/routing` 的需求入口默认使用不读取模型凭证、不联网的本地确定性分析完成只读
 12 阶段治理账本，并明确返回 `technical_only=true`、`real_model_used=false`、
@@ -343,16 +424,16 @@ GitLab 写入仍保持 disabled。把这些临时响应密封为 owner-only evid
 | 能力边界 | 当前允许 | 永久或当前禁止 |
 | --- | --- | --- |
 | Profile 与凭证 | Manager 数据库保存类型化 Profile 和 AES-GCM 密文 | 页面、API、审计和日志回显明文或掩码尾号 |
-| Provider 读取 | 已确认的一次性计划可执行受控只读动作 | 未确认、过期、参数变化或令牌复用 |
+| Provider 读取 | 一次性计划可执行受控只读动作；技术权限由 token、只读 endpoint/credential 或本地权限决定 | 计划缺失/过期、请求人/目标/参数变化、计划复用或技术权限不足 |
 | 外部/本地写入 | 外部写默认禁用；专项开放的已注册动作逐次展示差异、一次性确认、执行一次并回读 | 未开放动作、批量静默写入、重试写入、模型自行授权 |
-| 数据库 | 单条受限只读查询、结构读取和人工 SQL 草案 | **数据库写入永久不支持**，草案也不能转为执行计划 |
+| 数据库 | 单条受限只读查询、结构读取和人工 SQL 草案 | 默认绝对禁止修改/删除；当前无 DML/DDL/删除 action 或 executor，未来也必须先有用户精确范围授权 |
 | 模型 | 固定 prompt 的单节点 smoke；显式部署开关下的只读代码 Reviewer（每次由审核/需求消息触发并记录外部调用） | 未配置开关时调用、模型自行授权、常规模型工具调用和真实模型 DAG |
 | 学习与知识 | 失败运行生成候选，审核通过后人工推广，先检索再回答 | 自动晋升、暗中调用模型、候选直接作为正式知识 |
 | HIS 验收 | 完整环境、操作者、测试数据、场景证据和明确审核可形成结论 | 用离线测试、smoke 或勾选框替代业务验收 |
 
 部署时必须由服务端环境提供 `HARNESS_MANAGER_CREDENTIAL_MASTER_KEY`；该 AES 主密钥
 不通过 UI 输入，也不能与密文一起存储或写入日志。Manager 的标准 UI 操作顺序是
-`/providers` 配置 → `/actions` 生成并逐次确认计划 → 查看执行/回读审计 →
+`/providers` 配置 → `/actions` 生成计划（只读免人工确认，非只读逐次确认）→ 查看执行/回读审计 →
 `/learning-candidates` 审核候选 → `/knowledge` 检索知识 →
 `/business-acceptance` 记录技术和业务证据。
 

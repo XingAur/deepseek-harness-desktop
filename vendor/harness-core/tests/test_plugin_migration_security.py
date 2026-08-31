@@ -193,7 +193,7 @@ class PluginMigrationSecurityTests(unittest.TestCase):
                 MutationLevel.L1,
                 "preview",
                 (),
-                "skills/yunxiao-workitem-read/scripts/yunxiao_evidence.py",
+                "scripts/yunxiao_evidence.py",
                 {"entity_id": "DFHIS-SECURITY"},
                 {"include_comments": False},
             ),

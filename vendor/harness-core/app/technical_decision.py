@@ -7,6 +7,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from app.change_context_contracts import ChangeContextProjection
 from app.demand_discovery import DiscoveryResult, discover_demand
 from app.project_context import DEFAULT_EXCLUDE_DIRS, TEXT_EXTENSIONS, safe_relative, unique_keep_order
 from app.requirement_calibration import (
@@ -359,7 +360,31 @@ class TechnicalDecisionResult:
         return text[: limit // 2] + "\n\n...（技术自治决策过长，已压缩）...\n\n" + text[-limit // 2 :]
 
 
-def build_technical_decision(
+@dataclass(frozen=True)
+class TechnicalContextDiscovery:
+    combined_text: str
+    project_root: str
+    selected_projects: tuple[dict, ...]
+    service_graph: dict
+    demand_discovery: DiscoveryResult
+    explicit_scope: bool
+    explicit_allowed_paths: tuple[str, ...]
+    contract_parameters: tuple[str, ...]
+    default_value_precedence: dict
+    authoritative_code_locators: str
+
+
+def _ready_analysis_projection(value: ChangeContextProjection | None) -> bool:
+    """Accept only a bounded, gate-approved analysis projection."""
+    return bool(
+        isinstance(value, ChangeContextProjection)
+        and value.role == "analysis"
+        and value.tier0.get("gate_status") == "ready"
+        and value.tier0.get("gate_code") == "CHANGE_CONTEXT_READY"
+    )
+
+
+def discover_technical_context(
     *,
     demand_text: str,
     yunxiao_evidence: dict | None = None,
@@ -370,7 +395,8 @@ def build_technical_decision(
     contract_parameters: list[str] | None = None,
     default_value_precedence: dict | None = None,
     authoritative_code_locators: str = "",
-) -> TechnicalDecisionResult:
+) -> TechnicalContextDiscovery:
+    """Collect bounded read-only facts without producing implementation authority."""
     combined_text = build_combined_text(
         demand_text=demand_text,
         yunxiao_evidence=yunxiao_evidence,
@@ -404,13 +430,81 @@ def build_technical_decision(
         )
     if not service_graph.get("branches") and requires_service_contract(combined_text):
         selected = expand_contract_projects(selected_projects=selected, root=root, combined_text=combined_text)
-    discovery = discover_demand(
+    demand_discovery = discover_demand(
         demand_text=combined_text,
         selected_projects=selected,
         max_files=MAX_SCAN_FILES_PER_PROJECT,
         max_file_bytes=MAX_FILE_BYTES,
     )
-    explicit_allowed_paths = unique_keep_order(str(path).strip() for path in (explicit_allowed_paths or []) if str(path).strip())
+    allowed_paths = tuple(
+        unique_keep_order(str(path).strip() for path in (explicit_allowed_paths or []) if str(path).strip())
+    )
+    return TechnicalContextDiscovery(
+        combined_text=combined_text,
+        project_root=str(root),
+        selected_projects=tuple(dict(item) for item in selected),
+        service_graph=dict(service_graph),
+        demand_discovery=demand_discovery,
+        explicit_scope=explicit_scope,
+        explicit_allowed_paths=allowed_paths,
+        contract_parameters=tuple(str(item) for item in (contract_parameters or [])),
+        default_value_precedence=dict(default_value_precedence or {}),
+        authoritative_code_locators=authoritative_code_locators,
+    )
+
+
+def build_technical_decision(
+    *,
+    demand_text: str,
+    yunxiao_evidence: dict | None = None,
+    requirement_evidence: dict | None = None,
+    project_root: str | Path = DEFAULT_PROJECT_ROOT,
+    explicit_project_paths: list[str] | None = None,
+    explicit_allowed_paths: list[str] | None = None,
+    contract_parameters: list[str] | None = None,
+    default_value_precedence: dict | None = None,
+    authoritative_code_locators: str = "",
+    discovery: TechnicalContextDiscovery | None = None,
+    change_context_projection: ChangeContextProjection | None = None,
+) -> TechnicalDecisionResult:
+    governed = discovery is not None
+    technical_context = discovery or discover_technical_context(
+        demand_text=demand_text,
+        yunxiao_evidence=yunxiao_evidence,
+        requirement_evidence=requirement_evidence,
+        project_root=project_root,
+        explicit_project_paths=explicit_project_paths,
+        explicit_allowed_paths=explicit_allowed_paths,
+        contract_parameters=contract_parameters,
+        default_value_precedence=default_value_precedence,
+        authoritative_code_locators=authoritative_code_locators,
+    )
+    if not isinstance(technical_context, TechnicalContextDiscovery):
+        raise ValueError("technical_context_discovery_invalid")
+    combined_text = technical_context.combined_text
+    root = Path(technical_context.project_root)
+    selected = [dict(item) for item in technical_context.selected_projects]
+    service_graph = dict(technical_context.service_graph)
+    demand_discovery = technical_context.demand_discovery
+    explicit_scope = technical_context.explicit_scope
+    explicit_allowed_paths = list(technical_context.explicit_allowed_paths)
+    contract_parameters = list(technical_context.contract_parameters)
+    default_value_precedence = dict(technical_context.default_value_precedence)
+    authoritative_code_locators = technical_context.authoritative_code_locators
+    if governed and not _ready_analysis_projection(change_context_projection):
+        return TechnicalDecisionResult(
+            project_root=str(root),
+            selected_projects=selected,
+            implementation_decision={
+                "can_patch": False,
+                "change_type": "blocked_by_change_context",
+                "summary": "ChangeContextPack 未通过 ready 分析投影门禁。",
+                "blockers": ["ChangeContextPack ready analysis projection is required before technical approval."],
+            },
+            recommended_allowed_paths=[],
+            recommended_verify_commands=[],
+            artifacts={},
+        )
     if explicit_allowed_paths:
         explicit_path_provenance = build_explicit_path_provenance(
             selected_projects=selected,
@@ -425,7 +519,7 @@ def build_technical_decision(
             provenance = build_field_provenance(
                 combined_text=combined_text,
                 selected_projects=selected,
-                discovery=discovery,
+                discovery=demand_discovery,
                 service_graph=service_graph,
                 default_value_precedence=default_value_precedence,
                 authoritative_code_locators=authoritative_code_locators,
@@ -517,7 +611,7 @@ def build_technical_decision(
     provenance = build_field_provenance(
         combined_text=combined_text,
         selected_projects=selected,
-        discovery=discovery,
+        discovery=demand_discovery,
         service_graph=service_graph,
         default_value_precedence=default_value_precedence,
         authoritative_code_locators=authoritative_code_locators,

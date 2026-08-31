@@ -9,8 +9,42 @@ from app.capability_registry import CapabilityRegistry, CapabilityRegistryError
 from app.task_context import TaskIntentContext
 
 
-MATRIX_SCHEMA_VERSION = "his-role-capability-skill-matrix.v1"
+MATRIX_SCHEMA_VERSION = "his-role-capability-skill-matrix.v2"
 _MUTATION_LEVELS = frozenset({"L0", "L1", "L2", "L3", "L4", "L5"})
+_EXECUTION_KINDS = frozenset({"provider", "internal", "mcp"})
+_REQUIRED_BOUNDARIES = frozenset(
+    {"mcp_required", "worker_allowed", "control_plane_internal"}
+)
+_MIGRATION_STATES = frozenset({"native", "compatibility"})
+_WORKER_ALLOWED_CAPABILITIES = frozenset(
+    {
+        "code.review-local",
+        "git.apply-local",
+        "git.commit-local",
+        "git.diff",
+        "git.history",
+        "git.inspect",
+        "source.read",
+        "source.search",
+        "verification.run-local",
+    }
+)
+_CONTROL_PLANE_CAPABILITIES = frozenset(
+    {"database.change-plan", "requirement.govern", "visual.extract"}
+)
+_MCP_REQUIRED_CAPABILITIES = frozenset(
+    {
+        "database.change",
+        "database.inspect",
+        "git.push",
+        "github.read",
+        "github.write",
+        "gitlab.read",
+        "gitlab.write",
+        "workitem.read",
+        "workitem.write",
+    }
+)
 
 
 class RoleCapabilitySkillRegistryError(ValueError):
@@ -38,6 +72,8 @@ class CapabilityRoute:
     skill: str
     mutation_level: str
     execution_kind: str
+    required_boundary: str
+    migration_state: str
     external_executable: bool
     mcp_server: str | None = None
 
@@ -50,6 +86,8 @@ class RoleRoute:
     provider: str
     skill: str
     execution_kind: str
+    required_boundary: str
+    migration_state: str
     mutation_level: str
     external_executable: bool
     mcp_server: str | None = None
@@ -135,6 +173,8 @@ class RoleCapabilitySkillRegistry:
                     provider=binding.provider,
                     skill=binding.skill,
                     execution_kind=binding.execution_kind,
+                    required_boundary=binding.required_boundary,
+                    migration_state=binding.migration_state,
                     mutation_level=binding.mutation_level,
                     external_executable=binding.external_executable,
                     mcp_server=binding.mcp_server,
@@ -215,13 +255,19 @@ def _load_plugin_roots(
     if supplied is not None:
         roots = {str(name): Path(value).resolve() for name, value in supplied.items()}
     else:
-        config = _read_json(harness_root / "config" / "capabilities.json")
+        config_path = harness_root / "config" / "capabilities.json"
+        config = _read_json(config_path)
         raw_roots = config.get("plugin_roots")
         if not isinstance(raw_roots, list):
             raise RoleCapabilitySkillRegistryError("capabilities.json 缺少 plugin_roots。")
         roots = {}
         for value in raw_roots:
-            path = Path(value).resolve()
+            candidate = Path(value).expanduser()
+            path = (
+                candidate.resolve()
+                if candidate.is_absolute()
+                else (config_path.parent / candidate).resolve()
+            )
             manifest_path = path / "capabilities.json"
             try:
                 plugin = json.loads(manifest_path.read_text(encoding="utf-8"))["plugin"]
@@ -329,8 +375,24 @@ def _parse_capability_routes(
         if mutation_level not in _MUTATION_LEVELS:
             raise RoleCapabilitySkillRegistryError(f"mutation_level 非法：{mutation_level}。")
         execution_kind = _text(data.get("execution_kind"), f"capability_routes[{index}].execution_kind")
-        if execution_kind not in {"provider", "internal"}:
+        if execution_kind not in _EXECUTION_KINDS:
             raise RoleCapabilitySkillRegistryError(f"execution_kind 非法：{execution_kind}。")
+        required_boundary = _text(
+            data.get("required_boundary"),
+            f"capability_routes[{index}].required_boundary",
+        )
+        if required_boundary not in _REQUIRED_BOUNDARIES:
+            raise RoleCapabilitySkillRegistryError(
+                f"required_boundary 非法：{required_boundary}。"
+            )
+        migration_state = _text(
+            data.get("migration_state"),
+            f"capability_routes[{index}].migration_state",
+        )
+        if migration_state not in _MIGRATION_STATES:
+            raise RoleCapabilitySkillRegistryError(
+                f"migration_state 非法：{migration_state}。"
+            )
         external_executable = data.get("external_executable")
         if not isinstance(external_executable, bool):
             raise RoleCapabilitySkillRegistryError("external_executable 必须是布尔值。")
@@ -342,7 +404,7 @@ def _parse_capability_routes(
                 raise RoleCapabilitySkillRegistryError(
                     f"内部 capability 必须绑定 internal Skill 且禁止外部执行：{capability}。"
                 )
-        else:
+        elif execution_kind == "provider":
             try:
                 descriptor = provider_registry.resolve(capability, provider)
             except CapabilityRegistryError as exc:
@@ -355,14 +417,36 @@ def _parse_capability_routes(
                 )
             if skill.kind == "internal_skill":
                 raise RoleCapabilitySkillRegistryError(f"provider capability 不得绑定 internal Skill：{capability}。")
+        else:
+            if skill.kind != "mcp_skill" or not mcp_server:
+                raise RoleCapabilitySkillRegistryError(
+                    f"MCP capability 必须绑定声明 server 的 MCP Skill：{capability}。"
+                )
         if mcp_server != skill.mcp_server:
             raise RoleCapabilitySkillRegistryError(
                 f"MCP route 与 Skill 声明不一致：{capability}。"
             )
-        result.append(CapabilityRoute(
-            capability, provider, skill_name, mutation_level,
-            execution_kind, external_executable, mcp_server
-        ))
+        _validate_boundary_contract(
+            capability=capability,
+            execution_kind=execution_kind,
+            required_boundary=required_boundary,
+            migration_state=migration_state,
+            skill=skill,
+            mcp_server=mcp_server,
+        )
+        result.append(
+            CapabilityRoute(
+                capability=capability,
+                provider=provider,
+                skill=skill_name,
+                mutation_level=mutation_level,
+                execution_kind=execution_kind,
+                required_boundary=required_boundary,
+                migration_state=migration_state,
+                external_executable=external_executable,
+                mcp_server=mcp_server,
+            )
+        )
     return tuple(result)
 
 
@@ -383,7 +467,14 @@ def _parse_bindings(
             raise RoleCapabilitySkillRegistryError(
                 f"tool binding 未指向 capability route：{tool}。"
             )
-        for key in ("skill", "execution_kind", "mutation_level", "external_executable"):
+        for key in (
+            "skill",
+            "execution_kind",
+            "required_boundary",
+            "migration_state",
+            "mutation_level",
+            "external_executable",
+        ):
             if data.get(key) != getattr(route, key):
                 raise RoleCapabilitySkillRegistryError(
                     f"tool binding 与 capability route 不一致：{tool}。"
@@ -394,6 +485,56 @@ def _parse_bindings(
             raise RoleCapabilitySkillRegistryError(f"tool binding Skill 未注册：{tool}。")
         result[str(tool)] = route
     return result
+
+
+def _validate_boundary_contract(
+    *,
+    capability: str,
+    execution_kind: str,
+    required_boundary: str,
+    migration_state: str,
+    skill: SkillDeclaration,
+    mcp_server: str | None,
+) -> None:
+    if capability.startswith("harness.") or capability in _CONTROL_PLANE_CAPABILITIES:
+        expected_boundary = "control_plane_internal"
+    elif capability.startswith("knowledge.") or capability in _MCP_REQUIRED_CAPABILITIES:
+        expected_boundary = "mcp_required"
+    elif capability in _WORKER_ALLOWED_CAPABILITIES:
+        expected_boundary = "worker_allowed"
+    else:
+        raise RoleCapabilitySkillRegistryError(
+            f"capability 尚未声明企业边界分类：{capability}。"
+        )
+    if required_boundary != expected_boundary:
+        raise RoleCapabilitySkillRegistryError(
+            f"capability 边界分类不正确：{capability}/{required_boundary}。"
+        )
+
+    if execution_kind == "internal":
+        valid = required_boundary == "control_plane_internal" and migration_state == "native"
+    elif execution_kind == "mcp":
+        valid = (
+            required_boundary == "mcp_required"
+            and migration_state == "native"
+            and skill.kind == "mcp_skill"
+            and bool(mcp_server)
+            and mcp_server == skill.mcp_server
+        )
+    elif required_boundary == "mcp_required":
+        valid = migration_state == "compatibility"
+    else:
+        valid = migration_state == "native"
+    if not valid:
+        raise RoleCapabilitySkillRegistryError(
+            f"执行事实与目标边界不一致：{capability}/{execution_kind}/"
+            f"{required_boundary}/{migration_state}。"
+        )
+    if skill.kind == "mcp_skill" and execution_kind == "provider":
+        if required_boundary != "mcp_required" or migration_state != "compatibility":
+            raise RoleCapabilitySkillRegistryError(
+                f"Provider 执行的 MCP Skill 必须标记 compatibility：{capability}。"
+            )
 
 
 def _parse_roles(payload: Any, bindings: Mapping[str, CapabilityRoute]) -> dict[str, tuple[str, ...]]:

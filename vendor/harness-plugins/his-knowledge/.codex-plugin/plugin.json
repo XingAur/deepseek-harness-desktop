@@ -1,0 +1,19 @@
+{
+  "name": "his-knowledge",
+  "version": "0.3.0+codex.20260823093214",
+  "description": "Evidence-backed, controlled HIS knowledge and memory plugin",
+  "author": {
+    "name": "Local developer"
+  },
+  "mcpServers": "./.mcp.json",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "HIS Knowledge",
+    "shortDescription": "Retrieve and bootstrap evidence-backed HIS knowledge.",
+    "longDescription": "HIS Knowledge retrieves scoped evidence and creates review candidates from approved local sources without requiring an active requirement.",
+    "developerName": "Local developer",
+    "category": "Knowledge",
+    "capabilities": [],
+    "defaultPrompt": "Help me retrieve or bootstrap evidence-backed HIS knowledge."
+  }
+}

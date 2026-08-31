@@ -25,9 +25,9 @@ from app.manager_model_smoke_preflight import build_model_smoke_preflight
 from app.runtime_policy import runtime_policy_snapshot
 from app.external_write_plan import EXTERNAL_WRITE_PLAN_SCHEMA_VERSION
 from tools.capability_check import CliError, load_runtime_config
+from app.version import VERSION as CORE_VERSION
 
 
-CORE_VERSION = "0.66.0"
 CORE_STATUS_SCHEMA_VERSION = "his-core-status.v1"
 READINESS_SCHEMA_VERSION = "his-readiness.v1"
 DEFAULT_HARNESS_ROOT = Path(__file__).resolve().parents[1]

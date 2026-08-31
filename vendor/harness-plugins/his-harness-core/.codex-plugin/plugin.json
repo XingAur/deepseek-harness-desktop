@@ -1,0 +1,18 @@
+{
+  "name": "his-harness-core",
+  "version": "0.3.0+codex.20260823093018",
+  "description": "Governed engineering Harness with optional HIS domain controls",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Engineering Harness Core",
+    "shortDescription": "Run auditable local engineering workflows.",
+    "longDescription": "Supports local and work-item tasks across general engineering, with HIS/DFHIS controls applied only when relevant.",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Use the Engineering Harness for this task."
+  }
+}

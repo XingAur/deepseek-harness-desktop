@@ -1,0 +1,4 @@
+interface:
+  display_name: "HIS Harness（兼容入口）"
+  short_description: "转到his-harness-core插件的正式编排技能"
+  default_prompt: "Use $his-harness from the installed his-harness-core plugin; if the plugin is missing, stop and report the installation error."

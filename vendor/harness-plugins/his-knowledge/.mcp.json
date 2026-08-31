@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "his-knowledge": {
+      "command": "python3",
+      "args": ["./scripts/knowledge_mcp_server.py"],
+      "cwd": ".",
+      "env_vars": ["HIS_KNOWLEDGE_HOME"]
+    }
+  }
+}

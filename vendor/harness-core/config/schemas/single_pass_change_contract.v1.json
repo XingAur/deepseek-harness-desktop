@@ -3,7 +3,7 @@
   "$id": "single_pass_change_contract.v1.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "status", "objective", "in_scope", "out_of_scope", "repositories", "allowed_paths", "business_rules", "preserved_behaviors", "adjacent_paths", "database_impacts", "configuration_impacts", "verify_commands", "automatic_acceptance", "manual_acceptance", "rollback_strategy", "blockers"],
+  "required": ["schema_version", "status", "objective", "in_scope", "out_of_scope", "repositories", "allowed_paths", "business_rules", "preserved_behaviors", "adjacent_paths", "database_impacts", "configuration_impacts", "verify_commands", "automatic_acceptance", "manual_acceptance", "rollback_strategy", "blockers", "change_context_pack_id", "change_context_projection_hash", "change_context_layer_hashes"],
   "properties": {
     "schema_version": {"const": "single-pass-change-contract.v1"},
     "status": {"enum": ["ready", "blocked"]},
@@ -21,10 +21,26 @@
     "automatic_acceptance": {"$ref": "#/$defs/texts"},
     "manual_acceptance": {"$ref": "#/$defs/texts"},
     "rollback_strategy": {"type": "string", "minLength": 1},
-    "blockers": {"$ref": "#/$defs/texts"}
+    "blockers": {"$ref": "#/$defs/texts"},
+    "change_context_pack_id": {"type": "string", "pattern": "^(?:|ccp:sha256:[0-9a-f]{64})$"},
+    "change_context_projection_hash": {"type": "string", "pattern": "^(?:|sha256:[0-9a-f]{64})$"},
+    "change_context_layer_hashes": {
+      "type": "array",
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["layer_type", "content_hash"],
+        "properties": {
+          "layer_type": {"enum": ["project_graph", "change_scope", "code_graph", "data_graph"]},
+          "content_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+        }
+      }
+    }
   },
   "allOf": [
-    {"if": {"properties": {"status": {"const": "ready"}}, "required": ["status"]}, "then": {"properties": {"blockers": {"maxItems": 0}, "repositories": {"minItems": 1}, "allowed_paths": {"minItems": 1}, "verify_commands": {"minItems": 1}, "automatic_acceptance": {"minItems": 1}, "manual_acceptance": {"minItems": 1}}, "not": {"properties": {"rollback_strategy": {"const": "not_available"}}, "required": ["rollback_strategy"]}}},
+    {"if": {"properties": {"status": {"const": "ready"}}, "required": ["status"]}, "then": {"properties": {"blockers": {"maxItems": 0}, "repositories": {"minItems": 1}, "allowed_paths": {"minItems": 1}, "verify_commands": {"minItems": 1}, "automatic_acceptance": {"minItems": 1}, "manual_acceptance": {"minItems": 1}, "change_context_pack_id": {"pattern": "^ccp:sha256:[0-9a-f]{64}$"}, "change_context_projection_hash": {"pattern": "^sha256:[0-9a-f]{64}$"}, "change_context_layer_hashes": {"minItems": 4, "maxItems": 4}}, "not": {"properties": {"rollback_strategy": {"const": "not_available"}}, "required": ["rollback_strategy"]}}},
     {"if": {"properties": {"status": {"const": "blocked"}}, "required": ["status"]}, "then": {"properties": {"blockers": {"minItems": 1}, "repositories": {"maxItems": 0}, "allowed_paths": {"maxItems": 0}, "business_rules": {"maxItems": 0}, "database_impacts": {"maxItems": 0}, "configuration_impacts": {"maxItems": 0}, "verify_commands": {"maxItems": 0}, "automatic_acceptance": {"maxItems": 0}, "manual_acceptance": {"maxItems": 0}, "rollback_strategy": {"const": "not_available"}}}}
   ],
   "$defs": {

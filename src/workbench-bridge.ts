@@ -241,6 +241,15 @@ function bridgePayloadV2(
     requireId(payload.extensionId, 'Extension ID')
     return { extensionId: payload.extensionId }
   }
+  if (action === 'skill.import') return {}
+  if (action === 'skill.create') {
+    return {
+      skillId: payload.skillId,
+      displayName: payload.displayName,
+      description: payload.description,
+      instructions: payload.instructions,
+    }
+  }
   if (action === 'prompts.get' || action === 'prompts.delete') {
     requireId(payload.presetId, 'Preset ID')
     return { presetId: payload.presetId }
@@ -318,6 +327,20 @@ function bridgePayloadV2(
       ...(payload.providerId === undefined ? {} : { providerId: payload.providerId }),
       displayName: payload.displayName,
       endpoint: payload.endpoint,
+      ...(payload.transport === undefined ? {} : { transport: payload.transport }),
+      ...(payload.templateId === undefined ? {} : { templateId: payload.templateId }),
+      ...(payload.command === undefined ? {} : { command: payload.command }),
+      ...(payload.args === undefined ? {} : { args: payload.args }),
+      ...(payload.environmentKeys === undefined ? {} : { environmentKeys: payload.environmentKeys }),
+      ...(payload.workingDirectoryPolicy === undefined ? {} : { workingDirectoryPolicy: payload.workingDirectoryPolicy }),
+      ...(payload.healthPath === undefined ? {} : { healthPath: payload.healthPath }),
+      ...(payload.databaseType === undefined ? {} : { databaseType: payload.databaseType }),
+      ...(payload.host === undefined ? {} : { host: payload.host }),
+      ...(payload.port === undefined ? {} : { port: payload.port }),
+      ...(payload.databaseName === undefined ? {} : { databaseName: payload.databaseName }),
+      ...(payload.username === undefined ? {} : { username: payload.username }),
+      ...(payload.encoding === undefined ? {} : { encoding: payload.encoding }),
+      ...(payload.testQuery === undefined ? {} : { testQuery: payload.testQuery }),
       readOnly: payload.readOnly,
       enabled: payload.enabled,
       ...(payload.credentialId === undefined ? {} : { credentialId: payload.credentialId }),

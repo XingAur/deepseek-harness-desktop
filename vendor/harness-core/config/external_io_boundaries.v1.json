@@ -1,0 +1,852 @@
+{
+  "schema_version": "his-external-io-boundaries.v1",
+  "roots": [
+    {
+      "root_id": "harness",
+      "source": "harness_root",
+      "value": "."
+    },
+    {
+      "root_id": "plugin:his-harness-core",
+      "source": "capability_config",
+      "value": "his-harness-core"
+    },
+    {
+      "root_id": "plugin:yunxiao",
+      "source": "capability_config",
+      "value": "yunxiao"
+    },
+    {
+      "root_id": "plugin:his-engineering",
+      "source": "capability_config",
+      "value": "his-engineering"
+    },
+    {
+      "root_id": "plugin:his-knowledge",
+      "source": "capability_config",
+      "value": "his-knowledge"
+    }
+  ],
+  "rules": [
+    {
+      "root_id": "harness",
+      "relative_path": "app/capability_runtime.py",
+      "file_sha256": "743d41ed4f8e8d541a4b93d5b70f9472feab9702346ebb17ad84732d1744e3a4",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "compatibility_quarantine",
+      "owner": "harness-platform",
+      "rationale": "Existing direct external, credential, database or plugin-executor I/O remains compatibility debt until the reviewed MCP boundary migration; no new direct I/O is allowed."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "app/code_evidence_git.py",
+      "file_sha256": "e642892baaa7309e4d393ba7078dc1268000c322b50bdfb7b2b442d78ee6042b",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "subprocess.Popen",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "worker_allowed",
+      "owner": "harness-platform",
+      "rationale": "Local Git, source inspection, worktree, build or test execution belongs to the bounded Worker Sandbox."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "app/codex_cli_worker.py",
+      "file_sha256": "b9c889a0e7c720a3579e63d14e5164b4feedbbbfb8ea93cd0dc6c37991466808",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 1
+        },
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 2
+        },
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 3
+        }
+      ],
+      "disposition": "worker_allowed",
+      "owner": "harness-platform",
+      "rationale": "Local Git, source inspection, worktree, build or test execution belongs to the bounded Worker Sandbox."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "app/database_probe.py",
+      "file_sha256": "b216bed69b609c948df67d28555519fdd2aa42357a0ecd419e7a6bcd38999b25",
+      "findings": [
+        {
+          "category": "database",
+          "symbol": "psycopg.connect",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "compatibility_quarantine",
+      "owner": "harness-platform",
+      "rationale": "Existing direct external, credential, database or plugin-executor I/O remains compatibility debt until the reviewed MCP boundary migration; no new direct I/O is allowed."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "app/enterprise_gate.py",
+      "file_sha256": "019646d2c26377cf6e1b07b9b644983e858e1804adf85024916daa6d522ed421",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "control_plane_internal",
+      "owner": "harness-platform",
+      "rationale": "Harness self-verification, diagnostics or replay orchestration is an internal control-plane subprocess."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "app/executor_runtime.py",
+      "file_sha256": "85abcab9cfcb8c391c9af20de917684757051b59faceb222922f2e8bf18854ba",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "worker_allowed",
+      "owner": "harness-platform",
+      "rationale": "Local Git, source inspection, worktree, build or test execution belongs to the bounded Worker Sandbox."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "app/harness.py",
+      "file_sha256": "8f955a9164b5570b8a01fa2a33d15a5866dd41854ba34764f89716735542e4fd",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "worker_allowed",
+      "owner": "harness-platform",
+      "rationale": "Local Git, source inspection, worktree, build or test execution belongs to the bounded Worker Sandbox."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "app/harness_config.py",
+      "file_sha256": "3ec8d6dc7c95039c800421038affa1a0cc2466b37676a4a0a98fa511f1ac218b",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "compatibility_quarantine",
+      "owner": "harness-platform",
+      "rationale": "Existing direct external, credential, database or plugin-executor I/O remains compatibility debt until the reviewed MCP boundary migration; no new direct I/O is allowed."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "app/harness_doctor.py",
+      "file_sha256": "3b5de0593fe6b66594701bde561e86a3c1080652fc43ffb6c82071d83e867044",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 1
+        },
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 2
+        },
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 3
+        },
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 4
+        }
+      ],
+      "disposition": "control_plane_internal",
+      "owner": "harness-platform",
+      "rationale": "Harness self-verification, diagnostics or replay orchestration is an internal control-plane subprocess."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "app/llm_client.py",
+      "file_sha256": "04cfa559647c8aceae6bf2ada4d2849326994e8c957c07bf2d48c717dc5b5a9b",
+      "findings": [
+        {
+          "category": "network",
+          "symbol": "urllib.request.urlopen",
+          "occurrence": 1
+        },
+        {
+          "category": "network",
+          "symbol": "urllib.request.urlopen",
+          "occurrence": 2
+        }
+      ],
+      "disposition": "compatibility_quarantine",
+      "owner": "harness-platform",
+      "rationale": "Existing direct external, credential, database or plugin-executor I/O remains compatibility debt until the reviewed MCP boundary migration; no new direct I/O is allowed."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "app/local_agent_contract.py",
+      "file_sha256": "f9d8aa60912c33b681a2732d5ccfe65733c04d751aeadf8c323501e627102df1",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "worker_allowed",
+      "owner": "harness-platform",
+      "rationale": "Local Git, source inspection, worktree, build or test execution belongs to the bounded Worker Sandbox."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "app/mcp_stdio_transport.py",
+      "file_sha256": "68d15f3692a9d81d9b66d25322acf7363df9d4c7864528ed6b0f7c35047c6d7c",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "subprocess.Popen",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "control_plane_internal",
+      "owner": "harness-platform",
+      "rationale": "This is the reviewed hash-pinned MCP process boundary; it launches only frozen plugin entrypoints and is not Provider direct I/O."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "app/method_test_runner.py",
+      "file_sha256": "6c88d759c2447b060154ee6f2a5a7dbc6489b4cf97fc278c7f9ccba78207a859",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "worker_allowed",
+      "owner": "harness-platform",
+      "rationale": "Local Git, source inspection, worktree, build or test execution belongs to the bounded Worker Sandbox."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "app/model_provider_runtime.py",
+      "file_sha256": "7bc3976db485fec0e258fd1236f35ee007fff6ec5ebb07ec98122167aea555a3",
+      "findings": [
+        {
+          "category": "network",
+          "symbol": "opener.open",
+          "occurrence": 1
+        },
+        {
+          "category": "network",
+          "symbol": "urllib.request.build_opener",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "compatibility_quarantine",
+      "owner": "harness-platform",
+      "rationale": "Existing direct external, credential, database or plugin-executor I/O remains compatibility debt until the reviewed MCP boundary migration; no new direct I/O is allowed."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "app/plugin_replay_suite.py",
+      "file_sha256": "33302e02f1e045afae827490b05528ad4c7ca63694b7362a9cbfab211bd8805f",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "control_plane_internal",
+      "owner": "harness-platform",
+      "rationale": "Harness self-verification, diagnostics or replay orchestration is an internal control-plane subprocess."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "app/project_context.py",
+      "file_sha256": "62f6e290048021c88607d03b770f35e64c751296e0901c128294010b1f59764e",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "worker_allowed",
+      "owner": "harness-platform",
+      "rationale": "Local Git, source inspection, worktree, build or test execution belongs to the bounded Worker Sandbox."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "app/providers/git.py",
+      "file_sha256": "7ff2599a48de0decf39677977c0305d58f443b21af49515aadee8e6fd78b2b37",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "subprocess.Popen",
+          "occurrence": 1
+        },
+        {
+          "category": "process",
+          "symbol": "subprocess.Popen",
+          "occurrence": 2
+        },
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "worker_allowed",
+      "owner": "harness-platform",
+      "rationale": "Local Git, source inspection, worktree, build or test execution belongs to the bounded Worker Sandbox."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "app/providers/github.py",
+      "file_sha256": "3313f6ac9b55065037e4dbba282a9efeec136b2096e7c3d495682e614c5abc00",
+      "findings": [
+        {
+          "category": "network",
+          "symbol": "opener.open",
+          "occurrence": 1
+        },
+        {
+          "category": "network",
+          "symbol": "urllib.request.build_opener",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "compatibility_quarantine",
+      "owner": "harness-platform",
+      "rationale": "Existing direct external, credential, database or plugin-executor I/O remains compatibility debt until the reviewed MCP boundary migration; no new direct I/O is allowed."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "app/providers/gitlab.py",
+      "file_sha256": "8e7bfaafe2f76488dc7f14cbc006a0ea3e8a431993af178841a67270dd9c7904",
+      "findings": [
+        {
+          "category": "network",
+          "symbol": "opener.open",
+          "occurrence": 1
+        },
+        {
+          "category": "network",
+          "symbol": "urllib.request.build_opener",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "compatibility_quarantine",
+      "owner": "harness-platform",
+      "rationale": "Existing direct external, credential, database or plugin-executor I/O remains compatibility debt until the reviewed MCP boundary migration; no new direct I/O is allowed."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "app/providers/yunxiao.py",
+      "file_sha256": "a80d43821f903218ec56846139907f7447ca56bbc570e1e77f5a6828552d6f4a",
+      "findings": [
+        {
+          "category": "network",
+          "symbol": "opener.open",
+          "occurrence": 1
+        },
+        {
+          "category": "network",
+          "symbol": "urllib.request.build_opener",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "compatibility_quarantine",
+      "owner": "harness-platform",
+      "rationale": "Existing direct external, credential, database or plugin-executor I/O remains compatibility debt until the reviewed MCP boundary migration; no new direct I/O is allowed."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "app/requirement_understanding_completion.py",
+      "file_sha256": "ca5c74ef8b2a1beab71bdea6f36de7a2d023afdfdbb13dca2ccae140cd6add11",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "worker_allowed",
+      "owner": "harness-platform",
+      "rationale": "Local Git, source inspection, worktree, build or test execution belongs to the bounded Worker Sandbox."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "app/service_architecture.py",
+      "file_sha256": "aa291bc7d7de749f86d556a5a1f02ba9e58a928f5ab51cb20f6938ca3e9df233",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 1
+        },
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 2
+        },
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 3
+        },
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 4
+        }
+      ],
+      "disposition": "worker_allowed",
+      "owner": "harness-platform",
+      "rationale": "Local Git, source inspection, worktree, build or test execution belongs to the bounded Worker Sandbox."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "app/ui_evidence_runner.py",
+      "file_sha256": "029fd99693cc2a9f3e45757d9086cd8755f109e166b8c439964a5bf12555f8da",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "worker_allowed",
+      "owner": "harness-platform",
+      "rationale": "Local Git, source inspection, worktree, build or test execution belongs to the bounded Worker Sandbox."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "app/worktree_executor.py",
+      "file_sha256": "e79b585d551cad4895ed268feb8f999100b358feabc86676aa3032408745ff13",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "subprocess.Popen",
+          "occurrence": 1
+        },
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 1
+        },
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 2
+        },
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 3
+        }
+      ],
+      "disposition": "worker_allowed",
+      "owner": "harness-platform",
+      "rationale": "Local Git, source inspection, worktree, build or test execution belongs to the bounded Worker Sandbox."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "app/worktree_lifecycle.py",
+      "file_sha256": "b74c7d853c240957b6733b588ddf8bbec0fa45a8a2c56ce9f0cbbc2d5aa7e608",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "worker_allowed",
+      "owner": "harness-platform",
+      "rationale": "Local Git, source inspection, worktree, build or test execution belongs to the bounded Worker Sandbox."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "app/yunxiao_read.py",
+      "file_sha256": "1183a9acafb4ecd1aeee3ac17958b229a79ec3c114d2de010a9f60828e5110eb",
+      "findings": [
+        {
+          "category": "network",
+          "symbol": "urllib.request.urlopen",
+          "occurrence": 1
+        },
+        {
+          "category": "network",
+          "symbol": "urllib.request.urlopen",
+          "occurrence": 2
+        },
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "compatibility_quarantine",
+      "owner": "harness-platform",
+      "rationale": "Existing direct external, credential, database or plugin-executor I/O remains compatibility debt until the reviewed MCP boundary migration; no new direct I/O is allowed."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "app/yunxiao_transaction.py",
+      "file_sha256": "73c39bb08c5c20c5fff8d69fc856df9c71d168fe46ad5ce9a266c7635591dd30",
+      "findings": [
+        {
+          "category": "network",
+          "symbol": "urllib.request.urlopen",
+          "occurrence": 1
+        },
+        {
+          "category": "network",
+          "symbol": "urllib.request.urlopen",
+          "occurrence": 2
+        }
+      ],
+      "disposition": "compatibility_quarantine",
+      "owner": "harness-platform",
+      "rationale": "Existing direct external, credential, database or plugin-executor I/O remains compatibility debt until the reviewed MCP boundary migration; no new direct I/O is allowed."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "scripts/verify.sh",
+      "file_sha256": "d7ac0353b4597ddcc4bc713f9a7f66d6518b221c684d7dcfff40c01acabf883d",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "dynamic-command",
+          "occurrence": 1
+        },
+        {
+          "category": "process",
+          "symbol": "dynamic-command",
+          "occurrence": 2
+        },
+        {
+          "category": "process",
+          "symbol": "dynamic-command",
+          "occurrence": 3
+        },
+        {
+          "category": "process",
+          "symbol": "dynamic-command",
+          "occurrence": 4
+        },
+        {
+          "category": "process",
+          "symbol": "dynamic-command",
+          "occurrence": 5
+        },
+        {
+          "category": "process",
+          "symbol": "dynamic-command",
+          "occurrence": 6
+        }
+      ],
+      "disposition": "control_plane_internal",
+      "owner": "harness-platform",
+      "rationale": "Harness self-verification, diagnostics or replay orchestration is an internal control-plane subprocess."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "tools/behavior_check.py",
+      "file_sha256": "fbbd538b7e0e61e5d1459097582411dbf08d8d2442ab63094564d3a6970d971c",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "worker_allowed",
+      "owner": "harness-platform",
+      "rationale": "Local Git, source inspection, worktree, build or test execution belongs to the bounded Worker Sandbox."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "tools/cleanup_worktrees.py",
+      "file_sha256": "7df66f65555625bd1445cd771788eb2c0c2423e33c91df567528e1ca814d4cc1",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 1
+        },
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 2
+        }
+      ],
+      "disposition": "worker_allowed",
+      "owner": "harness-platform",
+      "rationale": "Local Git, source inspection, worktree, build or test execution belongs to the bounded Worker Sandbox."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "tools/interaction_evidence_check.py",
+      "file_sha256": "46530a617ff3b49d397e8bce148521334ce03f90ee5d3f446cd23ab0c909afd9",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "worker_allowed",
+      "owner": "harness-platform",
+      "rationale": "Local Git, source inspection, worktree, build or test execution belongs to the bounded Worker Sandbox."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "tools/self_check.py",
+      "file_sha256": "c0fdabf8aaeae72861bf8caf381a33be800cae0ac74ce1d602344e1679bb005d",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "control_plane_internal",
+      "owner": "harness-platform",
+      "rationale": "Harness self-verification, diagnostics or replay orchestration is an internal control-plane subprocess."
+    },
+    {
+      "root_id": "plugin:his-engineering",
+      "relative_path": "scripts/delivery_closure.py",
+      "file_sha256": "fdcf09caafd409345be6ff62723d4d8146928bdd6549301db4b3a3be2e634d17",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "subprocess.Popen",
+          "occurrence": 1
+        },
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 1
+        },
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 2
+        },
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 3
+        },
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 4
+        }
+      ],
+      "disposition": "worker_allowed",
+      "owner": "harness-platform",
+      "rationale": "Local Git, source inspection, worktree, build or test execution belongs to the bounded Worker Sandbox."
+    },
+    {
+      "root_id": "plugin:his-engineering",
+      "relative_path": "scripts/git_local.py",
+      "file_sha256": "700bf38fc15a5c335d9408d645df8256ed63a7fe3f8cc263df1975efdbf12a06",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 1
+        },
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 2
+        },
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 3
+        }
+      ],
+      "disposition": "worker_allowed",
+      "owner": "harness-platform",
+      "rationale": "Local Git, source inspection, worktree, build or test execution belongs to the bounded Worker Sandbox."
+    },
+    {
+      "root_id": "plugin:his-engineering",
+      "relative_path": "scripts/gitlab_mcp_server.py",
+      "file_sha256": "933d16ef61a964c87dc777f6bc26ac52e6153d1a1641a076f1ff4d06c7d9a7be",
+      "findings": [
+        {
+          "category": "network",
+          "symbol": "opener.open",
+          "occurrence": 1
+        },
+        {
+          "category": "network",
+          "symbol": "urllib.request.build_opener",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "mcp_required",
+      "owner": "his-engineering",
+      "rationale": "Reviewed GET-only GitLab network I/O is owned by the frozen GitLab MCP connector; Harness supplies governed targets and budgets but never performs a hidden Provider fallback."
+    },
+    {
+      "root_id": "plugin:his-engineering",
+      "relative_path": "scripts/postgresql_mcp_server.py",
+      "file_sha256": "160e2c7da3817d6f169ccfb1d8e11c1f5693fe22af91b4a42efa046b0df40b66",
+      "findings": [
+        {
+          "category": "database",
+          "symbol": "psycopg.connect",
+          "occurrence": 1
+        },
+        {
+          "category": "database",
+          "symbol": "psycopg.connect",
+          "occurrence": 2
+        },
+        {
+          "category": "database",
+          "symbol": "psycopg2.connect",
+          "occurrence": 1
+        },
+        {
+          "category": "database",
+          "symbol": "psycopg2.connect",
+          "occurrence": 2
+        }
+      ],
+      "disposition": "mcp_required",
+      "owner": "his-engineering",
+      "rationale": "Reviewed catalog-only PostgreSQL I/O is owned by the frozen readonly MCP connector; raw SQL, data mutation, DDL, migration and privilege operations are not exposed."
+    },
+    {
+      "root_id": "plugin:his-engineering",
+      "relative_path": "scripts/pg_evidence.py",
+      "file_sha256": "d367c3d7d53be995255d6f4437e76bac09a82533ea5cb60ddeeb57f4a1945570",
+      "findings": [
+        {
+          "category": "database",
+          "symbol": "self._psycopg.connect",
+          "occurrence": 1
+        },
+        {
+          "category": "database",
+          "symbol": "self._psycopg.connect",
+          "occurrence": 2
+        }
+      ],
+      "disposition": "compatibility_quarantine",
+      "owner": "harness-platform",
+      "rationale": "Existing direct external, credential, database or plugin-executor I/O remains compatibility debt until the reviewed MCP boundary migration; no new direct I/O is allowed."
+    },
+    {
+      "root_id": "plugin:his-harness-core",
+      "relative_path": "skills/harness-history/scripts/history_manager.py",
+      "file_sha256": "9fc32d08f9b4d5308c39d2abda0e766c8bb64c9e07276a57d95adba7dce8ef71",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 1
+        },
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 2
+        }
+      ],
+      "disposition": "worker_allowed",
+      "owner": "harness-platform",
+      "rationale": "Local Git, source inspection, worktree, build or test execution belongs to the bounded Worker Sandbox."
+    },
+    {
+      "root_id": "plugin:his-knowledge",
+      "relative_path": "scripts/run_hermetic_acceptance.py",
+      "file_sha256": "dda5e27c9885462f25bf593b2e4c6df71a0ddd8641191f253fb289b6893baf4e",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "subprocess.run",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "worker_allowed",
+      "owner": "harness-platform",
+      "rationale": "Local Git, source inspection, worktree, build or test execution belongs to the bounded Worker Sandbox."
+    },
+    {
+      "root_id": "plugin:yunxiao",
+      "relative_path": "scripts/yunxiao_evidence.py",
+      "file_sha256": "f8190e9bc6acb1f957734be86fc9e2731e2a9286aeab63996b61319b40b6a7f5",
+      "findings": [
+        {
+          "category": "network",
+          "symbol": "self.api_opener",
+          "occurrence": 1
+        },
+        {
+          "category": "network",
+          "symbol": "self.download_opener",
+          "occurrence": 1
+        },
+        {
+          "category": "network",
+          "symbol": "urllib.request.build_opener",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "mcp_required",
+      "owner": "yunxiao",
+      "rationale": "Reviewed Yunxiao network I/O is encapsulated by the frozen readonly Yunxiao MCP server; direct Provider execution is retained only as an explicit rollback mode and never selected automatically."
+    },
+    {
+      "root_id": "harness",
+      "relative_path": "skills/yunxiao-workitem-evidence/SKILL.md",
+      "file_sha256": "77f60427a6c2d4c8b45c785e664a2470e71bb2c9b1dabb2e2c118b8878e519d4",
+      "findings": [
+        {
+          "category": "process",
+          "symbol": "python3",
+          "occurrence": 1
+        }
+      ],
+      "disposition": "compatibility_quarantine",
+      "owner": "harness-platform",
+      "rationale": "Legacy compatibility skill process guidance remains quarantined until its canonical MCP evidence flow fully replaces direct script invocation."
+    }
+  ]
+}

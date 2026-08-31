@@ -35,10 +35,10 @@ _MAX_SCHEMA_BYTES = 131_072
 _MAX_TIMEOUT_SECONDS = 3_600
 _HEARTBEAT_SECONDS = 1.0
 _MAX_HEARTBEATS = _MAX_TIMEOUT_SECONDS + 1
-# The current bundled CLI is 0.149.x; its fixed `exec --json --ephemeral`
+# The current bundled CLI is 0.150.x; its fixed `exec --json --ephemeral`
 # worker/reviewer flags remain compatible with the 0.147 contract. Keep the
 # upper bound so a future incompatible CLI still fails closed.
-_SUPPORTED_VERSION = ((0, 147, 0), (0, 150, 0))
+_SUPPORTED_VERSION = ((0, 147, 0), (0, 151, 0))
 _CODE_SIGN_TEAM_ID = "2DC432GLL2"
 _IDENTITY = re.compile(r"darwin-proc-bsdinfo-v1:\d+:\d+")
 _SAFE_IDENTIFIER = re.compile(r"[A-Za-z0-9._:-]{1,256}")

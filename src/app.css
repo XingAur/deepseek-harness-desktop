@@ -16,8 +16,8 @@
   --shell-text: #202126;
   --shell-muted: #687081;
   --shell-subtle: #8a92a1;
-  --shell-brand: #4d73e6;
-  --shell-brand-soft: rgba(77, 115, 230, .18);
+  --shell-brand: #202126;
+  --shell-brand-soft: rgba(32, 33, 38, .08);
   --shell-error: #b84f55;
   --shell-shadow: rgba(35, 46, 72, .16);
 }
@@ -32,8 +32,8 @@
   --shell-text: #f7f7f8;
   --shell-muted: #a7a7ae;
   --shell-subtle: #77777f;
-  --shell-brand: #86a7ff;
-  --shell-brand-soft: rgba(82, 109, 181, .22);
+  --shell-brand: #f7f7f8;
+  --shell-brand-soft: rgba(247, 247, 248, .1);
   --shell-error: #ff9b9b;
   --shell-shadow: rgba(0, 0, 0, .38);
 }
@@ -49,8 +49,8 @@
     --shell-text: #f7f7f8;
     --shell-muted: #a7a7ae;
     --shell-subtle: #77777f;
-    --shell-brand: #86a7ff;
-    --shell-brand-soft: rgba(82, 109, 181, .22);
+    --shell-brand: #f7f7f8;
+    --shell-brand-soft: rgba(247, 247, 248, .1);
     --shell-error: #ff9b9b;
     --shell-shadow: rgba(0, 0, 0, .38);
   }
@@ -174,7 +174,7 @@ button { font: inherit; }
   cursor: pointer;
   white-space: nowrap;
 }
-.updatePrimaryButton { border: 1px solid #7997eb; color: #fff; background: #5d78c7; }
+.updatePrimaryButton { border: 1px solid var(--shell-text); color: var(--shell-surface-solid); background: var(--shell-text); }
 .updateSecondaryButton { border: 1px solid var(--shell-border); color: var(--shell-text); background: var(--shell-layer); }
 .updateTextButton { padding-inline: 8px; border: 0; color: var(--shell-muted); background: transparent; }
 .updatePrimaryButton:hover, .updateSecondaryButton:hover, .updateTextButton:hover { filter: brightness(.96); }
@@ -196,10 +196,7 @@ button { font: inherit; }
   overflow: auto;
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--shell-muted) 34%, transparent) transparent;
-  background:
-    radial-gradient(circle at 15% 10%, var(--shell-brand-soft), transparent 34%),
-    radial-gradient(circle at 85% 80%, color-mix(in srgb, var(--shell-brand) 10%, transparent), transparent 36%),
-    var(--shell-bg);
+  background: var(--shell-bg);
 }
 
 .bootstrapShell::-webkit-scrollbar {
@@ -242,28 +239,29 @@ button { font: inherit; }
 
 .brandRow { display: flex; align-items: center; gap: 10px; }
 .brandVisual { position: relative; width: 46px; height: 38px; display: grid; place-items: center; color: var(--shell-brand); }
-.brandFish { position: relative; z-index: 2; filter: drop-shadow(0 0 9px color-mix(in srgb, var(--shell-brand) 45%, transparent)); animation: fishGlow 3.2s ease-in-out infinite; }
+.brandFish { position: relative; z-index: 2; }
+.orbitLayer, .orbitParticle { display: none; }
 .orbitLayer { position: absolute; left: 50%; top: 50%; z-index: 1; border: 1px solid color-mix(in srgb, var(--shell-brand) 30%, transparent); border-radius: 50%; transform-origin: center; animation: orbitSpin 8s linear infinite; }
 .orbitLayerOuter { width: 48px; height: 25px; margin: -12.5px 0 0 -24px; transform: rotate(-14deg); }
 .orbitLayerInner { width: 39px; height: 31px; margin: -15.5px 0 0 -19.5px; transform: rotate(34deg); animation-duration: 5.8s; animation-direction: reverse; }
 .orbitParticle { position: absolute; left: 50%; top: -2px; width: 4px; height: 4px; border-radius: 50%; background: var(--shell-brand); box-shadow: 0 0 8px var(--shell-brand); }
 .brandName { font-size: 24px; font-weight: 680; letter-spacing: -.04em; }
 .brandTag { padding: 3px 7px; border-radius: 5px; color: var(--shell-muted); background: var(--shell-layer); font-size: 10px; font-weight: 700; }
-.statusBlock { margin-top: 74px; }
+.statusBlock { margin-top: 52px; }
 .eyebrow { margin: 0 0 13px; color: var(--shell-brand); font-size: 12px; font-weight: 680; letter-spacing: .14em; }
 h1 { margin: 0; font-size: clamp(30px, 5vw, 44px); font-weight: 560; letter-spacing: -.045em; }
 .statusMessage { min-height: 24px; margin: 17px 0 0; color: var(--shell-muted); line-height: 1.55; }
 .errorText { color: var(--shell-error); }
 .progressGroup { margin-top: 54px; }
 .progressTrack { height: 7px; overflow: hidden; border-radius: 99px; background: var(--shell-layer); }
-.progressFill { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, color-mix(in srgb, var(--shell-brand) 75%, #3456b6), var(--shell-brand)); box-shadow: 0 0 14px color-mix(in srgb, var(--shell-brand) 45%, transparent); transition: width .2s ease; }
+.progressFill { display: block; height: 100%; border-radius: inherit; background: var(--shell-text); transition: width .2s ease; }
 .progressFill.indeterminate { width: 38%; animation: progress 1.4s ease-in-out infinite; }
 @keyframes progress { from { transform: translateX(-120%); } to { transform: translateX(300%); } }
 .progressMeta { margin-top: 11px; display: flex; justify-content: space-between; color: var(--shell-subtle); font-size: 12px; }
 .textButton, .detailsToggle { padding: 0; border: 0; color: var(--shell-brand); background: transparent; cursor: pointer; }
 .actionRow { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 40px; }
 .primaryButton, .secondaryButton { min-height: 42px; padding: 0 18px; border-radius: 11px; cursor: pointer; }
-.primaryButton { border: 1px solid #7997eb; color: white; background: #5d78c7; }
+.primaryButton { border: 1px solid var(--shell-text); color: var(--shell-surface-solid); background: var(--shell-text); }
 .secondaryButton { border: 1px solid var(--shell-border); color: var(--shell-text); background: var(--shell-layer); }
 .diagnosticPath { margin: 14px 0 0; color: #8fcba6; font-size: 12px; overflow-wrap: anywhere; }
 .versionTransition, .recoveryNotice { margin: 10px 0 0; font-size: 13px; }

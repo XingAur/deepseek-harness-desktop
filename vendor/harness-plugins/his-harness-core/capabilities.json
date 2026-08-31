@@ -1,0 +1,20 @@
+{
+  "schema_version": "his-capabilities.v1",
+  "plugin": "his-harness-core",
+  "plugin_version": "0.3.0+codex.20260823093018",
+  "capabilities": [
+    {
+      "name": "requirement.govern",
+      "provider": "his-harness-core",
+      "contract_version": "requirement-governance.v1",
+      "mutation_level": "L0",
+      "credential_class": "none",
+      "entrypoint": "scripts/requirement_governance.py",
+      "dependencies": [
+        ".codex-plugin/plugin.json"
+      ],
+      "enabled": true,
+      "scopes": ["requirement:assess"]
+    }
+  ]
+}

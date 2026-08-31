@@ -6,7 +6,7 @@
   "identifier": "ai.deepseek.harness.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build:web && npm run plugin:build && node scripts/assemble-harness-core.mjs",
+    "beforeBuildCommand": "npm run build:web && npm run agent:build && npm run plugin:build && node scripts/assemble-harness-core.mjs",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },
@@ -40,6 +40,7 @@
       "../packages/dsh-plugin-desktop/lib": "harness/plugin",
       "../scripts/harness-host.mjs": "harness/harness-host.mjs",
       "../build/harness-core": "harness/core",
+      "../build/plugins": "harness/plugins",
       "../plugin-catalog": "plugin-catalog"
     },
     "icon": [

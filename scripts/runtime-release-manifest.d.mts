@@ -8,6 +8,7 @@ export interface UnsignedRuntimeManifest {
   url: string
   size: number
   sha256: string
+  desktopPluginSha256?: string
   archive: 'zip' | 'tar-gz'
   entrypoint: 'node.exe' | 'bin/node'
   args: ['app/launcher.mjs', '--port', '{port}']
@@ -22,6 +23,7 @@ export function createUnsignedRuntimeManifest(options: {
   version: string
   url: string
   dshVersion?: string
+  desktopPluginSha256?: string
 }): UnsignedRuntimeManifest
 export function writeUnsignedRuntimeManifest(options: {
   archivePath: string
@@ -29,5 +31,6 @@ export function writeUnsignedRuntimeManifest(options: {
   version: string
   url: string
   dshVersion?: string
+  desktopPluginSha256?: string
   outputPath?: string
 }): { outputPath: string; manifest: UnsignedRuntimeManifest }

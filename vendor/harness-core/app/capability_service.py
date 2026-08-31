@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from app.capability_contracts import (
     RESULT_SCHEMA_VERSION,
@@ -13,7 +13,7 @@ from app.capability_contracts import (
 )
 from app.capability_permissions import PermissionDecision
 from app.capability_registry import CapabilityDescriptor
-from app.capability_runtime import CapabilityPreflight, CapabilityRuntime
+from app.capability_runtime import CapabilityExecution, CapabilityPreflight
 
 
 ROUTING_MODES = frozenset({"legacy", "observe", "enforce"})
@@ -49,6 +49,20 @@ _SENSITIVE_FIELD_NAMES = frozenset(
 _MISSING = object()
 
 
+class CapabilityRuntimeLike(Protocol):
+    def preflight(self, request: CapabilityRequest) -> CapabilityPreflight:
+        raise NotImplementedError
+
+    def execute(
+        self,
+        request: CapabilityRequest,
+        *,
+        timeout_seconds: int | None = None,
+        environment: Mapping[str, str] | None = None,
+    ) -> CapabilityExecution:
+        raise NotImplementedError
+
+
 @dataclass(frozen=True)
 class CapabilityRouteResult:
     mode: str
@@ -75,7 +89,7 @@ class LegacyReadFallbackPolicy:
 class CapabilityService:
     def __init__(
         self,
-        runtime: CapabilityRuntime,
+        runtime: CapabilityRuntimeLike,
         *,
         routing_mode: str,
         runtime_environment: Mapping[str, str] | None = None,

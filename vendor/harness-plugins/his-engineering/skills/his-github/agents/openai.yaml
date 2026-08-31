@@ -1,0 +1,4 @@
+interface:
+  display_name: "His GitHub"
+  short_description: "Read GitHub evidence and gate exact PR writes"
+  default_prompt: "Use $his-github for bounded GitHub evidence or an explicitly authorized PR delivery."

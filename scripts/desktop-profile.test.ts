@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -6,8 +7,14 @@ import { DESKTOP_BUNDLES, ensureDesktopProfile } from './desktop-profile.mjs'
 import type { RuntimeCapabilityReport } from './runtime-capabilities.mjs'
 
 const desktopPatchPath = 'packages/dsh-plugin-desktop/cordis.patch.yml'
+const closurePackages = [
+  '@deepseek-ai/dsh-base',
+  '@deepseek-ai/dsh-mcp-client',
+  '@deepseek-ai/dsh-skill',
+  '@deepseek-ai/dsh-web-app',
+].map((name) => ({ name, declaredRange: '^0.1.1-rc.2', observedVersion: '0.1.1-rc.2', license: 'MIT', entrypoint: true as const, status: 'compatible' as const }))
 const compatibleReport: RuntimeCapabilityReport = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   profileBundles: [...DESKTOP_BUNDLES],
   packages: [
     { name: '@deepseek-ai/dsh', observedVersion: '0.1.1-rc.2', status: 'compatible', entrypoints: { bin: 'lib/bin.js' } },
@@ -20,6 +27,26 @@ const compatibleReport: RuntimeCapabilityReport = {
     apiProvider: { package: '@deepseek-ai/dsh-llm-pi-ai', available: true },
     skill: { package: '@deepseek-ai/dsh-skill', available: true },
     mcp: { package: '@deepseek-ai/dsh-mcp-client', available: true },
+  },
+  officialClosure: {
+    digest: createHash('sha256').update(JSON.stringify(closurePackages)).digest('hex'),
+    packages: closurePackages,
+  },
+  featureGroups: {
+    modelProvider: { packages: ['@deepseek-ai/dsh-llm-pi-ai'], available: true },
+    sessionTrajectory: { packages: [], available: false },
+    planGoal: { packages: [], available: false },
+    jobsScheduling: { packages: [], available: false },
+    skill: { packages: ['@deepseek-ai/dsh-skill'], available: true },
+    mcp: { packages: ['@deepseek-ai/dsh-mcp-client'], available: true },
+    subagent: { packages: [], available: false },
+    workflow: { packages: [], available: false },
+    approvalQuestions: { packages: [], available: false },
+    filesystemShell: { packages: [], available: false },
+    webTools: { packages: [], available: false },
+    hooksWebhooks: { packages: [], available: false },
+    sessionsSettings: { packages: [], available: false },
+    officialWebUi: { packages: ['@deepseek-ai/dsh-web-app'], available: true },
   },
 }
 const expectedVersions = { dshVersion: '0.1.1-rc.2', desktopPluginVersion: '0.3.2' }

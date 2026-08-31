@@ -11,10 +11,14 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from app.plugin_inventory import PluginInventoryError, load_plugin_inventory
+
 
 _ERROR = "his-engineering plugin is required for Git delivery; no repository changes were made."
 PLUGIN_REQUIRED_MESSAGE = _ERROR
 _FIXED_ROOT = Path("/Users/lym/plugins/his-engineering")
+_BUNDLED_ROOT = Path(__file__).resolve().parents[2] / "plugins" / "his-engineering"
+_INVENTORY_PATH = Path(__file__).resolve().parents[1] / "config" / "plugin_inventory.json"
 _MAX_PLUGIN_SOURCE_BYTES = 4 * 1024 * 1024
 _REQUIRED_FILES = (
     "capabilities.json",
@@ -41,6 +45,14 @@ FROZEN_DELIVERY_STATE_SEQUENCE = (
 
 class _PluginResolutionError(RuntimeError):
     pass
+
+
+def _expected_plugin_identity():
+    try:
+        inventory = load_plugin_inventory(_INVENTORY_PATH)
+        return next(item for item in inventory.plugins if item.name == "his-engineering")
+    except (OSError, PluginInventoryError, StopIteration) as exc:
+        raise _PluginResolutionError(_ERROR) from exc
 
 
 class DeliveryError(RuntimeError):
@@ -122,22 +134,33 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 
 def _validated_root(candidate: Path) -> Path:
+    expected_plugin = _expected_plugin_identity()
     if not candidate.is_absolute():
         raise _PluginResolutionError(_ERROR)
     root_identity = _directory_identity(candidate)
     scripts_identity = _directory_identity(candidate / "scripts")
     plugin_directory_identity = _directory_identity(candidate / ".codex-plugin")
+    expected_sources = dict(expected_plugin.sources_sha256)
     for relative in _REQUIRED_FILES:
-        _regular_file_identity(candidate / relative)
-    manifest = _read_json(candidate / "capabilities.json")
+        path = candidate / relative
+        identity = _regular_file_identity(path)
+        if expected_sources.get(relative) != identity[-1]:
+            raise _PluginResolutionError(_ERROR)
+    manifest_bytes = _read_regular_bytes(candidate / "capabilities.json")
+    try:
+        manifest = json.loads(manifest_bytes.decode("utf-8"))
+    except (UnicodeError, ValueError, json.JSONDecodeError) as exc:
+        raise _PluginResolutionError(_ERROR) from exc
     plugin = _read_json(candidate / ".codex-plugin" / "plugin.json")
     if (
         manifest.get("schema_version") != "his-capabilities.v1"
         or manifest.get("plugin") != "his-engineering"
-        or manifest.get("plugin_version") != "0.1.0"
+        or manifest.get("plugin_version") != expected_plugin.version
+        or hashlib.sha256(manifest_bytes).hexdigest()
+        != expected_plugin.capabilities_sha256
         or not isinstance(manifest.get("capabilities"), list)
         or plugin.get("name") != "his-engineering"
-        or plugin.get("version") != "0.1.0"
+        or plugin.get("version") != expected_plugin.version
     ):
         raise _PluginResolutionError(_ERROR)
     if (
@@ -158,6 +181,8 @@ def _root() -> Path:
         and Path(test_root).is_absolute()
     ):
         candidates.append(Path(test_root) / "his-engineering")
+    if not test_root:
+        candidates.append(_BUNDLED_ROOT)
     candidates.append(_FIXED_ROOT)
     for candidate in candidates:
         try:
@@ -233,6 +258,7 @@ def commit_capability_registry():
     from app.capability_registry import CapabilityRegistry
 
     try:
+        expected_plugin = _expected_plugin_identity()
         root = _root()
         entrypoint = root / "scripts" / "git_delivery.py"
         dependencies = (
@@ -250,7 +276,7 @@ def commit_capability_registry():
         descriptor = registry.resolve("git.commit-local", "his-engineering")
         if (
             descriptor.plugin != "his-engineering"
-            or descriptor.plugin_version != "0.1.0"
+            or descriptor.plugin_version != expected_plugin.version
             or descriptor.enabled is not True
             or descriptor.mutation_level.name != "L3"
             or descriptor.credential_class != "none"

@@ -7,15 +7,39 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from app.change_context_execution import ChangeContextExecutionBinding, ChangeContextExecutionVerifier
 from app.harness import RequirementWorkflowRunner
 from app.llm_client import MockLLMClient
 from app.multi_service_executor import (
     MultiServiceExecutionOptions,
     MultiServiceWorktreeExecutor,
 )
+from tests.change_context_test_support import ReadyChangeContextService
 
 
 class MultiServiceExecutorTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.context = ReadyChangeContextService()
+        projection = self.context.result.projections["implementation"]
+        self.binding = ChangeContextExecutionBinding(
+            pack_id=self.context.result.pack.pack_id,
+            projection_hash=projection.projection_hash,
+            layer_hashes={
+                layer.layer_type: layer.content_hash
+                for layer in self.context.result.pack.layers
+            },
+        )
+        self.verifier = ChangeContextExecutionVerifier(
+            repository=self.context.repository,
+            gate=self.context.gate,
+        )
+
+    def executor(self) -> MultiServiceWorktreeExecutor:
+        return MultiServiceWorktreeExecutor(
+            MockLLMClient(),
+            change_context_verifier=self.verifier,
+        )
+
     def create_repository(self, root: Path, relative_path: str, content: str = "export const value = true\n") -> Path:
         root.mkdir(parents=True, exist_ok=True)
         subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True, text=True)
@@ -71,6 +95,8 @@ class MultiServiceExecutorTests(unittest.TestCase):
             worktree_root=str(worktree_root),
             apply_to_projects=apply,
             cleanup_worktrees=False,
+            change_context_binding=self.binding.to_dict(),
+            change_context_projection=self.context.result.projections["implementation"].to_dict(),
         )
 
     def test_blocked_contract_does_not_create_worktree_or_call_patch(self) -> None:
@@ -82,7 +108,7 @@ class MultiServiceExecutorTests(unittest.TestCase):
             contract["status"] = "blocked"
             worktree_root = root / "worktrees"
 
-            result = MultiServiceWorktreeExecutor(MockLLMClient()).execute(
+            result = self.executor().execute(
                 self.options(contract, worktree_root)
             )
 
@@ -98,7 +124,7 @@ class MultiServiceExecutorTests(unittest.TestCase):
             original_source = (source / "src/source.js").read_text(encoding="utf-8")
             original_target = (target / "src/target.js").read_text(encoding="utf-8")
 
-            result = MultiServiceWorktreeExecutor(MockLLMClient()).execute(
+            result = self.executor().execute(
                 self.options(self.ready_contract(source, target), root / "worktrees")
             )
 
@@ -121,7 +147,7 @@ class MultiServiceExecutorTests(unittest.TestCase):
             original_source = (source / "src/source.js").read_text(encoding="utf-8")
             original_target = (target / "src/target.js").read_text(encoding="utf-8")
 
-            result = MultiServiceWorktreeExecutor(MockLLMClient()).execute(
+            result = self.executor().execute(
                 self.options(contract, root / "worktrees")
             )
 
@@ -137,7 +163,7 @@ class MultiServiceExecutorTests(unittest.TestCase):
             source = self.create_repository(root / "source", "src/source.js")
             target = self.create_repository(root / "target", "src/target.js")
 
-            result = MultiServiceWorktreeExecutor(MockLLMClient()).execute(
+            result = self.executor().execute(
                 self.options(self.ready_contract(source, target), root / "worktrees", apply=True)
             )
 
@@ -145,6 +171,30 @@ class MultiServiceExecutorTests(unittest.TestCase):
             self.assertTrue(all(item["status"] == "success" for item in result.apply_to_projects.values()))
             self.assertIn("HARNESS_WORKTREE_SELF_CHECK", (source / "src/source.js").read_text(encoding="utf-8"))
             self.assertIn("HARNESS_WORKTREE_SELF_CHECK", (target / "src/target.js").read_text(encoding="utf-8"))
+
+    def test_context_superseded_during_aggregate_review_blocks_batch_writeback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = self.create_repository(root / "source", "src/source.js")
+            target = self.create_repository(root / "target", "src/target.js")
+            original_source = (source / "src/source.js").read_text(encoding="utf-8")
+            original_target = (target / "src/target.js").read_text(encoding="utf-8")
+            executor = self.executor()
+
+            def review_then_supersede(*args, **kwargs):
+                del args, kwargs
+                self.context.repository.successor_pack_id = "ccp:sha256:" + "f" * 64
+                return {"status": "passed", "reasons": []}
+
+            executor._review_all = review_then_supersede  # type: ignore[method-assign]
+            result = executor.execute(
+                self.options(self.ready_contract(source, target), root / "worktrees", apply=True)
+            )
+
+            self.assertEqual("blocked", result.status)
+            self.assertEqual("BLOCKED_CONTEXT_STALE", result.manifest["change_context_pre_apply_validation"]["code"])
+            self.assertEqual(original_source, (source / "src/source.js").read_text(encoding="utf-8"))
+            self.assertEqual(original_target, (target / "src/target.js").read_text(encoding="utf-8"))
 
     def test_harness_fullstack_routes_ready_generic_contract_to_verification_only_executor(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -154,6 +204,7 @@ class MultiServiceExecutorTests(unittest.TestCase):
             runner = object.__new__(RequirementWorkflowRunner)
             runner.llm_client = MockLLMClient()
             runner.capability_service = None
+            runner.change_context_service = self.context
 
             with patch("app.harness.build_markdown_report", return_value=""):
                 result = runner._run_fullstack_execution(
@@ -166,6 +217,7 @@ class MultiServiceExecutorTests(unittest.TestCase):
                     verify_commands=[],
                     worktree_dir=root / "worktrees",
                     authority_mode="legacy",
+                    change_context_result=self.context.result,
                 )
 
             self.assertEqual("success", result.status)

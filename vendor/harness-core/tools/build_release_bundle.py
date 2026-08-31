@@ -11,11 +11,12 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.release_bundle import build_release_bundle
+from app.version import VERSION
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build a deterministic secret-free HIS Harness source bundle.")
-    parser.add_argument("--version", required=True)
+    parser.add_argument("--version", default=VERSION)
     parser.add_argument("--output-dir", required=True)
     args = parser.parse_args()
     try:

@@ -1,0 +1,19 @@
+{
+  "name": "yunxiao",
+  "version": "0.1.0+codex.20260830-phase1d",
+  "description": "Yunxiao plugin",
+  "author": {
+    "name": "Local developer"
+  },
+  "mcpServers": "./.mcp.json",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Yunxiao",
+    "shortDescription": "Use Yunxiao in Codex.",
+    "longDescription": "Yunxiao adds a local Codex plugin scaffold.",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Help me use Yunxiao."
+  }
+}

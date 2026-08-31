@@ -24,7 +24,9 @@ from app.sensitive_text import contains_sensitive_text, validate_public_identifi
 PROVIDER_READONLY_SMOKE_PLAN_SCHEMA_VERSION = "his-provider-readonly-smoke-plan.v2"
 PROVIDER_READONLY_SMOKE_RESULT_SCHEMA_VERSION = "his-provider-readonly-smoke-result.v2"
 PROVIDER_READONLY_SMOKE_AUDIT_SCHEMA_VERSION = "his-provider-readonly-smoke-audit.v3"
-LOCAL_READONLY_SMOKE_CONFIRMATION = "确认仅执行本地、只读、免凭证且离线的 Git smoke 检查"
+# Compatibility value for older callers that still pass ``confirmation_text``.
+# The value is descriptive context only and never grants or confirms execution.
+LOCAL_READONLY_SMOKE_CONFIRMATION = "本地、只读、免凭证且离线的 Git smoke 检查"
 PROVIDER_READONLY_SMOKE_ACTION_TYPE = "git.readonly_smoke"
 
 
@@ -46,13 +48,13 @@ def build_provider_readonly_smoke_plan(
                 "provider": provider,
                 "profile_key": profile_key,
                 "action": PROVIDER_READONLY_SMOKE_ACTION_TYPE if provider == "git" else "",
-                "status": "awaiting_confirmation" if supported else "blocked",
+                "status": "ready_to_execute" if supported else "blocked",
                 "reason": (
-                    "provider_action_confirmation_required"
+                    "provider_technical_authority_required"
                     if supported
                     else (issues[0] if issues else "provider_readonly_smoke_adapter_not_registered")
                 ),
-                "confirmation_required": True,
+                "confirmation_required": False,
                 "credentials_read": False,
                 "external_calls": False,
                 "write_performed": False,
@@ -68,11 +70,11 @@ def build_provider_readonly_smoke_plan(
         "credentials_read": False,
         "external_calls": False,
         "write_performed": False,
-        "confirmation_required": True,
+        "confirmation_required": False,
         "items": items,
         "next_actions": [
-            "由 ProviderActionAuthorizer 确认一次性计划。",
-            "仅由 ProviderExecutionService 委派已注册的只读 adapter。",
+            "由 ProviderActionAuthorizer 创建并绑定一次性只读计划。",
+            "由 ProviderExecutionService 免人工确认委派已注册的只读 adapter。",
         ],
     }
 
@@ -91,7 +93,7 @@ def run_provider_readonly_smoke(
     plan_id: int | None = None,
     authorization: ProviderActionAuthorization | None = None,
 ) -> dict[str, Any]:
-    """Create a readonly smoke plan or delegate an authorized plan to the service."""
+    """Create a readonly smoke plan or delegate a governed plan to the service."""
 
     del audit_path
     safe_provider = validate_public_identifier(
@@ -99,6 +101,7 @@ def run_provider_readonly_smoke(
     )
     safe_profile_key = validate_public_identifier(profile_key)
     safe_requested_by = validate_public_identifier(requested_by)
+    # Retained as a non-authorizing compatibility input for older API clients.
     if not isinstance(confirmation_text, str) or contains_sensitive_text(confirmation_text):
         raise ValueError("provider_audit_input_invalid")
     if safe_provider != "git":
@@ -138,14 +141,14 @@ def run_provider_readonly_smoke(
         manager_repository, clock=lambda: datetime.now(timezone.utc)
     )
 
-    if authorization is not None:
-        if plan_id is None:
-            return _blocked_result(
-                safe_provider,
-                safe_profile_key,
-                safe_requested_by,
-                "provider_execution_plan_required",
-            )
+    if authorization is not None and plan_id is None:
+        return _blocked_result(
+            safe_provider,
+            safe_profile_key,
+            safe_requested_by,
+            "provider_execution_plan_required",
+        )
+    if plan_id is not None:
         service = execution_service or ProviderExecutionService(
             manager_repository, action_authorizer
         )
@@ -174,11 +177,12 @@ def run_provider_readonly_smoke(
         "requested_by": safe_requested_by,
         "action": PROVIDER_READONLY_SMOKE_ACTION_TYPE,
         "risk": descriptor.risk,
-        "status": "awaiting_confirmation",
-        "reason": "provider_action_confirmation_required",
+        "status": "ready_to_execute",
+        "reason": "provider_technical_authority_required",
         "credentials_read": False,
         "external_calls": False,
         "write_performed": False,
+        "confirmation_required": False,
     }
 
 

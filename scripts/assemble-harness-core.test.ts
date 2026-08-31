@@ -2,7 +2,13 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { bundledPythonExecutable, pythonAssetName, pythonDownloadUrl, pythonEnvironmentRoot } from './assemble-harness-core.mjs'
+import {
+  bundledPythonExecutable,
+  pythonAssetName,
+  pythonDownloadUrl,
+  pythonEnvironmentRoot,
+  shouldSyncHarnessVendor,
+} from './assemble-harness-core.mjs'
 import { embeddedPythonCandidates } from './harness-host.mjs'
 
 const directories: string[] = []
@@ -17,6 +23,13 @@ afterAll(() => {
 })
 
 describe('harness core assembly', () => {
+  it('keeps the checked-in Harness Core frozen unless sync is explicitly requested', () => {
+    expect(shouldSyncHarnessVendor({})).toBe(false)
+    expect(shouldSyncHarnessVendor({ DSH_HARNESS_VENDOR_SYNC: '0' })).toBe(false)
+    expect(shouldSyncHarnessVendor({ DSH_HARNESS_VENDOR_SYNC: '1' })).toBe(true)
+    expect(shouldSyncHarnessVendor({ CI: 'true', DSH_HARNESS_VENDOR_SYNC: '1' })).toBe(false)
+  })
+
   it('pins a relocatable python for every packaging platform', () => {
     expect(pythonAssetName('darwin', 'arm64')).toContain('aarch64-apple-darwin-install_only.tar.gz')
     expect(pythonAssetName('win32', 'x64')).toContain('x86_64-pc-windows-msvc-install_only.tar.gz')

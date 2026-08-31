@@ -57,7 +57,7 @@ describe('PluginMarket', () => {
     }
     render(<PluginMarket bridge={bridgeFixture(fixture)} />)
     expect(await screen.findByText(/第三方代码/)).toBeInTheDocument()
-    expect(await screen.findByText(/dsh-market —— 完整市场插件/)).toBeInTheDocument()
+    expect(await screen.findByText(/dsh-market — 完整市场插件/)).toBeInTheDocument()
     expect(await screen.findByText(/2 个社区插件/)).toBeInTheDocument()
     expect(await screen.findByText('支持余额查询')).toBeInTheDocument()
   })
@@ -130,5 +130,21 @@ describe('PluginMarket', () => {
     await waitFor(() => {
       expect(fixture.calls.some((call) => call.action === 'plugin.catalog.list' && call.payload?.refresh === true)).toBe(true)
     })
+  })
+
+  it('shows a non-empty read-only catalog in direct browser preview without offering installation', async () => {
+    const fixture: Fixture = {
+      page: { total: 1, offset: 0, categories: [{ id: 'skill', count: 1 }], entries: [entry('demo/review-skill', '代码审查技能', 'skill')] },
+      jobs: {},
+      calls: [],
+    }
+    const bridge = Object.assign(bridgeFixture(fixture), { mode: 'preview' as const })
+
+    render(<PluginMarket bridge={bridge} />)
+
+    expect(await screen.findByRole('note', { name: '本地预览说明' })).toHaveTextContent(/只读样例/)
+    expect(screen.getByText('代码审查技能')).toBeVisible()
+    expect(screen.getByRole('button', { name: '正式桌面可安装' })).toBeDisabled()
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 })

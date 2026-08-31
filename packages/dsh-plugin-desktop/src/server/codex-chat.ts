@@ -25,6 +25,7 @@ export interface CodexChannel {
   notify(method: string, params?: Record<string, unknown>): void
   respond(id: number | string, result: Record<string, unknown>): void
   onNotification(listener: (notification: { method: string; params: Record<string, unknown> }) => void): void
+  onServerRequest(listener: (request: { id: number | string; method: string; params: Record<string, unknown> }) => void): void
   close(): Promise<void>
   readonly exited: Promise<string>
 }
@@ -80,6 +81,7 @@ export function openCodexChannel(cliPath: string, cwd: string): CodexChannel {
   let finished = false
   const pending = new Map<number | string, { resolve(result: Record<string, unknown>): void; reject(error: Error): void }>()
   const listeners: Array<(notification: { method: string; params: Record<string, unknown> }) => void> = []
+  const serverRequestListeners: Array<(request: { id: number | string; method: string; params: Record<string, unknown> }) => void> = []
   let buffer = ''
   const stderrTail: string[] = []
 
@@ -137,6 +139,16 @@ export function openCodexChannel(cliPath: string, cwd: string): CodexChannel {
       else waiter.resolve((record.result ?? {}) as Record<string, unknown>)
       return
     }
+    if (record.id !== undefined) {
+      for (const listener of serverRequestListeners) {
+        listener({
+          id: record.id as number | string,
+          method: String(record.method),
+          params: (record.params ?? {}) as Record<string, unknown>,
+        })
+      }
+      return
+    }
     for (const listener of listeners) listener({ method: String(record.method), params: (record.params ?? {}) as Record<string, unknown> })
   }
 
@@ -158,6 +170,7 @@ export function openCodexChannel(cliPath: string, cwd: string): CodexChannel {
     notify(method, params = {}) { write({ jsonrpc: '2.0', method, params }) },
     respond(id, result) { write({ jsonrpc: '2.0', id, result }) },
     onNotification(listener) { listeners.push(listener) },
+    onServerRequest(listener) { serverRequestListeners.push(listener) },
     async close() {
       closed = true
       child.stdin?.end()
@@ -300,6 +313,7 @@ export async function runCodexTurn(options: {
   let activeThreadId = ''
   let abortHandler: (() => void) | undefined
   let timeout: ReturnType<typeof setTimeout> | undefined
+  let armTimeout: (() => void) | undefined
   const turnTimeoutMs = options.timeoutMs ?? DEFAULT_TURN_TIMEOUT_MS
   let cancellationMessage: string | undefined
   const turnDone = new Promise<void>((resolveTurn, rejectTurn) => {
@@ -322,7 +336,11 @@ export async function runCodexTurn(options: {
         rejectTurn(new Error('Codex 超时参数无效。'))
         return
     }
-    timeout = setTimeout(() => rejectCancelled('Codex 请求超时，请重试。'), turnTimeoutMs)
+    // 只从真正发起 turn 后计时，避免 CLI 启动/线程恢复耗时把审批或首轮请求
+    // 提前挤进超时窗口，导致应返回的审批错误被误报为超时。
+    armTimeout = () => {
+      if (timeout === undefined) timeout = setTimeout(() => rejectCancelled('Codex 请求超时，请重试。'), turnTimeoutMs)
+    }
     channel.onNotification(({ method, params }) => {
       if (settled) return
       if (method === 'item/agentMessage/delta' && typeof params.delta === 'string') {
@@ -341,6 +359,14 @@ export async function runCodexTurn(options: {
         settled = true
         rejectTurn(new Error('Codex 请求失败，请重试。'))
       }
+    })
+    channel.onServerRequest(({ id, method }) => {
+      // Harness/主聊天目前没有可把 app-server 的中途审批安全交给用户的
+      // 交互通道。必须显式拒绝并立即结束，不能让任务静默等待到十分钟超时。
+      channel.respond(id, { decision: 'decline' })
+      if (settled) return
+      settled = true
+      rejectTurn(new Error(`Codex 需要桌面审批（${method}），但当前任务没有审批处理器，已安全停止。`))
     })
     channel.exited.then(() => {
       if (!settled) {
@@ -403,6 +429,7 @@ export async function runCodexTurn(options: {
     activeThreadId = threadId
     const turnInput = resumed ? options.currentInput : options.input
     const turnPrompt = resumed ? (options.currentPrompt ?? options.prompt) : options.prompt
+    armTimeout?.()
     await channel.request('turn/start', {
       threadId,
       input: turnInput?.length === 0 || turnInput === undefined

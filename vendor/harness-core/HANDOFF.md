@@ -1,8 +1,15 @@
 # HIS Harness 交接说明
 
-最后更新：2026-07-17
+最后更新：2026-08-30
 
 本文用于在新 Codex 聊天窗口中恢复 HIS Harness 的上下文。新窗口应先读取本文和 `README.md`，再继续工作。
+
+## 2026-08-30 当前基线
+
+当前代码版本唯一来源是根目录 `VERSION`，当前值为 `0.66.0`。新增的
+`scripts/verify.sh` 统一使用 Harness `.venv`；企业门禁的语法检查已改为只读 AST 检查，避免生成 `.pyc` 造成权限误报。`compile`、`replay`、`secret` 短门禁通过；完整 `unit` 阶段仍超时/失败，因此当前只保留离线技术证据，`business_valid=false`、`runtime_verified=false`、`promotion_enabled=false`。
+
+本阶段未调用模型、网络、云效、Git 远端、业务数据库或部署，也未重置、删除或迁移 `data/` 下现有数据。
 
 ## 新窗口启动提示
 

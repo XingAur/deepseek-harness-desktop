@@ -7,6 +7,7 @@ import { assertRuntimePeerDependencies, runtimePeerDependencies } from './runtim
 import { loadReleaseVersions } from './release-versions.mjs'
 import { writeUnsignedRuntimeManifest } from './runtime-release-manifest.mjs'
 import { inspectAssembledRuntimeCapabilities } from './runtime-build-capabilities.mjs'
+import { restoreRuntimeDependencyCache } from './runtime-dependency-cache-copy.mjs'
 import { writeRuntimeLauncher } from './runtime-launcher.mjs'
 
 const versions = loadReleaseVersions()
@@ -70,7 +71,10 @@ writeFileSync(join(appDir, 'package.json'), JSON.stringify({
 }, null, 2))
 // DSH 的 peer 图会让 npm 严格解析器发生指数级回溯。完整 peer 闭包已显式
 // 固定在 package.json 中，安装后还会扫描依赖树并由真实 Runtime 探活兜底。
-const reusedDependencies = restoreDependencyCache(appDir, args['dependency-cache'])
+const reusedDependencies = restoreRuntimeDependencyCache(appDir, args['dependency-cache'], {
+  dshVersion: DSH_VERSION,
+  pnpmVersion: PNPM_VERSION,
+})
 if (!reusedDependencies) {
   run('npm', ['install', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--legacy-peer-deps'], { cwd: appDir })
 } else {
@@ -146,18 +150,6 @@ function refreshPiAiModelCatalog(appDir) {
   cpSync(join(piAiExtracted, 'package', 'dist', 'providers', 'data'), piAiDataDir, { recursive: true })
   rmSync(piAiPackDir, { recursive: true, force: true })
   rmSync(piAiExtracted, { recursive: true, force: true })
-}
-
-function restoreDependencyCache(appDir, cacheValue) {
-  if (!cacheValue) return false
-  const cache = resolve(cacheValue)
-  const dshPackage = join(cache, '@deepseek-ai', 'dsh', 'package.json')
-  const pnpmPackage = join(cache, 'pnpm', 'package.json')
-  if (!existsSync(dshPackage) || !existsSync(pnpmPackage)) throw new Error('--dependency-cache is incomplete')
-  if (JSON.parse(readFileSync(dshPackage, 'utf8')).version !== DSH_VERSION) throw new Error('--dependency-cache has the wrong DSH version')
-  if (JSON.parse(readFileSync(pnpmPackage, 'utf8')).version !== PNPM_VERSION) throw new Error('--dependency-cache has the wrong pnpm version')
-  cpSync(cache, join(appDir, 'node_modules'), { recursive: true })
-  return true
 }
 
 function replaceCachedDesktopPlugin(appDir, pluginTarball, outputDir) {

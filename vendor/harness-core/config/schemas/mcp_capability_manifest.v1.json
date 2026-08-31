@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dfhis.example/schemas/mcp_capability_manifest.v1.json",
+  "title": "HIS Harness MCP capability manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "capabilities"],
+  "properties": {
+    "schema_version": {"const": "his-mcp-capabilities.v1"},
+    "capabilities": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "capability",
+          "provider",
+          "server",
+          "tool",
+          "contract_version",
+          "mutation_level",
+          "required_scopes",
+          "timeout_seconds",
+          "max_result_bytes",
+          "input_schema_path",
+          "input_schema_sha256",
+          "result_schema_path",
+          "result_schema_sha256",
+          "enabled",
+          "disabled_reason"
+        ],
+        "properties": {
+          "capability": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9._-]{0,127}$"},
+          "provider": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9._-]{0,127}$"},
+          "server": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9._-]{0,127}$"},
+          "tool": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9._-]{0,127}$"},
+          "contract_version": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+          "mutation_level": {"type": "string", "enum": ["L0", "L1"]},
+          "required_scopes": {
+            "type": "array",
+            "maxItems": 32,
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9:_-]{0,127}$"}
+          },
+          "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 60},
+          "max_result_bytes": {"type": "integer", "minimum": 1024, "maximum": 1048576},
+          "input_schema_path": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$"},
+          "input_schema_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "result_schema_path": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$"},
+          "result_schema_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "enabled": {"type": "boolean"},
+          "disabled_reason": {"type": "string", "maxLength": 256}
+        }
+      }
+    }
+  }
+}

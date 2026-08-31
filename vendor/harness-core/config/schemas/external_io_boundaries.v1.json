@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dfhis.example/schemas/external_io_boundaries.v1.json",
+  "title": "HIS Harness external I/O boundaries",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "roots", "rules"],
+  "properties": {
+    "schema_version": {"const": "his-external-io-boundaries.v1"},
+    "roots": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["root_id", "source", "value"],
+        "properties": {
+          "root_id": {"type": "string", "minLength": 1},
+          "source": {
+            "type": "string",
+            "enum": ["harness_root", "capability_config"]
+          },
+          "value": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "root_id",
+          "relative_path",
+          "file_sha256",
+          "findings",
+          "disposition",
+          "owner",
+          "rationale"
+        ],
+        "properties": {
+          "root_id": {"type": "string", "minLength": 1},
+          "relative_path": {"type": "string", "minLength": 1},
+          "file_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "findings": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["category", "symbol", "occurrence"],
+              "properties": {
+                "category": {
+                  "type": "string",
+                  "enum": ["credential", "database", "network", "process"]
+                },
+                "symbol": {"type": "string", "minLength": 1},
+                "occurrence": {"type": "integer", "minimum": 1}
+              }
+            }
+          },
+          "disposition": {
+            "type": "string",
+            "enum": [
+              "mcp_required",
+              "worker_allowed",
+              "control_plane_internal",
+              "compatibility_quarantine",
+              "forbidden"
+            ]
+          },
+          "owner": {"type": "string", "minLength": 1},
+          "rationale": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

@@ -60,7 +60,7 @@ class PluginDocumentationTests(unittest.TestCase):
         self.assertNotIn("四个正式插件尚未安装", readme)
 
     def test_skills_readme_marks_legacy_entries_and_deletion_gate(self) -> None:
-        readme = (REPOSITORY_ROOT / "skills" / "README.md").read_text(
+        readme = (HARNESS_ROOT / "skills" / "README.md").read_text(
             encoding="utf-8"
         )
 
@@ -94,7 +94,7 @@ class PluginDocumentationTests(unittest.TestCase):
         for skill in COMPATIBILITY_SKILLS:
             with self.subTest(skill=skill):
                 content = (
-                    REPOSITORY_ROOT / "skills" / skill / "SKILL.md"
+                    HARNESS_ROOT / "skills" / skill / "SKILL.md"
                 ).read_text(encoding="utf-8")
                 self.assertIn("compatibility", content.lower())
                 self.assertNotIn("status: deleted", content.lower())

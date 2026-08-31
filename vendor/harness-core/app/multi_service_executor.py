@@ -19,6 +19,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
+from app.change_context_execution import ChangeContextExecutionVerifier, validate_worker_context
 from app.llm_client import BaseLLMClient
 from app.multi_service_change_contract import MULTI_SERVICE_CHANGE_CONTRACT_SCHEMA_VERSION
 from app.worktree_executor import (
@@ -46,6 +47,8 @@ class MultiServiceExecutionOptions:
     # only after its own capability and user-confirmation gates have passed.
     apply_to_projects: bool = False
     cleanup_worktrees: bool = False
+    change_context_binding: dict | None = None
+    change_context_projection: dict | None = None
 
 
 @dataclass
@@ -130,11 +133,36 @@ class MultiServiceExecutionResult:
 class MultiServiceWorktreeExecutor:
     """Orchestrate a ready multi-service contract without widening its scope."""
 
-    def __init__(self, llm_client: BaseLLMClient) -> None:
+    def __init__(
+        self,
+        llm_client: BaseLLMClient,
+        *,
+        change_context_verifier: ChangeContextExecutionVerifier | None = None,
+    ) -> None:
         self.llm_client = llm_client
-        self.single_repo_executor = WorktreeCodeExecutor(llm_client)
+        self.change_context_verifier = change_context_verifier
+        self.single_repo_executor = WorktreeCodeExecutor(
+            llm_client,
+            change_context_verifier=change_context_verifier,
+        )
 
     def execute(self, options: MultiServiceExecutionOptions) -> MultiServiceExecutionResult:
+        context_validation = validate_worker_context(
+            self.change_context_verifier,
+            options.change_context_binding,
+            options.change_context_projection,
+        )
+        if context_validation.status != "ready":
+            return MultiServiceExecutionResult(
+                status="blocked",
+                summary=context_validation.message,
+                manifest={
+                    "run_id": options.run_id,
+                    "status": "blocked",
+                    "change_context_binding": options.change_context_binding,
+                    "change_context_validation": context_validation.to_dict(),
+                },
+            )
         contract = options.contract if isinstance(options.contract, Mapping) else {}
         preflight = self._preflight_contract(contract)
         manifest: dict[str, Any] = {
@@ -144,6 +172,8 @@ class MultiServiceWorktreeExecutor:
             "apply_to_projects_requested": bool(options.apply_to_projects),
             "cleanup_worktrees_requested": bool(options.cleanup_worktrees),
             "preflight": preflight,
+            "change_context_binding": options.change_context_binding,
+            "change_context_validation": context_validation.to_dict(),
         }
         if preflight["status"] != "ready":
             manifest["status"] = "blocked"
@@ -187,6 +217,8 @@ class MultiServiceWorktreeExecutor:
                 # Batch write-back is handled only after aggregate review.
                 apply_to_project=False,
                 cleanup_worktree=False,
+                change_context_binding=options.change_context_binding,
+                change_context_projection=options.change_context_projection,
             )
             try:
                 child_result = self.single_repo_executor.execute(repo_options)
@@ -215,6 +247,25 @@ class MultiServiceWorktreeExecutor:
             cleanup[name] = child_result.cleanup
             manifest.setdefault("child_manifests", {})[name] = child_result.manifest
 
+        completion_context_validation = validate_worker_context(
+            self.change_context_verifier,
+            options.change_context_binding,
+            options.change_context_projection,
+        )
+        manifest["change_context_completion_validation"] = completion_context_validation.to_dict()
+        if completion_context_validation.status != "ready":
+            return MultiServiceExecutionResult(
+                status="blocked",
+                summary=completion_context_validation.message,
+                repositories=result_repositories,
+                final_diffs=final_diffs,
+                apply_to_projects={
+                    name: {"status": "blocked", "message": completion_context_validation.message}
+                    for name in ordered_names
+                },
+                cleanup=cleanup,
+                manifest=manifest,
+            )
         aggregate_review = self._review_all(contract, result_repositories, final_diffs)
         apply_results: dict[str, dict[str, Any]] = {
             name: {"status": "not_run", "message": "汇总审查未通过或未开启写回。"}
@@ -238,20 +289,34 @@ class MultiServiceWorktreeExecutor:
                 for name in ordered_names
             }
         elif options.apply_to_projects:
-            # This phase intentionally keeps the write path explicit.  The
-            # caller can opt in, but we still refuse a partial batch: all
-            # repositories must pass the pre-apply clean check first.
-            apply_results = self._apply_batch(
-                contract=contract,
-                final_diffs=final_diffs,
-                ordered_names=ordered_names,
-                run_id=options.run_id,
+            pre_apply_context_validation = validate_worker_context(
+                self.change_context_verifier,
+                options.change_context_binding,
+                options.change_context_projection,
             )
-            if any(item.get("status") != "success" for item in apply_results.values()):
-                status = "failed"
-                summary = "汇总审查通过，但批量写回未全部成功；请依据回滚/恢复证据人工处理。"
+            manifest["change_context_pre_apply_validation"] = pre_apply_context_validation.to_dict()
+            if pre_apply_context_validation.status != "ready":
+                status = "blocked"
+                summary = pre_apply_context_validation.message
+                apply_results = {
+                    name: {"status": "blocked", "message": pre_apply_context_validation.message}
+                    for name in ordered_names
+                }
             else:
-                summary = "所有仓库 patch、定向验证和汇总 Diff 审查通过，并已按显式授权写回原仓库；未提交、未推送。"
+                # This phase intentionally keeps the write path explicit. The
+                # caller can opt in, but all repositories must pass the
+                # pre-apply clean check under the still-current context.
+                apply_results = self._apply_batch(
+                    contract=contract,
+                    final_diffs=final_diffs,
+                    ordered_names=ordered_names,
+                    run_id=options.run_id,
+                )
+                if any(item.get("status") != "success" for item in apply_results.values()):
+                    status = "failed"
+                    summary = "汇总审查通过，但批量写回未全部成功；请依据回滚/恢复证据人工处理。"
+                else:
+                    summary = "所有仓库 patch、定向验证和汇总 Diff 审查通过，并已按显式授权写回原仓库；未提交、未推送。"
         for name in ordered_names:
             if name not in cleanup:
                 cleanup[name] = {"status": "not_run", "message": result_repositories.get(name, {}).get("summary", "")}

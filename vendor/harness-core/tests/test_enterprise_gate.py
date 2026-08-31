@@ -1,19 +1,77 @@
 from __future__ import annotations
 
 import json
+import platform
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from app.enterprise_gate import sanitize_environment, scan_source_secrets
+from app.enterprise_gate import (
+    build_stage_command,
+    run_enterprise_gate,
+    run_gate_stage,
+    sanitize_environment,
+    stage_timeout_seconds,
+    scan_source_secrets,
+)
+from app.version import VERSION
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class EnterpriseGateTests(unittest.TestCase):
+    def test_gate_result_records_current_interpreter_and_source_version(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = run_enterprise_gate(
+                project_root=ROOT,
+                output_dir=temp_dir,
+                stages=("compile", "secret"),
+            )
+
+        self.assertEqual(VERSION, result["version"])
+        self.assertEqual(sys.executable, result["interpreter"])
+        self.assertEqual(platform.python_version(), result["python_version"])
+        self.assertEqual(300, result["stage_timeout_seconds"])
+        self.assertEqual(1200, result["unit_stage_timeout_seconds"])
+        self.assertEqual(1200, stage_timeout_seconds("unit"))
+
+    def test_timeout_is_a_failed_stage_with_explicit_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch(
+                "app.enterprise_gate.subprocess.run",
+                side_effect=subprocess.TimeoutExpired([sys.executable], 1200, output="", stderr=""),
+            ):
+                result = run_gate_stage(
+                    "unit",
+                    project_root=ROOT,
+                    output_dir=Path(temp_dir),
+                    iteration=1,
+                )
+
+        self.assertEqual("failed", result["status"])
+        self.assertEqual("timeout", result["reason"])
+
+    def test_ci_release_step_uses_current_version_default(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "enterprise-core.yml").read_text(encoding="utf-8")
+
+        self.assertNotIn("--version 0.64.0", workflow)
+        self.assertIn("tools/build_release_bundle.py --output-dir", workflow)
+
+    def test_compile_stage_uses_no_write_syntax_checker(self) -> None:
+        command, output_dir = build_stage_command(
+            "compile",
+            project_root=ROOT,
+            output_dir=ROOT / "test-output",
+        )
+
+        self.assertIsNone(output_dir)
+        self.assertEqual(str(ROOT / "tools" / "syntax_check.py"), command[1])
+        self.assertNotIn("compileall", command)
+
     def test_environment_removes_secret_bearing_variables(self) -> None:
         sanitized = sanitize_environment(
             {
@@ -71,6 +129,8 @@ class EnterpriseGateTests(unittest.TestCase):
             payload = json.loads((Path(temp_dir) / "enterprise_gate_result.json").read_text(encoding="utf-8"))
             self.assertEqual("passed", payload["status"])
             self.assertTrue(payload["technical_valid"])
+            self.assertEqual(VERSION, payload["version"])
+            self.assertEqual(sys.executable, payload["interpreter"])
             self.assertFalse(payload["business_valid"])
             self.assertFalse(payload["external_calls"])
             self.assertFalse(payload["real_git_remote_writes_used"])

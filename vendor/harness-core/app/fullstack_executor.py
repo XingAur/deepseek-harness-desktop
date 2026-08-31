@@ -7,6 +7,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from app.change_context_execution import ChangeContextExecutionVerifier, validate_worker_context
 from app.worktree_executor import (
     DEFAULT_WORKTREE_ROOT,
     PATCH_TIMEOUT_SECONDS,
@@ -50,6 +51,8 @@ class FullstackExecutionOptions:
     authoritative_contract: dict | None = None
     apply_to_project: bool = True
     cleanup_worktree: bool = True
+    change_context_binding: dict | None = None
+    change_context_projection: dict | None = None
 
 
 @dataclass
@@ -139,8 +142,33 @@ class FullstackExecutionResult:
 
 
 class FullstackWorktreeExecutor:
+    def __init__(
+        self,
+        *,
+        change_context_verifier: ChangeContextExecutionVerifier | None = None,
+    ) -> None:
+        self.change_context_verifier = change_context_verifier
+
     def execute(self, options: FullstackExecutionOptions) -> FullstackExecutionResult:
         started_at = time.time()
+        context_validation = validate_worker_context(
+            self.change_context_verifier,
+            options.change_context_binding,
+            options.change_context_projection,
+        )
+        if context_validation.status != "ready":
+            return FullstackExecutionResult(
+                status="blocked",
+                summary=context_validation.message,
+                manifest={
+                    "run_id": options.run_id,
+                    "status": "blocked",
+                    "change_context_binding": options.change_context_binding,
+                    "change_context_validation": context_validation.to_dict(),
+                    "started_at_epoch": started_at,
+                    "finished_at_epoch": time.time(),
+                },
+            )
         worktree_root = Path(options.worktree_root).expanduser().resolve()
         targets = build_dfhis_31270_targets(options)
         target_records = [target_to_record(target) for target in targets]
@@ -152,6 +180,8 @@ class FullstackWorktreeExecutor:
             "cleanup_worktree": options.cleanup_worktree,
             "started_at_epoch": started_at,
             "targets": target_records,
+            "change_context_binding": options.change_context_binding,
+            "change_context_validation": context_validation.to_dict(),
         }
         final_diffs: dict[str, str] = {}
         apply_results: dict[str, dict] = {}
@@ -222,6 +252,21 @@ class FullstackWorktreeExecutor:
                     )
                 final_diffs[target.key] = result.get("final_diff", "")
 
+            completion_context_validation = validate_worker_context(
+                self.change_context_verifier,
+                options.change_context_binding,
+                options.change_context_projection,
+            )
+            manifest["change_context_completion_validation"] = completion_context_validation.to_dict()
+            if completion_context_validation.status != "ready":
+                return failed_result(
+                    completion_context_validation.message,
+                    target_records,
+                    final_diffs,
+                    apply_results,
+                    cleanup_results,
+                    manifest,
+                )
             if options.apply_to_project:
                 precheck_error = precheck_all_project_applies(targets=targets, final_diffs=final_diffs, apply_results=apply_results)
                 if precheck_error:

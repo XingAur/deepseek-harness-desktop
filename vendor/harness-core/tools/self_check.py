@@ -101,17 +101,21 @@ from app.model_provider_runtime import (
     ControlledModelProviderRuntime,
     write_model_provider_smoke_outputs,
 )
+from app.change_context_contracts import (
+    ChangeContextGateResult,
+    ChangeContextLayer,
+    ChangeContextPack,
+    TaskBinding,
+    content_hash,
+)
+from app.change_context_execution import (
+    ChangeContextExecutionBinding,
+    ChangeContextExecutionVerifier,
+)
+from app.change_context_gate import ChangeContextGate
+from app.change_context_projection import ChangeContextProjectionService
 from app.fullstack_executor import FullstackExecutionOptions, FullstackWorktreeExecutor
 from app.precommit_verifier import PrecommitVerificationOptions, PrecommitVerifier
-from app.pg_evidence import (
-    PgEvidencePolicy,
-    PgEvidenceRequest,
-    PgProfile,
-    PgProfilePolicy,
-    render_pg_evidence_outputs,
-    run_pg_evidence,
-    write_pg_evidence_outputs,
-)
 from app.llm_client import (
     MockLLMClient,
     get_llm_client,
@@ -124,6 +128,7 @@ from app.review_executor import ReviewExecutionOptions, ReviewWorktreeExecutor, 
 from app.runtime_storage import ephemeral_runtime_storage
 from app.single_demand_trial import build_single_demand_trial_package
 from app.task_manager import TaskCreateOptions, TaskDashboardFilters, TaskExistingRunOptions, TaskManager, TaskPrecommitRerunOptions, build_latest_artifacts
+import app.task_manager as task_manager_module
 from app.worktree_executor import WorktreeCodeExecutor, WorktreeExecutionOptions, WorktreeExecutionResult, validate_patch
 from app.yunxiao_read import (
     collect_inline_files_from_work_item,
@@ -148,6 +153,169 @@ for _self_check_key, _self_check_value in _SELF_CHECK_PLUGIN_ENV.items():
     else:
         os.environ[_self_check_key] = _self_check_value
 del _self_check_key, _self_check_value, _SELF_CHECK_PLUGIN_ENV
+
+
+class _SelfCheckContextRepository:
+    def __init__(self, pack: ChangeContextPack, payloads: dict[str, dict[str, object]]) -> None:
+        self.pack = pack
+        self.layers = {
+            layer.layer_id: (layer, payloads[layer.layer_type])
+            for layer in pack.layers
+        }
+
+    def get_pack(self, pack_id: str) -> ChangeContextPack:
+        if pack_id != self.pack.pack_id:
+            raise KeyError(pack_id)
+        return self.pack
+
+    def get_layer(self, layer_id: str):
+        if layer_id not in self.layers:
+            raise KeyError(layer_id)
+        return self.layers[layer_id]
+
+    def get_successor_pack_id(self, pack_id: str) -> str:
+        if pack_id != self.pack.pack_id:
+            raise KeyError(pack_id)
+        return ""
+
+    def record_projection_metric(self, **kwargs) -> None:
+        del kwargs
+
+
+class _SelfCheckChangeContext:
+    """Deterministic, sealed ChangeContext used only by local self-check fixtures."""
+
+    def __init__(self) -> None:
+        payloads = {
+            "project_graph": {
+                "schema_version": "project-graph.v1",
+                "projects": [{"name": "self-check", "role": "application", "exists": True}],
+                "relationships": [],
+                "explicit_scope": True,
+            },
+            "change_scope": {
+                "schema_version": "change-scope.v1",
+                "provider": "self-check",
+                "ticket_id": "SELF-CHECK-1",
+                "requirement_revision": "sealed-fixture-v1",
+                "current_user_correction": "execute only the isolated self-check fixture",
+                "calibrated_scope": {"do": "isolated fixture validation", "do_not": ["external writes"]},
+            },
+            "code_graph": {
+                "schema_version": "code-graph.v1",
+                "target_paths": ["src/App.js", "src/view.vue"],
+                "tests": ["self-check"],
+                "call_edges": [],
+                "file_hashes": [],
+            },
+            "data_graph": {
+                "schema_version": "data-graph.v1",
+                "decision": "not_applicable",
+                "reason": "self-check fixtures do not access business data",
+                "missing": [],
+                "conflicts": [],
+            },
+        }
+        layers = []
+        for layer_type, payload in payloads.items():
+            digest = content_hash(payload)
+            layers.append(
+                ChangeContextLayer.create(
+                    layer_type=layer_type,
+                    status="not_applicable" if layer_type == "data_graph" else "complete",
+                    payload=payload,
+                    source_fingerprint=digest,
+                    artifact_ref=f"artifact://sha256/{digest.removeprefix('sha256:')}",
+                    evidence_refs=(f"evidence://{layer_type}/self-check",),
+                    policy_rule_ids=("CTX-SELF-CHECK-SEALED",),
+                    blockers=(),
+                )
+            )
+        gate_result = ChangeContextGateResult("ready", "CHANGE_CONTEXT_READY", (), (), ())
+        self.pack = ChangeContextPack.create(
+            pack_version=1,
+            status="ready",
+            task_binding=TaskBinding(
+                "self-check",
+                "SELF-CHECK-1",
+                "sealed-fixture-v1",
+                "sha256:" + "a" * 64,
+            ),
+            required_layers=("project_graph", "change_scope", "code_graph"),
+            layers=layers,
+            gate=gate_result,
+        )
+        self.repository = _SelfCheckContextRepository(self.pack, payloads)
+        self.gate = ChangeContextGate()
+        self.projections = {
+            role: ChangeContextProjectionService().render(
+                pack=self.pack,
+                layer_payloads=payloads,
+                role=role,
+            )
+            for role in ("implementation", "review")
+        }
+        self.verifier = ChangeContextExecutionVerifier(
+            repository=self.repository,
+            gate=self.gate,
+        )
+
+    def bind(self, options, role: str) -> None:
+        projection = self.projections[role]
+        binding = ChangeContextExecutionBinding(
+            pack_id=self.pack.pack_id,
+            projection_hash=projection.projection_hash,
+            layer_hashes={layer.layer_type: layer.content_hash for layer in self.pack.layers},
+        )
+        options.change_context_binding = binding.to_dict()
+        options.change_context_projection = projection.to_dict()
+
+
+_SELF_CHECK_CHANGE_CONTEXT = _SelfCheckChangeContext()
+
+
+class _SelfCheckWorktreeExecutor:
+    def __init__(self, llm_client) -> None:
+        self.delegate = WorktreeCodeExecutor(
+            llm_client,
+            change_context_verifier=_SELF_CHECK_CHANGE_CONTEXT.verifier,
+        )
+
+    def execute(self, options):
+        _SELF_CHECK_CHANGE_CONTEXT.bind(options, "implementation")
+        return self.delegate.execute(options)
+
+
+class _SelfCheckFullstackExecutor:
+    def __init__(self) -> None:
+        self.delegate = FullstackWorktreeExecutor(
+            change_context_verifier=_SELF_CHECK_CHANGE_CONTEXT.verifier,
+        )
+
+    def execute(self, options):
+        _SELF_CHECK_CHANGE_CONTEXT.bind(options, "implementation")
+        return self.delegate.execute(options)
+
+
+class _SelfCheckPrecommitVerifier:
+    def __init__(self) -> None:
+        self.delegate = PrecommitVerifier(
+            change_context_verifier=_SELF_CHECK_CHANGE_CONTEXT.verifier,
+        )
+
+    def execute(self, options):
+        _SELF_CHECK_CHANGE_CONTEXT.bind(options, "review")
+        return self.delegate.execute(options)
+
+
+class _SelfCheckTaskManager(TaskManager):
+    def rerun_precommit(self, options):
+        previous = task_manager_module.PrecommitVerifier
+        task_manager_module.PrecommitVerifier = _SelfCheckPrecommitVerifier
+        try:
+            return super().rerun_precommit(options)
+        finally:
+            task_manager_module.PrecommitVerifier = previous
 
 
 REQUIRED_FILES = [
@@ -2297,7 +2465,7 @@ diff --git a/src/components/shouFeiJs/components/Dialog.vue b/src/components/sho
         "text = Path('src/components/shouFeiJs/components/Dialog.vue').read_text(); "
         "assert 'closeSettlementProgress' in text and '.catch(' in text\""
     )
-    missing_precommit = PrecommitVerifier().execute(
+    missing_precommit = _SelfCheckPrecommitVerifier().execute(
         PrecommitVerificationOptions(
             run_id=9401,
             project_root=str(output_dir),
@@ -2324,7 +2492,7 @@ diff --git a/src/components/shouFeiJs/components/Dialog.vue b/src/components/sho
             "message": missing_precommit.summary,
         }
     )
-    passed_precommit = PrecommitVerifier().execute(
+    passed_precommit = _SelfCheckPrecommitVerifier().execute(
         PrecommitVerificationOptions(
             run_id=9402,
             project_root=str(output_dir),
@@ -2362,7 +2530,7 @@ diff --git a/src/components/shouFeiJs/components/Dialog.vue b/src/components/sho
             "message": passed_precommit.summary,
         }
     )
-    runner_precommit = PrecommitVerifier().execute(
+    runner_precommit = _SelfCheckPrecommitVerifier().execute(
         PrecommitVerificationOptions(
             run_id=9403,
             project_root=str(output_dir),
@@ -2393,7 +2561,7 @@ diff --git a/src/components/shouFeiJs/components/Dialog.vue b/src/components/sho
             "message": runner_precommit.summary,
         }
     )
-    ui_runner_precommit = PrecommitVerifier().execute(
+    ui_runner_precommit = _SelfCheckPrecommitVerifier().execute(
         PrecommitVerificationOptions(
             run_id=9404,
             project_root=str(output_dir),
@@ -2439,7 +2607,7 @@ def run_task_manager_checks(*, output_dir: Path) -> list[dict]:
             task_db_path.unlink()
         database.DB_PATH = task_db_path
         database.init_db()
-        manager = TaskManager()
+        manager = _SelfCheckTaskManager()
         task, task_run = manager.record_existing_run(
             TaskExistingRunOptions(
                 yunxiao_url="https://devops.aliyun.com/projex/req/DFHIS-31465",
@@ -3339,7 +3507,7 @@ def run_configuration_checks(*, output_dir: Path) -> list[dict]:
             database.DB_PATH = config_workspace_db
             database.init_db()
             config_workspace_dir = config_output / "workspace"
-            manager = TaskManager()
+            manager = _SelfCheckTaskManager()
             workspace = manager.build_task_workspace(limit=10, config_summary=summary)
             files = manager.write_workspace_outputs(output_dir=config_workspace_dir, workspace=workspace)
             workspace_html = (config_workspace_dir / "task_workspace.html").read_text(encoding="utf-8")
@@ -5138,114 +5306,127 @@ def run_model_provider_checks(*, output_dir: Path) -> list[dict]:
 
 
 def run_pg_evidence_checks(*, output_dir: Path) -> list[dict]:
-    class FakePgExecutor:
-        def __init__(self) -> None:
-            self.calls: list[str] = []
+    from app.change_context_collectors import DataGraphCollector
 
-        def discover_metadata(self, **kwargs) -> list[dict]:
-            self.calls.append("metadata")
-            return []
-
-        def execute_select(self, **kwargs) -> list[dict]:
-            self.calls.append("select")
-            return [{"guahaobid": "1", "patient_phone": "fake-secret-phone"}]
-
-    profile_name = "self_check_menzhen"
-    profile_policy = PgProfilePolicy(
-        name=profile_name,
-        environment="test",
-        enabled=True,
-        max_rows=50,
-        connect_timeout_seconds=5,
-        query_timeout_seconds=10,
-        total_timeout_seconds=45,
-        max_metadata_queries=3,
-        sensitive_column_patterns=("patient", "phone"),
-    )
-    policy = PgEvidencePolicy(
-        schema_version="1.0-pg-evidence-profiles",
-        default_mode="off",
-        profiles={profile_name: profile_policy},
-    )
-    profiles = [
-        PgProfile(
-            name=profile_name,
-            dsn_configured=True,
-            user_configured=True,
-            password_configured=True,
-            credential_prefix=f"pg_{profile_name}_readonly",
-        )
-    ]
-    request = PgEvidenceRequest(
-        subject="PG 证据适配器 mock 自检",
-        keywords=("挂号",),
-        sql=(
-            "SELECT guahaobid, patient_phone "
-            f"FROM {profile_name}.mz_guahaob WHERE guahaobid = %(id)s"
+    catalog = {
+        "tables": (
+            ["table_schema", "table_name", "table_type"],
+            [["public", "mz_guahaob", "BASE TABLE"]],
         ),
-        parameters={"id": "fake-secret-parameter"},
+        "columns": (
+            [
+                "table_schema", "table_name", "ordinal_position", "column_name",
+                "data_type", "is_nullable", "column_default",
+            ],
+            [["public", "mz_guahaob", 1, "guahaobid", "bigint", "NO", None]],
+        ),
+        "constraints": (
+            ["constraint_name", "constraint_type", "column_name", "ordinal_position"],
+            [["mz_guahaob_pkey", "PRIMARY KEY", "guahaobid", 1]],
+        ),
+        "indexes": (
+            ["schemaname", "tablename", "indexname", "indexdef"],
+            [["public", "mz_guahaob", "mz_guahaob_pkey", "CREATE UNIQUE INDEX"]],
+        ),
+        "foreign_keys": (
+            [
+                "constraint_name", "table_schema", "table_name", "column_name",
+                "foreign_table_schema", "foreign_table_name", "foreign_column_name",
+            ],
+            [],
+        ),
+    }
+
+    class FakeMcpRuntime:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def execute(self, request):
+            self.calls.append(request)
+            operation = str(request.input["operation"])
+            columns, rows = catalog[operation]
+            result = CapabilityResult(
+                request_id=request.request_id,
+                capability="database.inspect",
+                provider="postgresql",
+                status="success",
+                mutation_level=MutationLevel.L1,
+                changed=False,
+                summary="self-check MCP fixture",
+                data={
+                    "connection_alias": request.input["connection_alias"],
+                    "operation": operation,
+                    "columns": columns,
+                    "rows": rows,
+                },
+                evidence=({"ref": f"mcp-evidence:{request.request_id}:self-check"},),
+                warnings=(),
+                blockers=(),
+                audit={
+                    "execution_kind": "mcp",
+                    "source_identity": (
+                        f"postgresql:{request.input['connection_alias']}:{operation}"
+                    ),
+                    "source_version": "self-check-v1",
+                    "freshness_status": "fresh",
+                    "freshness_expires_at": "2099-01-01T00:00:00Z",
+                    "collected_at": "2026-08-30T00:00:00Z",
+                    "error_code": "",
+                },
+            )
+
+            class Routed:
+                pass
+
+            routed = Routed()
+            routed.result = result
+            return routed
+
+    invalid_runtime = FakeMcpRuntime()
+    invalid = DataGraphCollector(runtime=invalid_runtime).collect(
+        connection_alias="self_check_menzhen",
+        schema="public",
+        tables=("mz_guahaob",),
+        task_id="self-check",
+        run_id="self-check",
     )
-    checks: list[dict] = []
-    pg_output_dir = output_dir / "pg_evidence_check"
-
-    factory_calls = 0
-
-    def fail_if_called(**kwargs):
-        nonlocal factory_calls
-        factory_calls += 1
-        raise AssertionError("plan 模式不得创建数据库执行器")
-
-    plan_run = run_pg_evidence(
-        request=request,
-        policy=policy,
-        profiles=profiles,
-        project_root=output_dir,
-        mode="plan",
-        executor_factory=fail_if_called,
+    runtime = FakeMcpRuntime()
+    collected = DataGraphCollector(runtime=runtime).collect(
+        connection_alias="self_check_menzhen_readonly",
+        schema="public",
+        tables=("mz_guahaob",),
+        task_id="self-check",
+        run_id="self-check",
     )
-    checks.append(
+    serialized = json.dumps(collected.payload, ensure_ascii=False).lower()
+    del output_dir
+    return [
         {
-            "name": "pg_plan_mode_zero_connection",
+            "name": "pg_mcp_rejects_non_readonly_alias_without_connection",
             "status": "pass"
-            if plan_run.status == "planned"
-            and factory_calls == 0
-            and plan_run.audit.get("executor_created") is False
+            if invalid.status == "incomplete" and not invalid_runtime.calls
             else "failed",
-            "message": f"status={plan_run.status}; executor_factory_calls={factory_calls}",
-        }
-    )
-
-    executor = FakePgExecutor()
-    execute_run = run_pg_evidence(
-        request=request,
-        policy=policy,
-        profiles=profiles,
-        project_root=output_dir,
-        mode="execute",
-        executor_factory=lambda **kwargs: executor,
-    )
-    files = write_pg_evidence_outputs(pg_output_dir, execute_run)
-    rendered = render_pg_evidence_outputs(execute_run)
-    leaked = any(
-        secret in rendered
-        for secret in ("fake-secret-phone", "fake-secret-parameter")
-    )
-    checks.append(
+            "message": f"status={invalid.status}; mcp_calls={len(invalid_runtime.calls)}",
+        },
         {
-            "name": "pg_execute_fake_readonly_and_redacted",
+            "name": "pg_mcp_catalog_only_normalized_and_bounded",
             "status": "pass"
-            if execute_run.status == "passed"
-            and executor.calls == ["select"]
-            and not leaked
-            and len(files) == 5
+            if collected.status == "complete"
+            and [item.input["operation"] for item in runtime.calls]
+            == ["tables", "columns", "constraints", "indexes", "foreign_keys"]
+            and all(item.mode == "preview" for item in runtime.calls)
+            and all(item.mutation_level is MutationLevel.L1 for item in runtime.calls)
+            and not any(
+                token in serialized
+                for token in ("password", "username", "dsn", "business_rows")
+            )
             else "failed",
             "message": (
-                f"status={execute_run.status}; calls={executor.calls}; "
-                f"masked_columns={list(execute_run.result.masked_columns)}; artifacts={len(files)}"
+                f"status={collected.status}; "
+                f"operations={[item.input['operation'] for item in runtime.calls]}"
             ),
-        }
-    )
-    return checks
+        },
+    ]
 
 
 def run_requirement_provider_checks(*, output_dir: Path) -> list[dict]:
@@ -5389,7 +5570,7 @@ def run_requirement_provider_checks(*, output_dir: Path) -> list[dict]:
             )
             workflow_output_root = provider_output / "workflow_outputs"
             run_dir = write_run_outputs(workflow_result.run_id, workflow_output_root)
-            manager = TaskManager()
+            manager = _SelfCheckTaskManager()
             task, _record = manager.record_existing_run(
                 TaskExistingRunOptions(
                     title="v0.24 需求证据接入样例",
@@ -6688,7 +6869,7 @@ def first_action(plan: dict, action: str) -> dict:
 def run_worktree_checks(*, output_dir: Path) -> list[dict]:
     checks: list[dict] = []
     repo = create_worktree_fixture_repo(output_dir / "worktree_fixture_repo")
-    executor = WorktreeCodeExecutor(MockLLMClient())
+    executor = _SelfCheckWorktreeExecutor(MockLLMClient())
     success_result = executor.execute(
         WorktreeExecutionOptions(
             project_path=str(repo),
@@ -6934,7 +7115,7 @@ def run_single_demand_trial_checks() -> list[dict]:
 def run_fullstack_worktree_checks(*, output_dir: Path) -> list[dict]:
     checks: list[dict] = []
     root = create_fullstack_fixture_root(output_dir / "fullstack_fixture_root")
-    executor = FullstackWorktreeExecutor()
+    executor = _SelfCheckFullstackExecutor()
     result = executor.execute(
         FullstackExecutionOptions(
             run_id=9201,
@@ -7000,7 +7181,7 @@ def run_fullstack_worktree_checks(*, output_dir: Path) -> list[dict]:
             ],
         )
     )
-    precommit_result = PrecommitVerifier().execute(
+    precommit_result = _SelfCheckPrecommitVerifier().execute(
         PrecommitVerificationOptions(
             run_id=9301,
             project_root=str(precommit_root),
@@ -7027,7 +7208,7 @@ def run_fullstack_worktree_checks(*, output_dir: Path) -> list[dict]:
         }
     )
     untracked_repo = create_untracked_precommit_fixture(output_dir / "precommit_untracked_fixture")
-    untracked_result = PrecommitVerifier().execute(
+    untracked_result = _SelfCheckPrecommitVerifier().execute(
         PrecommitVerificationOptions(
             run_id=9302,
             project_root=str(output_dir),
@@ -7062,7 +7243,7 @@ def run_fullstack_worktree_checks(*, output_dir: Path) -> list[dict]:
         "module.exports = value => value\n" + "".join(f"// filler line {index}\n" for index in range(2600)),
         encoding="utf-8",
     )
-    large_untracked_result = PrecommitVerifier().execute(
+    large_untracked_result = _SelfCheckPrecommitVerifier().execute(
         PrecommitVerificationOptions(
             run_id=9304,
             project_root=str(output_dir),
@@ -7093,7 +7274,7 @@ def run_fullstack_worktree_checks(*, output_dir: Path) -> list[dict]:
     )
     dirty_scope_repo = create_untracked_precommit_fixture(output_dir / "precommit_dirty_scope_fixture")
     (dirty_scope_repo / "src" / "unrelated.js").write_text("export const unrelated = true\n", encoding="utf-8")
-    dirty_scope_result = PrecommitVerifier().execute(
+    dirty_scope_result = _SelfCheckPrecommitVerifier().execute(
         PrecommitVerificationOptions(
             run_id=9303,
             project_root=str(output_dir),

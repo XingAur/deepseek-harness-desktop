@@ -83,6 +83,10 @@ def build_scope_confirmation_binding(
             "status": str(contract.get("status") or ""),
             "repositories": _projects(contract.get("repositories")),
         },
+        "change_context": {
+            "pack_id": str(contract.get("change_context_pack_id") or ""),
+            "projection_hash": str(contract.get("change_context_projection_hash") or ""),
+        },
     }
     canonical = json.dumps(scope, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     scope_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()

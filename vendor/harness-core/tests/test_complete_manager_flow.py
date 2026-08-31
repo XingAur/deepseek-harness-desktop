@@ -415,7 +415,8 @@ class CompleteManagerFlowTests(unittest.TestCase):
             "三方合并",
             "暂存副本",
             "回滚",
-            "数据库写入永久不支持",
+            "数据库修改和删除默认绝对禁止",
+            "当前没有数据库写 executor",
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, readme + design + runbook)
@@ -432,7 +433,7 @@ class CompleteManagerFlowTests(unittest.TestCase):
             "需求相关问题进入完整需求流程",
             "unlinked",
             "not_applicable",
-            "数据库永久只读",
+            "数据库修改和删除默认绝对禁止",
         ):
             with self.subTest(routing_phrase=phrase):
                 self.assertIn(phrase, readme + runbook)
@@ -447,7 +448,8 @@ class CompleteManagerFlowTests(unittest.TestCase):
                 self.assertIn("凭证", document)
                 self.assertIn("外部验收", document)
                 self.assertIn("外部写动作默认禁用", document)
-                self.assertIn("数据库永久只读", document)
+                self.assertIn("数据库修改和删除默认绝对禁止", document)
+                self.assertIn("当前不存在数据库写 executor", document)
 
 
 if __name__ == "__main__":

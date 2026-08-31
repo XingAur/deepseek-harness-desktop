@@ -1,0 +1,4 @@
+interface:
+  display_name: "HIS Knowledge Retrieve"
+  short_description: "Find scoped evidence-backed HIS knowledge safely."
+  default_prompt: "Use $his-knowledge-retrieve to look up scoped HIS evidence."

@@ -21,7 +21,7 @@ function bridgeFixture(): DesktopBridgeLike {
 describe('HarnessChatSurface', () => {
   it('keeps the Harness task entry in the main conversation surface', async () => {
     const bridge = bridgeFixture()
-    render(<HarnessChatSurface bridge={bridge} workspaceId="w-1" modelId="gpt-5.6-sol" renderConversation={() => <div data-testid="official-conversation" />} />)
+    render(<HarnessChatSurface bridge={bridge} workspaceId="w-1" renderConversation={() => <div data-testid="official-conversation" />} />)
 
     expect(screen.getByTestId('official-conversation')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '开始 Harness 任务' }))
@@ -37,7 +37,7 @@ describe('HarnessChatSurface', () => {
     await waitFor(() => expect(bridge.requestV2).toHaveBeenCalledWith(
       'harness.chat.start',
       undefined,
-        expect.objectContaining({ prompt: '修复住院结算页面的金额显示问题', workspaceId: 'w-1', selectedModelId: 'gpt-5.6-sol' }),
+        expect.objectContaining({ prompt: '修复住院结算页面的金额显示问题', workspaceId: 'w-1' }),
     ))
   })
 
@@ -97,5 +97,49 @@ describe('HarnessChatSurface', () => {
     fireEvent.change(screen.getByLabelText('业务确认'), { target: { value: '按当前医院配置执行' } })
     fireEvent.click(screen.getByRole('button', { name: '提交业务确认' }))
     await waitFor(() => expect(bridge.requestV2).toHaveBeenCalledWith('harness.archive-answers', undefined, { archiveRoot: '/tmp/CHAT-1', answers: '按当前医院配置执行' }))
+    await waitFor(() => expect(bridge.requestV2).toHaveBeenCalledWith(
+      'harness.chat.start',
+      undefined,
+      expect.objectContaining({ prompt: '完成部分退需求', archiveRoot: '/tmp/CHAT-1' }),
+    ))
+    expect(await screen.findByText('业务确认已保存，Harness 正在按最新口径重新决策。')).toBeVisible()
+  })
+
+  it('keeps an archived business answer safe and retries only the decision restart', async () => {
+    const bridge = bridgeFixture()
+    let startCalls = 0
+    bridge.requestV2 = vi.fn(async (action: string) => {
+      if (action === 'harness.connection.list') return []
+      if (action === 'harness.chat.start') {
+        startCalls += 1
+        if (startCalls === 2) throw new Error('Harness host unavailable')
+        return { state: 'running' }
+      }
+      if (action === 'harness.status') {
+        return { state: 'blocked', blockers: ['需要确认历史口径'], intake: { packageDir: '/tmp/CHAT-RETRY' } }
+      }
+      if (action === 'harness.archive-answers') return '/tmp/CHAT-RETRY/analysis/business_answers.md'
+      return null
+    }) as DesktopBridgeLike['requestV2']
+
+    render(<HarnessChatSurface bridge={bridge} renderConversation={() => <div />} />)
+    fireEvent.click(screen.getByRole('button', { name: '开始 Harness 任务' }))
+    fireEvent.change(screen.getByLabelText('任务描述'), { target: { value: '完成历史口径适配' } })
+    fireEvent.click(screen.getByRole('button', { name: '开始执行' }))
+
+    await waitFor(() => expect(screen.getByText('需要确认历史口径')).toBeVisible())
+    fireEvent.change(screen.getByLabelText('业务确认'), { target: { value: '继续兼容历史路径' } })
+    fireEvent.click(screen.getByRole('button', { name: '提交业务确认' }))
+
+    expect(await screen.findByText(/业务确认已安全保存，但 Harness 重新决策启动失败/)).toBeVisible()
+    expect(screen.getByRole('button', { name: '重新启动决策' })).toBeEnabled()
+
+    fireEvent.click(screen.getByRole('button', { name: '重新启动决策' }))
+    expect(await screen.findByText('业务确认已保存，Harness 正在按最新口径重新决策。')).toBeVisible()
+
+    const archiveCalls = vi.mocked(bridge.requestV2).mock.calls.filter(([action]) => action === 'harness.archive-answers')
+    const restartCalls = vi.mocked(bridge.requestV2).mock.calls.filter(([action]) => action === 'harness.chat.start')
+    expect(archiveCalls).toHaveLength(1)
+    expect(restartCalls).toHaveLength(3)
   })
 })

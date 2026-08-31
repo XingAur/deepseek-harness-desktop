@@ -6,6 +6,12 @@ from dataclasses import asdict, dataclass
 from pathlib import PurePosixPath
 from typing import Any, Mapping, Sequence
 
+from app.change_context_contracts import (
+    LAYER_TYPES,
+    ChangeContextGateResult,
+    ChangeContextPack,
+    ChangeContextProjection,
+)
 from app.requirement_calibration import default_value_precedence_is_resolved
 from app.requirement_governance import RequirementGovernanceResult
 
@@ -58,6 +64,9 @@ class SinglePassChangeContract:
     manual_acceptance: tuple[str, ...]
     rollback_strategy: str
     blockers: tuple[str, ...]
+    change_context_pack_id: str = ""
+    change_context_projection_hash: str = ""
+    change_context_layer_hashes: tuple[dict[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         if self.schema_version != SINGLE_PASS_CHANGE_CONTRACT_SCHEMA_VERSION:
@@ -74,6 +83,12 @@ class SinglePassChangeContract:
         _validate_json_dict_tuple(self.business_rules, "业务规则")
         _validate_json_dict_tuple(self.database_impacts, "数据库影响")
         _validate_json_dict_tuple(self.configuration_impacts, "配置影响")
+        _validate_change_context_fields(
+            self.change_context_pack_id,
+            self.change_context_projection_hash,
+            self.change_context_layer_hashes,
+            required=self.status == "ready",
+        )
         if self.status == "ready":
             if self.blockers:
                 raise ValueError("ready 变更契约不能包含阻断项。")
@@ -103,6 +118,8 @@ class SinglePassChangeContract:
             f"- 状态：{self.status}",
             f"- 目标：{self.objective}",
             f"- 回退策略：{self.rollback_strategy}",
+            f"- ChangeContextPack：{self.change_context_pack_id or '-'}",
+            f"- 实现投影哈希：{self.change_context_projection_hash or '-'}",
         ]
         for title, values in (("范围内", self.in_scope), ("范围外", self.out_of_scope), ("允许路径", self.allowed_paths), ("相邻路径核验", self.adjacent_paths), ("验证命令（仅数据，不执行）", self.verify_commands), ("自动验收", self.automatic_acceptance), ("人工验收", self.manual_acceptance), ("阻断项", self.blockers)):
             lines.extend(["", f"## {title}", ""])
@@ -121,6 +138,9 @@ def build_single_pass_change_contract(
     normalized_requirement_evidence: Mapping[str, Any] | object | None = None,
     available_capabilities: Sequence[str] | object = (),
     trusted_authorization: Mapping[str, Any] | object | None = None,
+    change_context_gate_result: ChangeContextGateResult | object | None = None,
+    change_context_pack: ChangeContextPack | object | None = None,
+    change_context_projection: ChangeContextProjection | object | None = None,
 ) -> SinglePassChangeContract:
     """Build data only from trusted structured inputs; provider authority attempts fail closed."""
     safe_objective = objective.strip() if isinstance(objective, str) and objective.strip() else "未提供明确目标"
@@ -128,6 +148,13 @@ def build_single_pass_change_contract(
         return _blocked(safe_objective, "治理结果未被批准为 ready_for_local_change。")
     if _provider_evidence_attempts_authority(normalized_requirement_evidence):
         return _blocked(safe_objective, "不可信 provider 证据尝试扩大路径、命令、能力、审批或回退权限。")
+    context_binding, context_blocker = _verified_change_context_binding(
+        gate_result=change_context_gate_result,
+        pack=change_context_pack,
+        projection=change_context_projection,
+    )
+    if context_blocker:
+        return _blocked(safe_objective, context_blocker)
     calibration = _mapping(requirement_calibration)
     technical = _mapping(technical_decision)
     ownership = _mapping(change_ownership)
@@ -177,11 +204,73 @@ def build_single_pass_change_contract(
         manual_acceptance=tuple(manual_acceptance),
         rollback_strategy="restore_pre_change_local_files",
         blockers=(),
+        change_context_pack_id=context_binding[0],
+        change_context_projection_hash=context_binding[1],
+        change_context_layer_hashes=context_binding[2],
     )
 
 
 def _blocked(objective: str, *blockers: str) -> SinglePassChangeContract:
     return SinglePassChangeContract(SINGLE_PASS_CHANGE_CONTRACT_SCHEMA_VERSION, "blocked", objective, (), (), (), (), (), (), (), (), (), (), (), (), "not_available", tuple(_unique(blockers)))
+
+
+def _verified_change_context_binding(
+    *,
+    gate_result: object,
+    pack: object,
+    projection: object,
+) -> tuple[tuple[str, str, tuple[dict[str, str], ...]], str]:
+    empty: tuple[str, str, tuple[dict[str, str], ...]] = ("", "", ())
+    if not isinstance(gate_result, ChangeContextGateResult) or gate_result.status != "ready":
+        return empty, "ChangeContextGate 未提供真实 ready 结果。"
+    if not isinstance(pack, ChangeContextPack) or pack.status != "ready" or pack.gate != gate_result:
+        return empty, "ChangeContextPack 不是与门禁一致的 ready 包。"
+    if (
+        not isinstance(projection, ChangeContextProjection)
+        or projection.role != "implementation"
+        or projection.pack_id != pack.pack_id
+        or projection.tier0.get("pack_id") != pack.pack_id
+        or projection.tier0.get("gate_status") != "ready"
+        or projection.tier0.get("gate_code") != "CHANGE_CONTEXT_READY"
+    ):
+        return empty, "实现投影未与 ready ChangeContextPack 精确绑定。"
+    by_type = {layer.layer_type: layer for layer in pack.layers}
+    if set(by_type) != set(LAYER_TYPES):
+        return empty, "ChangeContextPack 层哈希清单不完整。"
+    hashes = tuple(
+        {"layer_type": layer_type, "content_hash": by_type[layer_type].content_hash}
+        for layer_type in LAYER_TYPES
+    )
+    return (pack.pack_id, projection.projection_hash, hashes), ""
+
+
+def _validate_change_context_fields(
+    pack_id: object,
+    projection_hash: object,
+    layer_hashes: object,
+    *,
+    required: bool,
+) -> None:
+    pack_valid = isinstance(pack_id, str) and bool(re.fullmatch(r"ccp:sha256:[0-9a-f]{64}", pack_id))
+    projection_valid = isinstance(projection_hash, str) and bool(re.fullmatch(r"sha256:[0-9a-f]{64}", projection_hash))
+    hashes_valid = isinstance(layer_hashes, tuple) and len(layer_hashes) == len(LAYER_TYPES)
+    if hashes_valid:
+        seen: list[str] = []
+        for item in layer_hashes:
+            if not isinstance(item, dict) or set(item) != {"layer_type", "content_hash"}:
+                hashes_valid = False
+                break
+            layer_type = item.get("layer_type")
+            digest = item.get("content_hash")
+            if layer_type not in LAYER_TYPES or layer_type in seen or not isinstance(digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+                hashes_valid = False
+                break
+            seen.append(layer_type)
+        hashes_valid = hashes_valid and tuple(seen) == LAYER_TYPES
+    if required and not (pack_valid and projection_valid and hashes_valid):
+        raise ValueError("ready 变更契约缺少精确 ChangeContext 绑定。")
+    if not required and any((pack_id, projection_hash, layer_hashes)) and not (pack_valid and (not projection_hash or projection_valid) and (not layer_hashes or hashes_valid)):
+        raise ValueError("blocked 变更契约的 ChangeContext 诊断绑定无效。")
 
 
 def _mapping(value: object) -> Mapping[str, Any] | None:

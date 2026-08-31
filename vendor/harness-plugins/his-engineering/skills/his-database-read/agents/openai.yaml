@@ -1,0 +1,4 @@
+interface:
+  display_name: "HIS Database Read"
+  short_description: "Inspect HIS table structure and relationships through MCP"
+  default_prompt: "Use $his-database-read to inspect bounded readonly PostgreSQL catalog evidence through MCP."

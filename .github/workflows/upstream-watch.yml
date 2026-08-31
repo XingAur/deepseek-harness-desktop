@@ -1,0 +1,157 @@
+name: DeepSeek Harness Upstream Watch
+
+on:
+  schedule:
+    - cron: '17 */4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deepseek-harness-upstream-watch
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      action: ${{ steps.prepare.outputs.action }}
+      dsh_version: ${{ steps.prepare.outputs.dsh_version }}
+      upstream_tag: ${{ steps.prepare.outputs.upstream_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Resolve managed Node version
+        id: versions
+        shell: bash
+        run: node -e "const v=JSON.parse(require('fs').readFileSync('release/versions.json')); console.log('node_version='+v.nodeVersion)" >> "${GITHUB_OUTPUT}"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.versions.outputs.node_version }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install exact dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Prepare official upstream coordinates
+        id: prepare
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/prepare-upstream-release.mjs > "${RUNNER_TEMP}/prepare-result.json"
+          cat "${RUNNER_TEMP}/prepare-result.json"
+          ACTION="$(node -p "JSON.parse(require('fs').readFileSync(process.argv[1])).action" "${RUNNER_TEMP}/prepare-result.json")"
+          DSH_VERSION="$(node -p "JSON.parse(require('fs').readFileSync(process.argv[1])).dshVersion" "${RUNNER_TEMP}/prepare-result.json")"
+          UPSTREAM_TAG="$(node -p "JSON.parse(require('fs').readFileSync(process.argv[1])).upstreamTag" "${RUNNER_TEMP}/prepare-result.json")"
+          echo "action=${ACTION}" >> "${GITHUB_OUTPUT}"
+          echo "dsh_version=${DSH_VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "upstream_tag=${UPSTREAM_TAG}" >> "${GITHUB_OUTPUT}"
+
+      - name: Verify prepared upstream change
+        if: steps.prepare.outputs.action != 'noop'
+        run: |
+          npm run release:versions:check
+          npm run check
+
+      - name: Stage allowlisted prepared files
+        if: steps.prepare.outputs.action != 'noop'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p prepared-upstream/release prepared-upstream/src-tauri
+          cp release/versions.json prepared-upstream/release/versions.json
+          cp package.json prepared-upstream/package.json
+          cp package-lock.json prepared-upstream/package-lock.json
+          cp src-tauri/tauri.conf.json prepared-upstream/src-tauri/tauri.conf.json
+          cp src-tauri/Cargo.toml prepared-upstream/src-tauri/Cargo.toml
+          cp src-tauri/Cargo.lock prepared-upstream/src-tauri/Cargo.lock
+
+      - uses: actions/upload-artifact@v4
+        if: steps.prepare.outputs.action != 'noop'
+        with:
+          name: prepared-upstream-${{ github.run_id }}-${{ github.run_attempt }}
+          path: prepared-upstream
+          if-no-files-found: error
+          retention-days: 1
+
+  update_pull_request:
+    needs: prepare
+    if: needs.prepare.outputs.action != 'noop'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: prepared-upstream-${{ github.run_id }}-${{ github.run_attempt }}
+          path: prepared-upstream
+
+      - name: Apply allowlisted prepared files
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp prepared-upstream/release/versions.json release/versions.json
+          cp prepared-upstream/package.json package.json
+          cp prepared-upstream/package-lock.json package-lock.json
+          cp prepared-upstream/src-tauri/tauri.conf.json src-tauri/tauri.conf.json
+          cp prepared-upstream/src-tauri/Cargo.toml src-tauri/Cargo.toml
+          cp prepared-upstream/src-tauri/Cargo.lock src-tauri/Cargo.lock
+          mapfile -t changed < <(git diff --name-only | sort)
+          test "${#changed[@]}" -gt 0
+          for path in "${changed[@]}"; do
+            case "${path}" in
+              package-lock.json|package.json|release/versions.json|src-tauri/Cargo.lock|src-tauri/Cargo.toml|src-tauri/tauri.conf.json) ;;
+              *) echo "Unexpected prepared path: ${path}" >&2; exit 1 ;;
+            esac
+          done
+
+      - name: Push the dedicated update branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPDATE_BRANCH: automation/deepseek-harness-upstream
+        run: |
+          set -euo pipefail
+          git config user.name 'deepseek-harness-upstream-bot'
+          git config user.email 'deepseek-harness-upstream-bot@users.noreply.github.com'
+          git switch -C "${UPDATE_BRANCH}"
+          git add package-lock.json package.json release/versions.json src-tauri/Cargo.lock src-tauri/Cargo.toml src-tauri/tauri.conf.json
+          git commit -m "chore(upstream): track ${{ needs.prepare.outputs.upstream_tag }}"
+          REMOTE_SHA="$(git ls-remote --heads origin "refs/heads/${UPDATE_BRANCH}" | cut -f1)"
+          if [[ -n "${REMOTE_SHA}" ]]; then
+            git fetch origin "refs/heads/${UPDATE_BRANCH}:refs/remotes/origin/${UPDATE_BRANCH}"
+          fi
+          BASIC_AUTH="$(printf 'x-access-token:%s' "${GH_TOKEN}" | base64 -w0)"
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic ${BASIC_AUTH}" push \
+            --force-with-lease="refs/heads/${UPDATE_BRANCH}:${REMOTE_SHA}" \
+            origin "HEAD:refs/heads/${UPDATE_BRANCH}"
+          unset BASIC_AUTH
+
+      - name: Create or refresh the upstream review pull request
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPDATE_BRANCH: automation/deepseek-harness-upstream
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          TITLE="chore: track official DeepSeek Harness ${{ needs.prepare.outputs.upstream_tag }}"
+          BODY="Automated official-upstream observation. Source: ${{ needs.prepare.outputs.upstream_tag }}; installable Runtime: ${{ needs.prepare.outputs.dsh_version }}. All repository JavaScript gates passed before this branch was pushed. Human review and merge are required; this workflow does not publish a release."
+          if gh pr view "${UPDATE_BRANCH}" --repo "${GITHUB_REPOSITORY}" --json number >/dev/null 2>&1; then
+            gh pr edit "${UPDATE_BRANCH}" --repo "${GITHUB_REPOSITORY}" --title "${TITLE}" --body "${BODY}"
+          else
+            gh pr create --repo "${GITHUB_REPOSITORY}" --base "${DEFAULT_BRANCH}" --head "${UPDATE_BRANCH}" --title "${TITLE}" --body "${BODY}"
+          fi

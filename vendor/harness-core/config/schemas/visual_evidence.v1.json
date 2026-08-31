@@ -1,0 +1,69 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "his-visual-evidence.v1"
+    },
+    "facts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "fact_type": {
+            "type": "string",
+            "enum": [
+              "ui_trace",
+              "document"
+            ]
+          },
+          "image_path": {
+            "type": "string"
+          },
+          "error_text": {
+            "type": "string"
+          },
+          "menu": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "business_scene": {
+            "type": "string"
+          },
+          "target_module": {
+            "type": "string"
+          },
+          "document_type": {
+            "type": "string"
+          },
+          "visible_text": {
+            "type": "string"
+          },
+          "key_facts": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "fact_type",
+          "image_path",
+          "target_module"
+        ]
+      }
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "facts",
+    "blockers"
+  ]
+}

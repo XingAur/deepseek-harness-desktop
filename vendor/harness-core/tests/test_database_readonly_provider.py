@@ -382,9 +382,7 @@ class DatabaseReadonlyProviderTests(unittest.TestCase):
                     "database.query.read",
                     {"database_alias": "db-his-readonly", "sql": sql},
                 )
-                result = service.execute(
-                    self.authorizer.confirm(plan.id, actor="manager-user"), request
-                )
+                result = service.execute(None, request)
                 self.assertEqual("failed", result["status"])
                 self.assertEqual("provider_adapter_failed", result["reason"])
         self.assertEqual([], factory.calls)
@@ -457,7 +455,7 @@ class DatabaseReadonlyProviderTests(unittest.TestCase):
         self.assertEqual("required", factory.calls[0][0].readonly_policy)
         self.assertEqual(["SELECT 1"], factory.statements)
 
-    def test_unconfirmed_query_never_opens_a_connection_or_reads_a_password(self) -> None:
+    def test_query_uses_readonly_endpoint_credential_without_harness_confirmation(self) -> None:
         factory = _RecordingSqliteFactory()
         plan, request = self.request(
             "database.query.read",
@@ -473,10 +471,11 @@ class DatabaseReadonlyProviderTests(unittest.TestCase):
 
         result = service.execute(None, request)
 
-        self.assertEqual("blocked", result["status"])
-        self.assertEqual("authorization_required", result["reason"])
-        self.assertEqual([], credential_calls)
-        self.assertEqual([], factory.calls)
+        self.assertEqual("succeeded", result["status"])
+        self.assertEqual(["password"], credential_calls)
+        self.assertEqual(1, len(factory.calls))
+        self.assertEqual("required", factory.calls[0][0].readonly_policy)
+        self.assertEqual("consumed", self.repository.get_action_plan(plan.id)["state"])
 
     def test_query_row_and_column_limits_bound_the_local_response(self) -> None:
         connection = sqlite3.connect(self.external_db_path)

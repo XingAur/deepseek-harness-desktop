@@ -98,14 +98,14 @@ def run_provider_connection_test(
         manager_repository, clock=lambda: datetime.now(timezone.utc)
     )
 
-    if authorization is not None:
-        if plan_id is None:
-            return _blocked_result(
-                provider=safe_provider,
-                profile_key=safe_profile_key,
-                requested_by=safe_requested_by,
-                reason="provider_execution_plan_required",
-            )
+    if authorization is not None and plan_id is None:
+        return _blocked_result(
+            provider=safe_provider,
+            profile_key=safe_profile_key,
+            requested_by=safe_requested_by,
+            reason="provider_execution_plan_required",
+        )
+    if plan_id is not None:
         service = execution_service or ProviderExecutionService(
             manager_repository, action_authorizer
         )
@@ -134,11 +134,12 @@ def run_provider_connection_test(
         "requested_by": safe_requested_by,
         "action": action,
         "risk": descriptor.risk,
-        "status": "awaiting_confirmation",
-        "reason": "provider_action_confirmation_required",
+        "status": "ready_to_execute",
+        "reason": "provider_technical_authority_required",
         "credentials_read": False,
         "external_calls": False,
-        "execution_allowed": False,
+        "execution_allowed": True,
+        "confirmation_required": False,
     }
 
 

@@ -1,0 +1,399 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:requirement-evidence:v2",
+  "title": "Requirement Evidence v2",
+  "type": "object",
+  "required": [
+    "contract_version",
+    "provider",
+    "mode",
+    "source",
+    "policy",
+    "decision_gate",
+    "completeness",
+    "root_work_item_id",
+    "lineage",
+    "work_items",
+    "relations",
+    "warnings",
+    "errors",
+    "request_log",
+    "integrity"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "requirement-evidence.v2"
+    },
+    "provider": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mode": {
+      "const": "readonly"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "input",
+        "requested_id",
+        "resolved_work_item_id",
+        "fetched_at"
+      ],
+      "properties": {
+        "input": {
+          "type": "string"
+        },
+        "requested_id": {
+          "type": "string"
+        },
+        "resolved_work_item_id": {
+          "type": "string"
+        },
+        "fetched_at": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allowed_actions",
+        "blocked_actions"
+      ],
+      "properties": {
+        "allowed_actions": {
+          "const": [
+            "read"
+          ]
+        },
+        "blocked_actions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "decision_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "reasons"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "ready_for_analysis",
+            "needs_requirement_confirmation",
+            "fetch_failed"
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "completeness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "request_count",
+        "failed_request_count"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "complete",
+            "partial",
+            "failed"
+          ]
+        },
+        "request_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed_request_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "root_work_item_id": {
+      "type": "string"
+    },
+    "lineage": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "work_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "serial_number",
+          "title",
+          "role",
+          "description",
+          "comments_status",
+          "comments",
+          "attachments_status",
+          "attachments",
+          "inline_files"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "serial_number": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "requested",
+              "parent",
+              "related"
+            ]
+          },
+          "description": {
+            "type": "object",
+            "required": [
+              "format",
+              "raw",
+              "text"
+            ],
+            "properties": {
+              "format": {
+                "type": "string"
+              },
+              "raw": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              }
+            }
+          },
+          "comments_status": {
+            "enum": [
+              "success",
+              "failed"
+            ]
+          },
+          "comments": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "attachments_status": {
+            "enum": [
+              "success",
+              "failed"
+            ]
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/file"
+            }
+          },
+          "inline_files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/file"
+            }
+          }
+        }
+      }
+    },
+    "relations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "from_id",
+          "to_id",
+          "type",
+          "resource_type"
+        ],
+        "properties": {
+          "from_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "to_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "type": {
+            "enum": [
+              "PARENT",
+              "SUB",
+              "ASSOCIATED",
+              "DEPEND_ON",
+              "DEPENDED_BY"
+            ]
+          },
+          "resource_type": {
+            "const": "WORKITEM"
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/issue"
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/issue"
+      }
+    },
+    "request_log": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "operation",
+          "work_item_id",
+          "status",
+          "http_status",
+          "error"
+        ],
+        "properties": {
+          "operation": {
+            "type": "string",
+            "minLength": 1
+          },
+          "work_item_id": {
+            "type": "string"
+          },
+          "relation_type": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "success",
+              "failed"
+            ]
+          },
+          "http_status": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "error": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "integrity": {
+      "type": "object",
+      "required": [
+        "algorithm",
+        "evidence_sha256"
+      ],
+      "properties": {
+        "algorithm": {
+          "const": "sha256"
+        },
+        "evidence_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "issue": {
+      "type": "object",
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "work_item_id": {
+          "type": "string"
+        },
+        "relation_type": {
+          "type": "string"
+        },
+        "http_status": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      }
+    },
+    "file": {
+      "type": "object",
+      "required": [
+        "name",
+        "source_url",
+        "download_status",
+        "local_path",
+        "sha256"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "source_url": {
+          "type": "string"
+        },
+        "download_status": {
+          "enum": [
+            "skipped",
+            "unavailable",
+            "failed",
+            "success"
+          ]
+        },
+        "local_path": {
+          "type": "string"
+        },
+        "size": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^$|^[a-f0-9]{64}$"
+        }
+      }
+    }
+  }
+}

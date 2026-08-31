@@ -1,0 +1,4 @@
+interface:
+  display_name: "His Git Local"
+  short_description: "Inspect and apply local Git patches safely"
+  default_prompt: "Use $his-git-local to inspect a local repository or apply an approved patch."

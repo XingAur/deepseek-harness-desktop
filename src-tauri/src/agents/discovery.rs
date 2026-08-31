@@ -451,10 +451,21 @@ mod tests {
         DiscoveryRequest::for_provider(provider)
     }
 
+    fn executable_tempdir() -> TempDir {
+        #[cfg(target_os = "macos")]
+        {
+            return TempDir::new_in("/private/tmp").unwrap();
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            TempDir::new().unwrap()
+        }
+    }
+
     #[cfg(windows)]
     #[test]
     fn batch_script_is_discovered_and_version_probed_case_insensitively() {
-        let temp = TempDir::new().unwrap();
+        let temp = executable_tempdir();
         let batch = batch_fixture(temp.path(), "codex", "codex 1.2.3");
         let result =
             discover(&request(AgentProvider::Codex).with_explicit_path(batch.clone())).unwrap();
@@ -466,7 +477,7 @@ mod tests {
 
     #[test]
     fn explicit_path_wins_over_path_and_official_locations() {
-        let temp = TempDir::new().unwrap();
+        let temp = executable_tempdir();
         let explicit = executable_fixture(temp.path(), "explicit", "codex 1.2.3");
         let path_binary = executable_fixture(temp.path(), "codex", "codex 2.0.0");
         let official_binary = executable_fixture(temp.path(), "official", "codex 3.0.0");
@@ -489,7 +500,7 @@ mod tests {
 
     #[test]
     fn path_resolution_is_deterministic_for_spaces_unicode_and_duplicates() {
-        let temp = TempDir::new().unwrap();
+        let temp = executable_tempdir();
         let folder = temp.path().join("路径 with spaces");
         fs::create_dir_all(&folder).unwrap();
         let binary = executable_fixture(&folder, "codex", "codex v1.4.0");
@@ -514,7 +525,7 @@ mod tests {
 
     #[test]
     fn invalid_candidates_are_skipped_with_safe_diagnostics() {
-        let temp = TempDir::new().unwrap();
+        let temp = executable_tempdir();
         let non_executable = temp.path().join("codex");
         fs::write(&non_executable, "not executable").unwrap();
         let bundle_dir = temp.path().join("Other.app/Contents/MacOS");
@@ -545,7 +556,7 @@ mod tests {
 
     #[test]
     fn explicit_private_bundle_path_is_allowed_but_auto_selection_is_not() {
-        let temp = TempDir::new().unwrap();
+        let temp = executable_tempdir();
         let bundle_dir = temp.path().join("Private.app/Contents/MacOS");
         fs::create_dir_all(&bundle_dir).unwrap();
         let explicit = executable_fixture(&bundle_dir, "codex", "codex 1.0.0");
@@ -573,7 +584,7 @@ mod tests {
 
     #[test]
     fn version_probe_failure_is_diagnostic_and_does_not_read_credential_files() {
-        let temp = TempDir::new().unwrap();
+        let temp = executable_tempdir();
         let binary = executable_fixture(temp.path(), "codex", "not-a-version");
         fs::write(
             temp.path().join(".codex-auth.json"),

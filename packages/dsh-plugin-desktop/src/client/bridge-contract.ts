@@ -31,6 +31,8 @@ export type VersionedBridgeAction =
   | 'extension.enable'
   | 'extension.disable'
   | 'extension.uninstall'
+  | 'skill.create'
+  | 'skill.import'
   | 'prompts.list'
   | 'prompts.get'
   | 'prompts.save'

@@ -1,0 +1,4 @@
+interface:
+  display_name: "云效工作项证据"
+  short_description: "只读收集云效需求、缺陷、父级关系、评论、附件及完整性证据"
+  default_prompt: "Use $yunxiao-workitem-evidence to collect decision-grade read-only evidence from this Yunxiao work item."

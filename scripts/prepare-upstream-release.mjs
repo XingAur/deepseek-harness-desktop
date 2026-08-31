@@ -7,9 +7,10 @@ import {
 } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { spawnSync } from 'node:child_process'
 import {
   assertReleaseVersionConsistency,
-  loadReleaseVersions,
+  OFFICIAL_DSH_REPOSITORY,
   validateReleaseVersions,
 } from './release-versions.mjs'
 
@@ -69,22 +70,65 @@ export async function fetchLatestDshVersion(fetcher = globalThis.fetch) {
   }
 }
 
-export async function prepareUpstreamRelease({ root = process.cwd(), latestVersion }) {
+export function parseDshTagRefs(output) {
+  const tags = new Map()
+  for (const line of String(output).split(/\r?\n/)) {
+    const match = /^([0-9a-f]{40})\trefs\/tags\/(dsh-v([^\^]+))(\^\{\})?$/.exec(line)
+    if (!match) continue
+    try { parseSemVer(match[3]) } catch { continue }
+    const current = tags.get(match[2]) ?? {}
+    if (match[4]) current.peeled = match[1]
+    else current.direct = match[1]
+    tags.set(match[2], current)
+  }
+  const candidates = [...tags.entries()]
+    .map(([tag, refs]) => ({ tag, version: tag.slice('dsh-v'.length), commit: refs.peeled ?? refs.direct }))
+    .filter((candidate) => typeof candidate.commit === 'string')
+    .sort((left, right) => compareSemVer(left.version, right.version))
+  const latest = candidates.at(-1)
+  if (!latest) throw new Error('未找到有效的官方 DSH tag')
+  return { repository: OFFICIAL_DSH_REPOSITORY, ...latest }
+}
+
+export function fetchLatestDshSource(runner = spawnSync) {
+  const result = runner('git', [
+    'ls-remote', '--tags', OFFICIAL_DSH_REPOSITORY, 'refs/tags/dsh-v*',
+  ], { encoding: 'utf8', timeout: 10_000, maxBuffer: 4 * 1024 * 1024 })
+  if (result.status !== 0 || typeof result.stdout !== 'string') {
+    throw new Error('官方 DSH tag 查询失败')
+  }
+  return parseDshTagRefs(result.stdout)
+}
+
+export async function prepareUpstreamRelease({ root = process.cwd(), latestVersion, latestSource }) {
   parseSemVer(latestVersion)
   const versions = assertReleaseVersionConsistency(root)
+  const validatedSource = validateReleaseVersions({ ...versions, dshUpstream: latestSource }).dshUpstream
   const comparison = compareSemVer(versions.dshVersion, latestVersion)
   if (comparison > 0) {
     throw new Error(`拒绝将 DSH 从 ${versions.dshVersion} 降级到 ${latestVersion}`)
   }
-  if (comparison === 0) return resultFor('noop', versions, versions.dshVersion)
+  const currentSourceVersion = versions.dshUpstream.tag.slice('dsh-v'.length)
+  const latestSourceVersion = validatedSource.tag.slice('dsh-v'.length)
+  const sourceComparison = compareSemVer(currentSourceVersion, latestSourceVersion)
+  if (sourceComparison > 0) {
+    throw new Error(`拒绝将 DSH source 从 ${versions.dshUpstream.tag} 降级到 ${validatedSource.tag}`)
+  }
+  if (sourceComparison === 0 && versions.dshUpstream.commit !== validatedSource.commit) {
+    throw new Error(`官方 DSH tag ${validatedSource.tag} 的 commit 发生变化，拒绝静默改写`)
+  }
+  const distributionUpgrade = comparison < 0
+  const sourceUpdate = sourceComparison < 0
+  if (!distributionUpgrade && !sourceUpdate) return resultFor('noop', versions, versions)
 
   const nextVersions = validateReleaseVersions({
     ...versions,
-    desktopVersion: bumpStablePatch(versions.desktopVersion),
-    runtimeVersion: bumpPreviewPatch(versions.runtimeVersion),
-    dshVersion: latestVersion,
+    desktopVersion: distributionUpgrade ? bumpStablePatch(versions.desktopVersion) : versions.desktopVersion,
+    runtimeVersion: distributionUpgrade ? bumpPreviewPatch(versions.runtimeVersion) : versions.runtimeVersion,
+    dshVersion: distributionUpgrade ? latestVersion : versions.dshVersion,
+    dshUpstream: validatedSource,
   })
-  const updates = buildUpdates(root, nextVersions)
+  const updates = buildUpdates(root, nextVersions, { includeDerivedVersions: distributionUpgrade })
   commitUpdatesAtomically(root, updates)
   try {
     assertReleaseVersionConsistency(root)
@@ -92,10 +136,10 @@ export async function prepareUpstreamRelease({ root = process.cwd(), latestVersi
     restoreOriginals(updates)
     throw cause
   }
-  return resultFor('upgrade', nextVersions, versions.dshVersion)
+  return resultFor(distributionUpgrade ? 'upgrade' : 'source-update', nextVersions, versions)
 }
 
-function buildUpdates(root, versions) {
+function buildUpdates(root, versions, { includeDerivedVersions }) {
   const updates = []
   const addJson = (relativePath, mutate) => {
     const original = readFile(root, relativePath)
@@ -105,6 +149,7 @@ function buildUpdates(root, versions) {
   }
 
   addJson('release/versions.json', () => versions)
+  if (!includeDerivedVersions) return updates
   addJson('package.json', (value) => ({ ...value, version: versions.desktopVersion }))
   addJson('package-lock.json', (value) => ({
     ...value,
@@ -206,14 +251,17 @@ function bumpPreviewPatch(version) {
   return `${match[1]}.${match[2]}.${Number(match[3]) + 1}-preview`
 }
 
-function resultFor(action, versions, previousDshVersion) {
+function resultFor(action, versions, previousVersions) {
   return {
     action,
-    previousDshVersion,
+    previousDshVersion: previousVersions.dshVersion,
     dshVersion: versions.dshVersion,
     desktopVersion: versions.desktopVersion,
     runtimeVersion: versions.runtimeVersion,
     tag: `desktop-v${versions.desktopVersion}`,
+    previousUpstreamTag: previousVersions.dshUpstream.tag,
+    upstreamTag: versions.dshUpstream.tag,
+    upstreamCommit: versions.dshUpstream.commit,
   }
 }
 
@@ -225,11 +273,25 @@ const invokedPath = process.argv[1] ? resolve(process.argv[1]) : ''
 if (invokedPath === resolve(fileURLToPath(import.meta.url))) {
   try {
     const options = process.argv.slice(2)
-    if (options.length > 1 || (options[0] && !options[0].startsWith('--latest='))) {
-      throw new Error('只支持可选参数 --latest=<精确 SemVer>')
+    if (options.some((option) => !/^--(?:latest|source-tag|source-commit)=/.test(option))) {
+      throw new Error('只支持 --latest、--source-tag 和 --source-commit')
     }
-    const latestVersion = options[0]?.slice('--latest='.length) ?? await fetchLatestDshVersion()
-    process.stdout.write(`${JSON.stringify(await prepareUpstreamRelease({ latestVersion }), null, 2)}\n`)
+    const values = Object.fromEntries(options.map((option) => {
+      const [key, ...rest] = option.slice(2).split('=')
+      return [key, rest.join('=')]
+    }))
+    if ((values['source-tag'] === undefined) !== (values['source-commit'] === undefined)) {
+      throw new Error('--source-tag 和 --source-commit 必须同时提供')
+    }
+    const latestVersion = values.latest ?? await fetchLatestDshVersion()
+    const latestSource = values['source-tag'] === undefined
+      ? fetchLatestDshSource()
+      : {
+          repository: OFFICIAL_DSH_REPOSITORY,
+          tag: values['source-tag'],
+          commit: values['source-commit'],
+        }
+    process.stdout.write(`${JSON.stringify(await prepareUpstreamRelease({ latestVersion, latestSource }), null, 2)}\n`)
   } catch (cause) {
     process.stderr.write(`${errorMessage(cause)}\n`)
     process.exitCode = 1

@@ -1,0 +1,4 @@
+interface:
+  display_name: "HIS Knowledge Answer"
+  short_description: "Answer HIS questions with bounded evidence and status."
+  default_prompt: "Use $his-knowledge-answer to answer my HIS question safely."

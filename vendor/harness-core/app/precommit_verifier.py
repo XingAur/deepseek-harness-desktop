@@ -6,6 +6,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from app.change_context_execution import ChangeContextExecutionVerifier, validate_worker_context
 from app.behavior_acceptance import (
     behavior_to_json,
     behavior_to_markdown,
@@ -76,6 +77,8 @@ class PrecommitVerificationOptions:
     worktree_root: str = DEFAULT_WORKTREE_ROOT
     cleanup_worktree: bool = True
     verify_command_overrides: dict[str, list[str]] = field(default_factory=dict)
+    change_context_binding: dict | None = None
+    change_context_projection: dict | None = None
 
 
 @dataclass
@@ -378,8 +381,34 @@ class PrecommitVerificationResult:
 
 
 class PrecommitVerifier:
+    def __init__(
+        self,
+        *,
+        change_context_verifier: ChangeContextExecutionVerifier | None = None,
+    ) -> None:
+        self.change_context_verifier = change_context_verifier
+
     def execute(self, options: PrecommitVerificationOptions) -> PrecommitVerificationResult:
         started_at = time.time()
+        context_validation = validate_worker_context(
+            self.change_context_verifier,
+            options.change_context_binding,
+            options.change_context_projection,
+            expected_role="review",
+        )
+        if context_validation.status != "ready":
+            return PrecommitVerificationResult(
+                status="blocked",
+                summary=context_validation.message,
+                manifest={
+                    "run_id": options.run_id,
+                    "status": "blocked",
+                    "change_context_binding": options.change_context_binding,
+                    "change_context_validation": context_validation.to_dict(),
+                    "started_at_epoch": started_at,
+                    "finished_at_epoch": time.time(),
+                },
+            )
         worktree_root = Path(options.worktree_root).expanduser().resolve()
         targets = build_precommit_targets(options)
         target_records = [target_to_record(target) for target in targets]
@@ -398,6 +427,8 @@ class PrecommitVerifier:
             "generic_precommit": bool(options.project_path and options.allowed_paths),
             "started_at_epoch": started_at,
             "targets": target_records,
+            "change_context_binding": options.change_context_binding,
+            "change_context_validation": context_validation.to_dict(),
         }
 
         preflight_error = preflight_current_diffs(targets=targets, records=target_records)
@@ -505,6 +536,16 @@ class PrecommitVerifier:
                 summary = "提交前验证通过：目标 diff 检查和验证命令均通过；未提交、未推送、未发布。"
             else:
                 summary = "提交前验证通过：前端 diff 检查和单文件 lint 均通过；后端字段来源由实际 REST 响应/df-his-api 证据证明；未提交、未推送、未发布。"
+            completion_context_validation = validate_worker_context(
+                self.change_context_verifier,
+                options.change_context_binding,
+                options.change_context_projection,
+                expected_role="review",
+            )
+            manifest["change_context_completion_validation"] = completion_context_validation.to_dict()
+            if status == "success" and completion_context_validation.status != "ready":
+                status = "blocked"
+                summary = completion_context_validation.message
             return build_result(
                 status=status,
                 summary=summary,

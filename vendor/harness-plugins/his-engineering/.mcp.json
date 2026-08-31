@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "gitlab": {
+      "command": "python3",
+      "args": ["./scripts/gitlab_mcp_server.py"],
+      "cwd": ".",
+      "env_vars": [
+        "HARNESS_CREDENTIALS_FILE",
+        "GITLAB_BASE_URL",
+        "GITLAB_ACCESS_TOKEN"
+      ]
+    },
+    "postgresql": {
+      "command": "python3",
+      "args": ["./scripts/postgresql_mcp_server.py"],
+      "cwd": ".",
+      "env_vars": [
+        "HARNESS_CREDENTIALS_FILE",
+        "PG_HIS_TEST_READONLY_DSN",
+        "PG_HIS_TEST_READONLY_USER",
+        "PG_HIS_TEST_READONLY_PASSWORD"
+      ]
+    }
+  }
+}

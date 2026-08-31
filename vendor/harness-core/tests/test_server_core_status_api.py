@@ -378,7 +378,7 @@ class ServerCoreStatusApiTests(unittest.TestCase):
         self.assertEqual("readonly", call.kwargs["execution_mode"])
         self.assertEqual(task_result["event_id"], call.kwargs["routing_result"].event_id)
 
-    def test_default_manager_task_dispatch_runs_local_twelve_stage_governance(self) -> None:
+    def test_default_manager_task_dispatch_runs_local_fifteen_stage_governance(self) -> None:
         with (
             mock.patch.dict(os.environ, {"HARNESS_LLM_MODE": "mock"}, clear=False),
             mock.patch(
@@ -394,7 +394,7 @@ class ServerCoreStatusApiTests(unittest.TestCase):
 
         workflow = result["workflow"]
         self.assertEqual("requirement_workflow", result["downstream"])
-        self.assertEqual(12, workflow["stage_count"])
+        self.assertEqual(15, workflow["stage_count"])
         self.assertEqual("local_deterministic", workflow["analysis_backend"])
         self.assertTrue(workflow["technical_only"])
         self.assertFalse(workflow["real_model_used"])
@@ -869,7 +869,10 @@ class ServerCoreStatusApiTests(unittest.TestCase):
 
         readiness = payload["profiles"][0]["action_readiness"]
         self.assertEqual(303, response_status)
-        self.assertEqual("permanently_disabled", readiness["write_policy"])
+        self.assertEqual(
+            "disabled_until_explicit_scoped_authorization",
+            readiness["write_policy"],
+        )
         self.assertIn("read_only_select", readiness["supported_actions"])
         self.assertIn("sql_draft", readiness["supported_actions"])
         self.assertNotIn("database.change", readiness["supported_actions"])
@@ -1021,6 +1024,9 @@ class ServerCoreStatusApiTests(unittest.TestCase):
             "git.history",
             "verification.run-local",
             "code.review-local",
+            "workitem.read",
+            "gitlab.read",
+            "database.inspect",
         }
         self.assertEqual(
             available_capabilities,
@@ -1567,14 +1573,15 @@ class ServerCoreStatusApiTests(unittest.TestCase):
 
             rendered = json.dumps(payload, ensure_ascii=False)
             self.assertEqual("his-provider-connection-test-result.v2", payload["schema_version"])
-            self.assertEqual("awaiting_confirmation", payload["status"])
-            self.assertEqual("provider_action_confirmation_required", payload["reason"])
+            self.assertEqual("ready_to_execute", payload["status"])
+            self.assertEqual("provider_technical_authority_required", payload["reason"])
             self.assertIsInstance(payload["plan_id"], int)
             self.assertEqual("yunxiao.connection_test", payload["action"])
             self.assertEqual("read", payload["risk"])
             self.assertFalse(payload["credentials_read"])
             self.assertFalse(payload["external_calls"])
-            self.assertFalse(payload["execution_allowed"])
+            self.assertTrue(payload["execution_allowed"])
+            self.assertFalse(payload["confirmation_required"])
             self.assertEqual(200, status)
             self.assertFalse(audit_path.exists())
             self.assertEqual(
@@ -1720,16 +1727,17 @@ class ServerCoreStatusApiTests(unittest.TestCase):
             )
             rendered = json.dumps([plan, result, valid_result, audits], ensure_ascii=False)
             self.assertEqual("his-provider-readonly-smoke-plan.v2", plan["schema_version"])
-            self.assertEqual("awaiting_confirmation", result["status"])
-            self.assertEqual("provider_action_confirmation_required", result["reason"])
+            self.assertFalse(plan["confirmation_required"])
+            self.assertEqual("ready_to_execute", result["status"])
+            self.assertEqual("provider_technical_authority_required", result["reason"])
             self.assertEqual("manager", result["requested_by"])
             self.assertIsInstance(result["plan_id"], int)
             self.assertFalse(result["credentials_read"])
             self.assertFalse(result["external_calls"])
             self.assertFalse(result["write_performed"])
             self.assertNotIn("audit_path", result)
-            self.assertEqual("awaiting_confirmation", valid_result["status"])
-            self.assertEqual("provider_action_confirmation_required", valid_result["reason"])
+            self.assertEqual("ready_to_execute", valid_result["status"])
+            self.assertEqual("provider_technical_authority_required", valid_result["reason"])
             self.assertIsInstance(valid_result["plan_id"], int)
             self.assertEqual((200, 200), (status, valid_status))
             self.assertEqual([], audits)

@@ -624,7 +624,7 @@ ACTION_DESCRIPTORS = MappingProxyType(
 
 
 class ProviderExecutionService:
-    """The only boundary allowed to turn an authorization into adapter capabilities."""
+    """Turn a consumed governance plan into bounded adapter capabilities."""
 
     def __init__(
         self,
@@ -769,12 +769,26 @@ class ProviderExecutionService:
                 reason="provider_timeout_not_allowed",
             )
 
-        decision = self._authorizer.consume(
-            plan_id=plan.id,
-            authorization=authorization,
-            actor=request.actor,
-            parameters=request.parameters,
+        from app.provider_authority_policy import provider_authority_policy
+
+        authority_policy = provider_authority_policy(
+            provider=descriptor.provider,
+            action=descriptor.action,
+            risk=descriptor.risk,
         )
+        if authorization is None and not authority_policy.harness_authorization_required:
+            decision = self._authorizer.consume_read(
+                plan_id=plan.id,
+                actor=request.actor,
+                parameters=request.parameters,
+            )
+        else:
+            decision = self._authorizer.consume(
+                plan_id=plan.id,
+                authorization=authorization,
+                actor=request.actor,
+                parameters=request.parameters,
+            )
         if not decision.allowed:
             return self._record_result(
                 plan=plan, descriptor=descriptor, status="blocked",

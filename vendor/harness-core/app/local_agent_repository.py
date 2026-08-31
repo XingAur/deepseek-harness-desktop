@@ -936,6 +936,8 @@ class LocalAgentRunRepository:
         event_type = _safe_alias(event_type)
         if event_type == "worker_protocol_rejected":
             validate_protocol_rejection_audit(payload)
+        elif event_type == "harness_decision_issued":
+            _validate_harness_decision_event(payload)
         try:
             with self._connect() as connection:
                 connection.execute("begin immediate")
@@ -943,7 +945,7 @@ class LocalAgentRunRepository:
                 _require_attempt_belongs_to_run(connection, run_id, attempt_id)
                 payload_json = (
                     _encode_validated_audit_mapping(payload)
-                    if event_type == "worker_protocol_rejected"
+                    if event_type in {"harness_decision_issued", "worker_protocol_rejected"}
                     else _encode_safe_mapping(payload)
                 )
                 return _append_event_in_transaction(connection, run_id, attempt_id, event_type, payload_json)
@@ -3289,7 +3291,7 @@ def _event_from_row(row: Any) -> dict[str, object]:
     event_type = _safe_alias(row["event_type"])
     payload = (
         _decode_validated_audit_mapping(row["payload_json"])
-        if event_type in {"review_failed", "worker_protocol_rejected"}
+        if event_type in {"harness_decision_issued", "review_failed", "worker_protocol_rejected"}
         else _decode_safe_mapping(row["payload_json"])
     )
     if event_type == "review_failed":
@@ -3299,6 +3301,8 @@ def _event_from_row(row: Any) -> dict[str, object]:
             validate_protocol_rejection_audit(payload)
         except ValueError:
             raise ValueError(_STORAGE_INVALID) from None
+    elif event_type == "harness_decision_issued":
+        _validate_harness_decision_event(payload)
     return {"id": _positive_id(row["id"]), "run_id": _positive_id(row["run_id"]), "attempt_id": _optional_positive_id(row["attempt_id"]), "sequence_no": _positive_id(row["sequence_no"]), "event_type": event_type, "payload": payload, "created_at": _timestamp(row["created_at"])}
 
 
@@ -3336,6 +3340,38 @@ def _decode_validated_audit_mapping(value: object) -> dict[str, object]:
     except (MemoryError, RecursionError, TypeError, ValueError, UnicodeError, json.JSONDecodeError):
         raise ValueError(_STORAGE_INVALID) from None
 
+
+def _validate_harness_decision_event(value: Mapping[str, object]) -> None:
+    """Validate the fixed decision audit schema before bypassing text redaction."""
+
+    expected = {
+        "plan_version", "supersedes_plan_version", "decision_kind",
+        "failure_code", "decision_digest", "must_reinspect", "execute_only",
+    }
+    if not isinstance(value, Mapping) or set(value) != expected:
+        raise ValueError(_STORAGE_INVALID)
+    plan_version = value.get("plan_version")
+    supersedes = value.get("supersedes_plan_version")
+    if (
+        not isinstance(plan_version, int)
+        or isinstance(plan_version, bool)
+        or plan_version <= 0
+        or (
+            (plan_version == 1 and supersedes is not None)
+            or (plan_version > 1 and supersedes != plan_version - 1)
+        )
+        or value.get("decision_kind") != ("initial_plan" if plan_version == 1 else "replan")
+        or value.get("failure_code") not in {
+            "initial_execution", "workspace_preparation_failed", "worker_interrupted",
+            "worker_failed", "verification_failed", "review_changes_requested",
+            "recovery_replan",
+        }
+        or not isinstance(value.get("decision_digest"), str)
+        or _AUTHORIZATION_HASH.fullmatch(value["decision_digest"]) is None
+        or value.get("must_reinspect") is not True
+        or value.get("execute_only") is not True
+    ):
+        raise ValueError(_STORAGE_INVALID)
 
 def _validate_review_failure(value: Mapping[str, object]) -> None:
     if set(value) == {"reason"}:

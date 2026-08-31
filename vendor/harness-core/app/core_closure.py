@@ -404,6 +404,9 @@ def _canonical_single_pass_contract(value: object) -> object | None:
             manual_acceptance=tuple(payload["manual_acceptance"]),
             rollback_strategy=payload["rollback_strategy"],
             blockers=tuple(payload["blockers"]),
+            change_context_pack_id=payload["change_context_pack_id"],
+            change_context_projection_hash=payload["change_context_projection_hash"],
+            change_context_layer_hashes=tuple(payload["change_context_layer_hashes"]),
         )
     except Exception:
         return None
