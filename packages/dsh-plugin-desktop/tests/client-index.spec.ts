@@ -5,7 +5,7 @@ describe('desktop client module contract', () => {
   it('声明官方工作台启动所需的宿主服务', () => {
     // 场景：远程最新工作台在 root slot 读取当前模型。
     // 条件：桌面插件声明启动阶段需要注入的宿主服务。
-    // 预期：保留官方 llm 注入，避免启动阶段白屏。
-    expect(inject).toEqual(['slots', 'sessions', 'theme', 'workspaces', 'llm'])
+    // 客户端启动图没有 llm 服务；声明它会阻止插件注册 layout。
+    expect(inject).toEqual(['slots', 'sessions', 'theme', 'workspaces'])
   })
 })
