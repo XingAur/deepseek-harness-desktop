@@ -309,7 +309,15 @@ async function main() {
   process.stdout.write(`当前仓库桌面插件 tgz sha256: ${currentSha}\n`)
   process.stdout.write(`校验 ${repository} ${runtimeTag} 内的桌面插件指纹(target: ${target})...\n`)
 
-  const manifest = await fetchRuntimeManifest(target, runtimeTag, token, { repository })
+  let manifest
+  try {
+    manifest = await fetchRuntimeManifest(target, runtimeTag, token, { repository })
+  } catch (cause) {
+    // 查询失败(GitHub 认证/网络瞬态)不应阻塞发版:组装阶段的不可变资产比对
+    // 会兜底拦截真正的旧插件复用。只有明确的清单漂移/过时才硬失败。
+    process.stdout.write(`::warning::无法校验 ${runtimeTag} 的插件指纹(${cause instanceof Error ? cause.message : String(cause)});跳过本次校验,复用资产的一致性由组装阶段比对兜底。\n`)
+    return
+  }
   if (!manifest) {
     process.stdout.write(`- ${target}: ${runtimeTag} 尚未发布或缺少 manifest,视为通过(本次发布会构建新运行时,不会复用旧插件)。\n`)
     return
