@@ -21,7 +21,11 @@ export type ActivateOutcome =
   | { kind: 'backfill-conflict'; presetId: string; candidates: Array<{ target: PromptTarget; content: string; updatedAt: number }> }
 
 export const TARGET_LABELS: Record<PromptTarget, string> = { claude: 'Claude', codex: 'Codex', dsh: 'DSH' }
+// 与 Rust 端 MAX_PROMPT_BYTES 对齐:上限按 UTF-8 字节计,而非 UTF-16 字符数。
 export const MAX_PROMPT_CHARS = 24 * 1024
+export function promptBytes(content: string): number {
+  return new TextEncoder().encode(content).length
+}
 
 export async function fetchStatus(bridge: DesktopBridgeLike): Promise<TargetStatus[]> {
   return bridge.requestV2<TargetStatus[]>('prompts.status')

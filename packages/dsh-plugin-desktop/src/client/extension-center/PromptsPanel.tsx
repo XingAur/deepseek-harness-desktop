@@ -5,7 +5,7 @@ import type { DesktopBridgeLike } from '../desktop-bridge'
 import { messageOf } from '../model-agent/state'
 import {
   activatePreset, deactivateTarget, deletePreset, fetchList, fetchPreset, fetchStatus,
-  importTargets, MAX_PROMPT_CHARS, resolveConflict, savePreset, TARGET_LABELS,
+  importTargets, MAX_PROMPT_CHARS, promptBytes, resolveConflict, savePreset, TARGET_LABELS,
   type ActivateOutcome, type PresetSummary, type PromptTarget, type SaveOutcome, type TargetStatus,
 } from './prompts-api'
 import { PromptsConflictDialog, type ConflictCandidateView } from './PromptsConflictDialog'
@@ -21,6 +21,7 @@ export function PromptsPanel({ bridge }: { bridge: DesktopBridgeLike }) {
   const [error, setError] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const [importBusy, setImportBusy] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [draft, setDraft] = useState<{ presetId: string; title: string; content: string } | null>(null)
   const [conflict, setConflict] = useState<ConflictCandidateView[] | null>(null)
@@ -153,10 +154,10 @@ export function PromptsPanel({ bridge }: { bridge: DesktopBridgeLike }) {
       {draft !== null && (
         <div className="dshPromptsEditor">
           <div className="dshPromptsEditorActions">
-            <button type="button" disabled={draft.content.length > MAX_PROMPT_CHARS} onClick={() => void saveDraft()}>保存</button>
+            <button type="button" disabled={promptBytes(draft.content) > MAX_PROMPT_CHARS} onClick={() => void saveDraft()}>保存</button>
             <button type="button" onClick={() => void removeDraft()}>删除</button>
             <button type="button" onClick={() => setDraft(null)}>关闭</button>
-            {draft.content.length > MAX_PROMPT_CHARS && <span role="alert">超过 24 KiB 上限,无法保存</span>}
+            {promptBytes(draft.content) > MAX_PROMPT_CHARS && <span role="alert">超过 24 KiB 上限,无法保存</span>}
           </div>
           <div className="dshPromptsPanes">
             <textarea aria-label="预设内容" value={draft.content} onChange={(event) => setDraft({ ...draft, content: event.target.value })} />
@@ -196,14 +197,15 @@ export function PromptsPanel({ bridge }: { bridge: DesktopBridgeLike }) {
       {importOpen && (
         <PromptsImportDialog
           candidates={importCandidates}
-          busy={false}
+          busy={importBusy}
           onClose={() => setImportOpen(false)}
           onImport={async (targets) => {
+            setImportBusy(true)
             try {
               await importTargets(bridge, targets)
               setImportOpen(false)
               await refreshAll()
-            } catch (cause: unknown) { setError(messageOf(cause)) }
+            } catch (cause: unknown) { setError(messageOf(cause)) } finally { setImportBusy(false) }
           }}
         />
       )}

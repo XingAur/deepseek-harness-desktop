@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { PromptsPanel } from '../src/client/extension-center/PromptsPanel'
+import { PromptsPanel, renderMarkdownPreview } from '../src/client/extension-center/PromptsPanel'
 import type { DesktopBridgeLike } from '../src/client/desktop-bridge'
 
 function bridgeWith(handlers: Record<string, (payload?: Record<string, unknown>) => unknown>): DesktopBridgeLike {
@@ -110,5 +110,14 @@ describe('PromptsPanel', () => {
     await waitFor(() => expect(bridge.requestV2).toHaveBeenCalledWith('prompts.activate', undefined, { presetId: 'p1', target: 'dsh' }))
     fireEvent.click(screen.getByRole('button', { name: '停用已激活目标' }))
     await waitFor(() => expect(bridge.requestV2).toHaveBeenCalledWith('prompts.deactivate', undefined, { target: 'claude' }))
+  })
+})
+
+describe('renderMarkdownPreview', () => {
+  it('渲染 markdown 并剥离脚本注入', () => {
+    const html = renderMarkdownPreview('# 标题\n\n<script>window.__xss=1</script>\n\n<img src=x onerror="window.__y=1">')
+    expect(html).toContain('<h1>')
+    expect(html).not.toContain('<script')
+    expect(html).not.toContain('onerror')
   })
 })
