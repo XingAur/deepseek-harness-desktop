@@ -8,6 +8,22 @@ import { assertRuntimeCapabilities, inspectRuntimeCapabilities, isFileWithin } f
 const temporaryRoots: string[] = []
 afterEach(() => { for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true }) })
 
+function supportsSymbolicLinks() {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-runtime-symlink-probe-'))
+  try {
+    const target = join(root, 'target')
+    writeFileSync(target, '')
+    symlinkSync(target, join(root, 'link'))
+    return true
+  } catch {
+    return false
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}
+
+const symlinkIt = supportsSymbolicLinks() ? it : it.skip
+
 const dshVersion = '0.1.1-rc.2'
 const desktopPluginVersion = '0.3.2'
 const officialRange = `^${dshVersion}`
@@ -273,7 +289,7 @@ describe('inspectRuntimeCapabilities', () => {
     expect(isFileWithin(directory, './lib', adapter)).toBe(false)
   })
 
-  it('rejects an intermediate POSIX symlink that escapes the package root', () => {
+  symlinkIt('rejects an intermediate POSIX symlink that escapes the package root', () => {
     const root = runtimeFixture()
     const outside = mkdtempSync(join(tmpdir(), 'dsh-runtime-outside-'))
     writeFileSync(join(outside, 'secret.js'), '')
@@ -283,7 +299,7 @@ describe('inspectRuntimeCapabilities', () => {
     expect(isFileWithin(root, './lib/secret.js')).toBe(false)
   })
 
-  it('rejects a final POSIX symlink even when it points inside the package root', () => {
+  symlinkIt('rejects a final POSIX symlink even when it points inside the package root', () => {
     const root = runtimeFixture()
     mkdirSync(join(root, 'lib'), { recursive: true })
     writeFileSync(join(root, 'lib', 'target.js'), '')
@@ -292,7 +308,7 @@ describe('inspectRuntimeCapabilities', () => {
     expect(isFileWithin(root, './lib/index.js')).toBe(false)
   })
 
-  it.each(['node_modules root', 'scope directory', 'package root', 'package manifest'])('reports %s symlink escapes with a bounded reason code', (kind) => {
+  symlinkIt.each(['node_modules root', 'scope directory', 'package root', 'package manifest'])('reports %s symlink escapes with a bounded reason code', (kind) => {
     const root = runtimeFixture()
     compatibleRuntime(root)
     const outside = mkdtempSync(join(tmpdir(), 'dsh-runtime-symlink-'))

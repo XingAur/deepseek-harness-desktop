@@ -14,8 +14,24 @@ import { describe, expect, it } from 'vitest'
 
 import { materializeRuntimeLinks } from './materialize-runtime-links.mjs'
 
+function supportsSymbolicLinks() {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-runtime-links-symlink-probe-'))
+  try {
+    const target = join(root, 'target')
+    writeFileSync(target, '')
+    symlinkSync(target, join(root, 'link'))
+    return true
+  } catch {
+    return false
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}
+
+const symlinkIt = supportsSymbolicLinks() ? it : it.skip
+
 describe('Runtime archive link materialization', () => {
-  it('replaces relative and build-root links with regular files', () => {
+  symlinkIt('replaces relative and build-root links with regular files', () => {
     const root = mkdtempSync(join(tmpdir(), 'dsh-runtime-links-'))
     try {
       const stage = join(root, 'stage')
@@ -44,7 +60,7 @@ describe('Runtime archive link materialization', () => {
     }
   })
 
-  it('rejects links that resolve outside the build root', () => {
+  symlinkIt('rejects links that resolve outside the build root', () => {
     const root = mkdtempSync(join(tmpdir(), 'dsh-runtime-links-'))
     const outside = mkdtempSync(join(tmpdir(), 'dsh-runtime-outside-'))
     try {

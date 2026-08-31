@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -22,12 +22,18 @@ describe('@dsh/agent-adapter package exports', () => {
       execFileSync(npmExecutable, [...npmPrefix, 'run', 'agent:build'], { cwd: repositoryRoot, shell: npmShell, stdio: 'pipe' })
       const packageLink = join(consumerRoot, 'node_modules', '@dsh', 'agent-adapter')
       mkdirSync(dirname(packageLink), { recursive: true })
-      symlinkSync(packageRoot, packageLink, 'dir')
-      const nodeTypesLink = join(consumerRoot, 'node_modules', '@types', 'node')
-      mkdirSync(dirname(nodeTypesLink), { recursive: true })
-      symlinkSync(join(repositoryRoot, 'node_modules', '@types', 'node'), nodeTypesLink, 'dir')
+      // Hosted Windows runners normally cannot create symlinks. A physical
+      // package copy exercises NodeNext export resolution without that privilege.
+      cpSync(packageRoot, packageLink, { recursive: true })
       writeFileSync(join(consumerRoot, 'tsconfig.json'), JSON.stringify({
-        compilerOptions: { strict: true, noEmit: true, module: 'NodeNext', moduleResolution: 'NodeNext', types: ['node'] },
+        compilerOptions: {
+          strict: true,
+          noEmit: true,
+          module: 'NodeNext',
+          moduleResolution: 'NodeNext',
+          types: ['node'],
+          typeRoots: [join(repositoryRoot, 'node_modules', '@types')],
+        },
         include: ['index.ts'],
       }))
       writeFileSync(join(consumerRoot, 'index.ts'), [

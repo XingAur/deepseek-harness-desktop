@@ -48,7 +48,15 @@ describe('Runtime release manifest recovery', () => {
     const link = join(links, 'dsh-runtime-darwin-aarch64.tar.gz')
     await writeFile(archive, 'runtime')
     await mkdir(links)
-    await symlink(archive, link)
+    let archiveLinkCreated = false
+    try {
+      await symlink(archive, link)
+      archiveLinkCreated = true
+    } catch (error) {
+      // Hosted Windows runners normally lack the privilege to create file
+      // symlinks. Keep the platform-independent manifest checks in this case.
+      if ((error as NodeJS.ErrnoException).code !== 'EPERM') throw error
+    }
     const base = {
       archivePath: archive,
       target: 'darwin-aarch64' as const,
@@ -61,7 +69,7 @@ describe('Runtime release manifest recovery', () => {
     expect(() => createUnsignedRuntimeManifest({ ...base, version: 'latest' })).toThrow(/SemVer/)
     expect(() => createUnsignedRuntimeManifest({ ...base, url: `${base.url}?token=secret` })).toThrow(/URL/)
     expect(() => createUnsignedRuntimeManifest({ ...base, url: base.url.replace('.tar.gz', '.zip') })).toThrow(/指向/)
-    expect(() => createUnsignedRuntimeManifest({ ...base, archivePath: link })).toThrow(/普通文件/)
+    if (archiveLinkCreated) expect(() => createUnsignedRuntimeManifest({ ...base, archivePath: link })).toThrow(/普通文件/)
     expect(() => createUnsignedRuntimeManifest({ ...base, desktopPluginSha256: 'not-a-sha' })).toThrow(/desktopPluginSha256/)
   })
 
