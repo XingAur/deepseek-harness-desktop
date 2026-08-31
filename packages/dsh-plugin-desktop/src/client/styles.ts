@@ -287,6 +287,10 @@ export function installAdvancedStyles(): () => void {
     .dshExtErrorCard h3 { margin: 0; font-size: 15px; }
     .dshExtErrorCard p { margin: 0; color: var(--dsw-alias-label-secondary, #b7b7bf); font-size: 13px; }
     .dshExtErrorCard button { border: 1px solid var(--dsw-alias-border-secondary, rgba(127,127,127,.4)); border-radius: 8px; padding: 5px 14px; background: transparent; color: inherit; cursor: pointer; }
+    .dshPluginsPanel { display: grid; gap: 14px; }
+    .dshPluginsPanelHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+    .dshPluginsPanelHead h3 { margin: 0 0 4px; font-size: 16px; }
+    .dshPluginsPanelHead p { margin: 0; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 12px; }
     .dshPluginMarket { display: grid; gap: 16px; margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--dsh-desktop-divider); }
     .dshPluginMarketHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
     .dshPluginMarketHead h3 { margin: 0 0 4px; font-size: 16px; }

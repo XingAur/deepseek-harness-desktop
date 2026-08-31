@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { DesktopBridgeLike } from '../desktop-bridge'
-import { PluginMarket } from '../extensions/PluginMarket'
 import { ExtensionErrorBoundary } from './ExtensionErrorBoundary'
+import { PluginsPanel } from './PluginsPanel'
 import { PromptsPanel } from './PromptsPanel'
 
 type CenterTab = 'prompts' | 'plugins' | 'mcp' | 'skills' | 'usage'
@@ -31,7 +31,7 @@ export function ExtensionCenterPanel(props: { bridge: DesktopBridgeLike }) {
         ))}
       </nav>
       {tab === 'prompts' && <ExtensionErrorBoundary label="提示词"><PromptsPanel bridge={props.bridge} /></ExtensionErrorBoundary>}
-      {tab === 'plugins' && <ExtensionErrorBoundary label="插件"><PluginMarket bridge={props.bridge} /></ExtensionErrorBoundary>}
+      {tab === 'plugins' && <ExtensionErrorBoundary label="插件"><PluginsPanel bridge={props.bridge} /></ExtensionErrorBoundary>}
       {tab === 'mcp' && <p className="dshExtCenterPlaceholder">即将推出</p>}
       {tab === 'skills' && <p className="dshExtCenterPlaceholder">即将推出</p>}
       {tab === 'usage' && <p className="dshExtCenterPlaceholder">即将推出</p>}
