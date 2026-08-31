@@ -102,6 +102,7 @@ writeUnsignedRuntimeManifest({
   target,
   version: args.version || '0.1.0',
   dshVersion: DSH_VERSION,
+  desktopPluginSha256,
   url: args.url,
 })
 console.log(`Runtime created: ${archive}`)

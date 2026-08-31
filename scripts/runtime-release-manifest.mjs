@@ -16,7 +16,7 @@ export function runtimeReleaseAssetNames(target) {
   throw new Error(`不支持的 Runtime target: ${String(target)}`)
 }
 
-export function createUnsignedRuntimeManifest({ archivePath, target, version, url, dshVersion }) {
+export function createUnsignedRuntimeManifest({ archivePath, target, version, url, dshVersion, desktopPluginSha256 }) {
   const { archiveName } = runtimeReleaseAssetNames(target)
   requireSemVer(version, 'Runtime version')
   const resolvedDshVersion = dshVersion ?? loadReleaseVersions().dshVersion
@@ -28,6 +28,9 @@ export function createUnsignedRuntimeManifest({ archivePath, target, version, ur
     throw new Error('Runtime archive 必须是非空普通文件')
   }
   validateArchiveUrl(url, archiveName)
+  // 从归档重建清单时(archive 存在而清单缺失)无法得知打包插件的指纹,允许省略;
+  // 省略后 check-runtime-plugin-currency.mjs 会按 stale-manifest 拒绝复用该运行时。
+  const resolvedPluginSha256 = requirePluginSha256(desktopPluginSha256)
   const bytes = readFileSync(archive)
   return {
     schemaVersion: 1,
@@ -37,12 +40,21 @@ export function createUnsignedRuntimeManifest({ archivePath, target, version, ur
     url,
     size: bytes.length,
     sha256: createHash('sha256').update(bytes).digest('hex'),
+    ...(resolvedPluginSha256 === undefined ? {} : { desktopPluginSha256: resolvedPluginSha256 }),
     archive: target === 'windows-x86_64' ? 'zip' : 'tar-gz',
     entrypoint: target === 'windows-x86_64' ? 'node.exe' : 'bin/node',
     args: ['app/launcher.mjs', '--port', '{port}'],
     healthPath: '/__desktop/health',
     signature: '',
   }
+}
+
+function requirePluginSha256(value) {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string' || !/^[0-9a-fA-F]{64}$/.test(value)) {
+    throw new Error('desktopPluginSha256 必须是 64 位十六进制 SHA-256')
+  }
+  return value.toLowerCase()
 }
 
 export function writeUnsignedRuntimeManifest({ outputPath, ...options }) {
@@ -89,7 +101,7 @@ function resolveRequiredPath(value, label) {
 }
 
 function cliOptions() {
-  const allowed = new Set(['archive', 'target', 'version', 'url', 'output'])
+  const allowed = new Set(['archive', 'target', 'version', 'url', 'output', 'desktop-plugin-sha256'])
   const options = {}
   for (const argument of process.argv.slice(2)) {
     const match = /^--([^=]+)=(.+)$/.exec(argument)
@@ -114,6 +126,7 @@ if (invokedPath === resolve(fileURLToPath(import.meta.url))) {
       version: options.version,
       url: options.url,
       outputPath: options.output,
+      ...(options['desktop-plugin-sha256'] ? { desktopPluginSha256: options['desktop-plugin-sha256'] } : {}),
     })
     process.stdout.write(`${JSON.stringify(result)}\n`)
   } catch (cause) {
