@@ -54,9 +54,9 @@ describe('advanced frame', () => {
     expect(screen.queryByRole('button', { name: '插件' })).not.toBeInTheDocument()
   })
 
-  it('扩展中心按钮开合对话面', () => {
+  it('扩展中心按钮开合对话面', async () => {
     const state = new ExtensionCenterState()
-    renderFrame({ extensionCenter: state })
+    const { container } = renderFrame({ extensionCenter: state })
     expect(screen.queryByRole('complementary', { name: '扩展中心' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '扩展中心' }))
@@ -65,6 +65,15 @@ describe('advanced frame', () => {
     expect(screen.getByRole('tab', { name: '提示词' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByRole('tab', { name: '插件' })).toBeInTheDocument()
     expect(screen.getByText('MCP')).toBeInTheDocument()
+    // 提示词面板被错误边界包裹：正常渲染时不应出现降级错误卡
+    expect(screen.queryAllByRole('alert')).toHaveLength(0)
+    expect(container.querySelector('.dshExtErrorCard')).toBeNull()
+
+    // 插件页签同样被边界包裹：内容正常渲染而非降级错误卡
+    fireEvent.click(screen.getByRole('tab', { name: '插件' }))
+    expect(await screen.findByRole('region', { name: '插件市场' })).toBeInTheDocument()
+    expect(screen.queryByText('插件 暂时不可用')).not.toBeInTheDocument()
+    expect(container.querySelector('.dshExtErrorCard')).toBeNull()
 
     fireEvent.click(screen.getByRole('tab', { name: 'MCP' }))
     expect(screen.getByText('即将推出')).toBeInTheDocument()

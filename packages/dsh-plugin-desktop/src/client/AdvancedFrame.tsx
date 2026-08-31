@@ -6,6 +6,7 @@ import {
 } from './layout-state'
 import { LocalProjectsPage } from './LocalProjectsPage'
 import { ExtensionCenterPanel } from './extension-center/ExtensionCenterPanel'
+import { ExtensionErrorBoundary } from './extension-center/ExtensionErrorBoundary'
 import { HarnessChatSurface } from './harness/HarnessChatSurface'
 
 export function AdvancedFrame({ layout, platform, renderSlot, useSessions, useWorkspaces, workspaces, sessions, bridge, modelId, localProjects, extensionCenter }: AdvancedFrameProps) {
@@ -62,25 +63,27 @@ export function AdvancedFrame({ layout, platform, renderSlot, useSessions, useWo
       data-sidebar-collapsed={collapsed || undefined}
       style={{ gridTemplateColumns: `${columns.sidebar}px minmax(0, 1fr) ${columns.details}px` }}
     >
-      <aside className="dshDesktopSidebarSurface">
-        <div className="dshDesktopUpstreamSidebar">{renderSlot('sidebar', { collapsed, width: columns.sidebar })}</div>
-      </aside>
-      <main className="dshDesktopConversationSurface">
-        {projectsOpen
-          ? <LocalProjectsPage state={workspaceState} workspaces={workspaces} sessions={sessions} bridge={bridge} onClose={() => localProjects.close()} />
-          : centerOpen
-            ? <div className="dshAgentPage"><ExtensionCenterPanel bridge={bridge} /></div>
-            : <HarnessChatSurface
-              bridge={bridge}
-              modelId={modelId}
-              workspaceId={workspaceState.recentWorkspaceId ?? workspaceState.items[0]?.workspaceId}
-              renderConversation={() => renderSlot('conversation', {})}
-            />}
-      </main>
-      <aside className="dshDesktopDetailsSurface">{renderSlot('details', {})}</aside>
-      <div className="dshDesktopOverlay" data-shell-overlay>{renderSlot('shell.overlay', {})}</div>
-      {!collapsed && <ResizeHandle side="sidebar" left={columns.sidebar} size={columns.sidebar} onResize={(width) => layout.setSidebar(width)} />}
-      {columns.details > 0 && <ResizeHandle side="details" left={viewport - columns.details} size={columns.details} onResize={(width) => layout.setDetails(width)} />}
+      <ExtensionErrorBoundary label="桌面布局">
+        <aside className="dshDesktopSidebarSurface">
+          <div className="dshDesktopUpstreamSidebar">{renderSlot('sidebar', { collapsed, width: columns.sidebar })}</div>
+        </aside>
+        <main className="dshDesktopConversationSurface">
+          {projectsOpen
+            ? <LocalProjectsPage state={workspaceState} workspaces={workspaces} sessions={sessions} bridge={bridge} onClose={() => localProjects.close()} />
+            : centerOpen
+              ? <div className="dshAgentPage"><ExtensionCenterPanel bridge={bridge} /></div>
+              : <HarnessChatSurface
+                bridge={bridge}
+                modelId={modelId}
+                workspaceId={workspaceState.recentWorkspaceId ?? workspaceState.items[0]?.workspaceId}
+                renderConversation={() => renderSlot('conversation', {})}
+              />}
+        </main>
+        <aside className="dshDesktopDetailsSurface">{renderSlot('details', {})}</aside>
+        <div className="dshDesktopOverlay" data-shell-overlay>{renderSlot('shell.overlay', {})}</div>
+        {!collapsed && <ResizeHandle side="sidebar" left={columns.sidebar} size={columns.sidebar} onResize={(width) => layout.setSidebar(width)} />}
+        {columns.details > 0 && <ResizeHandle side="details" left={viewport - columns.details} size={columns.details} onResize={(width) => layout.setDetails(width)} />}
+      </ExtensionErrorBoundary>
     </div>
   )
 }
