@@ -5,6 +5,8 @@ import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 describe('uninstall PowerShell JSON encoding', () => {
+  // powershell.exe cold starts can exceed Vitest's 5-second default on hosted
+  // Windows runners; execFileSync still has its own stricter 30-second bound.
   it.skipIf(process.platform !== 'win32')('在 Windows PowerShell 5.1 中以 UTF-8 读取 Node 写入的 Unicode sentinel 路径', () => {
     const root = mkdtempSync(join(tmpdir(), 'dsh-e2e-uninstall-json-'))
     const sentinels = join(root, 'preservation-sentinels.json')
@@ -23,7 +25,7 @@ describe('uninstall PowerShell JSON encoding', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
-  })
+  }, 20_000)
 
   it('脚本对安装记录与哨兵清单均显式使用 UTF-8', () => {
     const source = readFileSync(resolve('scripts/e2e/uninstall-web-setup.ps1'), 'utf8')

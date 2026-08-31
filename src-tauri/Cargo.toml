@@ -67,9 +67,6 @@ libc = "=0.2.189"
 security-framework = "=3.7.0"
 
 [target.'cfg(windows)'.dependencies]
-# tauri.conf.json 基础配置的 macOSPrivateApi=true 使 Windows 构建要求该特性;
-# macOS 侧被 tauri.macos.conf.json 覆盖为 false,特性必须缺席,故按平台声明。
-tauri = { version = "2.11.5", features = ["macos-private-api"] }
 trash = "=5.2.6"
 winreg = "=0.55.0"
 windows-sys = { version = "=0.61.2", features = [
