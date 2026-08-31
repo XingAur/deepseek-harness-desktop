@@ -13,6 +13,9 @@ const versions = loadReleaseVersions()
 const NODE_VERSION = versions.nodeVersion
 const DSH_VERSION = versions.dshVersion
 const PNPM_VERSION = versions.pnpmVersion
+// pi-ai 的模型目录随包发布、更新滞后于上游模型(如 glm-5.3)。组装时用该版本的
+// providers/data 覆盖已装目录:纯数据刷新,pi-ai 代码保持 dsh 声明的版本不动。
+const PI_AI_CATALOG_VERSION = '0.84.4'
 const args = Object.fromEntries(process.argv.slice(2).map((item) => {
   const [key, ...value] = item.replace(/^--/, '').split('=')
   return [key, value.join('=')]
@@ -74,6 +77,7 @@ if (!reusedDependencies) {
   replaceCachedDesktopPlugin(appDir, pluginTarball, output)
 }
 assertRuntimePeerDependencies(appDir)
+refreshPiAiModelCatalog(appDir)
 const runtimeCapabilities = inspectAssembledRuntimeCapabilities(appDir, {
   dshVersion: DSH_VERSION,
   desktopPluginVersion,
@@ -126,6 +130,21 @@ function writePnpmShim(stageDir, runtimeTarget) {
     const path = join(dir, 'pnpm')
     writeFileSync(path, '#!/bin/sh\nexec "$(dirname "$0")/../bin/node" "$(dirname "$0")/../app/node_modules/pnpm/bin/pnpm.cjs" "$@"\n', { mode: 0o755 })
   }
+}
+
+function refreshPiAiModelCatalog(appDir) {
+  const piAiDataDir = join(appDir, 'node_modules', '@earendil-works', 'pi-ai', 'dist', 'providers', 'data')
+  if (!existsSync(piAiDataDir)) throw new Error(`pi-ai 模型目录缺失: ${piAiDataDir}`)
+  const piAiPackDir = join(output, 'pi-ai-pack')
+  const piAiExtracted = join(output, 'pi-ai-extracted')
+  mkdirSync(piAiPackDir, { recursive: true })
+  run('npm', ['pack', `@earendil-works/pi-ai@${PI_AI_CATALOG_VERSION}`, '--pack-destination', piAiPackDir])
+  const piAiTarball = join(piAiPackDir, readdirSync(piAiPackDir).find((file) => file.endsWith('.tgz')))
+  mkdirSync(piAiExtracted, { recursive: true })
+  run(tarExecutable, ['-xf', piAiTarball, '-C', piAiExtracted])
+  cpSync(join(piAiExtracted, 'package', 'dist', 'providers', 'data'), piAiDataDir, { recursive: true })
+  rmSync(piAiPackDir, { recursive: true, force: true })
+  rmSync(piAiExtracted, { recursive: true, force: true })
 }
 
 function restoreDependencyCache(appDir, cacheValue) {
