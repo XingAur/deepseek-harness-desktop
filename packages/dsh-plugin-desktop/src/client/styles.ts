@@ -356,6 +356,20 @@ export function installAdvancedStyles(): () => void {
     .dshAgentWorkbenchHostHeader { display: flex; align-items: center; gap: 12px; }
     .dshAgentWorkbenchHostHeader h3 { margin: 0; font-size: 18px; }
     .dshAgentWorkbenchHostHeader button { min-height: 30px; padding: 0 10px; border: 1px solid var(--dsh-desktop-divider); border-radius: 8px; color: inherit; background: var(--dsw-alias-bg-layer-2, #29292e); cursor: pointer; }
+    .dshPrompts { display: grid; gap: 14px; }
+    .dshPromptsStatusRow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .dshPromptsTargetChip { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--dsw-alias-border-secondary, rgba(127,127,127,.35)); border-radius: 999px; padding: 4px 12px; background: transparent; color: inherit; }
+    .dshPromptsTargetChip:disabled { opacity: .45; cursor: not-allowed; }
+    .dshPromptsTargetState { color: var(--dsw-alias-label-secondary, #b7b7bf); font-size: 12px; }
+    .dshPromptsDrift { color: #d97706; font-size: 12px; }
+    .dshPromptsSpacer { flex: 1; }
+    .dshPromptsList { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; align-content: start; }
+    .dshPromptsList button { width: 100%; text-align: left; display: grid; gap: 2px; border: 1px solid transparent; border-radius: 10px; padding: 8px 10px; background: transparent; color: inherit; cursor: pointer; }
+    .dshPromptsMuted { color: var(--dsw-alias-label-secondary, #b7b7bf); font-size: 12px; }
+    .dshPromptsDialogBackdrop { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: grid; place-items: center; z-index: 40; }
+    .dshPromptsDialog { background: var(--dsw-alias-surface-primary, #1c1c1f); color: inherit; border-radius: 14px; padding: 18px 20px; width: min(480px, 90vw); display: grid; gap: 12px; }
+    .dshPromptsDialogActions { display: flex; justify-content: flex-end; gap: 10px; }
+    .dshPromptsImportRow { display: flex; align-items: center; gap: 10px; }
     @media (max-width: 760px) {
       .dshDesktopProjectsPage { padding-inline: 20px; }
       .dshDesktopProfileEditor, .dshDesktopProfileSettingsList article { grid-template-columns: 1fr; }
