@@ -1,6 +1,6 @@
 {
   "name": "deepseek-harness-desktop",
-  "version": "0.1.31",
+  "version": "0.1.36",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -16,6 +16,8 @@
     "plugin:test": "npm run test -w @dsh/desktop-plugin",
     "agent:build": "npm run build -w @dsh/agent-adapter",
     "agent:test": "npm run test -w @dsh/agent-adapter",
+    "harness:vendor": "node scripts/vendor-harness-core.mjs",
+    "harness:assemble": "node scripts/assemble-harness-core.mjs",
     "e2e": "wdio run e2e/wdio.conf.ts",
     "e2e:installer": "vitest run --config vitest.e2e.config.ts",
     "e2e:setup:build": "node scripts/e2e/build-instrumented-setup.mjs",
@@ -25,7 +27,7 @@
     "e2e:installer:full": "node scripts/e2e/run-installer-suite.mjs full",
     "e2e:build": "tauri build --features e2e --config src-tauri/tauri.e2e.conf.json --no-bundle",
     "e2e:fixtures": "vitest run scripts/e2e",
-    "check": "npm run test && npm run plugin:test && npm run agent:test && npm run build:web && npm run plugin:build && npm run agent:build",
+    "check": "npm run agent:build && npm run test && npm run agent:test && npm run plugin:test && npm run build:web && npm run plugin:build",
     "tauri": "tauri",
     "runtime:build": "node scripts/build-runtime.mjs",
     "runtime:session-contract": "node scripts/run-runtime-session-contract.mjs",

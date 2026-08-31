@@ -10,6 +10,7 @@ mod data_cleanup;
 mod desktop;
 mod extensions;
 mod generation;
+mod harness;
 mod migration;
 mod mcp;
 mod navigation;
@@ -120,6 +121,18 @@ macro_rules! renderer_commands {
             commands::agent_extension_enable,
             commands::agent_extension_disable,
             commands::agent_extension_uninstall,
+            commands::harness_status,
+            commands::harness_start,
+            commands::harness_chat_start,
+            commands::harness_pick_evidence_files,
+            commands::harness_intake,
+            commands::harness_cancel,
+            commands::harness_pick_archive_root,
+            commands::harness_archive_answers,
+            commands::harness_connection_list,
+            commands::harness_connection_save,
+            commands::harness_connection_delete,
+            commands::harness_connection_test,
             commands::orderly_quit,
             commands::hide_window,
             commands::minimize_window,
@@ -437,6 +450,7 @@ fn run_desktop() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
@@ -485,6 +499,7 @@ fn run_desktop() {
                     })?,
             };
             app.manage(Arc::new(prompts_service));
+            app.manage(harness::HarnessService::new());
             let runtime_services = if foundation.runtime_allowed().is_ok() {
                 let runtime_paths = RuntimePaths::from_app_paths(&foundation.paths)
                     .map_err(|cause| Box::<dyn std::error::Error>::from(cause))?;
@@ -552,7 +567,13 @@ fn run_desktop() {
             let app_launcher = app_handle
                 .try_state::<Arc<apps::AppLauncher>>()
                 .map(|state| Arc::clone(state.inner()));
+            let harness = app_handle
+                .try_state::<Arc<harness::HarnessService>>()
+                .map(|state| Arc::clone(state.inner()));
             tauri::async_runtime::block_on(async move {
+                if let Some(harness) = harness {
+                    let _ = harness.cancel().await;
+                }
                 // 退出前先停掉所有本地应用，再关闭受管运行时。
                 if let Some(app_launcher) = app_launcher {
                     app_launcher.stop_all().await;

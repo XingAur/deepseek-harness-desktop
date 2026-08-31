@@ -8,6 +8,7 @@
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
+    "./harness-host": "./lib/harness-host.js",
     "./package.json": "./package.json"
   },
   "files": [
@@ -28,6 +29,9 @@
     }
   },
   "scripts": {
+    "prebuild": "npm run build -w @dsh/agent-adapter",
+    "pretypecheck": "npm run build -w @dsh/agent-adapter",
+    "pretest": "npm run build -w @dsh/agent-adapter",
     "build": "tsdown && tsc -p tsconfig.json --emitDeclarationOnly",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
@@ -36,6 +40,7 @@
     "react": "18.3.1"
   },
   "devDependencies": {
+    "@dsh/agent-adapter": "0.1.0",
     "@testing-library/dom": "10.4.1",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.2",

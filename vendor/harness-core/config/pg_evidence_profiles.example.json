@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0-pg-evidence-profiles",
+  "default_mode": "off",
+  "profiles": {
+    "his_test": {
+      "environment": "development",
+      "enabled": true,
+      "schemas": ["*"],
+      "max_rows": 50,
+      "connect_timeout_seconds": 5,
+      "query_timeout_seconds": 10,
+      "total_timeout_seconds": 45,
+      "max_metadata_queries": 3,
+      "sensitive_column_patterns": [
+        "name",
+        "phone",
+        "mobile",
+        "idcard",
+        "identity",
+        "address",
+        "patient"
+      ]
+    }
+  }
+}

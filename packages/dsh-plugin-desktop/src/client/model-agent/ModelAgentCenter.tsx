@@ -4,9 +4,10 @@ import { CredentialDialog } from './CredentialDialog'
 import { AgentHome } from '../AgentHome'
 import { DiagnosticsPanel } from './DiagnosticsPanel'
 import { ProviderCard } from './ProviderCard'
+import { ConnectionProfilesPanel } from './ConnectionProfilesPanel'
 import { deriveProviderState, messageOf, type ProviderDiagnostic, type ProviderMetadata, type ProviderState } from './state'
 
-type CenterTab = 'models' | 'agents' | 'diagnostics'
+type CenterTab = 'models' | 'agents' | 'mcp' | 'database' | 'diagnostics'
 interface CliStatus { path?: string; version?: string; diagnostics?: Array<{ code: string; message: string }> }
 interface Capability { id: string; displayName: string; mutating: boolean; approvalRequired: boolean }
 interface CredentialResult { credentialId: string; status: 'configured' | 'not-configured' }
@@ -33,6 +34,7 @@ export function ModelAgentCenter({ bridge, workspaceId }: ModelAgentCenterProps)
       setProviders(providerReply)
       setCapabilities(capabilityReply)
       const statuses = await Promise.all(providerReply.map(async (provider) => {
+        if (provider.kind === 'api') return [provider.providerId, {}] as const
         try {
           return [provider.providerId, await bridge.requestV2<CliStatus>('cli.path.status', undefined, { providerId: provider.providerId })] as const
         } catch (cause) {
@@ -77,7 +79,7 @@ export function ModelAgentCenter({ bridge, workspaceId }: ModelAgentCenterProps)
     setCredentialProvider(null)
   }
 
-  const tabs: Array<[CenterTab, string]> = [['models', 'API 模型'], ['agents', 'Agents'], ['diagnostics', 'Diagnostics']]
+  const tabs: Array<[CenterTab, string]> = [['models', 'API 模型'], ['agents', 'Agents'], ['mcp', 'MCP 连接维护'], ['database', '数据库维护'], ['diagnostics', 'Diagnostics']]
   return (
     <section className="dshModelAgentCenter" aria-busy={busy || undefined}>
       <header className="dshModelAgentCenterHeader"><div><p className="dshModelAgentEyebrow">MODEL & AGENT CENTER</p><h2>模型与 Agent</h2><p>统一管理 API 模型、CLI Agent、扩展和运行诊断。</p></div><button type="button" disabled={busy} onClick={() => void load()}>刷新</button></header>
@@ -86,6 +88,8 @@ export function ModelAgentCenter({ bridge, workspaceId }: ModelAgentCenterProps)
       </nav>
       {tab === 'models' && <div className="dshModelAgentGrid">{providerRows.length === 0 ? <p className="dshModelAgentMuted">暂无可用 API Provider。</p> : providerRows.map(({ provider, state }) => <ProviderCard key={provider.providerId} provider={provider} state={state} onConfigure={() => setCredentialProvider(provider)} onTest={() => void testCredential(provider)} />)}</div>}
       {tab === 'agents' && <AgentHome bridge={bridge} workspaceId={workspaceId} />}
+      {tab === 'mcp' && <ConnectionProfilesPanel bridge={bridge} kind="mcp" />}
+      {tab === 'database' && <ConnectionProfilesPanel bridge={bridge} kind="database" />}
       {tab === 'diagnostics' && <DiagnosticsPanel providers={providerRows} capabilities={capabilities} errors={errors} />}
       {credentialProvider !== null && <CredentialDialog bridge={bridge} providerId={credentialProvider.providerId} providerName={credentialProvider.displayName} credentialId={credentialProvider.credentialId} onClose={onCredentialSaved} />}
     </section>

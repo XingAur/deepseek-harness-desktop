@@ -1,0 +1,289 @@
+{
+  "schema_version": "1.0-real-replay-manifest",
+  "suite_id": "his-core-real-replay-v1",
+  "source_policy": "脱敏固定输入；用户当次明确规则优先，评论只作线索，源码契约证据才能证明服务端状态。",
+  "cases": [
+    {
+      "id": "DFHIS-31557-FRONTEND-DEFAULT",
+      "entity_id": "DFHIS-31557",
+      "category": "frontend",
+      "title": "挂号处理界面新建病人默认值与档案管理一致",
+      "requirement_text": "挂号缩减版新建或清屏时，证件类型、婚姻、年龄单位读取建档同名默认参数；已有病人、读卡结果和用户已选择值不覆盖。",
+      "user_instruction": "前端页面按以下规则处理。\n```harness-rules\n[{\"name\":\"archive_defaults\",\"location\":\"frontend_default\",\"allowed_values\":{\"new\":\"新建或清屏读取建档同名默认参数\",\"default\":\"已有值保持不覆盖\"}}]\n```",
+      "source_refs": ["HANDOFF.md#DFHIS-31557-真实低风险回放"],
+      "comments_policy": "use_as_clue",
+      "technical_evidence": {
+        "frontend_paths": ["src/packages/components/bing-ren-xx/src/mixins/ziDianInfo.js"],
+        "backend_paths": [],
+        "contract_required": false,
+        "client_status": "not_required",
+        "server_status": "not_required"
+      },
+      "expected": {
+        "ownership_status": "ready",
+        "ownership": {"frontend": "required", "backend": "not_required", "database": "not_required", "configuration": "not_required"},
+        "parameter_names": ["archive_defaults"],
+        "high_risk_blocked": false
+      },
+      "allowed_paths": ["src/packages/components/bing-ren-xx/src/mixins/ziDianInfo.js"],
+      "expected_diff_features": ["读取建档同名默认参数", "不覆盖已有病人、读卡结果或用户选择值"],
+      "verify_commands": ["node --check src/packages/components/bing-ren-xx/src/mixins/ziDianInfo.js"],
+      "negative": {"kind": "remove_frontend_evidence", "expected_status": "blocked"},
+      "manual_acceptance": ["新建、清屏、已有病人、读卡和手工选择五个页面场景仍需人工验收。"]
+    },
+    {
+      "id": "DFHIS-31528-FRONTEND-STATE",
+      "entity_id": "DFHIS-31528",
+      "category": "frontend",
+      "title": "挂号病人查询切换标签页不要刷新",
+      "requirement_text": "挂号病人查询切换标签页不要刷新，保留查询条件、结果和分页；首次进入或页面关闭后保持原初始化行为。",
+      "user_instruction": "仅调整前端页面状态保持，不需要修改后端或数据库。",
+      "source_refs": ["HANDOFF.md#v0.45-DFHIS-31528"],
+      "comments_policy": "use_as_clue",
+      "technical_evidence": {
+        "frontend_paths": ["src/pages/yeWuGn/guaHaoSf/components/guaHaoBrCx.vue"],
+        "backend_paths": [],
+        "contract_required": false,
+        "client_status": "not_required",
+        "server_status": "not_required"
+      },
+      "expected": {
+        "ownership_status": "ready",
+        "ownership": {"frontend": "required", "backend": "not_required", "database": "not_required", "configuration": "not_required"},
+        "parameter_names": ["top_tab_state"],
+        "high_risk_blocked": false
+      },
+      "allowed_paths": ["src/pages/yeWuGn/guaHaoSf/components/guaHaoBrCx.vue"],
+      "expected_diff_features": ["切换顶层标签保留组件实例", "关闭页面后仍允许正常初始化"],
+      "verify_commands": ["./node_modules/.bin/vue-cli-service lint --no-fix src/pages/yeWuGn/guaHaoSf/components/guaHaoBrCx.vue"],
+      "negative": {"kind": "remove_frontend_evidence", "expected_status": "blocked"},
+      "manual_acceptance": ["真实页面切换、关闭重开和分页状态需要人工验收。"]
+    },
+    {
+      "id": "DFHIS-31465-FRONTEND-CONFIG",
+      "entity_id": "DFHIS-31465",
+      "category": "frontend",
+      "title": "挂号窗口按菜单参数控制排班模式",
+      "requirement_text": "菜单/路由参数 paiBanMs：1 只保留医生为空排班，2 只保留有医生排班，空、不传或其他值保持当前默认模式。",
+      "user_instruction": "按照我说的使用菜单参数 paiBanMs，不按需求图推断额外规则。",
+      "source_refs": ["README.md#DFHIS-31465-paiBanMs"],
+      "comments_policy": "ignored_by_user",
+      "technical_evidence": {
+        "frontend_paths": ["src/pages/yeWuGn/guaHaoSf/js/paiBanDoctorFilter.js"],
+        "backend_paths": [],
+        "contract_required": false,
+        "client_status": "not_required",
+        "server_status": "not_required"
+      },
+      "expected": {
+        "ownership_status": "ready",
+        "ownership": {"frontend": "required", "backend": "not_required", "database": "not_required", "configuration": "required"},
+        "parameter_names": ["paiBanMs"],
+        "high_risk_blocked": false
+      },
+      "allowed_paths": ["src/pages/yeWuGn/guaHaoSf/js/paiBanDoctorFilter.js"],
+      "expected_diff_features": ["paiBanMs=1 医生为空", "paiBanMs=2 有医生", "其他值保持默认"],
+      "verify_commands": ["node --check src/pages/yeWuGn/guaHaoSf/js/paiBanDoctorFilter.js"],
+      "negative": {"kind": "remove_frontend_evidence", "expected_status": "blocked"},
+      "manual_acceptance": ["路由参数为空、1、2、其他值四类真实排班数据需页面验收。"]
+    },
+    {
+      "id": "DFHIS-31551-BACKEND-CONTRACT",
+      "entity_id": "DFHIS-31551",
+      "category": "backend",
+      "title": "挂号病人查询排序参数服务端契约",
+      "requirement_text": "查询接口使用 sortField，格式为排序字段A|排序方式,排序字段B|排序方式；未传时保持默认顺序。",
+      "user_instruction": "本场景仅核验服务端查询参数契约，前端不需要修改。",
+      "source_refs": ["HANDOFF.md#v0.41-DFHIS-31551"],
+      "comments_policy": "use_as_clue",
+      "technical_evidence": {
+        "frontend_paths": [],
+        "backend_paths": ["src/main/java/com/dfhis/guahao/GuaHaoController.java"],
+        "contract_required": true,
+        "client_status": "not_required",
+        "server_status": "verified"
+      },
+      "expected": {
+        "ownership_status": "ready",
+        "ownership": {"frontend": "not_required", "backend": "already_satisfied", "database": "not_required", "configuration": "not_required"},
+        "parameter_names": ["sortField"],
+        "high_risk_blocked": false
+      },
+      "allowed_paths": ["src/main/java/com/dfhis/guahao/GuaHaoController.java"],
+      "expected_diff_features": ["方法签名接收 sortField", "空值保持默认排序"],
+      "verify_commands": ["./gradlew test --tests '*GuaHao*Sort*'"],
+      "negative": {"kind": "remove_server_evidence", "expected_status": "blocked"},
+      "manual_acceptance": ["真实接口多字段排序和默认排序结果需要接口验收。"]
+    },
+    {
+      "id": "DFHIS-31270-BACKEND-FIELD",
+      "entity_id": "DFHIS-31270",
+      "category": "backend",
+      "title": "住院收费结算收款预交金备注字段来源",
+      "requirement_text": "核验住院收费结算收款接口已经返回预交金备注字段；本场景不修改页面。",
+      "user_instruction": "本场景仅核验服务端返回字段来源，前端不需要修改。",
+      "source_refs": ["README.md#DFHIS-31270-fullstack-worktree"],
+      "comments_policy": "use_as_clue",
+      "technical_evidence": {
+        "frontend_paths": [],
+        "backend_paths": ["df-his-api/src/main/java/com/dfhis/api/ZhuYuanJieSuanApi.java"],
+        "contract_required": true,
+        "client_status": "not_required",
+        "server_status": "verified"
+      },
+      "expected": {
+        "ownership_status": "ready",
+        "ownership": {"frontend": "not_required", "backend": "already_satisfied", "database": "not_required", "configuration": "not_required"},
+        "parameter_names": [],
+        "high_risk_blocked": true
+      },
+      "allowed_paths": ["df-his-api/src/main/java/com/dfhis/api/ZhuYuanJieSuanApi.java"],
+      "expected_diff_features": ["REST/API 返回字段来源可追溯", "不为展示需求擅自新增后端字段"],
+      "verify_commands": ["./gradlew test --tests '*ZhuYuanJieSuan*'"],
+      "negative": {"kind": "remove_server_evidence", "expected_status": "blocked"},
+      "manual_acceptance": ["真实接口响应字段和值仍需在目标环境核验。"]
+    },
+    {
+      "id": "DFHIS-31551-FULLSTACK-FRONTEND-ONLY",
+      "entity_id": "DFHIS-31551",
+      "category": "fullstack",
+      "title": "挂号病人查询排序前后端联动",
+      "requirement_text": "前端传 sortField，格式为排序字段A|排序方式,排序字段B|排序方式；服务端契约已有源码证据，未设置排序保持默认顺序。",
+      "user_instruction": "后端已经调整并验证通过，本次只改前端传入 sortField。",
+      "source_refs": ["HANDOFF.md#v0.41-DFHIS-31551"],
+      "comments_policy": "use_as_clue",
+      "technical_evidence": {
+        "frontend_paths": ["src/pages/yeWuGn/guaHaoSf/components/guaHaoBrCx.vue"],
+        "backend_paths": ["src/main/java/com/dfhis/guahao/GuaHaoController.java"],
+        "contract_required": true,
+        "client_status": "verified",
+        "server_status": "verified"
+      },
+      "expected": {
+        "ownership_status": "ready",
+        "ownership": {"frontend": "required", "backend": "already_satisfied", "database": "not_required", "configuration": "not_required"},
+        "parameter_names": ["sortField"],
+        "high_risk_blocked": false
+      },
+      "allowed_paths": ["src/pages/yeWuGn/guaHaoSf/components/guaHaoBrCx.vue"],
+      "expected_diff_features": ["请求只新增 sortField", "多字段与排序方式编码在同一参数", "不修改后端"],
+      "verify_commands": ["./node_modules/.bin/vue-cli-service lint --no-fix src/pages/yeWuGn/guaHaoSf/components/guaHaoBrCx.vue"],
+      "negative": {"kind": "remove_server_evidence_and_confirmation", "expected_status": "blocked"},
+      "manual_acceptance": ["真实接口返回的全量数据排序结果需要页面和接口联合验收。"]
+    },
+    {
+      "id": "DFHIS-31270-FULLSTACK-FRONTEND-ONLY",
+      "entity_id": "DFHIS-31270",
+      "category": "fullstack",
+      "title": "住院收费结算收款预交金备注展示",
+      "requirement_text": "服务端 REST/API 已返回预交金备注字段，本次仅在前端收款记录中补充备注列。",
+      "user_instruction": "后端字段来源已经由源码证明，本次只调整前端展示，不新增 BFF、后端或数据库字段。",
+      "source_refs": ["README.md#DFHIS-31270-fullstack-worktree"],
+      "comments_policy": "use_as_clue",
+      "technical_evidence": {
+        "frontend_paths": ["src/pages/zhuYuanSf/jieSuanSk/components/yuJiaoJin.vue"],
+        "backend_paths": ["df-his-api/src/main/java/com/dfhis/api/ZhuYuanJieSuanApi.java"],
+        "contract_required": true,
+        "client_status": "verified",
+        "server_status": "verified"
+      },
+      "expected": {
+        "ownership_status": "ready",
+        "ownership": {"frontend": "required", "backend": "already_satisfied", "database": "not_required", "configuration": "not_required"},
+        "parameter_names": [],
+        "high_risk_blocked": true
+      },
+      "allowed_paths": ["src/pages/zhuYuanSf/jieSuanSk/components/yuJiaoJin.vue"],
+      "expected_diff_features": ["只增加已有字段展示", "不新增 BFF/后端/数据库字段", "空备注兼容"],
+      "verify_commands": ["./node_modules/.bin/vue-cli-service lint --no-fix src/pages/zhuYuanSf/jieSuanSk/components/yuJiaoJin.vue"],
+      "negative": {"kind": "remove_server_evidence_and_confirmation", "expected_status": "blocked"},
+      "manual_acceptance": ["收费结算页面真实字段、空值和历史数据必须人工验收。"]
+    },
+    {
+      "id": "DFHIS-31558-ORDERING-RELATION",
+      "entity_id": "DFHIS-31558",
+      "category": "ordering",
+      "title": "挂号管理科室树和排班顺序一致",
+      "requirement_text": "中间科室树与右侧排班按排班顺序号保持一致；同号稳定，无顺序号保持原序，方案树父节点按最早子孙位置。",
+      "user_instruction": "不要按错误评论推断，按已确认的排序关系和脱敏 fixture 验收。",
+      "source_refs": ["fixtures/acceptance_contracts/dfhis-31558-ordering.json"],
+      "comments_policy": "ignored_by_user",
+      "technical_evidence": {
+        "frontend_paths": ["src/pages/yeWuGn/guaHaoSf/index.vue", "src/pages/yeWuGn/guaHaoSf/js/paiBanSort.js"],
+        "backend_paths": [],
+        "contract_required": false,
+        "client_status": "not_required",
+        "server_status": "not_required"
+      },
+      "acceptance_contract": "../acceptance_contracts/dfhis-31558-ordering.json",
+      "expected": {
+        "ownership_status": "ready",
+        "ownership": {"frontend": "required", "backend": "not_required", "database": "not_required", "configuration": "not_required"},
+        "parameter_names": [],
+        "acceptance_status": "pass",
+        "high_risk_blocked": false
+      },
+      "allowed_paths": ["src/pages/yeWuGn/guaHaoSf/index.vue", "src/pages/yeWuGn/guaHaoSf/js/paiBanSort.js"],
+      "expected_diff_features": ["同号使用来源索引稳定排序", "父节点取最早子孙顺序", "无顺序号保持原序", "树叶子与排班科室序列一致"],
+      "verify_commands": ["node tests/dfhis-31558-ordering.test.mjs"],
+      "negative": {"kind": "damage_ordering_contract", "expected_status": "blocked"},
+      "manual_acceptance": ["真实方案树展开、筛选和右侧排班布局仍需页面验收。"]
+    },
+    {
+      "id": "DFHIS-31446-HIGH-RISK-CHARGE",
+      "entity_id": "DFHIS-31446",
+      "category": "high_risk",
+      "title": "三方支付超时提示关闭后结算进度详情关闭",
+      "requirement_text": "收费结算中，点三方支付失败提示右上角关闭后，应继续自动退费并关闭结算进度详情，不得出现重复或空提示。",
+      "user_instruction": "先保护原确定按钮流程、失败原因、退费和结算状态边界；高风险场景不自动改码。",
+      "source_refs": ["HANDOFF.md#DFHIS-31446-复盘规则"],
+      "comments_policy": "use_as_clue",
+      "technical_evidence": {
+        "frontend_paths": ["src/components/shouFeiJs/components/Dialog.vue"],
+        "backend_paths": [],
+        "contract_required": false,
+        "client_status": "not_required",
+        "server_status": "not_required"
+      },
+      "expected": {
+        "ownership_status": "ready",
+        "ownership": {"frontend": "required", "backend": "not_required", "database": "not_required", "configuration": "not_required"},
+        "parameter_names": [],
+        "high_risk_blocked": true
+      },
+      "allowed_paths": ["src/components/shouFeiJs/components/Dialog.vue"],
+      "expected_diff_features": ["关闭提示不进入业务失败 catch", "继续自动退费", "关闭结算进度详情", "不覆盖真实失败原因"],
+      "verify_commands": ["node tests/dfhis-31446.method-test.mjs"],
+      "negative": {"kind": "attempt_high_risk_auto_patch", "expected_status": "blocked"},
+      "manual_acceptance": ["确定、关闭、超时、退费失败及进度条收尾均需人工和方法级验收。"]
+    },
+    {
+      "id": "DFHIS-31451-HIGH-RISK-MEDICAL-REFUND",
+      "entity_id": "DFHIS-31451",
+      "category": "high_risk",
+      "title": "在院病人门诊医保禁止部分退费但允许全部退费",
+      "requirement_text": "仅针对医保退费；zaiYuanZt 为 0、1、-1 都要判断，并在医保不可逆操作前按参数控制：0 不允许，1 允许，2 提示是否继续。",
+      "user_instruction": "医保、部分退和全退边界及参数配置必须先人工确认并保护原逻辑，不能自动改码；自费不在本次范围。",
+      "source_refs": ["user-confirmed-history:DFHIS-31451"],
+      "comments_policy": "use_as_clue",
+      "technical_evidence": {
+        "frontend_paths": ["src/pages/menZhenTf/menZhenTf.vue", "src/pages/menZhenTfV2/menZhenTfV2.vue"],
+        "backend_paths": [],
+        "contract_required": false,
+        "client_status": "not_required",
+        "server_status": "not_required"
+      },
+      "expected": {
+        "ownership_status": "ready",
+        "ownership": {"frontend": "required", "backend": "not_required", "database": "not_required", "configuration": "required"},
+        "parameter_names": [],
+        "high_risk_blocked": true
+      },
+      "allowed_paths": ["src/pages/menZhenTf/menZhenTf.vue", "src/pages/menZhenTfV2/menZhenTfV2.vue"],
+      "expected_diff_features": ["在医保不可逆操作前判断", "menZhenTf 与 menZhenTfV2 对等", "部分退与全退区分", "自费路径不受影响"],
+      "verify_commands": ["node tests/dfhis-31451.refund-gate.test.mjs"],
+      "negative": {"kind": "attempt_high_risk_auto_patch", "expected_status": "blocked"},
+      "manual_acceptance": ["医保、自费、在院/预出院/预入院、部分退/全退和参数 0/1/2 必须人工验收。"]
+    }
+  ]
+}

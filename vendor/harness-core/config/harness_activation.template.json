@@ -1,0 +1,124 @@
+{
+  "schema_version": "his-harness-activation-request.v1",
+  "requested_by": "lym",
+  "authorization_id": "fill-YYYYMMDD-harness-pilot",
+  "environment": "test",
+  "secret_rule": "Do not put token, password, API key, Authorization header, or private key in this file. Configure values only in the local credential store, then fill key references here.",
+  "implementation": {
+    "complete_local_manager_governance": true,
+    "allow_real_external_write_execution": false,
+    "require_per_action_confirmation_for_writes": true
+  },
+  "credentials": {
+    "storage": "local_credentials_file_or_keychain",
+    "credentials_file_path": "/Users/lym/WorkCode/ai/apiKey/credentials.json",
+    "do_not_send_secrets_in_chat": true
+  },
+  "model": {
+    "enable_controlled_single_node_smoke": true,
+    "keep_general_model_runtime_frozen": true,
+    "keep_agent_team_dag_frozen": true,
+    "allow_credentials_for_this_smoke": true,
+    "allow_network_for_this_smoke": true,
+    "profile_policy_path": "/Users/lym/WorkCode/ai/Harness/config/model_providers.local.json",
+    "profile_key": "fill-model-profile-key",
+    "provider_kind": "openai_compatible",
+    "allowed_endpoint_hosts": ["fill-model-endpoint-host"],
+    "model_name": "fill-model-name",
+    "credential_key_refs": {
+      "api_key": "fill-model-api-key-ref",
+      "base_url": "fill-model-base-url-ref",
+      "model": "fill-model-name-ref"
+    },
+    "timeout_seconds": 20,
+    "max_output_tokens": 64,
+    "max_authorized_requests": 1,
+    "monthly_budget_limit_cny": 0
+  },
+  "yunxiao": {
+    "enabled": false,
+    "api_base_url": "https://openapi-rdc.aliyuncs.com",
+    "organization_id_ref": "aliyun_devops_organization_id",
+    "project_key_or_id": "fill-yunxiao-project",
+    "read_credential_ref": "aliyun_devops_pat",
+    "write_credential_ref": "aliyun_devops_write_pat",
+    "test_work_item_id": "fill-test-work-item-id",
+    "allowed_actions": {
+      "read": false,
+      "comment": false,
+      "assign_owner": false,
+      "transition": false
+    }
+  },
+  "git": {
+    "enabled": false,
+    "repository_path": "fill-absolute-test-repository-path",
+    "test_branch": "fill-non-protected-test-branch",
+    "remote_name": "origin",
+    "allowed_actions": {
+      "inspect": false,
+      "apply_local": false,
+      "commit_local": false,
+      "push": false
+    }
+  },
+  "gitlab": {
+    "enabled": false,
+    "host": "fill-gitlab-host",
+    "test_project": "fill-gitlab-test-project",
+    "credential_ref": "gitlab_token",
+    "allowed_actions": {
+      "read": false,
+      "comment": false,
+      "create_branch": false,
+      "push": false
+    }
+  },
+  "database": {
+    "enabled": false,
+    "environment": "test",
+    "credential_ref": "his_db_readonly",
+    "change_credential_ref": "fill-db-change-credential-ref",
+    "connection_identity": {
+      "driver": "fill-driver",
+      "host": "fill-test-db-host",
+      "port": "fill-port",
+      "database": "fill-database",
+      "schema": "fill-schema"
+    },
+    "test_connection_identity_must_equal_runtime": true,
+    "allowed_read_sql_or_fixture": "fill-approved-read-only-query-or-fixture-path",
+    "allowed_write_test_object": "fill-isolated-test-table-or-view",
+    "rollback_or_cleanup_method": "fill-rollback-or-cleanup-method",
+    "allowed_actions": {
+      "connectivity_smoke": false,
+      "read_query": false,
+      "create_test_view": false,
+      "change": false
+    }
+  },
+  "business_acceptance": {
+    "environment": "fill-his-test-or-uat-environment",
+    "operator_alias": "fill-operator-alias",
+    "test_account_alias": "fill-test-account-alias",
+    "test_data_alias": "fill-test-data-alias",
+    "evidence_location": "fill-local-evidence-folder-or-system-link",
+    "scenarios": [
+      {
+        "name": "fill-business-scenario",
+        "expected": "fill-expected-result",
+        "acceptance_owner": "fill-owner"
+      }
+    ]
+  },
+  "knowledge": {
+    "home": "/Users/lym/WorkCode/ai/his-knowledge",
+    "obsidian_vault": "/Users/lym/WorkCode/ai/his-knowledge/vault",
+    "allowed_source_paths": ["fill-absolute-approved-source-path"],
+    "blocked_source_paths": ["fill-sensitive-or-unapproved-path"],
+    "source_types": ["yunxiao_workitems", "harness_docs", "his_operation_docs", "database_dictionary"],
+    "allow_candidate_auto_create": true,
+    "allow_auto_promote": false,
+    "review_owner": "fill-knowledge-review-owner"
+  }
+}

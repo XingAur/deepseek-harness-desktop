@@ -13,6 +13,18 @@ export default defineConfig([
     sourcemap: true,
   },
   {
+    entry: { 'harness-host': 'src/server/harness-host.ts' },
+    outDir: 'lib',
+    format: 'esm',
+    platform: 'node',
+    target: 'node22',
+    fixedExtension: false,
+    dts: false,
+    clean: false,
+    sourcemap: true,
+    deps: { alwaysBundle: [/^@dsh\/agent-adapter(?:\/|$)/] },
+  },
+  {
     entry: { client: 'src/client/index.ts' },
     outDir: 'lib',
     format: 'cjs',

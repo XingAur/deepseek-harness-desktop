@@ -132,6 +132,124 @@ it('maps plugin market actions to dedicated commands with bounded payloads', () 
     expect(isVersionedBridgePayload('credential.put', { providerId: 'codex', secret: 'private-value' })).toBe(true)
     expect(isVersionedBridgePayload('credential.put', { providerId: '../escape', secret: 'private-value' })).toBe(false)
   })
+
+  it('routes Harness lifecycle actions and requires its generated task evidence paths', () => {
+    expect(bridgeCommandByActionV2['harness.status']).toBe('harness_status')
+    expect(bridgeCommandByActionV2['harness.cancel']).toBe('harness_cancel')
+    expect(isVersionedBridgePayload('harness.status', {})).toBe(true)
+    expect(isVersionedBridgePayload('harness.start', {
+      taskContractPath: '/tmp/task-contract.json',
+      understandingPath: '/tmp/understanding.json',
+      worktreeRoot: '/tmp/project',
+      knowledgeHome: '/tmp/knowledge',
+      authorizationId: 'DFHIS-32178-change-1',
+      agentBackend: 'host-bridge',
+    })).toBe(true)
+    expect(isVersionedBridgePayload('harness.start', {
+      taskContractPath: '/tmp/task-contract.json',
+      understandingPath: '/tmp/understanding.json',
+      worktreeRoot: '/tmp/project',
+      knowledgeHome: '/tmp/knowledge',
+      authorizationId: 'DFHIS-32178-change-1',
+      unexpected: true,
+    })).toBe(false)
+  })
+
+  it('routes maintainable MCP and database profiles without allowing secrets in profile payloads', () => {
+    expect(bridgeCommandByActionV2['harness.connection.list']).toBe('harness_connection_list')
+    expect(bridgeCommandByActionV2['harness.connection.save']).toBe('harness_connection_save')
+    expect(isVersionedBridgePayload('harness.connection.list', { kind: 'database' })).toBe(true)
+    expect(isVersionedBridgePayload('harness.connection.save', {
+      profileId: 'his-db-readonly', kind: 'database', providerId: 'generic', displayName: 'HIS 只读库',
+      endpoint: 'postgresql://db.internal:5432/his', readOnly: true, enabled: true,
+      credentialId: 'credential-1',
+    })).toBe(true)
+    expect(isVersionedBridgePayload('harness.connection.save', {
+      kind: 'database', displayName: 'HIS 只读库', password: 'must-not-cross',
+    })).toBe(false)
+  })
+
+  it('accepts a selected Harness package without requiring generated file paths', () => {
+    expect(isVersionedBridgePayload('harness.start', {
+      archiveRoot: '/Users/test/harness/DFHIS-32178/harness',
+      worktreeRoot: '/Users/test/project',
+      knowledgeHome: '/Users/test/knowledge',
+      authorizationId: 'DFHIS-32178-change-1',
+      selectedModelId: 'gpt-5.6-sol',
+    })).toBe(true)
+  })
+
+  it('accepts a read-only Yunxiao intake source without allowing credentials in the source', () => {
+    expect(bridgeCommandByActionV2['harness.intake']).toBe('harness_intake')
+    expect(bridgeCommandByActionV2['harness.chat.start']).toBe('harness_chat_start')
+    expect(bridgeCommandByActionV2['harness.pick-evidence-files']).toBe('harness_pick_evidence_files')
+    expect(isVersionedBridgePayload('harness.intake', {
+      source: 'https://devops.aliyun.com/projex/req/DFHIS-39999',
+      archiveRoot: '/Users/test/harness-archives',
+      includeComments: true,
+    })).toBe(true)
+    expect(isVersionedBridgePayload('harness.intake', {
+      source: 'DFHIS-39999',
+      archiveRoot: '/Users/test/harness-archives',
+    })).toBe(true)
+    expect(isVersionedBridgePayload('harness.intake', {
+      source: 'https://devops.aliyun.com/projex/req/DFHIS-39999?token=secret',
+      archiveRoot: '/Users/test/harness-archives',
+    })).toBe(false)
+  })
+
+  it('validates the main-chat source and evidence payload without exposing internal task paths', () => {
+    expect(isVersionedBridgePayload('harness.chat.start', {
+      prompt: '完成需求',
+      yunxiaoSource: 'DFHIS-12345',
+      evidencePaths: ['/tmp/需求.png'],
+    })).toBe(true)
+    expect(isVersionedBridgePayload('harness.chat.start', { prompt: '完成需求', yunxiaoSource: 'not-a-work-item' })).toBe(false)
+    expect(isVersionedBridgePayload('harness.pick-evidence-files', {})).toBe(true)
+  })
+
+  it('carries any provider-defined selected model into the intake and rejects malformed backend ids', () => {
+    expect(isVersionedBridgePayload('harness.intake', {
+      source: 'DFHIS-39999',
+      archiveRoot: '/Users/test/harness-archives',
+      selectedModelId: 'deepseek-reasoner',
+      agentBackend: 'deepseek',
+    })).toBe(true)
+    expect(isVersionedBridgePayload('harness.intake', {
+      source: 'DFHIS-39999',
+      archiveRoot: '/Users/test/harness-archives',
+      agentBackend: 'HOST-BRIDGE',
+    })).toBe(false)
+    expect(isVersionedBridgePayload('harness.intake', {
+      source: 'DFHIS-39999',
+      archiveRoot: '/Users/test/harness-archives',
+      selectedModelId: 'openrouter/qwen/qwen3-235b-a22b:free',
+    })).toBe(true)
+    expect(isVersionedBridgePayload('harness.intake', {
+      source: 'DFHIS-39999',
+      archiveRoot: '/Users/test/harness-archives',
+      selectedModelId: 'model\u0000id',
+    })).toBe(false)
+  })
+
+  it('exposes the native archive-root picker without any payload fields', () => {
+    expect(bridgeCommandByActionV2['harness.pick-archive-root']).toBe('harness_pick_archive_root')
+    expect(isVersionedBridgePayload('harness.pick-archive-root', {})).toBe(true)
+    expect(isVersionedBridgePayload('harness.pick-archive-root', { path: '/tmp' })).toBe(false)
+  })
+
+  it('carries bounded business answers into the task package', () => {
+    expect(bridgeCommandByActionV2['harness.archive-answers']).toBe('harness_archive_answers')
+    expect(isVersionedBridgePayload('harness.archive-answers', {
+      archiveRoot: '/Users/test/harness-archives/DFHIS-39999/harness',
+      answers: '重打记录按操作员过滤。',
+    })).toBe(true)
+    expect(isVersionedBridgePayload('harness.archive-answers', {
+      archiveRoot: '/Users/test/harness-archives/DFHIS-39999/harness',
+      answers: 'x'.repeat(8001),
+    })).toBe(false)
+    expect(isVersionedBridgePayload('harness.archive-answers', { answers: '有效答复' })).toBe(false)
+  })
 })
 
 describe('prompts v2 actions', () => {

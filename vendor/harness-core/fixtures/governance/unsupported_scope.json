@@ -1,0 +1,53 @@
+{
+  "fixture_id": "unsupported_scope",
+  "inputs": {
+    "title": "生产 Oracle 收费对账修复",
+    "user_instruction": "需要在生产 Oracle 上执行对账修复，但当前只允许本地受控分析。",
+    "normalized_requirement_evidence": {
+      "readonly": true,
+      "external_writes_enabled": false,
+      "source_type": "manual",
+      "title": "生产 Oracle 收费对账修复",
+      "description_text": "生产 Oracle 对账数据需要修复。",
+      "comments": [],
+      "attachments": [],
+      "warnings": []
+    },
+    "requirement_calibration": {
+      "status": "ready_for_development",
+      "decision": {"can_enter_development": true},
+      "resolved_parameters": [{"name": "reconciliation_scope", "allowed_values": {"local": "仅本地受控分析", "default": "未授权时不执行生产操作"}}],
+      "resolved_scope": {"do": "评估生产 Oracle 对账修复范围", "do_not": ["未授权时不执行生产操作"]},
+      "warnings": [],
+      "must_confirm": []
+    },
+    "technical_decision": {
+      "selected_projects": [{"name": "df-web-guahaosf", "path": "/tmp/df-web-guahaosf", "exists": true, "role": "frontend"}],
+      "implementation_decision": {"can_patch": true, "blockers": []},
+      "recommended_allowed_paths": ["src/pages/reconciliation/index.vue"],
+      "recommended_verify_commands": ["npm test -- reconciliation"],
+      "contract_verification": {"required": false, "status": "not_required", "blockers": []},
+      "field_provenance": {"evidence": [{"project": "df-web-guahaosf", "path": "src/pages/reconciliation/index.vue"}]},
+      "required_capabilities": ["oracle.production.execute"]
+    },
+    "change_ownership": {
+      "status": "ready",
+      "rows": [
+        {"layer": "frontend", "status": "required", "reason": "本地展示源码已定位"},
+        {"layer": "backend", "status": "not_required", "reason": "本 fixture 不修改服务端"},
+        {"layer": "database", "status": "not_required", "reason": "当前无数据库权限"},
+        {"layer": "configuration", "status": "not_required", "reason": "不修改配置"}
+      ],
+      "blockers": []
+    },
+    "acceptance_matrix": {
+      "risk": {"level": "high", "reasons": ["生产 Oracle 对账"]},
+      "blockers": [],
+      "auto_verification": [{"command": "npm test -- reconciliation", "statement": "本地对账页面回归通过"}],
+      "requirement_acceptance": [{"scenario": "确认生产操作授权边界"}],
+      "manual_acceptance": [{"scenario": "人工确认不得执行生产 Oracle 操作"}],
+      "sibling_impact": {"required": false, "status": "not_required", "blockers": []}
+    },
+    "available_capabilities": ["source.read", "local.patch"]
+  }
+}

@@ -44,6 +44,7 @@ export interface CodexNotification {
 /** A duplex JSON-RPC connection to `codex app-server`. */
 export interface CodexAppServerChannel {
   request(method: string, params?: Record<string, unknown>): Promise<Record<string, unknown>>
+  notify(method: string, params?: Record<string, unknown>): void
   respond(serverRequest: CodexServerRequest, result: Record<string, unknown>): void
   close(): Promise<void>
   readonly exited: Promise<void>
@@ -165,6 +166,9 @@ export function openCodexAppServerChannel(options: CodexAppServerChannelOptions)
           reject(cause as Error)
         }
       })
+    },
+    notify(method, params = {}) {
+      write({ jsonrpc: '2.0', method, params })
     },
     respond(serverRequest, result) {
       write({ jsonrpc: '2.0', id: serverRequest.id, result })

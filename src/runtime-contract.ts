@@ -133,6 +133,7 @@ export interface AppUpdateInfo {
   version: string
   notes: string | null
   size: number | null
+  sha256?: string | null
   mode?: 'in-app' | 'manual-dmg'
   downloadUrl?: string | null
   developerIdSigned?: boolean | null

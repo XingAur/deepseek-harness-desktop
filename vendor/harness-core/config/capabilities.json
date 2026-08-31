@@ -1,0 +1,13 @@
+{
+  "schema_version": "his-capability-runtime-config.v1",
+  "routing_mode": "enforce",
+  "plugin_roots": [
+    "/Users/lym/plugins/his-harness-core",
+    "/Users/lym/plugins/yunxiao",
+    "/Users/lym/plugins/his-engineering",
+    "/Users/lym/plugins/his-knowledge"
+  ],
+  "external_writes_default": false,
+  "default_timeout_seconds": 60,
+  "knowledge_home": "/Users/lym/WorkCode/ai/his-knowledge"
+}

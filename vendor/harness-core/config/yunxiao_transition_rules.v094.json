@@ -1,0 +1,55 @@
+{
+  "version": "0.9.4",
+  "purpose": "云效状态流转规则基座草案，仅用于 dry-run/fake 验证，不代表真实云效流程机已确认。",
+  "real_transition_enabled": false,
+  "real_write_boundary": {
+    "allowed_real_actions": ["comment"],
+    "blocked_real_actions": ["transition", "assign", "update_iteration", "upload_attachment", "update_service_change", "link_artifact", "close"]
+  },
+  "recommendations": [
+    {
+      "outcome": "analysis_unclear",
+      "target_status": "待澄清",
+      "required_evidence": ["需求边界不清楚", "待确认项列表"],
+      "forbidden_when": ["已具备明确复现步骤和验收口径"]
+    },
+    {
+      "outcome": "developed_unverified",
+      "target_status": "待测试",
+      "required_evidence": ["提交号", "改动范围", "自动验证结果或未验证说明"],
+      "forbidden_when": ["缺少提交号", "缺少改动范围", "验证失败"]
+    },
+    {
+      "outcome": "verification_failed",
+      "target_status": "开发中",
+      "required_evidence": ["失败命令", "失败日志摘要", "需修复项"],
+      "forbidden_when": ["失败原因不可复现且无日志"]
+    },
+    {
+      "outcome": "high_risk_needs_review",
+      "target_status": "待人工审核",
+      "required_evidence": ["高风险原因", "人工确认项", "验收清单"],
+      "forbidden_when": ["业务已明确为低风险且自动验证充分"]
+    },
+    {
+      "outcome": "all_passed",
+      "target_status": "",
+      "required_evidence": ["提交号", "改动范围", "验证结果", "测试建议"],
+      "forbidden_when": ["缺少人工验收证据时自动关闭任务"]
+    }
+  ],
+  "fake_allowed_transitions": {
+    "待开发": ["开发中", "待澄清", "待测试", "待人工审核"],
+    "开发中": ["待测试", "待修复", "待人工审核"],
+    "待修复": ["开发中", "待测试"],
+    "待测试": ["测试中", "开发中", "待人工审核"],
+    "测试中": ["待发布", "开发中", "待人工审核"],
+    "待人工审核": ["开发中", "待测试", "待发布"],
+    "待发布": ["已完成"]
+  },
+  "notes": [
+    "真实状态流转前必须由用户确认云效实际状态机、字段映射和每个状态的证据要求。",
+    "医保、收费、结算、报表、对账、优惠、减免类需求默认需要人工审核，不自动关闭。",
+    "v0.9.4 只允许 fake transport 验证 transition 管道，real transport 下 transition 必须阻断。"
+  ]
+}

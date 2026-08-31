@@ -1,0 +1,22 @@
+{
+  "schema_version": "his-local-agent-task.v1",
+  "task_key": "fixture-confirmation-7",
+  "project_path": "__PROJECT_PATH__",
+  "request": "Fix add so the supplied unit test passes.",
+  "allowed_paths": [
+    "calculator.py"
+  ],
+  "verification_commands": [
+    [
+      "__PYTHON__",
+      "-m",
+      "unittest",
+      "-q",
+      "test_calculator"
+    ]
+  ],
+  "acceptance_criteria": [
+    "The existing test passes."
+  ],
+  "timeout_seconds": 30
+}

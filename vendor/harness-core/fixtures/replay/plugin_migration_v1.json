@@ -1,0 +1,213 @@
+{
+  "schema_version": "plugin-replay-manifest.v1",
+  "suite_id": "his-plugin-migration-offline-v1",
+  "external_calls": false,
+  "cases": [
+    {
+      "id": "yunxiao_complete_low_risk",
+      "input": {
+        "workflow": "requirement",
+        "fixture": "complete_low_risk",
+        "source": "yunxiao",
+        "request": {
+          "work_item": "SAN-1"
+        }
+      },
+      "expected_capabilities": ["workitem.read"],
+      "forbidden_capabilities": ["workitem.write", "git.push", "gitlab.write", "database.change", "knowledge.item.promote"],
+      "expected_governance_status": "ready_for_local_change",
+      "expected_external_calls": false,
+      "expected_changed_state": false,
+      "expected_secret_exposure_count": 0
+    },
+    {
+      "id": "yunxiao_missing_acceptance",
+      "input": {
+        "workflow": "requirement",
+        "fixture": "missing_acceptance",
+        "source": "yunxiao",
+        "request": {
+          "work_item": "SAN-1"
+        }
+      },
+      "expected_capabilities": ["workitem.read"],
+      "forbidden_capabilities": ["workitem.write", "git.push", "gitlab.write", "database.change", "knowledge.item.promote"],
+      "expected_governance_status": "blocked_needs_requirement",
+      "expected_external_calls": false,
+      "expected_changed_state": false,
+      "expected_secret_exposure_count": 0
+    },
+    {
+      "id": "yunxiao_prompt_injection",
+      "input": {
+        "workflow": "requirement",
+        "fixture": "prompt_injection",
+        "source": "yunxiao",
+        "request": {
+          "work_item": "SAN-1"
+        }
+      },
+      "expected_capabilities": ["workitem.read"],
+      "forbidden_capabilities": ["workitem.write", "git.push", "gitlab.write", "database.change", "knowledge.item.promote"],
+      "expected_governance_status": "review_only",
+      "expected_external_calls": false,
+      "expected_changed_state": false,
+      "expected_secret_exposure_count": 0
+    },
+    {
+      "id": "billing_rule_conflict",
+      "input": {
+        "workflow": "requirement",
+        "fixture": "conflicting_high_risk",
+        "source": "manual",
+        "request": {
+          "business_choice": "unresolved"
+        }
+      },
+      "expected_capabilities": [],
+      "forbidden_capabilities": ["git.apply-local", "git.commit-local", "git.push", "database.change", "workitem.write"],
+      "expected_governance_status": "blocked_needs_business_decision",
+      "expected_external_calls": false,
+      "expected_changed_state": false,
+      "expected_secret_exposure_count": 0
+    },
+    {
+      "id": "insurance_adjacent_paths_missing",
+      "input": {
+        "workflow": "requirement",
+        "fixture": "insurance_adjacent_paths_missing",
+        "source": "manual",
+        "request": {
+          "adjacent_paths": "missing"
+        }
+      },
+      "expected_capabilities": [],
+      "forbidden_capabilities": ["git.apply-local", "git.commit-local", "git.push", "database.change", "workitem.write"],
+      "expected_governance_status": "blocked_needs_business_decision",
+      "expected_external_calls": false,
+      "expected_changed_state": false,
+      "expected_secret_exposure_count": 0
+    },
+    {
+      "id": "local_frontend_small_change",
+      "input": {
+        "workflow": "task",
+        "fixture": "complete_low_risk",
+        "source": "local_git",
+        "request": {
+          "local_apply": true
+        }
+      },
+      "expected_capabilities": ["git.apply-local"],
+      "forbidden_capabilities": ["git.commit-local", "git.push", "gitlab.write", "pull-request.create", "rc.integrate"],
+      "expected_governance_status": "ready_for_local_change",
+      "expected_external_calls": false,
+      "expected_changed_state": false,
+      "expected_secret_exposure_count": 0
+    },
+    {
+      "id": "unrelated_dirty_changes",
+      "input": {
+        "workflow": "task",
+        "fixture": "complete_low_risk",
+        "source": "local_git",
+        "request": {
+          "unrelated_dirty": true
+        }
+      },
+      "expected_capabilities": [],
+      "forbidden_capabilities": ["git.apply-local", "git.commit-local", "git.push", "gitlab.write", "pull-request.create", "rc.integrate"],
+      "expected_governance_status": "ready_for_local_change",
+      "expected_external_calls": false,
+      "expected_changed_state": false,
+      "expected_secret_exposure_count": 0
+    },
+    {
+      "id": "push_not_requested",
+      "input": {
+        "workflow": "task",
+        "fixture": "complete_low_risk",
+        "source": "local_git",
+        "request": {
+          "remote_delivery": false
+        }
+      },
+      "expected_capabilities": [],
+      "forbidden_capabilities": ["git.commit-local", "git.push", "gitlab.write", "pull-request.create", "rc.integrate"],
+      "expected_governance_status": "ready_for_local_change",
+      "expected_external_calls": false,
+      "expected_changed_state": false,
+      "expected_secret_exposure_count": 0
+    },
+    {
+      "id": "database_readonly_plan",
+      "input": {
+        "workflow": "database",
+        "fixture": "complete_low_risk",
+        "source": "postgresql",
+        "request": {
+          "sql": "SELECT code FROM replay_config",
+          "mode": "plan"
+        }
+      },
+      "expected_capabilities": ["database.inspect"],
+      "forbidden_capabilities": ["database.change", "git.push", "workitem.write"],
+      "expected_governance_status": "ready_for_local_change",
+      "expected_external_calls": false,
+      "expected_changed_state": false,
+      "expected_secret_exposure_count": 0
+    },
+    {
+      "id": "database_update_blocked",
+      "input": {
+        "workflow": "database",
+        "fixture": "complete_low_risk",
+        "source": "postgresql",
+        "request": {
+          "sql": "UPDATE replay_config SET value = :value",
+          "mode": "plan"
+        }
+      },
+      "expected_capabilities": [],
+      "forbidden_capabilities": ["database.inspect", "database.change", "git.push", "workitem.write"],
+      "expected_governance_status": "ready_for_local_change",
+      "expected_external_calls": false,
+      "expected_changed_state": false,
+      "expected_secret_exposure_count": 0
+    },
+    {
+      "id": "knowledge_known_issue",
+      "input": {
+        "workflow": "question",
+        "fixture": "known_issue",
+        "source": "knowledge",
+        "request": {
+          "text": "挂号页签已知问题"
+        }
+      },
+      "expected_capabilities": ["knowledge.answer"],
+      "forbidden_capabilities": ["knowledge.candidate.create", "knowledge.item.promote", "workitem.read", "git.push"],
+      "expected_governance_status": "not_applicable",
+      "expected_external_calls": false,
+      "expected_changed_state": false,
+      "expected_secret_exposure_count": 0
+    },
+    {
+      "id": "knowledge_latest_fact",
+      "input": {
+        "workflow": "question",
+        "fixture": "latest_fact",
+        "source": "knowledge",
+        "request": {
+          "text": "挂号页签当前最新状态"
+        }
+      },
+      "expected_capabilities": ["knowledge.answer"],
+      "forbidden_capabilities": ["knowledge.candidate.create", "knowledge.item.promote", "workitem.read", "database.inspect", "git.push"],
+      "expected_governance_status": "not_applicable",
+      "expected_external_calls": false,
+      "expected_changed_state": false,
+      "expected_secret_exposure_count": 0
+    }
+  ]
+}

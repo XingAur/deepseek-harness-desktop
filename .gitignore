@@ -21,3 +21,4 @@ e2e-artifacts/
 .dsh-e2e-owned/
 .tmp-pack/
 doc/updater-e2e.key*
+.DS_Store

@@ -15,6 +15,7 @@ function bridgeFixture(): DesktopBridgeLike {
       if (action === 'capability.inventory') return [{ id: 'file-read', displayName: '读取文件', mutating: false, approvalRequired: false }]
       if (action === 'extension.inventory') return []
       if (action === 'cli.path.status') return { provider: 'codex', selected: null, candidates: [], diagnostics: [] }
+      if (action === 'harness.connection.list') return [{ profileId: 'his-db', kind: 'database', providerId: 'generic', displayName: 'HIS 只读库', endpoint: 'db.internal', readOnly: true, enabled: true }]
       return { credentialId: 'credential-1', status: 'configured' }
     }) as DesktopBridgeLike['requestV2'],
     dispose: vi.fn(),
@@ -22,7 +23,7 @@ function bridgeFixture(): DesktopBridgeLike {
 }
 
 describe('model and agent center', () => {
-  it('loads providers and exposes the three bounded management tabs', async () => {
+  it('loads providers and exposes the bounded management tabs', async () => {
     const bridge = bridgeFixture()
     render(<ModelAgentCenter bridge={bridge} />)
 
@@ -30,6 +31,9 @@ describe('model and agent center', () => {
     expect(screen.getByText('未配置')).toBeVisible()
     expect(screen.getByRole('tab', { name: 'API 模型' })).toBeVisible()
     expect(screen.getByRole('tab', { name: 'Agents' })).toBeVisible()
+    expect(screen.queryByRole('tab', { name: 'Harness 任务' })).toBeNull()
+    expect(screen.getByRole('tab', { name: 'MCP 连接维护' })).toBeVisible()
+    expect(screen.getByRole('tab', { name: '数据库维护' })).toBeVisible()
     expect(screen.getByRole('tab', { name: 'Diagnostics' })).toBeVisible()
     expect(screen.queryByRole('tab', { name: 'Extensions' })).toBeNull()
 
@@ -46,6 +50,24 @@ describe('model and agent center', () => {
     expect(await screen.findByRole('button', { name: '安装 Codex CLI' })).toBeVisible()
     expect(screen.getByRole('button', { name: '重新检测' })).toBeVisible()
     expect(screen.getByText('Codex 在你的项目里真实执行任务；写文件、跑命令等操作都会先请求你的批准。')).toBeVisible()
+  })
+
+  it('keeps database maintenance separate from the Harness task selector', async () => {
+    const bridge = bridgeFixture()
+    render(<ModelAgentCenter bridge={bridge} />)
+    fireEvent.click(await screen.findByRole('tab', { name: '数据库维护' }))
+    expect(await screen.findByText('HIS 只读库')).toBeVisible()
+    expect(screen.getByText(/数据库独立维护/)).toBeVisible()
+  })
+
+  it('maintains concrete Yunxiao and GitLab business connections instead of generic MCP links', async () => {
+    const bridge = bridgeFixture()
+    render(<ModelAgentCenter bridge={bridge} />)
+    fireEvent.click(await screen.findByRole('tab', { name: 'MCP 连接维护' }))
+    expect(await screen.findByText('云效需求读取')).toBeVisible()
+    expect(screen.getByText('GitLab 代码读取')).toBeVisible()
+    expect(screen.queryByText('其他 MCP')).toBeNull()
+    expect(screen.queryByLabelText('MCP 地址')).toBeNull()
   })
 
   it('opens the credential flow without rendering the secret', async () => {

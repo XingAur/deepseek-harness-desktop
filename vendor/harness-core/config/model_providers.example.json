@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0-controlled-model-provider-profiles",
+  "profiles": {
+    "deepseek-openai-compatible": {
+      "provider_kind": "openai_compatible",
+      "enabled": true,
+      "smoke_enabled": true,
+      "credential_keys": {
+        "api_key": [
+          "openai_api_key",
+          "deepseek_api_key",
+          "deppseek_api_key"
+        ],
+        "base_url": [
+          "openai_base_url",
+          "deepseek_base_url",
+          "deppseek_base_url"
+        ],
+        "model": [
+          "openai_model",
+          "deepseek_model",
+          "deppseek_model"
+        ]
+      },
+      "allowed_endpoint_hosts": [
+        "api.deepseek.com"
+      ],
+      "timeout_seconds": 20,
+      "max_output_tokens": 64
+    }
+  }
+}

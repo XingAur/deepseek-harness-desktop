@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "single_pass_change_contract.v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "status", "objective", "in_scope", "out_of_scope", "repositories", "allowed_paths", "business_rules", "preserved_behaviors", "adjacent_paths", "database_impacts", "configuration_impacts", "verify_commands", "automatic_acceptance", "manual_acceptance", "rollback_strategy", "blockers"],
+  "properties": {
+    "schema_version": {"const": "single-pass-change-contract.v1"},
+    "status": {"enum": ["ready", "blocked"]},
+    "objective": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "in_scope": {"$ref": "#/$defs/texts"},
+    "out_of_scope": {"$ref": "#/$defs/texts"},
+    "repositories": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/repository"}},
+    "allowed_paths": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)(?!/|~|\\./|[A-Za-z]:)(?![\\s\\S]*[\\u0000-\\u001F\\u007F])(?![\\s\\S]*\\\\)(?![\\s\\S]*//)(?![\\s\\S]*/$)(?!\\.{1,2}(?:/|$))(?![\\s\\S]*/\\.{1,2}(?:/|$))[\\s\\S]+$"}},
+    "business_rules": {"type": "array", "items": {"type": "object"}},
+    "preserved_behaviors": {"$ref": "#/$defs/texts"},
+    "adjacent_paths": {"$ref": "#/$defs/texts"},
+    "database_impacts": {"type": "array", "items": {"type": "object"}},
+    "configuration_impacts": {"type": "array", "items": {"type": "object"}},
+    "verify_commands": {"type": "array", "items": {"$ref": "#/$defs/command"}, "uniqueItems": true},
+    "automatic_acceptance": {"$ref": "#/$defs/texts"},
+    "manual_acceptance": {"$ref": "#/$defs/texts"},
+    "rollback_strategy": {"type": "string", "minLength": 1},
+    "blockers": {"$ref": "#/$defs/texts"}
+  },
+  "allOf": [
+    {"if": {"properties": {"status": {"const": "ready"}}, "required": ["status"]}, "then": {"properties": {"blockers": {"maxItems": 0}, "repositories": {"minItems": 1}, "allowed_paths": {"minItems": 1}, "verify_commands": {"minItems": 1}, "automatic_acceptance": {"minItems": 1}, "manual_acceptance": {"minItems": 1}}, "not": {"properties": {"rollback_strategy": {"const": "not_available"}}, "required": ["rollback_strategy"]}}},
+    {"if": {"properties": {"status": {"const": "blocked"}}, "required": ["status"]}, "then": {"properties": {"blockers": {"minItems": 1}, "repositories": {"maxItems": 0}, "allowed_paths": {"maxItems": 0}, "business_rules": {"maxItems": 0}, "database_impacts": {"maxItems": 0}, "configuration_impacts": {"maxItems": 0}, "verify_commands": {"maxItems": 0}, "automatic_acceptance": {"maxItems": 0}, "manual_acceptance": {"maxItems": 0}, "rollback_strategy": {"const": "not_available"}}}}
+  ],
+  "$defs": {
+    "texts": {"type": "array", "items": {"type": "string", "minLength": 1, "pattern": "\\S"}, "uniqueItems": true},
+    "command": {"type": "string", "pattern": "^[A-Za-z0-9_./:-]+(?:\\s+[-A-Za-z0-9_./:=]+)*$"},
+    "repository": {"type": "object", "additionalProperties": false, "required": ["name", "path", "role"], "properties": {"name": {"type": "string", "minLength": 1, "pattern": "\\S"}, "path": {"type": "string", "pattern": "^/(?!.*//)(?!.*\\\\)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^/]+(?:/[^/]+)+$"}, "role": {"type": "string", "minLength": 1, "pattern": "\\S"}}}
+  }
+}

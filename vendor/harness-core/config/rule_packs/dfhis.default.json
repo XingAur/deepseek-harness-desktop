@@ -1,0 +1,163 @@
+{
+  "version": "0.65",
+  "rule_pack_id": "dfhis-default",
+  "display_name": "DFHIS 默认安全规则包",
+  "purpose": "将 HIS Harness 的 Git、评论、状态流转、验证、风险和分享规则集中配置化。该文件只保存规则和凭证引用名，不保存真实密钥。",
+  "hard_guards": {
+    "no_secret_printing": true,
+    "external_writes_default": "off",
+    "real_status_transition_requires_confirmation": true,
+    "real_commit_push_requires_confirmation": true,
+    "destructive_git_forbidden": true,
+    "publish_forbidden_by_default": true
+  },
+  "providers": {
+    "requirement_sources": ["yunxiao", "tapd", "jira", "github_issue", "manual", "file"],
+    "normalized_schema": [
+      "source_type",
+      "source_url",
+      "external_id",
+      "title",
+      "description_text",
+      "comments",
+      "attachments",
+      "images",
+      "status",
+      "assignee",
+      "fetched_at",
+      "warnings"
+    ]
+  },
+  "credential_refs": [
+    {
+      "key": "aliyun_devops_pat",
+      "label": "云效只读 PAT",
+      "required": true,
+      "secret": true,
+      "env_keys": ["ALIYUN_DEVOPS_PAT", "aliyun_devops_pat"],
+      "file_keys": ["aliyun_devops_pat", "ALIYUN_DEVOPS_PAT"],
+      "keychain_services": ["aliyun_devops_pat"],
+      "usage": ["yunxiao_read"]
+    },
+    {
+      "key": "aliyun_devops_organization_id",
+      "label": "云效组织 ID",
+      "required": true,
+      "secret": false,
+      "env_keys": ["ALIYUN_DEVOPS_ORGANIZATION_ID", "aliyun_devops_organization_id"],
+      "file_keys": ["aliyun_devops_organization_id", "ALIYUN_DEVOPS_ORGANIZATION_ID"],
+      "keychain_services": ["aliyun_devops_organization_id"],
+      "usage": ["yunxiao_read"]
+    },
+    {
+      "key": "openai_api_key",
+      "label": "OpenAI 兼容模型 API Key",
+      "required": false,
+      "secret": true,
+      "env_keys": ["OPENAI_API_KEY", "openai_api_key", "DEEPSEEK_API_KEY", "deepseek_api_key"],
+      "file_keys": ["openai_api_key", "OPENAI_API_KEY", "deepseek_api_key", "DEEPSEEK_API_KEY"],
+      "keychain_services": ["openai_api_key", "deepseek_api_key"],
+      "usage": ["llm_openai_mode"]
+    },
+    {
+      "key": "tapd_api_token",
+      "label": "TAPD API Token",
+      "required": false,
+      "secret": true,
+      "env_keys": ["TAPD_API_TOKEN", "tapd_api_token"],
+      "file_keys": ["tapd_api_token", "TAPD_API_TOKEN"],
+      "keychain_services": ["tapd_api_token"],
+      "usage": ["tapd_read_future"]
+    }
+  ],
+  "git": {
+    "remote": "origin",
+    "integration_branch": "RC_2.16.1_250514",
+    "branch_name": {
+      "requirement": "feature-{id}",
+      "bug": "hotfix-{id}",
+      "task": "task-{id}"
+    },
+    "commit_message": {
+      "requirement": "feat: {id}-{url} 《{title}》",
+      "bug": "fix: {id}-{url} 《{title}》",
+      "task": "chore: {id}-{url} 《{title}》"
+    },
+    "base_branches": {
+      "default": "RC_2.16.1_250514",
+      "release": "release_2.15.3_250515"
+    },
+    "permissions": {
+      "auto_create_branch": false,
+      "auto_commit": false,
+      "auto_push": false,
+      "auto_merge": false,
+      "auto_push_task_branch": false,
+      "auto_integrate_rc": false,
+      "auto_push_rc": false
+    },
+    "required_before_commit": ["git_diff_check", "targeted_validation", "line_by_line_diff_review"]
+  },
+  "comments": {
+    "delivery_template": "dfhis_default_delivery",
+    "include": {
+      "change_summary": true,
+      "verification": true,
+      "residual_risk": true,
+      "manual_acceptance": true,
+      "evidence_paths": true,
+      "configuration_summary": false
+    },
+    "templates": {
+      "dfhis_default_delivery": [
+        "改动说明",
+        "验证情况",
+        "影响范围",
+        "残余风险",
+        "人工验收建议"
+      ],
+      "tapd_default_delivery": [
+        "处理结论",
+        "代码范围",
+        "验证证据",
+        "待确认项"
+      ]
+    }
+  },
+  "status_flow": {
+    "real_transition_enabled": false,
+    "dry_run_enabled": true,
+    "default_target_status": "",
+    "allowed_transitions": {
+      "待处理": ["分析中", "待澄清"],
+      "分析中": ["开发中", "待澄清", "待人工审核"],
+      "开发中": ["待测试", "待修复", "待人工审核"],
+      "待修复": ["开发中", "待测试"],
+      "待测试": ["测试中", "开发中", "待人工审核"],
+      "测试中": ["待发布", "开发中", "待人工审核"],
+      "待人工审核": ["开发中", "待测试", "待发布"],
+      "待发布": ["已完成"]
+    },
+    "blocked_real_actions": ["transition", "assign", "update_iteration", "upload_attachment", "update_service_change", "link_artifact", "close"],
+    "require_human_confirm_for": ["transition", "assign", "update_iteration", "upload_attachment", "close"]
+  },
+  "verification": {
+    "required_checks": ["git_diff_check", "allowed_path_check", "targeted_verify_command"],
+    "ui_change_requires": ["ui_evidence_or_manual_record"],
+    "interaction_change_requires": ["method_level_evidence"],
+    "blocking_warning_codes": ["patch_outside_allowlist", "head_side_effect_failed", "verification_failed"],
+    "readonly_workspace_forbidden_markers": ["fetch(", "XMLHttpRequest", "exec(", "child_process"]
+  },
+  "risk": {
+    "high_risk_keywords": ["医保", "收费", "结算", "报表", "对账", "政策校验", "发票", "基金", "冲正", "清算"],
+    "high_risk_requires": ["requirement_calibration", "manual_acceptance", "explicit_user_confirmation"],
+    "auto_flow_blocked_for_high_risk": true
+  },
+  "sharing": {
+    "portable": true,
+    "secret_free": true,
+    "do_not_export_credentials": true,
+    "recommended_user_config_dir": "~/.his-harness",
+    "recommended_secret_sources": ["env", "local_credentials_file", "os_keychain"]
+  }
+}

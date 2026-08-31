@@ -98,13 +98,19 @@ impl PluginMarketState {
 fn load_catalog(
     state: &PluginMarketState,
     resource_dir: &std::path::Path,
+    force_reload: bool,
 ) -> Result<Arc<Vec<PluginCatalogEntry>>, String> {
     let mut slot = state
         .catalog
         .lock()
         .map_err(|_| "插件市场状态不可用".to_owned())?;
-    if let Some(cached) = slot.as_ref() {
-        return Ok(Arc::clone(cached));
+    if !force_reload {
+        if let Some(cached) = slot.as_ref() {
+            return Ok(Arc::clone(cached));
+        }
+    } else {
+        // 开发者替换了随应用资源目录中的快照后，刷新按钮必须真正读取新文件。
+        *slot = None;
     }
     let path = resource_dir.join("plugin-catalog").join("plugins.json");
     let raw = std::fs::read(&path).map_err(|_| {
@@ -156,13 +162,14 @@ pub fn catalog_page(
     category: &str,
     offset: usize,
     limit: usize,
+    force_reload: bool,
 ) -> Result<CatalogPage, String> {
     if query.len() > 120 || category.len() > 64 {
         return Err("搜索条件无效".to_owned());
     }
     let offset = offset.min(10_000);
     let limit = limit.clamp(1, CATALOG_PAGE_MAX);
-    let catalog = load_catalog(state, resource_dir)?;
+    let catalog = load_catalog(state, resource_dir, force_reload)?;
     let mut matched = catalog
         .iter()
         .filter(|entry| category.is_empty() || entry.category == category)
@@ -207,7 +214,7 @@ pub fn install_status(
     plugin_id: &str,
 ) -> Result<PluginInstallStatusReply, String> {
     validate_plugin_id(plugin_id)?;
-    let _ = load_catalog(state, resource_dir)?;
+    let _ = load_catalog(state, resource_dir, false)?;
     Ok(install_status_of(state, plugin_id))
 }
 
@@ -236,7 +243,7 @@ pub fn install_start(
     plugin_id: &str,
 ) -> Result<PluginInstallStatusReply, String> {
     validate_plugin_id(plugin_id)?;
-    let catalog = load_catalog(state, resource_dir)?;
+    let catalog = load_catalog(state, resource_dir, false)?;
     let entry = catalog
         .iter()
         .find(|entry| entry.id == plugin_id)
@@ -358,19 +365,18 @@ fn run_install(
     let mut child = command.spawn().map_err(|_| "安装进程无法启动".to_owned())?;
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
-    let (text, timed_out) = std::thread::scope(|scope| {
+    let (text, timed_out, succeeded) = std::thread::scope(|scope| {
         let stdout_handle =
             stdout.map(|stream| scope.spawn(move || read_bounded(stream, OUTPUT_LIMIT)));
         let stderr_handle =
             stderr.map(|stream| scope.spawn(move || read_bounded(stream, OUTPUT_LIMIT)));
         let deadline = Instant::now() + JOB_TIMEOUT;
         let mut timed_out = false;
+        let mut succeeded = false;
         loop {
             match child.try_wait() {
                 Ok(Some(status)) => {
-                    if !status.success() {
-                        timed_out = false;
-                    }
+                    succeeded = status.success();
                     break;
                 }
                 Ok(None) if Instant::now() >= deadline => {
@@ -388,26 +394,33 @@ fn run_install(
         }
         let mut text = String::new();
         if let Some(handle) = stdout_handle {
-            if let Ok(Ok(value)) = handle.join() {
-                text.push_str(&value);
+            match handle.join() {
+                Ok(Ok(value)) => text.push_str(&value),
+                Ok(Err(_)) => text.push_str("\n[标准输出读取失败]"),
+                Err(_) => text.push_str("\n[标准输出线程失败]"),
             }
         }
-        if text.trim().is_empty() {
-            if let Some(handle) = stderr_handle {
-                if let Ok(Ok(value)) = handle.join() {
-                    text.push_str(&value);
-                }
+        if let Some(handle) = stderr_handle {
+            match handle.join() {
+                Ok(Ok(value)) => text.push_str(&value),
+                Ok(Err(_)) => text.push_str("\n[错误输出读取失败]"),
+                Err(_) => text.push_str("\n[错误输出线程失败]"),
             }
         }
-        (text, timed_out)
+        (text, timed_out, succeeded)
     });
     if timed_out {
         return Err("安装超时（15 分钟）。可以稍后重试".to_owned());
     }
-    Ok(crate::runtime::redaction::redact_bounded(
-        &text,
-        OUTPUT_LIMIT,
-    ))
+    let output = crate::runtime::redaction::redact_bounded(&text, OUTPUT_LIMIT);
+    if !succeeded {
+        return Err(if output.trim().is_empty() {
+            "插件安装失败：安装命令返回失败状态".to_owned()
+        } else {
+            format!("插件安装失败：{}", output.trim())
+        });
+    }
+    Ok(output)
 }
 
 fn read_bounded(mut reader: impl Read, limit: usize) -> Result<String, ()> {
@@ -477,7 +490,34 @@ mod tests {
         let state = PluginMarketState::new();
         let dir = std::env::temp_dir();
         // 没有目录文件时应报错而不是 panic
-        assert!(catalog_page(&state, &dir, "", "", 0, 50).is_err());
+        assert!(catalog_page(&state, &dir, "", "", 0, 50, false).is_err());
+    }
+
+    #[test]
+    fn force_reload_reads_a_replaced_catalog_snapshot() {
+        let root = std::env::temp_dir().join(format!(
+            "dsh-plugin-catalog-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock before unix epoch")
+                .as_nanos()
+        ));
+        let catalog_dir = root.join("plugin-catalog");
+        std::fs::create_dir_all(&catalog_dir).expect("create catalog directory");
+        let first = serde_json::json!({ "schemaVersion": 1, "entries": [fixture_entry("first/repo", "tools", "first")] });
+        std::fs::write(catalog_dir.join("plugins.json"), first.to_string()).expect("write first catalog");
+        let state = PluginMarketState::new();
+        let page = catalog_page(&state, &root, "", "", 0, 50, false).expect("load first catalog");
+        assert_eq!(page.entries[0].id, "first/repo");
+
+        let second = serde_json::json!({ "schemaVersion": 1, "entries": [fixture_entry("second/repo", "tools", "second")] });
+        std::fs::write(catalog_dir.join("plugins.json"), second.to_string()).expect("replace catalog");
+        let cached = catalog_page(&state, &root, "", "", 0, 50, false).expect("load cached catalog");
+        assert_eq!(cached.entries[0].id, "first/repo");
+        let refreshed = catalog_page(&state, &root, "", "", 0, 50, true).expect("reload catalog");
+        assert_eq!(refreshed.entries[0].id, "second/repo");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -486,5 +526,35 @@ mod tests {
         let ring = split_output(&lines.join("\n"));
         assert!(ring.len() <= OUTPUT_RING_LINES);
         assert_eq!(ring.last().map(String::as_str), Some("l499"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_install_command_is_reported_as_failure() {
+        let root = std::env::temp_dir().join(format!(
+            "dsh-plugin-install-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock before unix epoch")
+                .as_nanos()
+        ));
+        let profile = root.join("profile");
+        let script = root.join("dsh-failing.sh");
+        std::fs::create_dir_all(&profile).expect("create test profile");
+        std::fs::write(&script, "exit 7\n").expect("write failing command");
+
+        let result = run_install(
+            std::path::Path::new("/bin/sh"),
+            &script,
+            std::path::Path::new("/bin"),
+            &profile,
+            &root,
+            "https://github.com/example/plugin",
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+        let error = result.expect_err("failed install command must not be successful");
+        assert!(error.contains("插件安装失败"));
     }
 }

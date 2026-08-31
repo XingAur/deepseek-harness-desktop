@@ -1,0 +1,52 @@
+{
+  "fixture_id": "conflicting_high_risk",
+  "inputs": {
+    "title": "门诊收费优惠金额计算规则",
+    "user_instruction": "门诊收费优惠金额按规则处理，但原价计算和折后价计算均可能符合现有描述，尚未选择业务口径。",
+    "normalized_requirement_evidence": {
+      "readonly": true,
+      "external_writes_enabled": false,
+      "source_type": "manual",
+      "title": "门诊收费优惠金额计算规则",
+      "description_text": "门诊收费优惠金额需要调整。",
+      "comments": [{"content": "原价计算和折后价计算均有人提出。"}],
+      "attachments": [],
+      "warnings": []
+    },
+    "requirement_calibration": {
+      "status": "ready_for_development",
+      "decision": {"can_enter_development": true},
+      "resolved_parameters": [{"name": "discount_amount", "allowed_values": {"original_price": "按原价计算", "discounted_price": "按折后价计算", "default": "未选择口径时禁止计算"}}],
+      "resolved_scope": {"do": "调整门诊收费优惠金额", "do_not": ["不执行生产结算"]},
+      "warnings": [],
+      "must_confirm": ["收费金额口径存在两个合理解释：按原价计算或按折后价计算。"]
+    },
+    "technical_decision": {
+      "selected_projects": [{"name": "df-web-guahaosf", "path": "/tmp/df-web-guahaosf", "exists": true, "role": "frontend"}],
+      "implementation_decision": {"can_patch": true, "blockers": []},
+      "recommended_allowed_paths": ["src/pages/shouFei/discount.js"],
+      "recommended_verify_commands": ["npm test -- discount-rule"],
+      "contract_verification": {"required": false, "status": "not_required", "blockers": []},
+      "field_provenance": {"evidence": [{"project": "df-web-guahaosf", "path": "src/pages/shouFei/discount.js"}]}
+    },
+    "change_ownership": {
+      "status": "ready",
+      "rows": [
+        {"layer": "frontend", "status": "required", "reason": "收费页面源码已定位"},
+        {"layer": "backend", "status": "not_required", "reason": "本 fixture 不涉及服务端改动"},
+        {"layer": "database", "status": "not_required", "reason": "不修改数据库"},
+        {"layer": "configuration", "status": "not_required", "reason": "不修改配置"}
+      ],
+      "blockers": []
+    },
+    "acceptance_matrix": {
+      "risk": {"level": "high", "reasons": ["收费金额口径"]},
+      "blockers": [],
+      "auto_verification": [{"command": "npm test -- discount-rule", "statement": "收费规则回归通过"}],
+      "requirement_acceptance": [{"scenario": "验证优惠金额计算"}],
+      "manual_acceptance": [{"scenario": "业务确认收费口径"}],
+      "sibling_impact": {"required": false, "status": "not_required", "blockers": []}
+    },
+    "available_capabilities": ["source.read", "local.patch"]
+  }
+}

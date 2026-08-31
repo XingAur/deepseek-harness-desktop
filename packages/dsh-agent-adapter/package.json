@@ -21,6 +21,10 @@
       "types": "./lib/types/adapters/index.d.ts",
       "default": "./lib/adapters.js"
     },
+    "./providers/openai-compatible": {
+      "types": "./lib/types/providers/openai-compatible.d.ts",
+      "default": "./lib/providers/openai-compatible.js"
+    },
     "./mcp": {
       "types": "./lib/types/mcp/client.d.ts",
       "default": "./lib/mcp.js"
@@ -28,6 +32,26 @@
     "./mcp/oauth": {
       "types": "./lib/types/mcp/oauth.d.ts",
       "default": "./lib/mcp-oauth.js"
+    },
+    "./harness-bridge": {
+      "types": "./lib/types/harness-bridge.d.ts",
+      "default": "./lib/harness-bridge.js"
+    },
+    "./harness-host-handler": {
+      "types": "./lib/types/harness-host-handler.d.ts",
+      "default": "./lib/harness-host-handler.js"
+    },
+    "./harness-task-session": {
+      "types": "./lib/types/harness-task-session.d.ts",
+      "default": "./lib/harness-task-session.js"
+    },
+    "./harness-capability-map": {
+      "types": "./lib/types/harness-capability-map.d.ts",
+      "default": "./lib/harness-capability-map.js"
+    },
+    "./deepseek-harness-executor": {
+      "types": "./lib/types/deepseek-harness-executor.d.ts",
+      "default": "./lib/deepseek-harness-executor.js"
     }
   },
   "files": ["lib/**"],

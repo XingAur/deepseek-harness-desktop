@@ -90,6 +90,9 @@ jobs:
           set -euo pipefail
           npm run release:versions:check
           npm run check
+          # Rust build.rs embeds build/harness-core; prepare the code-only
+          # resource before the contract test compiles the Tauri crate.
+          DSH_HARNESS_SKIP_PYTHON=1 node scripts/assemble-harness-core.mjs
           if [[ "${RUNNER_OS}" == 'Windows' ]]; then
             # Tauri's tauri::test mock runtime currently exits with
             # STATUS_ENTRYPOINT_NOT_FOUND on Windows runners. Keep the full

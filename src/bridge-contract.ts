@@ -81,6 +81,18 @@ export type VersionedBridgeAction =
   | 'extension.enable'
   | 'extension.disable'
   | 'extension.uninstall'
+  | 'harness.status'
+  | 'harness.start'
+  | 'harness.chat.start'
+  | 'harness.pick-evidence-files'
+  | 'harness.intake'
+  | 'harness.cancel'
+  | 'harness.pick-archive-root'
+  | 'harness.archive-answers'
+  | 'harness.connection.list'
+  | 'harness.connection.save'
+  | 'harness.connection.delete'
+  | 'harness.connection.test'
 
 export interface VersionedBridgeRequest {
   channel: typeof DESKTOP_BRIDGE_V2_CHANNEL
@@ -160,6 +172,18 @@ export const bridgeCommandByActionV2 = {
   'extension.enable': 'agent_extension_enable',
   'extension.disable': 'agent_extension_disable',
   'extension.uninstall': 'agent_extension_uninstall',
+  'harness.status': 'harness_status',
+  'harness.start': 'harness_start',
+  'harness.chat.start': 'harness_chat_start',
+  'harness.pick-evidence-files': 'harness_pick_evidence_files',
+  'harness.intake': 'harness_intake',
+  'harness.cancel': 'harness_cancel',
+  'harness.pick-archive-root': 'harness_pick_archive_root',
+  'harness.archive-answers': 'harness_archive_answers',
+  'harness.connection.list': 'harness_connection_list',
+  'harness.connection.save': 'harness_connection_save',
+  'harness.connection.delete': 'harness_connection_delete',
+  'harness.connection.test': 'harness_connection_test',
 } as const satisfies Record<VersionedBridgeAction, string>
 
 export function isBridgeResponse(value: unknown): value is BridgeResponse {
@@ -260,16 +284,111 @@ export function isVersionedBridgePayload(action: VersionedBridgeAction, value: u
       && value.targets.every((entry) => isPromptTarget(entry))
       && new Set(value.targets.map(String)).size === value.targets.length
   }
+  if (action === 'harness.status' || action === 'harness.cancel' || action === 'harness.pick-archive-root' || action === 'harness.pick-evidence-files') return Object.keys(value).length === 0
+  if (action === 'harness.chat.start') {
+    return typeof value.prompt === 'string'
+      && value.prompt.trim().length > 0
+      && value.prompt.length <= 16 * 1024
+      && (value.workspaceId === undefined || hasId('workspaceId'))
+      && (value.archiveRoot === undefined || isAbsolutePath(value.archiveRoot))
+      && (value.yunxiaoSource === undefined || isYunxiaoSource(value.yunxiaoSource))
+      && (value.evidencePaths === undefined || isEvidencePaths(value.evidencePaths))
+      && (value.selectedModelId === undefined || isModelId(value.selectedModelId))
+      && (value.yunxiaoProfileId === undefined || hasId('yunxiaoProfileId'))
+      && (value.gitlabProfileId === undefined || hasId('gitlabProfileId'))
+      && (value.databaseProfileId === undefined || hasId('databaseProfileId'))
+  }
+  if (action === 'harness.archive-answers') {
+    return isAbsolutePath(value.archiveRoot)
+      && typeof value.answers === 'string'
+      && value.answers.trim().length > 0
+      && value.answers.length <= 8000
+  }
+  if (action === 'harness.intake') {
+    return isYunxiaoSource(value.source)
+      && isAbsolutePath(value.archiveRoot)
+      && (value.includeComments === undefined || typeof value.includeComments === 'boolean')
+      && (value.yunxiaoProfileId === undefined || validRequestId(value.yunxiaoProfileId))
+      && (value.selectedModelId === undefined || isModelId(value.selectedModelId))
+      && (value.agentBackend === undefined
+        || (typeof value.agentBackend === 'string' && /^[a-z][a-z0-9._-]{0,63}$/.test(value.agentBackend)))
+  }
+  if (action === 'harness.connection.list') {
+    return value.kind === undefined || value.kind === 'mcp' || value.kind === 'database'
+  }
+  if (action === 'harness.connection.delete' || action === 'harness.connection.test') {
+    return hasId('profileId')
+  }
+  if (action === 'harness.connection.save') {
+    return hasId('profileId')
+      && (value.kind === 'mcp' || value.kind === 'database')
+      && (value.providerId === undefined || value.providerId === 'yunxiao' || value.providerId === 'gitlab' || value.providerId === 'generic')
+      && typeof value.displayName === 'string'
+      && value.displayName.trim().length > 0
+      && value.displayName.length <= 120
+      && typeof value.endpoint === 'string'
+      && value.endpoint.length <= 4096
+      && typeof value.readOnly === 'boolean'
+      && typeof value.enabled === 'boolean'
+      && (value.credentialId === undefined || hasId('credentialId'))
+  }
+  if (action === 'harness.start') {
+    const hasLegacyTaskPackage = isAbsolutePath(value.taskContractPath) && isAbsolutePath(value.understandingPath)
+    const hasArchiveTaskPackage = isAbsolutePath(value.archiveRoot)
+    return (hasLegacyTaskPackage || hasArchiveTaskPackage)
+      && (value.taskContractPath === undefined || isAbsolutePath(value.taskContractPath))
+      && (value.understandingPath === undefined || isAbsolutePath(value.understandingPath))
+      && isAbsolutePath(value.worktreeRoot)
+      && isAbsolutePath(value.knowledgeHome)
+      && typeof value.authorizationId === 'string'
+      && /^[A-Za-z0-9._-]{1,256}$/.test(value.authorizationId)
+      && (value.agentBackend === undefined
+        || (typeof value.agentBackend === 'string' && /^[a-z0-9._-]{1,64}$/.test(value.agentBackend)))
+      && (value.archiveRoot === undefined || isAbsolutePath(value.archiveRoot))
+      && (value.selectedModelId === undefined || isModelId(value.selectedModelId))
+      && (value.yunxiaoProfileId === undefined || hasId('yunxiaoProfileId'))
+      && (value.gitlabProfileId === undefined || hasId('gitlabProfileId'))
+      && (value.databaseProfileId === undefined || hasId('databaseProfileId'))
+  }
   if (action === 'plugin.catalog.list') {
     return (value.query === undefined || (typeof value.query === 'string' && value.query.length <= 120))
       && (value.category === undefined || (typeof value.category === 'string' && value.category.length <= 64))
       && optionalNonNegativeInteger(value.offset, 0)
       && optionalRange(value.limit ?? 50, 50)
+      && (value.refresh === undefined || typeof value.refresh === 'boolean')
   }
   if (action === 'plugin.install.start' || action === 'plugin.install.status') {
     return typeof value.pluginId === 'string' && validPluginId(value.pluginId)
   }
   return Object.keys(value).length === 0
+}
+
+function isAbsolutePath(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.length > 0
+    && value.length <= 4096
+    && (value.startsWith('/') || /^[A-Za-z]:[\\/]/.test(value))
+}
+
+function isYunxiaoSource(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 4096 || /[?#\u0000]/.test(value)) return false
+  return /^[A-Za-z][A-Za-z0-9]{1,31}-\d{1,20}$/.test(value)
+    || /^https:\/\/[^/\s]+(?:\/[^\s]*)?$/.test(value)
+}
+
+function isEvidencePaths(value: unknown): value is string[] {
+  return Array.isArray(value)
+    && value.length <= 20
+    && value.every((item) => isAbsolutePath(item))
+}
+
+/** Model identifiers are provider-defined; only transport-unsafe values are rejected. */
+function isModelId(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.length > 0
+    && value.length <= 256
+    && value === value.trim()
+    && !/[\u0000-\u001f\u007f]/.test(value)
 }
 
 export function isVersionedBridgeResponse(value: unknown): value is VersionedBridgeResponse {
@@ -364,7 +483,7 @@ const versionedPayloadKeys: Record<VersionedBridgeAction, string[]> = {
   'cli.install.start': ['providerId'],
   'cli.login.status': ['providerId'],
   'cli.login.start': ['providerId'],
-  'plugin.catalog.list': ['query', 'category', 'offset', 'limit'],
+  'plugin.catalog.list': ['query', 'category', 'offset', 'limit', 'refresh'],
   'plugin.install.start': ['pluginId'],
   'plugin.install.status': ['pluginId'],
   'task.create': ['workspaceId', 'prompt', 'permission', 'providerId', 'agentId'],
@@ -390,6 +509,21 @@ const versionedPayloadKeys: Record<VersionedBridgeAction, string[]> = {
   'extension.enable': ['extensionId'],
   'extension.disable': ['extensionId'],
   'extension.uninstall': ['extensionId'],
+  'harness.status': [],
+  'harness.start': [
+    'taskContractPath', 'understandingPath', 'worktreeRoot', 'knowledgeHome', 'authorizationId', 'agentBackend',
+    'archiveRoot', 'selectedModelId', 'yunxiaoProfileId', 'gitlabProfileId', 'databaseProfileId',
+  ],
+  'harness.chat.start': ['prompt', 'workspaceId', 'archiveRoot', 'yunxiaoSource', 'evidencePaths', 'selectedModelId', 'yunxiaoProfileId', 'gitlabProfileId', 'databaseProfileId'],
+  'harness.intake': ['source', 'archiveRoot', 'includeComments', 'yunxiaoProfileId', 'selectedModelId', 'agentBackend'],
+  'harness.cancel': [],
+  'harness.pick-archive-root': [],
+  'harness.pick-evidence-files': [],
+  'harness.archive-answers': ['archiveRoot', 'answers'],
+  'harness.connection.list': ['kind'],
+  'harness.connection.save': ['profileId', 'kind', 'providerId', 'displayName', 'endpoint', 'readOnly', 'enabled', 'credentialId'],
+  'harness.connection.delete': ['profileId'],
+  'harness.connection.test': ['profileId'],
 }
 
 function optionalRange(value: unknown, defaultValue: number): boolean {

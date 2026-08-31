@@ -1,0 +1,33 @@
+{
+  "schema_version": "his-agent-backend-config.v1",
+  "default_backend": "host-bridge",
+  "backends": [
+    {
+      "backend_id": "codex-cli",
+      "display_name": "Codex CLI",
+      "transport": "local-process",
+      "supported_roles": ["worker", "reviewer"],
+      "requires_local_executable": true,
+      "external_calls": false,
+      "enabled": true
+    },
+    {
+      "backend_id": "codex-app-server",
+      "display_name": "Codex App Server",
+      "transport": "stdio-jsonrpc",
+      "supported_roles": ["worker", "reviewer"],
+      "requires_local_executable": true,
+      "external_calls": false,
+      "enabled": true
+    },
+    {
+      "backend_id": "host-bridge",
+      "display_name": "External Host Bridge",
+      "transport": "stdio-jsonl",
+      "supported_roles": ["worker", "reviewer"],
+      "requires_local_executable": false,
+      "external_calls": false,
+      "enabled": true
+    }
+  ]
+}

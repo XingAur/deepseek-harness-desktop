@@ -22,6 +22,12 @@ use crate::profile::model::ProfileRecord;
 #[cfg(windows)]
 pub(crate) const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+#[cfg(target_os = "macos")]
+const DESKTOP_RUNTIME_WATCH_ENV: [(&str, &str); 2] = [
+    ("CHOKIDAR_USEPOLLING", "1"),
+    ("CHOKIDAR_INTERVAL", "1000"),
+];
+
 pub struct ManagedRuntime {
     child: Child,
     log_tasks: Vec<JoinHandle<()>>,
@@ -205,6 +211,9 @@ pub async fn spawn_runtime_from_dir(
         .args(args)
         .current_dir(&runtime_dir)
         .env("DSH_DESKTOP_MODE", "advanced")
+        // macOS 的 FSEvents/文件监听额度可能被其他开发工具耗尽。Runtime
+        // 的配置与凭证 watcher 遇到 EMFILE 会在启动阶段直接退出；桌面宿主
+        // 使用轮询后仍能监听配置变化，同时不把宿主机的监听额度作为启动前提。
         .env(
             "DSH_DESKTOP_PLATFORM",
             if cfg!(target_os = "macos") {
@@ -228,6 +237,10 @@ pub async fn spawn_runtime_from_dir(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    #[cfg(target_os = "macos")]
+    for (key, value) in DESKTOP_RUNTIME_WATCH_ENV {
+        command.env(key, value);
+    }
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
     #[cfg(unix)]
@@ -388,6 +401,21 @@ mod tests {
         assert_eq!(
             managed_args(vec!["app/launcher.mjs".into(), "--no-open".into()]),
             vec!["app/launcher.mjs", "--no-open"],
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn desktop_runtime_uses_polling_for_mac_file_watchers() {
+        // 场景：宿主机已有其他进程占用文件监听额度。
+        // 条件：桌面 Runtime 启动环境固定启用 Chokidar 轮询。
+        // 预期：Runtime 不因 FSEvents/监听额度耗尽而在启动阶段退出。
+        assert_eq!(
+            DESKTOP_RUNTIME_WATCH_ENV,
+            [
+                ("CHOKIDAR_USEPOLLING", "1"),
+                ("CHOKIDAR_INTERVAL", "1000"),
+            ],
         );
     }
 }

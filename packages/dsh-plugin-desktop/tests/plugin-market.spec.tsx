@@ -117,4 +117,18 @@ describe('PluginMarket', () => {
     render(<PluginMarket bridge={bridgeFixture(fixture)} />)
     expect(await screen.findByText(/加载更多（还有 15 个）/)).toBeInTheDocument()
   })
+
+  it('刷新按钮请求 Rust 重新读取目录，而不是继续使用旧缓存', async () => {
+    const fixture: Fixture = {
+      page: { total: 1, offset: 0, categories: [], entries: [entry('a/b', '工具')] },
+      jobs: {},
+      calls: [],
+    }
+    render(<PluginMarket bridge={bridgeFixture(fixture)} />)
+    await screen.findAllByText('a/b')
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }))
+    await waitFor(() => {
+      expect(fixture.calls.some((call) => call.action === 'plugin.catalog.list' && call.payload?.refresh === true)).toBe(true)
+    })
+  })
 })

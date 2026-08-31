@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "his-capability-request.v1.json",
+  "title": "HIS Capability Request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "request_id",
+    "capability",
+    "provider",
+    "mode",
+    "mutation_level",
+    "authorization",
+    "input",
+    "context"
+  ],
+  "properties": {
+    "schema_version": {"const": "his-capability-request.v1"},
+    "request_id": {"type": "string", "minLength": 1},
+    "capability": {"type": "string", "minLength": 1},
+    "provider": {"type": "string", "minLength": 1},
+    "mode": {"enum": ["preview", "apply"]},
+    "mutation_level": {"enum": ["L0", "L1", "L2", "L3", "L4", "L5"]},
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["explicit", "scope"],
+      "properties": {
+        "explicit": {"type": "boolean"},
+        "scope": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "input": {"type": "object"},
+    "context": {"type": "object"}
+  }
+}

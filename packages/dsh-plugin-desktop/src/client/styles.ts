@@ -96,6 +96,20 @@ export function installAdvancedStyles(): () => void {
     .dshModelAgentDialogHint { margin: 0; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 12px; line-height: 1.55; }
     .dshModelAgentField { display: grid; gap: 6px; color: var(--dsw-alias-label-secondary, #b7b7bf); font-size: 12px; }
     .dshModelAgentField input { box-sizing: border-box; width: 100%; min-height: 39px; padding: 0 10px; border: 1px solid var(--dsh-desktop-divider); border-radius: 8px; color: inherit; background: var(--dsw-alias-bg-layer-2, #29292e); }
+    .dshModelAgentField textarea { box-sizing: border-box; width: 100%; padding: 8px 10px; border: 1px solid var(--dsh-desktop-divider); border-radius: 8px; color: inherit; background: var(--dsw-alias-bg-layer-2, #29292e); font: inherit; resize: vertical; }
+    .dshModelAgentWarning ul { margin: 8px 0 0; padding-left: 18px; }
+    .dshModelAgentFieldRow { display: flex; align-items: end; gap: 8px; }
+    .dshModelAgentFieldRow .dshModelAgentField { flex: 1; min-width: 0; }
+    .dshModelAgentSecondary { min-height: 39px; align-self: end; padding: 0 12px; border: 1px solid var(--dsh-desktop-divider); border-radius: 8px; color: inherit; background: var(--dsw-alias-bg-layer-2, #29292e); cursor: pointer; white-space: nowrap; }
+    .dshModelAgentSecondary:hover { border-color: color-mix(in srgb, #7196ff 45%, var(--dsh-desktop-divider)); }
+    .dshModelAgentSecondary:disabled { opacity: 0.55; cursor: default; }
+    .dshModelAgentFormGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+    .dshModelAgentListRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--dsh-desktop-divider); }
+    .dshModelAgentListRow > div:first-child { min-width: 0; }
+    .dshModelAgentListRow .dshModelAgentMuted { overflow-wrap: anywhere; }
+    .dshModelAgentSuccess { color: #8fd2ae; font-size: 11px; }
+    .dshModelAgentAdvanced { display: grid; gap: 10px; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 12px; }
+    .dshModelAgentAdvanced summary { cursor: pointer; }
     .dshModelAgentDialog footer { display: flex; justify-content: flex-end; gap: 8px; }
     .dshModelAgentDialog footer .dshModelAgentPrimary { border-color: transparent; color: white; background: #5877cf; }
     .dshExtensionReviewFacts { display: grid; gap: 8px; margin: 0; }
@@ -379,6 +393,38 @@ export function installAdvancedStyles(): () => void {
     .dshPromptsActivateGroup { display: flex; gap: 12px; border: 0; padding: 0; }
     .dshPromptsActivateGroup legend { color: var(--dsw-alias-label-secondary, #b7b7bf); font-size: 12px; }
     .dshPromptsListItem.is-active { border-color: var(--dsw-alias-border-secondary, rgba(127,127,127,.4)); background: var(--dsw-alias-surface-secondary, rgba(127,127,127,.08)); }
+    .dshHarnessConversationSurface { display: flex; flex-direction: column; min-width: 0; min-height: 100%; overflow: auto; }
+    .dshHarnessConversationToolbar { box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 12px; width: min(920px, calc(100% - 40px)); margin: 14px auto 0; padding: 9px 12px; border: 1px solid var(--dsh-desktop-divider); border-radius: 12px; color: var(--dsw-alias-label-secondary, #b7b7bf); background: color-mix(in srgb, var(--dsw-alias-bg-layer-1, #1d1d20) 88%, transparent); }
+    .dshHarnessConversationToolbar > div { display: grid; gap: 2px; min-width: 0; }
+    .dshHarnessConversationToolbar span { color: var(--dsw-alias-label-tertiary, #85858d); font-size: 11px; }
+    .dshHarnessConversationToolbar button, .dshHarnessChatOptions button { min-height: 30px; padding: 0 10px; border: 1px solid var(--dsh-desktop-divider); border-radius: 8px; color: inherit; background: var(--dsw-alias-bg-layer-2, #29292e); cursor: pointer; white-space: nowrap; }
+    .dshHarnessConversationToolbar button:hover, .dshHarnessChatOptions button:hover { border-color: color-mix(in srgb, #7196ff 45%, var(--dsh-desktop-divider)); }
+    .dshHarnessChatComposer { display: grid; gap: 16px; width: min(920px, calc(100% - 40px)); box-sizing: border-box; margin: 12px auto 10px; padding: 20px; border: 1px solid color-mix(in srgb, #7196ff 26%, var(--dsh-desktop-divider)); border-radius: 16px; background: var(--dsw-alias-bg-layer-1, #1d1d20); }
+    .dshHarnessChatComposer > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+    .dshHarnessChatComposer h2 { margin: 0; font-size: 20px; }
+    .dshHarnessChatComposer header p:last-child { max-width: 660px; margin: 7px 0 0; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 12px; line-height: 1.6; }
+    .dshHarnessCurrentModel { flex: 0 0 auto; padding: 6px 9px; border-radius: 999px; color: #a9c6f0; background: color-mix(in srgb, #5877cf 16%, transparent); font-size: 11px; }
+    .dshHarnessChatPrompt { display: grid; gap: 7px; color: var(--dsw-alias-label-secondary, #b7b7bf); font-size: 12px; }
+    .dshHarnessChatPrompt textarea { box-sizing: border-box; width: 100%; min-height: 110px; padding: 11px 12px; border: 1px solid var(--dsh-desktop-divider); border-radius: 10px; color: inherit; background: var(--dsw-alias-bg-layer-2, #29292e); font: inherit; line-height: 1.6; resize: vertical; }
+    .dshHarnessChatPrompt textarea:focus-visible, .dshHarnessCapability select:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, #7d9cf0); outline-offset: 1px; }
+    .dshHarnessCapabilities { display: grid; gap: 9px; }
+    .dshHarnessCapabilities h3 { margin: 0; font-size: 13px; }
+    .dshHarnessCapabilities > div:first-child p { margin: 4px 0 0; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 11px; }
+    .dshHarnessCapabilityGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .dshHarnessCapability { display: grid; gap: 10px; min-width: 0; padding: 11px; border: 1px solid var(--dsh-desktop-divider); border-radius: 10px; background: color-mix(in srgb, var(--dsw-alias-bg-layer-2, #29292e) 65%, transparent); }
+    .dshHarnessCapability strong { font-size: 12px; }
+    .dshHarnessCapability p { margin: 4px 0 0; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 11px; line-height: 1.45; }
+    .dshHarnessCapability select { box-sizing: border-box; width: 100%; min-height: 30px; padding: 0 7px; border: 1px solid var(--dsh-desktop-divider); border-radius: 7px; color: inherit; background: var(--dsw-alias-bg-layer-2, #29292e); font: inherit; font-size: 11px; }
+    .dshHarnessCapabilityEmpty { color: var(--dsw-alias-label-tertiary, #85858d); font-size: 11px; }
+    .dshHarnessChatOptions { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 3px; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 11px; }
+    .dshHarnessChatActions { display: flex; justify-content: flex-end; }
+    .dshHarnessRunStatus { display: grid; gap: 4px; padding: 12px 14px; border: 1px solid var(--dsh-desktop-divider); border-radius: 12px; color: var(--dsw-alias-label-secondary, #b7b7bf); background: var(--dsw-alias-bg-layer-2, #29292e); font-size: 12px; }
+    .dshHarnessRunStatus strong { color: var(--dsw-alias-label-primary, #f0f0f3); font-size: 13px; }
+    .dshHarnessAnswer { display: grid; gap: 6px; margin-top: 10px; color: var(--dsw-alias-label-secondary, #b7b7bf); font-size: 12px; }
+    .dshHarnessAnswer textarea { box-sizing: border-box; width: 100%; min-height: 72px; padding: 9px 10px; border: 1px solid var(--dsh-desktop-divider); border-radius: 8px; color: inherit; background: var(--dsw-alias-bg-layer-2, #29292e); font: inherit; line-height: 1.5; resize: vertical; }
+    .dshHarnessPrimary { min-height: 36px; padding: 0 16px; border: 0; border-radius: 9px; color: white; background: #5877cf; font-weight: 600; cursor: pointer; }
+    .dshHarnessPrimary:disabled { cursor: default; opacity: .45; }
+    @media (max-width: 860px) { .dshHarnessCapabilityGrid { grid-template-columns: 1fr; } }
     @media (max-width: 760px) {
       .dshDesktopProjectsPage { padding-inline: 20px; }
       .dshDesktopProfileEditor, .dshDesktopProfileSettingsList article { grid-template-columns: 1fr; }
@@ -388,6 +434,8 @@ export function installAdvancedStyles(): () => void {
       .dshModelAgentTabs { overflow-x: auto; }
       .dshAgentWorkbenchCreate, .dshAgentWorkbenchColumns { grid-template-columns: 1fr; }
       .dshAgentWorkbenchApproval { align-items: flex-start; flex-direction: column; }
+      .dshHarnessConversationToolbar, .dshHarnessChatComposer { width: calc(100% - 24px); }
+      .dshHarnessChatComposer > header, .dshHarnessChatOptions { align-items: flex-start; flex-direction: column; }
     }
     @media (prefers-reduced-motion: reduce) {
       .dshDesktopProjectCard, .dshDesktopProjectCard:hover, .dshDesktopProjectCard[data-recent="true"]::after, .dshDesktopProjectComposerSend[data-busy="true"] svg { animation: none !important; transform: none !important; transition-duration: .01ms !important; }

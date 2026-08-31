@@ -77,6 +77,27 @@ describe('advanced shell', () => {
     expect(registeredRoot?.inject()).toMatchObject({ workspaces, sessions })
   })
 
+  it('passes the official current model through to the main-chat Harness surface when exposed', () => {
+    let registeredRoot: { inject(): Record<string, unknown> } | undefined
+    const context = {
+      effect: (setup: () => void | (() => void)) => { setup() },
+      reflect: { provide: vi.fn(() => () => undefined) },
+      slots: {
+        register: vi.fn((definition) => {
+          registeredRoot = definition
+          return () => undefined
+        }),
+      },
+      workspaces: { list: {} },
+      sessions: { list: {} },
+      llm: { currentModelId: 'gpt-5.6-sol' },
+    } as unknown as ClientContextLike
+
+    applyAdvancedShell(context, 'win32')
+
+    expect(registeredRoot?.inject()).toMatchObject({ modelId: 'gpt-5.6-sol' })
+  })
+
   it('registers local projects in the official sidebar footer action slot', () => {
     const registrations: Array<{ definition: any; component: unknown }> = []
     const callbacks: Array<{ name: string; setup: () => void | (() => void) }> = []

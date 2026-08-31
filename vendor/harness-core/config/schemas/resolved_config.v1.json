@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://his-harness.local/schemas/resolved_config.v1.json",
+  "title": "HIS Harness ResolvedConfig v1",
+  "type": "object",
+  "required": [
+    "schema_version", "generated_at", "readonly", "values", "provenance",
+    "layers", "hard_guards", "validation", "content_hash"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "1.0-resolved-config"},
+    "generated_at": {"type": "string", "minLength": 1},
+    "readonly": {"const": true},
+    "values": {"type": "object"},
+    "provenance": {"type": "object"},
+    "layers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "kind", "source", "merge_policies"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "kind": {"type": "string", "minLength": 1},
+          "source": {"type": "string", "minLength": 1},
+          "merge_policies": {"type": "object"}
+        }
+      }
+    },
+    "hard_guards": {"type": "object"},
+    "validation": {
+      "type": "object",
+      "required": ["status", "issues"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {"enum": ["pass", "failed"]},
+        "issues": {"type": "array", "items": {"type": "object"}}
+      }
+    },
+    "content_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}
