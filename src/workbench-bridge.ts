@@ -241,6 +241,24 @@ function bridgePayloadV2(
     requireId(payload.extensionId, 'Extension ID')
     return { extensionId: payload.extensionId }
   }
+  if (action === 'prompts.get' || action === 'prompts.delete') {
+    requireId(payload.presetId, 'Preset ID')
+    return { presetId: payload.presetId }
+  }
+  if (action === 'prompts.save' || action === 'prompts.resolve-conflict') {
+    if (payload.presetId !== undefined) requireId(payload.presetId, 'Preset ID')
+    return {
+      ...(payload.presetId === undefined ? {} : { presetId: payload.presetId }),
+      title: payload.title,
+      content: payload.content,
+    }
+  }
+  if (action === 'prompts.activate') {
+    requireId(payload.presetId, 'Preset ID')
+    return { presetId: payload.presetId, target: payload.target }
+  }
+  if (action === 'prompts.deactivate') return { target: payload.target }
+  if (action === 'prompts.import') return { targets: payload.targets }
   return {}
 }
 
