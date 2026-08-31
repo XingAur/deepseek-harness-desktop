@@ -388,6 +388,10 @@ export function installAdvancedStyles(): () => void {
     .dshPromptsDialog { background: var(--dsw-alias-surface-primary, #1c1c1f); color: inherit; border-radius: 14px; padding: 18px 20px; width: min(480px, 90vw); display: grid; gap: 12px; }
     .dshPromptsDialogActions { display: flex; justify-content: flex-end; gap: 10px; }
     .dshPromptsImportRow { display: flex; align-items: center; gap: 10px; }
+    .dshPromptsModeSwitch { display: flex; gap: 8px; }
+    .dshPromptsModeSwitch button { border: 1px solid var(--dsw-alias-border-secondary, rgba(127,127,127,.4)); border-radius: 999px; padding: 4px 12px; background: transparent; color: inherit; cursor: pointer; }
+    .dshPromptsModeSwitch button[aria-pressed='true'] { background: var(--dsw-alias-surface-secondary, rgba(127,127,127,.14)); border-color: var(--dsw-alias-border-primary, rgba(127,127,127,.7)); }
+    .dshPromptsPasteArea textarea { min-height: 140px; resize: vertical; border-radius: 10px; border: 1px solid var(--dsw-alias-border-secondary, rgba(127,127,127,.35)); background: transparent; color: inherit; padding: 10px; font: 13px/1.6 ui-monospace, monospace; }
     .dshPromptsEditor { display: grid; gap: 10px; }
     .dshPromptsEditorActions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .dshPromptsEditorActions button { border: 1px solid var(--dsw-alias-border-secondary, rgba(127,127,127,.4)); border-radius: 8px; padding: 5px 12px; background: transparent; color: inherit; cursor: pointer; }

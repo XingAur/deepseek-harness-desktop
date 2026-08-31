@@ -5,8 +5,8 @@ import type { DesktopBridgeLike } from '../desktop-bridge'
 import { messageOf } from '../model-agent/state'
 import {
   activatePreset, deactivateTarget, deletePreset, fetchList, fetchPreset, fetchStatus,
-  importTargets, MAX_PROMPT_CHARS, promptBytes, resolveConflict, savePreset, TARGET_LABELS,
-  type ActivateOutcome, type PresetSummary, type PromptTarget, type SaveOutcome, type TargetStatus,
+  importTargets, MAX_PROMPT_CHARS, parsePastedPresets, promptBytes, resolveConflict, savePreset, TARGET_LABELS,
+  type ActivateOutcome, type ParsedPresetDraft, type PresetSummary, type PromptTarget, type SaveOutcome, type TargetStatus,
 } from './prompts-api'
 import { PromptsConflictDialog, type ConflictCandidateView } from './PromptsConflictDialog'
 
@@ -207,6 +207,21 @@ export function PromptsPanel({ bridge }: { bridge: DesktopBridgeLike }) {
               await refreshAll()
             } catch (cause: unknown) { setError(messageOf(cause)) } finally { setImportBusy(false) }
           }}
+          onPasteImport={async (drafts, skipped) => {
+            // 逐条新建入库(不激活);单条失败不中断其余,汇总失败数。
+            setImportBusy(true)
+            let failed = 0
+            for (const draft of drafts) {
+              try { await savePreset(bridge, { title: draft.title, content: draft.content }) } catch { failed += 1 }
+            }
+            setImportBusy(false)
+            setImportOpen(false)
+            await refreshAll()
+            // refreshAll 成功会清 error,故汇总放在其后
+            if (failed > 0) {
+              setError(`粘贴导入完成:${drafts.length - failed} 条成功,${failed} 条失败${skipped > 0 ? `,另有 ${skipped} 条超过 24 KiB 上限跳过` : ''}`)
+            }
+          }}
         />
       )}
     </div>
@@ -218,34 +233,83 @@ export function PromptsImportDialog(props: {
   busy: boolean
   onClose(): void
   onImport(targets: PromptTarget[]): Promise<void> | void
+  onPasteImport(drafts: ParsedPresetDraft[], skipped: number): Promise<void> | void
 }) {
   // 默认不勾选,由用户显式选择要导入的目标(jsdom/真实浏览器中点击已勾选框会先取消勾选)。
   const [selected, setSelected] = useState<PromptTarget[]>([])
+  // 默认仍是从当前文件导入(首启体验不变),粘贴 JSON 为并列模式。
+  const [mode, setMode] = useState<'file' | 'paste'>('file')
+  const [pasted, setPasted] = useState('')
+  const [pasteError, setPasteError] = useState<string | null>(null)
+
+  const parseAndImport = () => {
+    const result = parsePastedPresets(pasted)
+    if (!result.ok) { setPasteError(result.reason); return }
+    if (result.presets.length === 0) {
+      setPasteError(`全部 ${result.skipped} 条条目超过 24 KiB 上限,已跳过`)
+      return
+    }
+    setPasteError(null)
+    void props.onPasteImport(result.presets, result.skipped)
+  }
+
   return (
     <div className="dshPromptsDialogBackdrop" role="presentation">
       <div className="dshPromptsDialog" role="dialog" aria-label="导入现有提示词">
         <h3>导入现有提示词</h3>
-        <p>把各目标当前的全局提示词文件导入为预设,并保持激活状态。</p>
-        {props.candidates.map((candidate) => (
-          <label key={candidate.target} className="dshPromptsImportRow">
-            <input
-              type="checkbox"
-              aria-label={TARGET_LABELS[candidate.target]}
-              checked={selected.includes(candidate.target)}
-              onChange={(event) => {
-                setSelected((current) => event.target.checked
-                  ? [...current, candidate.target]
-                  : current.filter((target) => target !== candidate.target))
-              }}
-            />
-            <span>{TARGET_LABELS[candidate.target]}</span>
-            <span className="dshPromptsMuted">{candidate.activePresetId === null ? '未激活' : '已激活'}</span>
-          </label>
-        ))}
-        <div className="dshPromptsDialogActions">
-          <button type="button" onClick={props.onClose}>取消</button>
-          <button type="button" disabled={props.busy || selected.length === 0} onClick={() => void props.onImport(selected)}>导入</button>
+        <div className="dshPromptsModeSwitch" role="group" aria-label="导入方式">
+          <button
+            type="button"
+            aria-pressed={mode === 'file'}
+            onClick={() => { setMode('file'); setPasteError(null) }}
+          >
+            从当前文件导入
+          </button>
+          <button type="button" aria-pressed={mode === 'paste'} onClick={() => setMode('paste')}>
+            粘贴 JSON
+          </button>
         </div>
+        {mode === 'file' ? (
+          <>
+            <p>把各目标当前的全局提示词文件导入为预设,并保持激活状态。</p>
+            {props.candidates.map((candidate) => (
+              <label key={candidate.target} className="dshPromptsImportRow">
+                <input
+                  type="checkbox"
+                  aria-label={TARGET_LABELS[candidate.target]}
+                  checked={selected.includes(candidate.target)}
+                  onChange={(event) => {
+                    setSelected((current) => event.target.checked
+                      ? [...current, candidate.target]
+                      : current.filter((target) => target !== candidate.target))
+                  }}
+                />
+                <span>{TARGET_LABELS[candidate.target]}</span>
+                <span className="dshPromptsMuted">{candidate.activePresetId === null ? '未激活' : '已激活'}</span>
+              </label>
+            ))}
+            <div className="dshPromptsDialogActions">
+              <button type="button" onClick={props.onClose}>取消</button>
+              <button type="button" disabled={props.busy || selected.length === 0} onClick={() => void props.onImport(selected)}>导入</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p>{'粘贴 cc-switch 导出或 [{"title":"标题","content":"正文"}] 形状的 JSON,解析后作为新预设入库(不激活)。'}</p>
+            <div className="dshPromptsPasteArea">
+              <textarea
+                aria-label="粘贴 JSON"
+                value={pasted}
+                onChange={(event) => { setPasted(event.target.value); setPasteError(null) }}
+              />
+            </div>
+            {pasteError !== null && <div className="dshModelAgentError" role="alert">{pasteError}</div>}
+            <div className="dshPromptsDialogActions">
+              <button type="button" onClick={props.onClose}>取消</button>
+              <button type="button" disabled={props.busy || pasted.trim().length === 0} onClick={parseAndImport}>解析并导入</button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
