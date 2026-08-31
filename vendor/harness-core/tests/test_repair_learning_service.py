@@ -309,7 +309,7 @@ class RepairLearningServiceTests(unittest.TestCase):
             "ghr_" + "A" * 36,
             "github_pat_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890abcdefghijklmnopqrstuvwxyz",
             "glpat-" + "A" * 20,
-            "xoxb-test-placeholder",
+            "xoxb-" + "A" * 20,
             "xapp-" + "A" * 20,
             "ASIAABCDEFGHIJKLMNOP",
         )
