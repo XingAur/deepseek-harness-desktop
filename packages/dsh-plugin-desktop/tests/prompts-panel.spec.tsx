@@ -21,6 +21,9 @@ const STATUS = [
   { target: 'dsh', installed: true, liveFileExists: false, activePresetId: null, liveContentSha256: null, matchesActivePreset: false, oversized: false },
 ]
 
+const LIST = [{ id: 'p1', title: '默认提示词', updatedAt: 1, activatedTargets: ['claude' as const] }]
+const PRESET = { id: 'p1', title: '默认提示词', content: '# 正文', createdAt: 0, updatedAt: 1 }
+
 describe('PromptsPanel', () => {
   it('加载目标状态与预设列表并渲染状态条', async () => {
     const bridge = bridgeWith({
@@ -53,5 +56,59 @@ describe('PromptsPanel', () => {
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Claude' }))
     fireEvent.click(screen.getByRole('button', { name: '导入' }))
     await waitFor(() => expect(bridge.requestV2).toHaveBeenCalledWith('prompts.import', undefined, { targets: ['claude'] }))
+  })
+
+  it('选择预设进入编辑器,保存走 prompts.save 并刷新', async () => {
+    const bridge = bridgeWith({
+      'prompts.status': () => STATUS,
+      'prompts.list': () => LIST,
+      'prompts.get': () => PRESET,
+      'prompts.save': () => ({ kind: 'saved', preset: { ...PRESET, content: '# 新正文', updatedAt: 2 }, projected: STATUS }),
+    })
+    render(<PromptsPanel bridge={bridge} />)
+    fireEvent.click(await screen.findByRole('button', { name: /默认提示词/ }))
+    const editor = await screen.findByRole('textbox', { name: '预设内容' })
+    expect(editor).toHaveValue('# 正文')
+    fireEvent.change(editor, { target: { value: '# 新正文' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => expect(bridge.requestV2).toHaveBeenCalledWith('prompts.save', undefined, { presetId: 'p1', title: '默认提示词', content: '# 新正文' }))
+    expect(await screen.findByText(/预览/)).toBeInTheDocument()
+  })
+
+  it('保存返回冲突时弹对话框,选定候选走 prompts.resolve-conflict', async () => {
+    const bridge = bridgeWith({
+      'prompts.status': () => STATUS,
+      'prompts.list': () => LIST,
+      'prompts.get': () => ({ ...PRESET, content: 'v1' }),
+      'prompts.save': () => ({ kind: 'backfill-conflict', presetId: 'p1', candidates: [
+        { target: 'claude', content: 'claude 端内容', updatedAt: 5 },
+        { target: 'codex', content: 'codex 端内容', updatedAt: 6 },
+      ] }),
+      'prompts.resolve-conflict': () => ({ kind: 'saved', preset: { ...PRESET, content: 'claude 端内容', updatedAt: 7 }, projected: STATUS }),
+    })
+    render(<PromptsPanel bridge={bridge} />)
+    fireEvent.click(await screen.findByRole('button', { name: /默认提示词/ }))
+    fireEvent.click(await screen.findByRole('button', { name: '保存' }))
+    expect(await screen.findByRole('dialog', { name: '检测到外部修改' })).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('radio', { name: /Claude/ }))
+    fireEvent.click(screen.getByRole('button', { name: '以此为准并保存' }))
+    await waitFor(() => expect(bridge.requestV2).toHaveBeenCalledWith('prompts.resolve-conflict', undefined, { presetId: 'p1', title: '默认提示词', content: 'claude 端内容' }))
+  })
+
+  it('勾选激活目标走 prompts.activate,停用走 prompts.deactivate', async () => {
+    const bridge = bridgeWith({
+      'prompts.status': () => STATUS.map((entry) => ({ ...entry, activePresetId: entry.target === 'claude' ? 'p1' : null })),
+      'prompts.list': () => LIST,
+      'prompts.get': () => PRESET,
+      'prompts.activate': () => ({ kind: 'ok', status: STATUS[2] }),
+      'prompts.deactivate': () => STATUS[0],
+    })
+    render(<PromptsPanel bridge={bridge} />)
+    fireEvent.click(await screen.findByRole('button', { name: /默认提示词/ }))
+    const group = await screen.findByRole('group', { name: '激活目标' })
+    fireEvent.click(group.querySelector('input[value="dsh"]') as HTMLElement)
+    await waitFor(() => expect(bridge.requestV2).toHaveBeenCalledWith('prompts.activate', undefined, { presetId: 'p1', target: 'dsh' }))
+    fireEvent.click(screen.getByRole('button', { name: '停用已激活目标' }))
+    await waitFor(() => expect(bridge.requestV2).toHaveBeenCalledWith('prompts.deactivate', undefined, { target: 'claude' }))
   })
 })

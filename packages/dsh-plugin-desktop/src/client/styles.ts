@@ -370,6 +370,15 @@ export function installAdvancedStyles(): () => void {
     .dshPromptsDialog { background: var(--dsw-alias-surface-primary, #1c1c1f); color: inherit; border-radius: 14px; padding: 18px 20px; width: min(480px, 90vw); display: grid; gap: 12px; }
     .dshPromptsDialogActions { display: flex; justify-content: flex-end; gap: 10px; }
     .dshPromptsImportRow { display: flex; align-items: center; gap: 10px; }
+    .dshPromptsEditor { display: grid; gap: 10px; }
+    .dshPromptsEditorActions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .dshPromptsEditorActions button { border: 1px solid var(--dsw-alias-border-secondary, rgba(127,127,127,.4)); border-radius: 8px; padding: 5px 12px; background: transparent; color: inherit; cursor: pointer; }
+    .dshPromptsPanes { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+    .dshPromptsPanes textarea { min-height: 220px; resize: vertical; border-radius: 10px; border: 1px solid var(--dsw-alias-border-secondary, rgba(127,127,127,.35)); background: transparent; color: inherit; padding: 10px; font: 13px/1.6 ui-monospace, monospace; }
+    .dshPromptsPreview { overflow: auto; border: 1px dashed var(--dsw-alias-border-secondary, rgba(127,127,127,.35)); border-radius: 10px; padding: 10px; display: grid; gap: 8px; align-content: start; }
+    .dshPromptsActivateGroup { display: flex; gap: 12px; border: 0; padding: 0; }
+    .dshPromptsActivateGroup legend { color: var(--dsw-alias-label-secondary, #b7b7bf); font-size: 12px; }
+    .dshPromptsListItem.is-active { border-color: var(--dsw-alias-border-secondary, rgba(127,127,127,.4)); background: var(--dsw-alias-surface-secondary, rgba(127,127,127,.08)); }
     @media (max-width: 760px) {
       .dshDesktopProjectsPage { padding-inline: 20px; }
       .dshDesktopProfileEditor, .dshDesktopProfileSettingsList article { grid-template-columns: 1fr; }
