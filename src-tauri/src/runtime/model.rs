@@ -224,6 +224,10 @@ pub struct RuntimeManifest {
     #[serde(default)]
     pub args: Vec<String>,
     pub health_path: String,
+    // 0.1.40 起的运行时清单携带桌面插件指纹,用于发布流水线校验"壳新插件旧";
+    // 旧清单没有该字段,serde default 保证向后兼容。
+    #[serde(default)]
+    pub desktop_plugin_sha256: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

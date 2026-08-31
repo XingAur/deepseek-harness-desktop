@@ -139,6 +139,14 @@ fn validate_manifest(
             "健康检查路径无效",
         ));
     }
+    if let Some(plugin_sha256) = &manifest.desktop_plugin_sha256 {
+        if plugin_sha256.len() != 64 || !plugin_sha256.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(RuntimeFailure::new(
+                RuntimeFailureCode::Signature,
+                "运行时插件 SHA-256 无效",
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -170,7 +178,41 @@ mod tests {
             entrypoint: "../node.exe".into(),
             args: vec![],
             health_path: "/health".into(),
+            desktop_plugin_sha256: None,
         };
         assert!(validate_manifest(&manifest, RuntimeTarget::WindowsX86_64).is_err());
+    }
+
+    #[test]
+    fn desktop_plugin_sha256_is_optional_but_validated_when_present() {
+        let base = serde_json::json!({
+            "schemaVersion": 1,
+            "version": "1.0.0",
+            "dshVersion": "0.1.1-rc.2",
+            "target": "windows-x86_64",
+            "url": "https://example.invalid/runtime.zip",
+            "size": 10,
+            "sha256": "a".repeat(64),
+            "signature": String::new(),
+            "archive": "zip",
+            "entrypoint": "launcher.mjs",
+            "healthPath": "/health"
+        });
+        let without_field: RuntimeManifest = serde_json::from_value(base.clone()).unwrap();
+        assert_eq!(without_field.desktop_plugin_sha256, None);
+
+        let mut with_field = base.clone();
+        with_field["desktopPluginSha256"] = serde_json::Value::String("b".repeat(64));
+        let parsed: RuntimeManifest = serde_json::from_value(with_field).unwrap();
+        assert_eq!(
+            parsed.desktop_plugin_sha256.as_deref(),
+            Some(&"b".repeat(64)[..])
+        );
+        assert!(validate_manifest(&parsed, RuntimeTarget::WindowsX86_64).is_ok());
+
+        let mut invalid = base.clone();
+        invalid["desktopPluginSha256"] = serde_json::Value::String("short".into());
+        let parsed: RuntimeManifest = serde_json::from_value(invalid).unwrap();
+        assert!(validate_manifest(&parsed, RuntimeTarget::WindowsX86_64).is_err());
     }
 }

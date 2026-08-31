@@ -348,8 +348,11 @@ describe('product copy', () => {
       workflow.indexOf('- name: Prepare Windows installer config'),
     )
 
-    expect(runtimePreparation).toContain('gh release view "${RUNTIME_TAG}"')
-    expect(runtimePreparation).toContain('gh release download "${RUNTIME_TAG}"')
+    expect(runtimePreparation).toContain('node scripts/runtime-release-state.mjs')
+    expect(runtimePreparation).toContain('releases/assets/${ARCHIVE_ASSET_ID}')
+    expect(runtimePreparation).toContain('releases/assets/${MANIFEST_ASSET_ID}')
+    expect(runtimePreparation).not.toContain('gh release view "${RUNTIME_TAG}"')
+    expect(runtimePreparation).not.toContain('gh release download "${RUNTIME_TAG}"')
     expect(runtimePreparation).toContain('touch "${RUNTIME_DIR}/.managed-runtime-reused"')
     expect(runtimePreparation).toContain('if test -f "${RUNTIME_DIR}/.managed-runtime-reused"')
   })

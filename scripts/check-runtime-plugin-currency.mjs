@@ -58,41 +58,181 @@ export function compareManifest(currentSha, manifest, runtimeTag) {
 }
 
 const sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms))
+const MAX_RELEASE_PAGES = 100
+const REQUEST_TIMEOUT_MS = 15_000
+const runtimeTagPattern = /^runtime-v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/
 
-// 拉取已发布 runtime manifest;release 或 manifest 资产不存在时返回 null(将构建新运行时)。
-// GitHub 偶发连接重置:网络错误与 5xx 最多重试 3 次,指数退避 1s/2s/4s;404 不重试。
+// 拉取可被工作流复用的 runtime manifest;release 或 manifest 资产不存在时返回 null(将构建新运行时)。
+// 先用带认证的 GitHub Release 列表 API 校验精确 tag 的 archive/manifest 资产矩阵,再下载 manifest;
+// 公开下载 URL 看不到 draft Release 时回退固定 GitHub asset API,以与 `gh release view/download` 的复用可见性一致。
+// 网络错误与 5xx 最多重试 3 次,指数退避 1s/2s/4s。
 export async function fetchRuntimeManifest(target, runtimeTag, token, options = {}) {
   const {
     repository = resolveRepository(),
     retryDelayMs = 1000,
     sleepImpl = sleep,
     fetchImpl = fetch,
+    maxReleasePages = MAX_RELEASE_PAGES,
+    requestTimeoutMs = REQUEST_TIMEOUT_MS,
   } = options
-  const { manifestName } = runtimeReleaseAssetNames(target)
-  const url = `https://github.com/${repository}/releases/download/${runtimeTag}/${manifestName}`
-  const headers = token ? { Authorization: `Bearer ${token}` } : {}
+  const { repositoryPath } = validateReleaseLocator(repository, runtimeTag)
+  validateRequestLimits(maxReleasePages, requestTimeoutMs)
+  const { archiveName, manifestName } = runtimeReleaseAssetNames(target)
+  const requestOptions = { retryDelayMs, sleepImpl, fetchImpl, maxReleasePages, requestTimeoutMs }
+  const manifestAsset = await fetchManifestFromReleaseList(
+    repositoryPath,
+    runtimeTag,
+    archiveName,
+    manifestName,
+    token,
+    requestOptions,
+  )
+  if (!manifestAsset) return null
+  return fetchManifestAsset(`Runtime Release ${runtimeTag}`, manifestAsset, repositoryPath, manifestName, token, requestOptions)
+}
+
+async function fetchManifestFromReleaseList(repositoryPath, runtimeTag, archiveName, manifestName, token, options) {
+  const pageSize = 100
+  const { maxReleasePages } = options
+  const releaseHeaders = {
+    Accept: 'application/vnd.github+json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  }
+  const seenPageFingerprints = new Set()
+  const matchingReleases = []
+  let reachedEnd = false
+  for (let page = 1; page <= maxReleasePages; page += 1) {
+    const releaseUrl = `https://api.github.com/repos/${repositoryPath}/releases?per_page=${pageSize}&page=${page}`
+    const { response: releaseResponse, text } = await fetchWithRetries(releaseUrl, { headers: releaseHeaders }, options, '查询')
+    if (!releaseResponse.ok) throw new Error(`查询 ${releaseUrl} 失败: HTTP ${releaseResponse.status}`)
+
+    const releases = parseReleaseListJson(text, releaseUrl)
+    const pageFingerprint = JSON.stringify(releases)
+    if (seenPageFingerprints.has(pageFingerprint)) throw new Error(`${releaseUrl} Release 列表页面重复`)
+    seenPageFingerprints.add(pageFingerprint)
+    for (const candidate of releases) {
+      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate) || typeof candidate.tag_name !== 'string') {
+        throw new Error(`${releaseUrl} 包含非法 Release 数据`)
+      }
+      if (candidate.tag_name === runtimeTag) {
+        matchingReleases.push({ releaseUrl, release: candidate })
+      }
+    }
+    if (releases.length < pageSize) {
+      reachedEnd = true
+      break
+    }
+  }
+  if (!reachedEnd) throw new Error(`Release 列表超过最大页数(${maxReleasePages}),无法确认 ${runtimeTag} 是否存在`)
+  if (matchingReleases.length === 0) return null
+  if (matchingReleases.length > 1) throw new Error(`多个 Runtime Release 使用相同 tag: ${runtimeTag}`)
+  const [{ releaseUrl, release }] = matchingReleases
+  return inspectRuntimeRelease(releaseUrl, release, runtimeTag, archiveName, manifestName)
+}
+
+function inspectRuntimeRelease(releaseUrl, release, runtimeTag, archiveName, manifestName) {
+  if (!Array.isArray(release.assets)) {
+    throw new Error(`${releaseUrl} 的 ${runtimeTag} Release 缺少 assets 数组`)
+  }
+  let archiveAsset
+  let manifestAsset
+  for (const candidate of release.assets) {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate) || typeof candidate.name !== 'string') {
+      throw new Error(`${releaseUrl} 的 ${runtimeTag} Release 包含非法 asset 数据`)
+    }
+    if (candidate.name === archiveName) archiveAsset = candidate
+    if (candidate.name === manifestName) manifestAsset = candidate
+  }
+  if (!archiveAsset && !manifestAsset) return null
+  if (archiveAsset && !manifestAsset) {
+    throw new Error(`Runtime Release ${runtimeTag} 的 archive ${archiveName} 已存在但 manifest ${manifestName} 缺失;必须 bump runtimeVersion 或清理旧 draft asset`)
+  }
+  if (!archiveAsset && manifestAsset) {
+    throw new Error(`Runtime Release ${runtimeTag} 的 manifest ${manifestName} 已存在但 archive ${archiveName} 缺失;该残缺 Release 不可复用`)
+  }
+  return manifestAsset
+}
+
+async function fetchManifestAsset(releaseUrl, manifestAsset, repositoryPath, manifestName, token, options) {
+  if (!Number.isSafeInteger(manifestAsset.id) || manifestAsset.id <= 0) {
+    throw new Error(`${releaseUrl} 的 ${manifestName} 资产具有无效的 asset id`)
+  }
+  // asset.url 来自远端数据,不可作为带 Bearer token 的请求目标。只使用已验证 id 构造 GitHub API 地址。
+  const assetUrl = `https://api.github.com/repos/${repositoryPath}/releases/assets/${manifestAsset.id}`
+
+  const { response: assetResponse, text } = await fetchWithRetries(assetUrl, {
+    headers: {
+      Accept: 'application/octet-stream',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    redirect: 'follow',
+  }, options, '下载')
+  if (!assetResponse.ok) throw new Error(`下载 ${assetUrl} 失败: HTTP ${assetResponse.status}`)
+  return parseManifestJson(text, assetUrl)
+}
+
+async function fetchWithRetries(url, init, { retryDelayMs, sleepImpl, fetchImpl, requestTimeoutMs }, action) {
   const maxRetries = 3
   for (let attempt = 0; ; attempt += 1) {
     let response
+    let text
     try {
-      // fetch 规范会在跨源重定向时剥掉 Authorization,跟随重定向不会把 token 泄给资产 CDN。
-      response = await fetchImpl(url, { headers, redirect: 'follow' })
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(new Error(`请求超时(${requestTimeoutMs}ms)`)), requestTimeoutMs)
+      try {
+        response = await fetchImpl(url, { ...init, signal: controller.signal })
+        if (response.ok) text = await response.text()
+      } finally {
+        clearTimeout(timeout)
+      }
     } catch (cause) {
       if (attempt >= maxRetries) {
-        throw new Error(`下载 ${url} 失败(已重试 ${maxRetries} 次): ${cause instanceof Error ? cause.message : String(cause)}`)
+        throw new Error(`${action} ${url} 失败(已重试 ${maxRetries} 次): ${cause instanceof Error ? cause.message : String(cause)}`)
       }
       await sleepImpl(retryDelayMs * 2 ** attempt)
       continue
     }
-    if (response.status === 404) return null
     if (response.status >= 500) {
-      if (attempt >= maxRetries) throw new Error(`下载 ${url} 失败: HTTP ${response.status}(已重试 ${maxRetries} 次)`)
+      if (attempt >= maxRetries) throw new Error(`${action} ${url} 失败: HTTP ${response.status}(已重试 ${maxRetries} 次)`)
       await sleepImpl(retryDelayMs * 2 ** attempt)
       continue
     }
-    if (!response.ok) throw new Error(`下载 ${url} 失败: HTTP ${response.status}`)
-    return parseManifestJson(await response.text(), url)
+    return { response, text }
   }
+}
+
+function validateReleaseLocator(repository, runtimeTag) {
+  if (typeof repository !== 'string') throw new Error('无效的 GitHub 仓库')
+  const segments = repository.split('/')
+  if (segments.length !== 2 || !segments.every((segment) => /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(segment))) {
+    throw new Error(`无效的 GitHub 仓库: ${repository}`)
+  }
+  if (typeof runtimeTag !== 'string' || !runtimeTagPattern.test(runtimeTag)) {
+    throw new Error('Runtime tag 必须是固定的 runtime-v<semver>，不能使用 latest、branch 或 URL')
+  }
+  return {
+    repositoryPath: segments.map((segment) => encodeURIComponent(segment)).join('/'),
+  }
+}
+
+function validateRequestLimits(maxReleasePages, requestTimeoutMs) {
+  if (!Number.isSafeInteger(maxReleasePages) || maxReleasePages <= 0) {
+    throw new Error(`无效的 Release 最大页数: ${String(maxReleasePages)}`)
+  }
+  if (!Number.isSafeInteger(requestTimeoutMs) || requestTimeoutMs <= 0) {
+    throw new Error(`无效的请求超时: ${String(requestTimeoutMs)}`)
+  }
+}
+
+function parseReleaseListJson(text, label) {
+  let value
+  try {
+    value = JSON.parse(text)
+  } catch {
+    throw new Error(`${label} 不是有效的 JSON Release 列表`)
+  }
+  if (!Array.isArray(value)) throw new Error(`${label} Release 列表不是 JSON 数组`)
+  return value
 }
 
 function parseManifestJson(text, label) {

@@ -139,46 +139,31 @@ jobs:
           RUNTIME_DIR="runtime-build/${{ matrix.runtime_target }}"
           ARCHIVE_NAME="dsh-runtime-${{ matrix.runtime_target }}.${{ matrix.runtime_extension }}"
           MANIFEST_NAME="runtime-${{ matrix.runtime_target }}.json"
-          if gh release view "${RUNTIME_TAG}" --repo "${GITHUB_REPOSITORY}" --json isDraft,isPrerelease,assets > "${RUNNER_TEMP}/runtime-release-${{ matrix.runtime_target }}.json" 2>/dev/null; then
-            mkdir -p "${RUNTIME_DIR}"
-            IS_DRAFT="$(node -p "JSON.parse(require('fs').readFileSync(process.argv[1])).isDraft" "${RUNNER_TEMP}/runtime-release-${{ matrix.runtime_target }}.json")"
-            ARCHIVE_EXISTS="$(node -p "JSON.parse(require('fs').readFileSync(process.argv[1])).assets.some(a => a.name === process.argv[2])" "${RUNNER_TEMP}/runtime-release-${{ matrix.runtime_target }}.json" "${ARCHIVE_NAME}")"
-            MANIFEST_EXISTS="$(node -p "JSON.parse(require('fs').readFileSync(process.argv[1])).assets.some(a => a.name === process.argv[2])" "${RUNNER_TEMP}/runtime-release-${{ matrix.runtime_target }}.json" "${MANIFEST_NAME}")"
-            if [[ "${IS_DRAFT}" != 'true' && ( "${ARCHIVE_EXISTS}" != 'true' || "${MANIFEST_EXISTS}" != 'true' ) ]]; then
-              echo '::error::Public Runtime Release is incomplete and immutable.'
-              exit 1
-            fi
-            if [[ "${ARCHIVE_EXISTS}" == 'true' ]]; then
-              gh release download "${RUNTIME_TAG}" --repo "${GITHUB_REPOSITORY}" --pattern "${ARCHIVE_NAME}" --dir "${RUNTIME_DIR}"
-              test -s "${RUNTIME_DIR}/${ARCHIVE_NAME}"
-            fi
-            if [[ "${MANIFEST_EXISTS}" == 'true' ]]; then
-              gh release download "${RUNTIME_TAG}" --repo "${GITHUB_REPOSITORY}" --pattern "${MANIFEST_NAME}" --dir "${RUNTIME_DIR}"
-              test -s "${RUNTIME_DIR}/${MANIFEST_NAME}"
-            fi
-            if [[ "${ARCHIVE_EXISTS}" == 'true' && "${MANIFEST_EXISTS}" == 'true' ]]; then
-              touch "${RUNTIME_DIR}/.managed-runtime-reused"
-            elif [[ "${ARCHIVE_EXISTS}" == 'true' ]]; then
-              node scripts/runtime-release-manifest.mjs \
-                --archive="${RUNTIME_DIR}/${ARCHIVE_NAME}" \
-                --target=${{ matrix.runtime_target }} \
-                --version="${MANAGED_RUNTIME_VERSION}" \
-                --url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RUNTIME_TAG}/${ARCHIVE_NAME}" \
-                --output="${RUNTIME_DIR}/manifest-${{ matrix.runtime_target }}.unsigned.json"
-            elif [[ "${MANIFEST_EXISTS}" == 'true' ]]; then
-              echo '::error::Runtime draft contains a manifest without its immutable archive.'
-              exit 1
-            else
-              node scripts/build-runtime.mjs \
-                --target=${{ matrix.runtime_target }} \
-                --version="${MANAGED_RUNTIME_VERSION}" \
-                --url=https://github.com/${GITHUB_REPOSITORY}/releases/download/runtime-v${MANAGED_RUNTIME_VERSION}/${ARCHIVE_NAME}
-            fi
-          else
+          RUNTIME_RELEASE_STATE="$(node scripts/runtime-release-state.mjs \
+            --repo="${GITHUB_REPOSITORY}" \
+            --tag="${RUNTIME_TAG}" \
+            --archive="${ARCHIVE_NAME}" \
+            --manifest="${MANIFEST_NAME}")"
+          RUNTIME_STATE="$(node -p "JSON.parse(process.argv[1]).state" "${RUNTIME_RELEASE_STATE}")"
+          if [[ "${RUNTIME_STATE}" == 'absent' || "${RUNTIME_STATE}" == 'empty' ]]; then
             node scripts/build-runtime.mjs \
               --target=${{ matrix.runtime_target }} \
               --version="${MANAGED_RUNTIME_VERSION}" \
               --url=https://github.com/${GITHUB_REPOSITORY}/releases/download/runtime-v${MANAGED_RUNTIME_VERSION}/${ARCHIVE_NAME}
+          elif [[ "${RUNTIME_STATE}" == 'complete' ]]; then
+            ARCHIVE_ASSET_ID="$(node -p "JSON.parse(process.argv[1]).archiveAssetId" "${RUNTIME_RELEASE_STATE}")"
+            MANIFEST_ASSET_ID="$(node -p "JSON.parse(process.argv[1]).manifestAssetId" "${RUNTIME_RELEASE_STATE}")"
+            mkdir -p "${RUNTIME_DIR}"
+            gh api "repos/${GITHUB_REPOSITORY}/releases/assets/${ARCHIVE_ASSET_ID}" \
+              -H 'Accept: application/octet-stream' > "${RUNTIME_DIR}/${ARCHIVE_NAME}"
+            gh api "repos/${GITHUB_REPOSITORY}/releases/assets/${MANIFEST_ASSET_ID}" \
+              -H 'Accept: application/octet-stream' > "${RUNTIME_DIR}/${MANIFEST_NAME}"
+            test -s "${RUNTIME_DIR}/${ARCHIVE_NAME}"
+            test -s "${RUNTIME_DIR}/${MANIFEST_NAME}"
+            touch "${RUNTIME_DIR}/.managed-runtime-reused"
+          else
+            echo "::error::Unexpected Runtime Release state: ${RUNTIME_STATE}"
+            exit 1
           fi
 
       - name: Sign and stage Runtime manifest
