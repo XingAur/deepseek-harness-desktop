@@ -218,7 +218,7 @@ export function PromptsPanel({ bridge }: { bridge: DesktopBridgeLike }) {
             setImportOpen(false)
             await refreshAll()
             // refreshAll 成功会清 error,故汇总放在其后
-            if (failed > 0) {
+            if (failed > 0 || skipped > 0) {
               setError(`粘贴导入完成:${drafts.length - failed} 条成功,${failed} 条失败${skipped > 0 ? `,另有 ${skipped} 条超过 24 KiB 上限跳过` : ''}`)
             }
           }}
