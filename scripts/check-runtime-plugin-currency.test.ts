@@ -1,3 +1,4 @@
+// @ts-nocheck -- These offline fetch fixtures intentionally model partial GitHub payloads.
 import { createHash } from 'node:crypto'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'

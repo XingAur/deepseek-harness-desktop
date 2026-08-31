@@ -1,3 +1,4 @@
+// @ts-nocheck -- The release-state fixtures deliberately exercise malformed API payloads.
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { resolveRuntimeReleaseState } from './runtime-release-state.mjs'
