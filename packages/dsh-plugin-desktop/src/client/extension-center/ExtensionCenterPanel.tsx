@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import type { DesktopBridgeLike } from '../desktop-bridge'
+import { PluginMarket } from '../extensions/PluginMarket'
 import { PromptsPanel } from './PromptsPanel'
 
-type CenterTab = 'prompts' | 'mcp' | 'skills' | 'usage'
+type CenterTab = 'prompts' | 'plugins' | 'mcp' | 'skills' | 'usage'
 
 const TABS: Array<[CenterTab, string]> = [
   ['prompts', '提示词'],
+  ['plugins', '插件'],
   ['mcp', 'MCP'],
   ['skills', 'Skills'],
   ['usage', '用量'],
@@ -19,7 +21,7 @@ export function ExtensionCenterPanel(props: { bridge: DesktopBridgeLike }) {
         <div>
           <p className="dshModelAgentEyebrow">DESKTOP EXTENSIONS</p>
           <h2>扩展中心</h2>
-          <p>跨应用管理提示词、MCP、Skills 与用量。</p>
+          <p>跨应用管理提示词、插件、MCP、Skills 与用量。</p>
         </div>
       </header>
       <nav className="dshExtCenterTabs" role="tablist" aria-label="扩展中心页签">
@@ -28,6 +30,7 @@ export function ExtensionCenterPanel(props: { bridge: DesktopBridgeLike }) {
         ))}
       </nav>
       {tab === 'prompts' && <PromptsPanel bridge={props.bridge} />}
+      {tab === 'plugins' && <PluginMarket bridge={props.bridge} />}
       {tab === 'mcp' && <p className="dshExtCenterPlaceholder">即将推出</p>}
       {tab === 'skills' && <p className="dshExtCenterPlaceholder">即将推出</p>}
       {tab === 'usage' && <p className="dshExtCenterPlaceholder">即将推出</p>}

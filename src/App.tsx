@@ -495,11 +495,7 @@ export function App({ runtime, windowControls }: AppProps) {
                 <header className="localAppStrip">
                   <div className="localAppStripIdentity">
                     <span className="localAppStripStatus" aria-hidden="true" />
-                    <div>
-                      <p>本地应用</p>
-                      <strong>{activeApp.title}</strong>
-                    </div>
-                    <span className="localAppStripRunning">运行中</span>
+                    <strong>{activeApp.title}</strong>
                   </div>
                   <div className="localAppStripActions">
                     <button type="button" className="localAppStripAction" aria-label="返回工作台" title="返回工作台" onClick={() => setActiveApp(null)}>

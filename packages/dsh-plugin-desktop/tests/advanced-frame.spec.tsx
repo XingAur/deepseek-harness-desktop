@@ -63,6 +63,7 @@ describe('advanced frame', () => {
     expect(state.getSnapshot()).toBe(true)
     expect(screen.getByRole('complementary', { name: '扩展中心' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '提示词' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: '插件' })).toBeInTheDocument()
     expect(screen.getByText('MCP')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('tab', { name: 'MCP' }))
