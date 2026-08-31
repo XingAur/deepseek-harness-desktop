@@ -17,7 +17,7 @@ describe('restoreRuntimeDependencyCache', () => {
     }, { existsSync: () => true, readFileSync, cpSync })).toBe(true)
     expect(cpSync).toHaveBeenCalledWith(
       resolve('/cache/node_modules'),
-      join('/runtime/app', 'node_modules'),
+      resolve('/runtime/app', 'node_modules'),
       { recursive: true, verbatimSymlinks: true },
     )
   })
