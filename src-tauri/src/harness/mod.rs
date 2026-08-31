@@ -143,6 +143,9 @@ impl HarnessService {
                 command.env("HARNESS_PYTHON", value);
             }
         }
+        // node 宿主是控制台子系统进程,禁窗避免前台闪黑框。
+        #[cfg(windows)]
+        command.creation_flags(crate::runtime::process::CREATE_NO_WINDOW);
         let mut child = command
             .spawn()
             .map_err(|_| HarnessError::SidecarUnavailable)?;

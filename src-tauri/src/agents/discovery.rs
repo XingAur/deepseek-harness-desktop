@@ -12,6 +12,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 use super::{
     compatibility::parse_cli_version,
     model::{
@@ -247,6 +250,9 @@ fn probe_version(path: &Path) -> Result<String, ProbeError> {
     } else {
         Command::new(path)
     };
+    // CLI 探测发生在启动/打开中心时;cmd 包装的 CLI 不禁窗会闪黑框。
+    #[cfg(windows)]
+    command.creation_flags(crate::runtime::process::CREATE_NO_WINDOW);
     let mut child = command
         .args(["--version"])
         .env_clear()

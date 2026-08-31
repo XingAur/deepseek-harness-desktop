@@ -17,6 +17,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 use serde::{Deserialize, Serialize};
 
 const OUTPUT_LIMIT: usize = 64 * 1024;
@@ -346,6 +349,9 @@ fn run_install(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    // 受管 node 属控制台子系统进程,禁窗避免安装时闪黑框。
+    #[cfg(windows)]
+    command.creation_flags(crate::runtime::process::CREATE_NO_WINDOW);
     for name in ["HOME", "LANG", "LC_ALL", "TZ", "TMPDIR", "USER"] {
         if let Some(value) = std::env::var_os(name) {
             let value = value.to_string_lossy().into_owned();

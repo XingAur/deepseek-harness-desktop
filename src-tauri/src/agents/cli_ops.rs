@@ -14,6 +14,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 use serde::Serialize;
 
 use super::{
@@ -567,6 +570,9 @@ fn run_bounded_cli(
         command.args(args);
         command
     };
+    // cmd/bat 包装的 CLI 走 COMSPEC 时会继承控制台,禁窗避免闪黑框。
+    #[cfg(windows)]
+    command.creation_flags(crate::runtime::process::CREATE_NO_WINDOW);
     command
         .env_clear()
         .envs(minimal_environment())
