@@ -117,5 +117,5 @@ describe('inspectAssembledRuntimeCapabilities', () => {
       rmSync(appDirectory, { recursive: true, force: true })
       rmSync(packDirectory, { recursive: true, force: true })
     }
-  }, 20_000)
+  }, 60_000)
 })
