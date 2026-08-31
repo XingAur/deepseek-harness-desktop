@@ -109,11 +109,12 @@ pub(crate) fn current_user_profile_root() -> Result<PathBuf, RuntimeFailure> {
 /// 解析用户「文档」已知文件夹（只查询，不创建目录）。
 /// 目前仅卸载器用它定位受管 Projects 根（见 projects/uninstall.rs）；
 /// 非 Windows 卸载器不存在该流程，因此直接报错。
+/// Windows 上必须走 platform 的共用解析器：e2e 构建下 DSH_E2E_DOCUMENTS_ROOT
+/// 会重定向「文档」目录，卸载助手若直连 SHGetKnownFolderPath 就会看到另一个根，
+/// 受管 Projects 过滤会把全部登记项静默排除。
 #[cfg(windows)]
 pub(crate) fn documents_folder() -> Result<PathBuf, RuntimeFailure> {
-    known_folder_result(|| {
-        windows_known_folder(&windows_sys::Win32::UI::Shell::FOLDERID_Documents)
-    })
+    crate::platform::current().documents_dir()
 }
 
 #[cfg(not(windows))]

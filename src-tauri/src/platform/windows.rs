@@ -42,21 +42,7 @@ impl PlatformAdapter for WindowsPlatformAdapter {
     }
 
     fn documents_dir(&self) -> Result<PathBuf, RuntimeFailure> {
-        #[cfg(feature = "e2e")]
-        if let Some(root) = std::env::var_os("DSH_E2E_DOCUMENTS_ROOT") {
-            let root = PathBuf::from(root);
-            if !root.is_absolute() {
-                return Err(RuntimeFailure::internal("E2E 文档目录必须是绝对路径"));
-            }
-            let marker = root.join(".dsh-e2e-documents-owned");
-            if has_reparse_components(&root)
-                || has_reparse_components(&marker)
-                || std::fs::read_to_string(&marker).map(|v| v != "E2E-owned").unwrap_or(true) {
-                return Err(RuntimeFailure::internal("E2E 文档目录缺少所有权标记"));
-            }
-            return Ok(root);
-        }
-        known_folder_path(&FOLDERID_Documents)
+        resolve_documents_dir()
     }
 
     fn move_to_recycle_bin(&self, path: &Path) -> Result<(), crate::runtime::RuntimeFailure> {
@@ -112,6 +98,29 @@ impl PlatformAdapter for WindowsPlatformAdapter {
             ))),
         }
     }
+}
+
+/// 解析用户「文档」目录（只查询，不创建）。运行时与卸载助手
+/// （data_cleanup::documents_folder 经 platform::current() 走到这里）共用本实现：
+/// e2e 构建下 DSH_E2E_DOCUMENTS_ROOT 会把「文档」重定向到带所有权标记的测试根，
+/// 两侧必须解析到同一目录，否则卸载时的受管 Projects 过滤会把全部登记项静默排除；
+/// 非 e2e 构建不读该环境变量，直接回退系统 Known Folder。
+pub(crate) fn resolve_documents_dir() -> Result<PathBuf, RuntimeFailure> {
+    #[cfg(feature = "e2e")]
+    if let Some(root) = std::env::var_os("DSH_E2E_DOCUMENTS_ROOT") {
+        let root = PathBuf::from(root);
+        if !root.is_absolute() {
+            return Err(RuntimeFailure::internal("E2E 文档目录必须是绝对路径"));
+        }
+        let marker = root.join(".dsh-e2e-documents-owned");
+        if has_reparse_components(&root)
+            || has_reparse_components(&marker)
+            || std::fs::read_to_string(&marker).map(|v| v != "E2E-owned").unwrap_or(true) {
+            return Err(RuntimeFailure::internal("E2E 文档目录缺少所有权标记"));
+        }
+        return Ok(root);
+    }
+    known_folder_path(&FOLDERID_Documents)
 }
 
 fn process_inventory() -> Result<Vec<ProcessIdentity>, RuntimeFailure> {
@@ -247,7 +256,7 @@ mod tests {
 
     use super::{
         PlatformAdapter, WindowsPlatformAdapter, parse_proxy_server, process_inventory,
-        resolve_registry_proxy,
+        resolve_documents_dir, resolve_registry_proxy,
     };
 
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -277,6 +286,35 @@ mod tests {
         assert!(actual.is_absolute());
         assert_eq!(actual, expected);
         assert_ne!(actual, PathBuf::from(r"Z:\attacker-controlled"));
+    }
+
+    // 非 e2e 构建必须完全不读 DSH_E2E_DOCUMENTS_ROOT：卸载助手与运行时都直连
+    // 系统 Known Folder，环境变量不能影响「文档」目录解析。
+    #[cfg(not(feature = "e2e"))]
+    #[test]
+    fn documents_resolution_ignores_the_e2e_override_outside_e2e_builds() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let expected = resolve_documents_dir().unwrap();
+        let _env = EnvGuard("DSH_E2E_DOCUMENTS_ROOT", std::env::var_os("DSH_E2E_DOCUMENTS_ROOT"));
+        unsafe { std::env::set_var("DSH_E2E_DOCUMENTS_ROOT", r"Z:\attacker-controlled") };
+        let actual = resolve_documents_dir().unwrap();
+        assert!(actual.is_absolute());
+        assert_eq!(actual, expected);
+        assert_ne!(actual, PathBuf::from(r"Z:\attacker-controlled"));
+    }
+
+    // 卸载助手（documents_folder）与运行时必须同源解析「文档」；若它退回直连
+    // SHGetKnownFolderPath，e2e 构建下会错过重定向根，受管 Projects 过滤会把
+    // 全部登记项静默排除。
+    #[test]
+    fn uninstall_documents_resolution_shares_the_platform_resolver() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let via_platform = resolve_documents_dir().unwrap();
+        assert!(via_platform.is_absolute());
+        assert_eq!(
+            crate::data_cleanup::documents_folder().unwrap(),
+            via_platform
+        );
     }
 
     #[cfg(feature = "e2e")]

@@ -27,6 +27,8 @@ const REPORT_PREFIX: &str = "deepseek-harness-uninstall-report-";
 pub(crate) fn collect_registered_projects(app_root: &Path) -> ProjectInventory {
     // 受管项目根 = <用户文档目录>\DeepSeek Harness\Projects，是应用创建本地项目的
     // 唯一位置（见 projects/location.rs 的 projects_root；这里只解析不创建）。
+    // documents_folder 复用 platform 的共用解析器：e2e 构建下与运行时解析到同一
+    // 重定向根，下面的受管根过滤才不会把测试项目全部静默排除。
     let managed_root = documents_folder()
         .ok()
         .map(|documents| documents.join("DeepSeek Harness").join("Projects"));
