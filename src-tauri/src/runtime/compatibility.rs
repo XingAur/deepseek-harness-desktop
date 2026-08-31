@@ -64,6 +64,7 @@ mod tests {
             entrypoint: "app/node.exe".to_string(),
             args: Vec::new(),
             health_path: "/__desktop/health".to_string(),
+            desktop_plugin_sha256: None,
         }
     }
 
