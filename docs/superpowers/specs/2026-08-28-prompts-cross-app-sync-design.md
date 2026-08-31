@@ -185,7 +185,8 @@ CREATE TABLE prompt_activations (
 | `prompts.activate` | `prompts_activate` | `{ presetId, target }` → `{ status }` 或冲突载荷 |
 | `prompts.deactivate` | `prompts_deactivate` | `{ target }` → `{ status }` |
 | `prompts.status` | `prompts_status` | → `TargetStatus[]`：`{ target, installed, liveFileExists, activePresetId, liveContentSha256, matchesActivePreset, oversized }` |
-| `prompts.import` | `prompts_import` | `{ targets: Array<'claude' \| 'codex' \| 'dsh'> }` → `{ imported: PresetSummary[] }` |
+| `prompts.resolve-conflict` | `prompts_resolve_conflict` | `{ presetId, title, content }` → `{ kind: 'saved', ... }`(冲突裁决收敛入口,不返回冲突) |
+| `prompts.import` | `prompts_import` | `{ targets: Array<'claude' \| 'codex' \| 'dsh'> }` → `PresetSummary[]`(裸数组) |
 
 契约改动落三处：`src/bridge-contract.ts`、
 `packages/dsh-plugin-desktop/src/client/bridge-contract.ts`（动作联合 +
@@ -196,7 +197,7 @@ CREATE TABLE prompt_activations (
 - 渲染器**不可传任何路径**：8 个命令全部无路径参数；目标路径由 Rust 从 home 目录 /
   活动 Profile（复用 `profile/` 仓储）推导。capability 文件不动（仍 `core:default`）。
 - 破坏性写三重保障：备份 → temp 写 + 同卷 rename 原子替换 → 成功后落激活记录。
-- 备份位置：`<AppPaths 数据目录>/prompt-backups/<target>/<timestamp>-<sha256 前 8>.md`，
+- 备份位置：`<AppPaths backups 目录>/prompts/<target>/<timestamp>-<sha256 前 8>.md`，
   每目标保留最近 10 份，超出轮转删除。
 - 未安装目标跳过写入，**绝不替用户创建** `~/.claude/`、`~/.codex/` 等目录。
 - 不涉及子进程、环境变量、网络；store 操作经 Mutex 串行化（与现有模块一致）。
