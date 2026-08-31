@@ -2255,11 +2255,12 @@ function collectHarnessCoreFiles(sourceRoot) {
 }
 
 function summarizeHarnessCoreFiles(files) {
+  const orderedFiles = [...files].sort((left, right) => left.relativePath.localeCompare(right.relativePath))
   return {
-    fileCount: files.length,
-    totalBytes: files.reduce((sum, file) => sum + statSync(file.absolute).size, 0),
+    fileCount: orderedFiles.length,
+    totalBytes: orderedFiles.reduce((sum, file) => sum + statSync(file.absolute).size, 0),
     manifestSha256: sha256OfEntries(
-      files.map((file) => `${file.relativePath}:${sha256OfFile(file.absolute)}`),
+      orderedFiles.map((file) => `${file.relativePath}:${sha256OfFile(file.absolute)}`),
     ),
   }
 }
