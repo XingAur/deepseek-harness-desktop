@@ -12,6 +12,6 @@ export function restoreRuntimeDependencyCache(appDirectory, cacheValue, versions
   if (!fs.existsSync(dshPackage) || !fs.existsSync(pnpmPackage)) throw new Error('--dependency-cache is incomplete')
   if (JSON.parse(fs.readFileSync(dshPackage, 'utf8')).version !== versions.dshVersion) throw new Error('--dependency-cache has the wrong DSH version')
   if (JSON.parse(fs.readFileSync(pnpmPackage, 'utf8')).version !== versions.pnpmVersion) throw new Error('--dependency-cache has the wrong pnpm version')
-  fs.cpSync(cache, join(appDirectory, 'node_modules'), { recursive: true, verbatimSymlinks: true })
+  fs.cpSync(cache, resolve(appDirectory, 'node_modules'), { recursive: true, verbatimSymlinks: true })
   return true
 }
