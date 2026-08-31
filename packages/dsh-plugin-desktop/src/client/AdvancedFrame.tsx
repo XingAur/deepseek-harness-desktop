@@ -9,7 +9,7 @@ import { ExtensionCenterPanel } from './extension-center/ExtensionCenterPanel'
 import { ExtensionErrorBoundary } from './extension-center/ExtensionErrorBoundary'
 import { HarnessChatSurface } from './harness/HarnessChatSurface'
 
-export function AdvancedFrame({ layout, platform, renderSlot, useSessions, useWorkspaces, workspaces, sessions, bridge, modelId, localProjects, extensionCenter }: AdvancedFrameProps) {
+export function AdvancedFrame({ layout, platform, renderSlot, useSessions, useWorkspaces, workspaces, sessions, bridge, localProjects, extensionCenter }: AdvancedFrameProps) {
   const subscribe = useCallback((listener: () => void) => layout.subscribe(listener), [layout])
   const panels = useSyncExternalStore(subscribe, layout.getSnapshot)
   const frameRef = useRef<HTMLDivElement>(null)
@@ -74,7 +74,6 @@ export function AdvancedFrame({ layout, platform, renderSlot, useSessions, useWo
               ? <div className="dshAgentPage"><ExtensionCenterPanel bridge={bridge} /></div>
               : <HarnessChatSurface
                 bridge={bridge}
-                modelId={modelId}
                 workspaceId={workspaceState.recentWorkspaceId ?? workspaceState.items[0]?.workspaceId}
                 renderConversation={() => renderSlot('conversation', {})}
               />}

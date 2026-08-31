@@ -10,10 +10,13 @@ const exactKeys = [
   'desktopVersion',
   'runtimeVersion',
   'dshVersion',
+  'dshUpstream',
   'nodeVersion',
   'pnpmVersion',
   'legacyReleaseBaseline',
 ].sort()
+const exactUpstreamKeys = ['repository', 'tag', 'commit'].sort()
+export const OFFICIAL_DSH_REPOSITORY = 'https://github.com/deepseek-ai/deepseek-harness.git'
 const stableVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
 const exactSemVer = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
 const previewVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-preview$/
@@ -26,7 +29,7 @@ export function validateReleaseVersions(value) {
   if (keys.length !== exactKeys.length || keys.some((key, index) => key !== exactKeys[index])) {
     throw invalid(`字段必须且只能是 ${exactKeys.join(', ')}`)
   }
-  if (value.schemaVersion !== 1) throw invalid('schemaVersion 必须是 1')
+  if (value.schemaVersion !== 2) throw invalid('schemaVersion 必须是 2')
   for (const field of ['desktopVersion', 'runtimeVersion', 'dshVersion', 'nodeVersion', 'pnpmVersion', 'legacyReleaseBaseline']) {
     if (typeof value[field] !== 'string' || value[field].trim() !== value[field]) {
       throw invalid(`${field} 必须是无首尾空格的字符串`)
@@ -35,12 +38,30 @@ export function validateReleaseVersions(value) {
   if (!stableVersion.test(value.desktopVersion)) throw invalid('desktopVersion 必须是三段稳定 SemVer')
   if (!previewVersion.test(value.runtimeVersion)) throw invalid('runtimeVersion 必须是 X.Y.Z-preview')
   if (!exactSemVer.test(value.dshVersion)) throw invalid('dshVersion 必须是精确 SemVer')
+  validateDshUpstream(value.dshUpstream)
   if (!stableVersion.test(value.nodeVersion)) throw invalid('nodeVersion 必须是三段稳定 SemVer')
   if (!stableVersion.test(value.pnpmVersion)) throw invalid('pnpmVersion 必须是三段稳定 SemVer')
   if (value.legacyReleaseBaseline !== LEGACY_RELEASE_BASELINE) {
     throw invalid(`legacyReleaseBaseline 必须固定为 ${LEGACY_RELEASE_BASELINE}`)
   }
-  return { ...value }
+  return { ...value, dshUpstream: { ...value.dshUpstream } }
+}
+
+function validateDshUpstream(value) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw invalid('dshUpstream 必须是 JSON 对象')
+  }
+  const keys = Object.keys(value).sort()
+  if (keys.length !== exactUpstreamKeys.length || keys.some((key, index) => key !== exactUpstreamKeys[index])) {
+    throw invalid(`dshUpstream 字段必须且只能是 ${exactUpstreamKeys.join(', ')}`)
+  }
+  if (value.repository !== OFFICIAL_DSH_REPOSITORY) throw invalid(`dshUpstream.repository 必须是 ${OFFICIAL_DSH_REPOSITORY}`)
+  if (typeof value.tag !== 'string' || !value.tag.startsWith('dsh-v') || !exactSemVer.test(value.tag.slice('dsh-v'.length))) {
+    throw invalid('dshUpstream.tag 必须是 dsh-v<精确 SemVer>')
+  }
+  if (typeof value.commit !== 'string' || !/^[0-9a-f]{40}$/.test(value.commit)) {
+    throw invalid('dshUpstream.commit 必须是 40 位小写 Git 对象 ID')
+  }
 }
 
 export function loadReleaseVersions(root = process.cwd()) {

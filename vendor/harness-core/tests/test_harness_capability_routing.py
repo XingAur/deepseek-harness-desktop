@@ -23,6 +23,10 @@ from app.capability_contracts import (
 )
 from app.capability_runtime import CapabilityRuntime
 from app.capability_service import CapabilityService
+from app.change_context_execution import (
+    ChangeContextExecutionBinding,
+    ChangeContextExecutionVerifier,
+)
 from app.plugin_inventory import PluginInventoryError
 from app.core_closure import DiffReview, RequirementContract, review_final_diff
 from app.evaluator import EvaluationResult
@@ -35,7 +39,7 @@ from app.fullstack_executor import (
 from app.harness import (
     TASK_CAPABILITY_SEQUENCE,
     CapabilityWorkflowOrchestrator,
-    RequirementWorkflowRunner,
+    RequirementWorkflowRunner as _RequirementWorkflowRunner,
     WorkflowResult,
     build_markdown_report,
     build_workitem_read_request,
@@ -57,6 +61,18 @@ from tests.test_requirement_governance_integration import (
     ready_technical_decision,
 )
 from tests.plugin_test_layout import PLUGIN_SOURCE_ROOT
+from tests.change_context_test_support import ReadyChangeContextService
+
+
+class RequirementWorkflowRunner(_RequirementWorkflowRunner):
+    # Tests that deliberately instantiate the runner with object.__new__ still
+    # need the same mandatory ChangeContext verifier as a normally constructed
+    # production runner.  The worker manifest remains independently required.
+    change_context_service = ReadyChangeContextService()
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("change_context_service", ReadyChangeContextService())
+        super().__init__(*args, **kwargs)
 
 
 TEST_CHANGE_REQUIREMENT_TEXT = (
@@ -174,6 +190,37 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
             "+<template />\n"
             "+const mode = paiBanMs || '';\n"
             "+if (!['1', '2'].includes(mode)) return paiBanList;\n"
+        )
+
+    @staticmethod
+    def _ready_change_context_manifest() -> dict[str, object]:
+        context = RequirementWorkflowRunner.change_context_service
+        projection = context.result.projections["implementation"]
+        binding = ChangeContextExecutionBinding(
+            pack_id=context.result.pack.pack_id,
+            projection_hash=projection.projection_hash,
+            layer_hashes={
+                layer.layer_type: layer.content_hash
+                for layer in context.result.pack.layers
+            },
+        )
+        return {"change_context_binding": binding.to_dict()}
+
+    @staticmethod
+    def _context_bound_single_pass():
+        context = RequirementWorkflowRunner.change_context_service
+        projection = context.result.projections["implementation"]
+        return replace(
+            ready_single_pass(),
+            change_context_pack_id=context.result.pack.pack_id,
+            change_context_projection_hash=projection.projection_hash,
+            change_context_layer_hashes=tuple(
+                {
+                    "layer_type": layer.layer_type,
+                    "content_hash": layer.content_hash,
+                }
+                for layer in context.result.pack.layers
+            ),
         )
 
     @staticmethod
@@ -604,7 +651,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
             summary="worktree ready",
             final_diff=final_diff,
             allowed_paths=["src/view.vue"],
-            manifest={},
+            manifest=self._ready_change_context_manifest(),
         )
         diff_review = review_final_diff(
             contract=contract,
@@ -656,7 +703,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
                     status="success",
                     summary="legacy local apply already completed",
                     final_diff=self._reviewed_diff(),
-                    manifest={},
+                    manifest=self._ready_change_context_manifest(),
                 )
 
                 result = runner._route_worktree_local_apply(
@@ -710,7 +757,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
                         summary="worktree ready",
                         final_diff=final_diff,
                         allowed_paths=["src/view.vue"],
-                        manifest={},
+                        manifest=self._ready_change_context_manifest(),
                     ),
                     routing_result=self._task_routing(),
                     contract_ready=True,
@@ -742,7 +789,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
             def __init__(self) -> None:
                 self.status = "success"
                 self.summary = "drifting final diff"
-                self.manifest = {}
+                self.manifest = HarnessCapabilityRoutingTests._ready_change_context_manifest()
                 self.apply_to_project = None
                 self.final_diff_reads = 0
 
@@ -810,7 +857,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
             status="success",
             summary="mutable final diff",
             final_diff=trusted_diff,
-            manifest={},
+            manifest=self._ready_change_context_manifest(),
         )
 
         def mutate_after_review(**kwargs):
@@ -863,7 +910,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
                     status="success",
                     summary="missing review",
                     final_diff=self._reviewed_diff(),
-                    manifest={},
+                    manifest=self._ready_change_context_manifest(),
                 ),
                 **kwargs,
             )
@@ -874,7 +921,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
                 status="success",
                 summary="forged review",
                 final_diff=self._reviewed_diff(),
-                manifest={},
+                manifest=self._ready_change_context_manifest(),
             ),
             **kwargs,
             review_contract=self._review_contract(),
@@ -922,7 +969,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
                         status="success",
                         summary="review binding changed",
                         final_diff=final_diff,
-                        manifest={},
+                        manifest=self._ready_change_context_manifest(),
                     ),
                     routing_result=self._task_routing(),
                     contract_ready=True,
@@ -970,7 +1017,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
                         status="success",
                         summary="unbound verify commands",
                         final_diff=final_diff,
-                        manifest={},
+                        manifest=self._ready_change_context_manifest(),
                     ),
                     routing_result=self._task_routing(),
                     contract_ready=True,
@@ -1010,7 +1057,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
                         status="success",
                         summary="contract does not authorize apply",
                         final_diff=final_diff,
-                        manifest={},
+                        manifest=self._ready_change_context_manifest(),
                     ),
                     routing_result=self._task_routing(),
                     contract_ready=True,
@@ -1047,7 +1094,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
                         status="success",
                         summary="ready signal is not exact true",
                         final_diff=final_diff,
-                        manifest={},
+                        manifest=self._ready_change_context_manifest(),
                     ),
                     routing_result=self._task_routing(),
                     contract_ready=contract_ready,
@@ -1104,7 +1151,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
                         status="success",
                         summary="tampered acceptance result",
                         final_diff=final_diff,
-                        manifest={},
+                        manifest=self._ready_change_context_manifest(),
                     ),
                     routing_result=self._task_routing(),
                     contract_ready=True,
@@ -1140,7 +1187,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
                 status="success",
                 summary="unexpected acceptance result",
                 final_diff=final_diff,
-                manifest={},
+                manifest=self._ready_change_context_manifest(),
             ),
             routing_result=self._task_routing(),
             contract_ready=True,
@@ -1210,7 +1257,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
                         status="success",
                         summary="review belongs to contract A",
                         final_diff=final_diff,
-                        manifest={},
+                        manifest=self._ready_change_context_manifest(),
                     ),
                     routing_result=self._task_routing(),
                     contract_ready=True,
@@ -1258,7 +1305,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
                 status="success",
                 summary="nested contract mutated after review",
                 final_diff=final_diff,
-                manifest={},
+                manifest=self._ready_change_context_manifest(),
             ),
             routing_result=self._task_routing(),
             contract_ready=True,
@@ -1299,7 +1346,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
             )
             governance = ready_governance()
             single_pass = replace(
-                ready_single_pass(),
+                self._context_bound_single_pass(),
                 repositories=(
                     {
                         "name": project_path.name,
@@ -1345,6 +1392,16 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
                 to_json=lambda: "{}",
                 to_markdown=lambda: "ready",
             )
+            context_service = ReadyChangeContextService()
+            context_projection = context_service.result.projections["implementation"]
+            context_binding = ChangeContextExecutionBinding(
+                pack_id=context_service.result.pack.pack_id,
+                projection_hash=context_projection.projection_hash,
+                layer_hashes={
+                    layer.layer_type: layer.content_hash
+                    for layer in context_service.result.pack.layers
+                },
+            )
             with (
                 patch.object(
                     database,
@@ -1375,7 +1432,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
                         summary="受控执行",
                         allowed_paths=["src/view.vue"],
                         final_diff=self._reviewed_diff(),
-                        manifest={},
+                        manifest={"change_context_binding": context_binding.to_dict()},
                     ),
                 ),
                 patch(
@@ -1387,6 +1444,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
                     MockLLMClient(),
                     allow_mock=True,
                     capability_service=service,
+                    change_context_service=context_service,
                 )
                 options = dict(
                     title="受信 diff 审查",
@@ -1475,6 +1533,16 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
         authority_mode: str,
         authoritative_contract: dict | None = None,
     ) -> FullstackExecutionOptions:
+        context = RequirementWorkflowRunner.change_context_service
+        projection = context.result.projections["implementation"]
+        binding = ChangeContextExecutionBinding(
+            pack_id=context.result.pack.pack_id,
+            projection_hash=projection.projection_hash,
+            layer_hashes={
+                layer.layer_type: layer.content_hash
+                for layer in context.result.pack.layers
+            },
+        )
         return FullstackExecutionOptions(
             run_id=0,
             demand_text="显式 authority mode 合同",
@@ -1482,6 +1550,18 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
             project_root="/tmp/fullstack-authority-mode",
             authority_mode=authority_mode,
             authoritative_contract=authoritative_contract,
+            change_context_binding=binding.to_dict(),
+            change_context_projection=projection.to_dict(),
+        )
+
+    @staticmethod
+    def _fullstack_executor() -> FullstackWorktreeExecutor:
+        context = RequirementWorkflowRunner.change_context_service
+        return FullstackWorktreeExecutor(
+            change_context_verifier=ChangeContextExecutionVerifier(
+                repository=context.repository,
+                gate=context.gate,
+            )
         )
 
     def test_fullstack_interfaces_require_explicit_authority_mode(
@@ -1518,7 +1598,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
         self,
     ) -> None:
         with patch("app.fullstack_executor.preflight_targets") as preflight:
-            result = FullstackWorktreeExecutor().execute(
+            result = self._fullstack_executor().execute(
                 self._fullstack_options(authority_mode="enforce")
             )
 
@@ -1533,7 +1613,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
             "app.fullstack_executor.preflight_targets",
             return_value="legacy preflight marker",
         ) as preflight:
-            result = FullstackWorktreeExecutor().execute(
+            result = self._fullstack_executor().execute(
                 self._fullstack_options(authority_mode="legacy")
             )
 
@@ -1545,7 +1625,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
         self,
     ) -> None:
         with patch("app.fullstack_executor.preflight_targets") as preflight:
-            result = FullstackWorktreeExecutor().execute(
+            result = self._fullstack_executor().execute(
                 self._fullstack_options(authority_mode="observe")
             )
 
@@ -1557,7 +1637,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
         self,
     ) -> None:
         with patch("app.fullstack_executor.preflight_targets") as preflight:
-            result = FullstackWorktreeExecutor().execute(
+            result = self._fullstack_executor().execute(
                 self._fullstack_options(
                     authority_mode="legacy",
                     authoritative_contract={"repositories": []},
@@ -1610,7 +1690,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
                 "role": "frontend",
             }
             legacy_contract = replace(
-                ready_single_pass(),
+                self._context_bound_single_pass(),
                 repositories=(repository,),
                 allowed_paths=legacy_allowed_paths,
                 verify_commands=legacy_verify_commands,
@@ -1771,7 +1851,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
                 Path(temp_dir), project_path.name, legacy_allowed_paths
             )
             capability_contract = replace(
-                ready_single_pass(),
+                self._context_bound_single_pass(),
                 repositories=(
                     {
                         "name": project_path.name,
@@ -1829,7 +1909,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
                 ),
                 patch(
                     "app.harness.build_requirement_governance_outputs",
-                    return_value=(ready_governance(), ready_single_pass(), ""),
+                    return_value=(ready_governance(), self._context_bound_single_pass(), ""),
                 ),
                 patch(
                     "app.harness.build_technical_decision",
@@ -1923,6 +2003,8 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
                 "intake",
                 "provider_evidence",
                 "calibration",
+                "context_discovery",
+                "change_context",
                 "technical_decision",
                 "ownership",
                 "acceptance",
@@ -2125,7 +2207,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
                         ),
                         patch(
                             "app.harness.build_requirement_governance_outputs",
-                            return_value=(ready_governance(), ready_single_pass(), ""),
+                            return_value=(ready_governance(), self._context_bound_single_pass(), ""),
                         ),
                         patch(
                             "app.harness.build_technical_decision",
@@ -2192,7 +2274,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
                 ),
                 patch(
                     "app.harness.build_requirement_governance_outputs",
-                    return_value=(ready_governance(), ready_single_pass(), ""),
+                    return_value=(ready_governance(), self._context_bound_single_pass(), ""),
                 ),
                 patch(
                     "app.harness.build_technical_decision",
@@ -2981,7 +3063,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
             )
             self.assertEqual("current", answer.data["freshness"])
 
-    def test_enforce_builder_injects_only_explicit_readonly_database_credentials(
+    def test_enforce_builder_rejects_harness_side_database_credentials(
         self,
     ) -> None:
         source_plugins = PLUGIN_SOURCE_ROOT
@@ -3060,51 +3142,12 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            service = build_capability_service(
-                requested_mode=None,
-                config_path=config_path,
-                database_credentials_path=credentials_path,
-            )
-            request = CapabilityRequest(
-                request_id="database-main-service-preview",
-                capability="database.inspect",
-                provider="postgresql",
-                mode="preview",
-                mutation_level=MutationLevel.L1,
-                authorization=CapabilityAuthorization(False, ()),
-                input={
-                    "subject": "确认测试库配置值",
-                    "keywords": ["配置"],
-                    "sql": (
-                        "SELECT code, value FROM his_test.his_config "
-                        "WHERE code = %(code)s"
-                    ),
-                    "parameters": {"code": "EXAMPLE"},
-                    "project_root": str(root),
-                    "profile_policy": str(policy_path),
-                    "mode": "plan",
-                },
-                context={},
-            )
-
-            routed = service.route(request)
-            serialized = json.dumps(routed.result, ensure_ascii=False)
-
-        self.assertEqual("success", routed.result["status"])
-        self.assertEqual(
-            "ready",
-            routed.result["data"]["plan"]["status"],
-        )
-        self.assertEqual(
-            sorted(readonly_secrets),
-            routed.result["audit"]["runtime"]["environment_keys"],
-        )
-        for secret in (
-            *readonly_secrets.values(),
-            "must-not-be-injected",
-            "must-not-be-injected-either",
-        ):
-            self.assertNotIn(secret, serialized)
+            with self.assertRaisesRegex(RuntimeError, "MCP connector"):
+                build_capability_service(
+                    requested_mode=None,
+                    config_path=config_path,
+                    database_credentials_path=credentials_path,
+                )
 
     def test_enforce_builder_rejects_pre_start_source_drift(self) -> None:
         source_plugins = PLUGIN_SOURCE_ROOT
@@ -3207,7 +3250,7 @@ class HarnessCapabilityRoutingTests(unittest.TestCase):
             self.assertEqual("unsupported", answer.status)
             self.assertFalse(knowledge_home.exists())
 
-    def test_runner_records_real_twelve_stage_ledger_and_skips_knowledge_write(
+    def test_runner_records_real_context_bound_stage_ledger_and_skips_knowledge_write(
         self,
     ) -> None:
         service = FakeCapabilityService(mode="observe")

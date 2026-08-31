@@ -11,6 +11,8 @@
 > [!IMPORTANT]
 > 这是独立维护的社区项目，并非 DeepSeek 官方产品。
 
+官方 DeepSeek Harness 是本项目的上游基础仓库；具体更新边界见[上游跟踪与升级策略](docs/upstream-policy.md)，许可证归属见[第三方许可证声明](THIRD_PARTY_NOTICES.md)。
+
 ## 它能做什么
 
 DeepSeek Harness Desktop 把官方 DeepSeek Harness Web 工作台放进原生桌面窗口，并负责普通用户不应该手动处理的本地环境工作：
@@ -24,6 +26,7 @@ DeepSeek Harness Desktop 把官方 DeepSeek Harness Web 工作台放进原生桌
 - 支持浅色、深色和跟随系统主题，桌面标题栏与工作台保持一致。
 - 提供系统托盘、应用更新、受限导航和固定用户数据目录。
 - 管理 Runtime 的下载、签名验证、健康检查、升级、回滚和诊断导出。
+- 普通 Agent、会话和工具能力始终由官方 DeepSeek Harness 工作台提供；尚未成熟的 HIS Harness（实验）只在“模型与 Agent → 实验功能”中按本次会话显式启用。
 
 ## 安装与首次启动
 
@@ -88,6 +91,7 @@ Profile 是一套相互隔离的工作环境。不同 Profile 拥有各自的工
 - Agents 支持 Codex、Claude 的会话协议、任务提示、审批、事件时间线、取消和待复核状态。当前仓库不携带官方 Codex/Claude SDK，也不会复制已有登录凭证；真实账户接入需要宿主注入对应官方客户端或受管 CLI；
 - 权限模式由用户选择“请求批准”“智能批准”或“完全访问权限”，完全访问会显示风险提示；应用重启后不会自动重放结果未知的外部操作；
 - Plugins、Skills、MCP 使用清单、完整性、来源、能力和审核边界；MCP 支持受限的 stdio、HTTPS、SSE 传输包装器和 OAuth 回调校验，但扩展远程安装和真实 MCP 服务接入仍需固定来源与宿主配置。
+- HIS Harness（实验）不进入普通对话主流程，启用前会明确提示其尚未完成完整业务与运行时验证，也不会因此获得 Git、云效、数据库或部署写权限。
 
 因此，首次接入时请以界面显示的 Provider/CLI 状态和 Diagnostics 为准；看到“预览”“未配置”“待复核”时，不代表真实模型调用已经可用。
 
@@ -113,7 +117,7 @@ Profile 是一套相互隔离的工作环境。不同 Profile 拥有各自的工
 - macOS Apple Silicon 只提示新版本并打开本仓库的 HTTPS 下载地址，不会在后台执行未签名 DMG；下载后请退出应用、打开 DMG、把新应用拖入“应用程序”并确认手动替换；
 - 更新检查或打开下载页失败不会阻止已经可用的工作台启动，也不会删除用户数据。
 
-GitHub Actions 每天 10:30（中国标准时间）检查 npm 上游 `@deepseek-ai/dsh` 的 `latest` dist-tag 所指向的精确版本（允许上游仍处于预发布阶段）。发现新版后会先更新统一版本源并执行测试，再创建版本提交、标签及 Windows/macOS 构建；任一平台失败时都不会发布不完整版本。仓库维护者也可手动重跑同一版本，已发布资产不会被静默覆盖。
+GitHub Actions 每 4 小时分别检查官方 GitHub 源码 tag 和 npm `@deepseek-ai/dsh` 的 `latest` 精确版本。发现变化后只更新专用分支并创建或刷新升级 PR；必须经过人工审核、合并和显式发布，自动观察不会直接改默认分支、打标签或发布。源码领先但 npm 包尚未出现时会明确记录“发行包待发布”，不会把源码 tag 冒充为已安装 Runtime。
 
 ## 为什么后续启动更快
 
@@ -250,7 +254,7 @@ npm run release:versions:check
 npm run release:prepare -- --latest=<已确认存在的精确版本>
 ```
 
-`.github/workflows/upstream-sync.yml` 每日或手动检查上游并触发精确标签上的 `.github/workflows/desktop.yml`。正式发布需要在 GitHub Secrets 中配置 Runtime Ed25519 密钥和 Windows Tauri updater 私钥；macOS 构建不要求 Apple 证书，但必须继续明确标为未签名、未公证。发布工作流只补齐缺失资产，对同名不同内容的不可变资产会直接失败。
+`.github/workflows/upstream-watch.yml` 每 4 小时观察官方源码与 npm 分发，只向 `automation/deepseek-harness-upstream` 推送经过测试的允许清单文件并创建或刷新 PR。维护者人工审核并合并后，才可手动运行 `.github/workflows/upstream-sync.yml` 进入精确标签发布流程。正式发布需要在 GitHub Secrets 中配置 Runtime Ed25519 密钥和 Windows Tauri updater 私钥；macOS 构建不要求 Apple 证书，但必须继续明确标为未签名、未公证。发布工作流只补齐缺失资产，对同名不同内容的不可变资产会直接失败。完整规则见[上游跟踪与升级策略](docs/upstream-policy.md)。
 
 需要配置的 GitHub Secrets：
 
@@ -298,4 +302,4 @@ docs/architecture/             扩展平台等架构文档
 
 DeepSeek Harness Desktop 是独立社区项目，与 DeepSeek 不存在隶属、合作、授权或背书关系。“DeepSeek”及相关标识归其权利人所有，本项目仅为说明兼容对象而使用相关名称。
 
-当前仓库尚未添加根级 `LICENSE` 文件；对外发布前应明确本项目自身许可证。DeepSeek Harness 及所有第三方依赖继续遵循各自许可证。
+当前仓库尚未添加根级 `LICENSE` 文件；对外发布前应明确本项目自身许可证。DeepSeek Harness 及所有第三方依赖继续遵循各自许可证，详见[第三方许可证声明](THIRD_PARTY_NOTICES.md)。

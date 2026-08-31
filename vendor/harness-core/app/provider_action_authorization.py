@@ -294,6 +294,38 @@ class ProviderActionAuthorizer:
         )
         return _decision_from_record(decision)
 
+    def consume_read(
+        self,
+        *,
+        plan_id: int,
+        actor: str,
+        parameters: Mapping[str, object],
+    ) -> ProviderActionDecision:
+        """Consume a registered read using technical access authority only."""
+
+        plan = self.get_plan(plan_id)
+        from app.provider_authority_policy import provider_authority_policy
+        from app.provider_execution import ACTION_DESCRIPTORS
+
+        descriptor = ACTION_DESCRIPTORS.get(plan.action)
+        if descriptor is None or descriptor.provider != plan.provider:
+            raise PermissionError("provider_read_grant_not_allowed")
+        policy = provider_authority_policy(
+            provider=descriptor.provider,
+            action=descriptor.action,
+            risk=descriptor.risk,
+        )
+        if descriptor.risk != "read" or policy.harness_authorization_required:
+            raise PermissionError("provider_read_grant_not_allowed")
+
+        decision = self._repository.consume_read_action_plan(
+            plan_id=plan.id,
+            actor=_public_alias(actor, "actor"),
+            parameter_hash=canonical_json_hash(parameters),
+            attempted_at=self._now().isoformat(),
+        )
+        return _decision_from_record(decision)
+
     def _now(self) -> datetime:
         current = self._clock()
         if not isinstance(current, datetime):

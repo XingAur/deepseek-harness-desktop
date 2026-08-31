@@ -124,6 +124,40 @@ class FakeRuntime:
 
 
 class CapabilityServiceTests(unittest.TestCase):
+    def test_existing_capability_runtime_remains_accepted_by_service_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "plugin"
+            root.mkdir()
+            (root / "capabilities.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "his-capabilities.v1",
+                        "plugin": "disabled-fixture",
+                        "plugin_version": "1.0.0",
+                        "capabilities": [
+                            {
+                                "name": "workitem.read",
+                                "provider": "yunxiao",
+                                "contract_version": "fixture.v1",
+                                "mutation_level": "L1",
+                                "credential_class": "none",
+                                "enabled": False,
+                                "disabled_reason": "fixture disabled",
+                                "scopes": ["workitem:read"],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            runtime = CapabilityRuntime(CapabilityRegistry.from_plugin_roots([root]))
+
+            routed = CapabilityService(runtime, routing_mode="enforce").route(make_request())
+
+        self.assertEqual("capability", routed.selected)
+        self.assertEqual("blocked", routed.result["status"])
+        self.assertEqual("CAPABILITY_DISABLED", routed.result["audit"]["error_code"])
+
     def test_capability_specific_environment_is_not_shared_with_other_providers(
         self,
     ) -> None:

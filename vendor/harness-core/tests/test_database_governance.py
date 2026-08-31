@@ -160,7 +160,7 @@ print('explicit-environment-preserved')
         self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
         self.assertEqual("explicit-environment-preserved", completed.stdout.strip())
 
-    def test_schema_v72_creates_manager_governance_task_intent_local_agent_repair_and_flux_lite_tables(self) -> None:
+    def test_schema_v73_creates_manager_governance_task_intent_local_agent_repair_flux_lite_and_change_context_tables(self) -> None:
         database.init_db()
         with database.connect() as conn:
             names = {
@@ -185,7 +185,7 @@ print('explicit-environment-preserved')
                 )
             }
 
-        self.assertEqual(72, database.HARNESS_SCHEMA_VERSION)
+        self.assertEqual(73, database.HARNESS_SCHEMA_VERSION)
         self.assertTrue({
             "manager_provider_scopes", "manager_provider_profiles",
             "manager_provider_credentials", "manager_provider_action_audits",
@@ -240,6 +240,16 @@ print('explicit-environment-preserved')
             "flux_lite_experience_candidates",
         }.issubset(names))
         self.assertTrue({
+            "change_context_layers",
+            "change_context_layer_artifacts",
+            "change_context_packs",
+            "change_context_pack_layers",
+            "change_context_applicability_decisions",
+            "change_context_gate_results",
+            "change_context_events",
+            "change_context_projection_metrics",
+        }.issubset(names))
+        self.assertTrue({
             "idx_repair_retrospectives_run",
             "idx_repair_learning_rules_state",
             "idx_repair_learning_observations_rule",
@@ -251,6 +261,16 @@ print('explicit-environment-preserved')
             "trg_flux_lite_reviewer_opinions_append_only_delete",
             "trg_flux_lite_candidates_append_only_update",
             "trg_flux_lite_candidates_append_only_delete",
+        }.issubset(triggers))
+        self.assertTrue({
+            "trg_change_context_layers_no_update",
+            "trg_change_context_layers_no_delete",
+            "trg_change_context_packs_no_update",
+            "trg_change_context_packs_no_delete",
+            "trg_change_context_gate_no_update",
+            "trg_change_context_gate_no_delete",
+            "trg_change_context_events_no_update",
+            "trg_change_context_events_no_delete",
         }.issubset(triggers))
 
         with database.connect() as conn:
@@ -276,7 +296,7 @@ print('explicit-environment-preserved')
             unique_indexes["repair_learning_observations"],
         )
 
-    def test_explicit_v70_database_migrates_to_v72_with_identical_learning_schema(self) -> None:
+    def test_explicit_v70_database_migrates_to_v73_with_identical_learning_schema(self) -> None:
         path = self.root / "explicit-v70.sqlite"
 
         def connection_factory() -> sqlite3.Connection:
@@ -301,11 +321,11 @@ print('explicit-environment-preserved')
             migration = connection.execute(
                 """
                 select from_version, to_version, migration_name
-                from harness_schema_migrations where to_version = 72
+                from harness_schema_migrations where to_version = 73
                 """
             ).fetchone()
 
-        self.assertEqual(72, version)
+        self.assertEqual(73, version)
         self.assertEqual("preserved", marker)
         self.assertTrue({
             "repair_retrospectives",
@@ -315,12 +335,12 @@ print('explicit-environment-preserved')
             "flux_lite_experience_candidates",
         }.issubset(tables))
         self.assertEqual(
-            (70, 72, "v0.72-flux-opd-lite-learning"),
+            (70, 73, "v0.73-change-context-pack"),
             tuple(migration),
         )
 
     def test_explicit_connection_factory_rejects_unsupported_and_future_versions_without_mutation(self) -> None:
-        for version in (68, 73):
+        for version in (68, 74):
             with self.subTest(version=version):
                 path = self.root / f"unsupported-v{version}.sqlite"
 

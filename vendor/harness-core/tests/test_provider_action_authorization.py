@@ -57,6 +57,25 @@ class ProviderActionAuthorizerTests(unittest.TestCase):
             requested_by="manager-user",
         )
 
+    def _read_plan(self, *, parameters: dict[str, object] | None = None):
+        profile = self.repository.upsert_profile(
+            scope_type="local",
+            scope_key="default",
+            provider="yunxiao",
+            profile_key="company-readonly",
+            display_name="Company readonly",
+            enabled=True,
+            connection={"project_key": "DFHIS"},
+        )
+        safe_parameters = parameters or {"work_item_alias": "DFHIS-1"}
+        return self.authorizer.create_plan(
+            profile_id=profile.id,
+            action="workitem.read",
+            target_alias="dfhis-1",
+            parameters=safe_parameters,
+            requested_by="manager-user",
+        )
+
     def test_plan_binds_scope_provider_profile_action_target_and_canonical_parameters(self) -> None:
         parameters_a = {"timeout_seconds": 5, "options": {"marker": "SMOKE_OK", "count": 1}}
         parameters_b = {"options": {"count": 1, "marker": "SMOKE_OK"}, "timeout_seconds": 5}
@@ -110,6 +129,77 @@ class ProviderActionAuthorizerTests(unittest.TestCase):
         self.assertEqual(1, len(rows))
         self.assertEqual("rejected", rows[0]["status"])
         self.assertEqual({"reason": "authorization_required"}, rows[0]["details"])
+
+    def test_read_plan_consumes_without_confirmation_and_records_no_authorization_hash(self) -> None:
+        parameters = {"work_item_alias": "DFHIS-1"}
+        plan = self._read_plan(parameters=parameters)
+
+        first = self.authorizer.consume_read(
+            plan_id=plan.id,
+            actor="manager-user",
+            parameters=parameters,
+        )
+        second = self.authorizer.consume_read(
+            plan_id=plan.id,
+            actor="manager-user",
+            parameters=parameters,
+        )
+
+        self.assertTrue(first.allowed)
+        self.assertEqual("credential_or_endpoint_authority", first.reason)
+        self.assertEqual("consumed", first.status)
+        self.assertFalse(second.allowed)
+        self.assertEqual("execution_grant_reused", second.reason)
+        self.assertEqual("consumed", self.repository.get_action_plan(plan.id)["state"])
+        audits = self.repository.list_action_audits(action_type="workitem.read")
+        self.assertEqual(2, len(audits))
+        self.assertEqual(
+            {"reason": "credential_or_endpoint_authority"},
+            audits[1]["details"],
+        )
+        with database.connect() as connection:
+            hashes = [
+                str(row[0])
+                for row in connection.execute(
+                    "select authorization_hash from manager_provider_action_audits "
+                    "where action_type = 'workitem.read' order by id"
+                ).fetchall()
+            ]
+        self.assertEqual(["", ""], hashes)
+
+    def test_read_plan_rejects_actor_and_parameter_mismatch(self) -> None:
+        actor_plan = self._read_plan()
+        actor_decision = self.authorizer.consume_read(
+            plan_id=actor_plan.id,
+            actor="other-user",
+            parameters={"work_item_alias": "DFHIS-1"},
+        )
+        parameter_plan = self._read_plan()
+        parameter_decision = self.authorizer.consume_read(
+            plan_id=parameter_plan.id,
+            actor="manager-user",
+            parameters={"work_item_alias": "DFHIS-2"},
+        )
+
+        self.assertFalse(actor_decision.allowed)
+        self.assertEqual("actor_mismatch", actor_decision.reason)
+        self.assertEqual("rejected", self.repository.get_action_plan(actor_plan.id)["state"])
+        self.assertFalse(parameter_decision.allowed)
+        self.assertEqual("parameter_hash_mismatch", parameter_decision.reason)
+        self.assertEqual("rejected", self.repository.get_action_plan(parameter_plan.id)["state"])
+
+    def test_non_read_action_cannot_use_read_grant(self) -> None:
+        plan = self._plan()
+
+        with self.assertRaisesRegex(PermissionError, "provider_read_grant_not_allowed"):
+            self.authorizer.consume_read(
+                plan_id=plan.id,
+                actor="manager-user",
+                parameters={"marker": "SMOKE_OK", "timeout_seconds": 5},
+            )
+
+        self.assertEqual("planned", self.repository.get_action_plan(plan.id)["state"])
+        self.assertEqual([], self.repository.list_action_audits())
 
     def test_confirmation_creates_expiring_one_use_authorization(self) -> None:
         plan = self._plan()

@@ -11,8 +11,10 @@ from app.clarification_gate import PatchReadinessResult
 from app.evaluator import EvaluationResult
 from app.harness import RequirementWorkflowRunner
 from app.llm_client import MockLLMClient
+from app.requirement_understanding import RequirementUnderstandingResult, UnderstandingCheck
 from app.technical_decision import TechnicalDecisionResult
 from app.worktree_executor import WorktreeExecutionResult
+from tests.change_context_test_support import ReadyChangeContextService
 
 
 class ScopeConfirmationIntegrationTests(unittest.TestCase):
@@ -53,14 +55,33 @@ class ScopeConfirmationIntegrationTests(unittest.TestCase):
                 allowed_paths=["src/view.vue"],
                 suggested_verify_commands=["test -f src/view.vue"],
             )
+            understanding = RequirementUnderstandingResult(
+                schema_version="requirement-understanding.v1",
+                status="ready_for_local_change",
+                can_modify=True,
+                checks=(
+                    UnderstandingCheck(
+                        name="entry_and_call_chain",
+                        status="pass",
+                        summary="测试已提供受控入口证据。",
+                    ),
+                ),
+                blockers=(),
+                next_readonly_actions=(),
+            )
             with (
                 patch.object(database, "DB_PATH", root / "harness.sqlite"),
                 patch("app.harness.build_technical_decision", return_value=decision),
                 patch("app.harness.build_requirement_calibration", return_value=calibration),
                 patch.object(RequirementWorkflowRunner, "_build_evidence_bundle", return_value=None),
                 patch("app.harness.evaluate_patch_readiness", return_value=readiness),
+                patch("app.harness.build_requirement_understanding", return_value=understanding),
             ):
-                runner = RequirementWorkflowRunner(MockLLMClient(), allow_mock=True)
+                runner = RequirementWorkflowRunner(
+                    MockLLMClient(),
+                    allow_mock=True,
+                    change_context_service=ReadyChangeContextService(),
+                )
                 with (
                     patch.object(
                         runner.evaluator,

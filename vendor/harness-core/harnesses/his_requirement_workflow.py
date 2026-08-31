@@ -5,7 +5,6 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Mapping
 
 sys.dont_write_bytecode = True
 
@@ -55,40 +54,6 @@ _REQUIREMENT_UNDERSTANDING_ARTIFACT_KINDS = (
     "requirement_understanding_markdown",
     "requirement_calibration_markdown",
 )
-_DATABASE_READONLY_CREDENTIAL_SUFFIXES = (
-    "_readonly_dsn",
-    "_readonly_user",
-    "_readonly_password",
-)
-
-
-def _read_database_readonly_credentials(
-    path_value: str | Path | None,
-) -> dict[str, str]:
-    if path_value is None:
-        return {}
-    path = Path(path_value)
-    if not path.is_absolute() or path.is_symlink() or not path.is_file():
-        raise RuntimeError("database credentials file is unavailable")
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise RuntimeError("database credentials file is unavailable") from exc
-    if not isinstance(payload, Mapping):
-        raise RuntimeError("database credentials file is invalid")
-    return {
-        key: value
-        for key, value in payload.items()
-        if (
-            isinstance(key, str)
-            and key.startswith("pg_")
-            and key.endswith(_DATABASE_READONLY_CREDENTIAL_SUFFIXES)
-            and isinstance(value, str)
-            and value
-        )
-    }
-
-
 def _artifact_content(run_id: int, *kinds: str) -> str:
     """Return the first locally stored generated artifact, never a provider body."""
     artifacts = database.get_artifacts(run_id)
@@ -107,6 +72,10 @@ def build_capability_service(
     config_path: str | Path = CAPABILITY_CONFIG,
     database_credentials_path: str | Path | None = None,
 ) -> CapabilityService:
+    if database_credentials_path is not None:
+        raise RuntimeError(
+            "database credentials belong to the MCP connector and cannot be injected by Harness"
+        )
     config = load_runtime_config(str(config_path))
     routing_mode = resolve_capability_routing(
         config.routing_mode,
@@ -124,9 +93,6 @@ def build_capability_service(
         list(config.plugin_roots),
         registry=registry,
     )
-    database_credentials = _read_database_readonly_credentials(
-        database_credentials_path
-    )
     runtime = CapabilityRuntime(
         registry,
         external_writes_default=False,
@@ -134,7 +100,6 @@ def build_capability_service(
         environment_allowlist=(
             "HIS_HARNESS_ROOT",
             "HIS_KNOWLEDGE_HOME",
-            *sorted(database_credentials),
         ),
     )
     capability_environments = {
@@ -146,9 +111,6 @@ def build_capability_service(
     capability_environments[("requirement.govern", "his-harness-core")] = {
         "HIS_HARNESS_ROOT": str(PROJECT_ROOT),
     }
-    capability_environments[("database.inspect", "postgresql")] = (
-        database_credentials
-    )
     return CapabilityService(
         runtime,
         routing_mode=routing_mode,
@@ -324,7 +286,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--database-credentials-file",
         default="",
-        help="task mode only: private local JSON containing pg_<profile>_readonly_* values; values are injected only into database.inspect and are never reported",
+        help="deprecated and rejected: database credentials are resolved only inside the MCP connector",
     )
     parser.add_argument(
         "--database-change-file",
@@ -344,10 +306,10 @@ def main() -> None:
     args = parser.parse_args()
     if args.database_execute and not args.database_inspect_file:
         parser.error("--database-execute requires --database-inspect-file")
-    if args.database_execute and not args.database_credentials_file:
-        parser.error("--database-execute requires --database-credentials-file")
-    if args.database_credentials_file and not args.database_inspect_file:
-        parser.error("--database-credentials-file requires --database-inspect-file")
+    if args.database_credentials_file:
+        parser.error(
+            "--database-credentials-file is disabled; configure the PostgreSQL MCP connector instead"
+        )
     if args.yunxiao_archive_root and not args.yunxiao_read:
         parser.error("--yunxiao-archive-root requires --yunxiao-read")
     if args.yunxiao_archive_root and args.requirement_evidence_file:
@@ -396,11 +358,6 @@ def main() -> None:
         try:
             capability_service = build_capability_service(
                 requested_mode=args.capability_routing,
-                database_credentials_path=(
-                    args.database_credentials_file
-                    if database_inspect is not None
-                    else None
-                ),
             )
             if args.interaction_mode == "question":
                 answer = CapabilityWorkflowOrchestrator(

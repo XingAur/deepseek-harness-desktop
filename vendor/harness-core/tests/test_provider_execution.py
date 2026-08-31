@@ -475,6 +475,114 @@ class ProviderExecutionServiceTests(unittest.TestCase):
         self.assertEqual(["adapter", "network:True"], adapter.events)
         self.assertEqual("consumed", self.repository.get_action_plan(request.plan_id)["state"])
 
+    def test_read_uses_technical_credential_authority_without_harness_confirmation(self) -> None:
+        profile = self.repository.upsert_profile(
+            scope_type="local",
+            scope_key="default",
+            provider="yunxiao",
+            profile_key="readonly-company",
+            display_name="Readonly company",
+            enabled=True,
+            connection={"project_key": "DFHIS"},
+        )
+        parameters = {"work_item_alias": "DFHIS-1"}
+        plan = self.authorizer.create_plan(
+            profile_id=profile.id,
+            action="workitem.read",
+            target_alias="dfhis-1",
+            parameters=parameters,
+            requested_by="manager-user",
+        )
+        request = ProviderExecutionRequest(
+            plan_id=plan.id,
+            actor="manager-user",
+            action="workitem.read",
+            parameters=parameters,
+        )
+        adapter = FakeAdapter()
+        credential_events: list[tuple[int, str]] = []
+        service = ProviderExecutionService(
+            self.repository,
+            self.authorizer,
+            adapters={"yunxiao": adapter},
+            credential_resolver=lambda profile_id, field: (
+                credential_events.append((profile_id, field)) or "READONLY_TEST_PAT"
+            ),
+        )
+
+        result = service.execute(None, request)
+
+        self.assertEqual("succeeded", result["status"])
+        self.assertEqual("provider_action_succeeded", result["reason"])
+        self.assertEqual([(profile.id, "pat")], credential_events)
+        self.assertEqual(1, adapter.calls)
+        self.assertEqual("consumed", self.repository.get_action_plan(plan.id)["state"])
+
+    def test_read_credential_failure_is_not_replaced_by_harness_approval(self) -> None:
+        profile = self.repository.upsert_profile(
+            scope_type="local",
+            scope_key="default",
+            provider="yunxiao",
+            profile_key="missing-read-token",
+            display_name="Missing read token",
+            enabled=True,
+            connection={"project_key": "DFHIS"},
+        )
+        parameters = {"work_item_alias": "DFHIS-2"}
+        plan = self.authorizer.create_plan(
+            profile_id=profile.id,
+            action="workitem.read",
+            target_alias="dfhis-2",
+            parameters=parameters,
+            requested_by="manager-user",
+        )
+        adapter = FakeAdapter()
+        service = ProviderExecutionService(
+            self.repository,
+            self.authorizer,
+            adapters={"yunxiao": adapter},
+            credential_resolver=lambda _profile_id, _field: (_ for _ in ()).throw(
+                RuntimeError("missing credential")
+            ),
+        )
+
+        result = service.execute(
+            None,
+            ProviderExecutionRequest(
+                plan_id=plan.id,
+                actor="manager-user",
+                action="workitem.read",
+                parameters=parameters,
+            ),
+        )
+
+        self.assertEqual("failed", result["status"])
+        self.assertEqual("provider_adapter_failed", result["reason"])
+        self.assertEqual(1, adapter.calls)
+        self.assertEqual("consumed", self.repository.get_action_plan(plan.id)["state"])
+
+    def test_remote_write_without_explicit_authorization_stays_blocked_before_credentials(self) -> None:
+        action, plan, request = self.remote_write_request()
+        adapter = FakeAdapter()
+        credential_calls: list[str] = []
+        service = ProviderExecutionService(
+            self.repository,
+            self.authorizer,
+            adapters={"yunxiao": adapter},
+            credential_resolver=lambda _profile_id, field: (
+                credential_calls.append(field) or "WRITE_TEST_PAT"
+            ),
+        )
+
+        result = service.execute(None, request)
+
+        self.assertEqual("blocked", result["status"])
+        self.assertEqual("authorization_required", result["reason"])
+        self.assertEqual("planned", self.repository.get_action_plan(plan.id)["state"])
+        self.assertEqual(0, adapter.calls)
+        self.assertEqual([], credential_calls)
+        self.assertEqual("remote_write", ACTION_DESCRIPTORS[action].risk)
+
     def test_git_invalid_ref_is_blocked_before_consumption_or_adapter_execution(self) -> None:
         profile = self.repository.upsert_profile(
             scope_type="local",

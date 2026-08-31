@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dfhis.example/schemas/external_io_inventory.v1.json",
+  "title": "HIS Harness external I/O inventory",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "generated_at", "roots", "findings"],
+  "properties": {
+    "schema_version": {
+      "const": "his-external-io-inventory.v1"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "roots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["root_id", "path"],
+        "properties": {
+          "root_id": {"type": "string", "minLength": 1},
+          "path": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "root_id",
+          "relative_path",
+          "line",
+          "category",
+          "symbol",
+          "occurrence",
+          "file_sha256",
+          "fingerprint"
+        ],
+        "properties": {
+          "root_id": {"type": "string", "minLength": 1},
+          "relative_path": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!/).+$"
+          },
+          "line": {"type": "integer", "minimum": 1},
+          "category": {
+            "type": "string",
+            "enum": ["credential", "database", "network", "process"]
+          },
+          "symbol": {"type": "string", "minLength": 1},
+          "occurrence": {"type": "integer", "minimum": 1},
+          "file_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "fingerprint": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    }
+  }
+}

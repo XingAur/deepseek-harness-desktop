@@ -121,6 +121,14 @@ class CapabilityCheckCliTests(unittest.TestCase):
         self.assertEqual("allowed", preview_payload["data"]["permission"]["status"])
         self.assertEqual("success", preview_payload["data"]["execution"]["result"]["status"])
 
+    def test_relative_plugin_root_resolves_from_the_runtime_config_directory(self) -> None:
+        self._write_config(plugin_roots=["plugin"])
+
+        completed = self.run_cli("list", "--json")
+
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        self.assertEqual("success", self.payload(completed)["status"])
+
     def test_invalid_config_is_stable_json_failure(self) -> None:
         for overrides in (
             {"default_timeout_seconds": True},

@@ -11,6 +11,8 @@ import { messageOf } from '../model-agent/state'
 
 export interface PluginMarketProps {
   bridge: DesktopBridgeLike
+  embedded?: boolean
+  initialCategory?: string
 }
 
 interface CatalogEntry {
@@ -56,15 +58,16 @@ function isInstallStatus(value: unknown): value is InstallStatus {
 const PAGE_SIZE = 30
 const FEATURED_PLUGIN = 'dsh-market/dsh-market'
 
-export function PluginMarket({ bridge }: PluginMarketProps) {
+export function PluginMarket({ bridge, embedded = false, initialCategory = '' }: PluginMarketProps) {
   const [query, setQuery] = useState('')
   const [debounced, setDebounced] = useState('')
-  const [category, setCategory] = useState('')
+  const [category, setCategory] = useState(initialCategory)
   const [offset, setOffset] = useState(0)
   const [page, setPage] = useState<CatalogPage | null>(null)
   const [jobs, setJobs] = useState<Record<string, InstallStatus>>({})
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const preview = bridge.mode === 'preview'
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -160,16 +163,20 @@ export function PluginMarket({ bridge }: PluginMarketProps) {
     : undefined
 
   return (
-    <section className="dshPluginMarket" aria-label="插件市场">
+    <section className="dshPluginMarket" aria-label={embedded ? '社区插件市场' : '插件市场'}>
       <header className="dshPluginMarketHead">
         <div>
-          <h3>插件市场</h3>
-          <p>{page?.total !== undefined ? `${page.total} 个社区插件` : '社区插件'} · 来自 awesome-dsh-plugin 精选目录 · 经官方 CLI 安装进当前 Profile</p>
+          {embedded ? <h3>社区插件市场</h3> : <h2>插件市场</h2>}
+          <p>{page?.total !== undefined ? `${page.total} 个社区插件` : '社区插件'} · 插件是分发容器，可包含智能体、技能、MCP、工具和设置。</p>
         </div>
         <button type="button" className="dshAgentGhostButton" disabled={busy} onClick={() => { void load(true) }}>
           {busy ? '加载中…' : '刷新'}
         </button>
       </header>
+
+      {preview && <div className="dshPluginMarketPreview" role="note" aria-label="本地预览说明">
+        当前是本地 UI 只读样例：用于验收布局与交互，不读取正式插件目录，也不会安装或修改任何插件。
+      </div>}
 
       <div className="dshPluginMarketWarning" role="note">
         安装插件等于在你的机器上运行第三方代码，权限与你本人一样大。收录不代表安全审查——安装前请先看一眼源码。
@@ -210,12 +217,12 @@ export function PluginMarket({ bridge }: PluginMarketProps) {
         <article className="dshPluginCard is-featured" data-ready>
           <div className="dshPluginCardMain">
             <div className="dshPluginCardTitle">
-              <strong>🛒 dsh-market —— 完整市场插件（推荐）</strong>
+              <strong>dsh-market — 完整市场插件（推荐）</strong>
               <small>{featured.repo}</small>
             </div>
             <p>装上它之后，工作台设置页里就有完整市场：一键安装/升级插件、一键切换主题。</p>
           </div>
-          <InstallButton entry={featured} job={jobs[featured.id]} onInstall={install} onRefresh={refreshStatus} />
+          <InstallButton entry={featured} job={jobs[featured.id]} preview={preview} onInstall={install} onRefresh={refreshStatus} />
         </article>
       )}
 
@@ -229,7 +236,7 @@ export function PluginMarket({ bridge }: PluginMarketProps) {
               </div>
               <p>{entry.descriptionZh !== '' ? entry.descriptionZh : entry.descriptionEn}</p>
             </div>
-            <InstallButton entry={entry} job={jobs[entry.id]} onInstall={install} onRefresh={refreshStatus} />
+            <InstallButton entry={entry} job={jobs[entry.id]} preview={preview} onInstall={install} onRefresh={refreshStatus} />
           </article>
         ))}
       </div>
@@ -257,10 +264,14 @@ export function PluginMarket({ bridge }: PluginMarketProps) {
 function InstallButton(props: {
   entry: CatalogEntry
   job: InstallStatus | undefined
+  preview: boolean
   onInstall(entry: CatalogEntry): void
   onRefresh(entry: CatalogEntry): void
 }) {
   const { job } = props
+  if (props.preview) {
+    return <button type="button" className="dshAgentGhostButton" disabled>正式桌面可安装</button>
+  }
   if (job === undefined) {
     return (
       <button type="button" className="dshAgentPrimaryButton" onClick={() => props.onInstall(props.entry)}>

@@ -21,7 +21,7 @@ _EXECUTION_BOUNDARIES = {
     # These labels are deliberately descriptive rather than availability
     # claims.  They let the UI explain what the user must (and must not) do
     # without turning an unregistered executor into a false "ready" state.
-    "workitem.read": "remote_read_credential_and_connection",
+    "workitem.read": "readonly_mcp_remote_read",
     "workitem.write": "remote_write_explicit_confirmation",
     "git.inspect": "local_readonly",
     "git.diff": "local_readonly",
@@ -33,15 +33,32 @@ _EXECUTION_BOUNDARIES = {
     "git.apply-local": "local_write_after_worktree_and_diff_review",
     "git.commit-local": "local_write_explicit_delivery",
     "git.push": "remote_write_explicit_confirmation",
-    "gitlab.read": "remote_read_credential_and_connection",
+    "gitlab.read": "readonly_mcp_remote_read",
     "gitlab.write": "remote_write_explicit_confirmation",
     "github.read": "remote_read_credential_and_connection",
     "github.write": "remote_write_explicit_confirmation",
-    "database.inspect": "readonly_sql_dynamic_database_access",
+    "database.inspect": "readonly_mcp_catalog_inspection",
     "database.change-plan": "readonly_database_change_plan",
     "database.change": "database_write_disabled_by_default",
     "knowledge.retrieve": "local_readonly_knowledge",
     "knowledge.answer": "local_readonly_knowledge",
+}
+_MCP_PRIMARY_CAPABILITIES = frozenset({
+    "workitem.read",
+    "gitlab.read",
+    "database.inspect",
+})
+_MCP_PRIMARY_ACTIONS = {
+    "yunxiao": frozenset({
+        "yunxiao.connection_test", "workitem.read", "workitem.comments.read",
+    }),
+    "gitlab": frozenset({
+        "gitlab.connection_test", "project.read", "merge_request.read",
+        "gitlab.repository.file.read", "gitlab.commit.read",
+    }),
+    "database": frozenset({
+        "database.connection_test", "database.schema.read",
+    }),
 }
 _PROVIDER_BRIDGES = {
     "yunxiao": {"plugin": "yunxiao", "primary": "workitem.read", "skills": {
@@ -203,6 +220,11 @@ def _build_item(
         for name, skill in bridge["skills"].items()
     ]
     primary = next(item for item in capabilities if item["name"] == bridge["primary"])
+    if primary["execution_status"] == "available":
+        descriptive.update(
+            availability_status="available",
+            availability_reason=str(primary["execution_reason"]),
+        )
     item: dict[str, Any] = {
         "provider": provider,
         "profile_key": profile_key,
@@ -210,7 +232,7 @@ def _build_item(
         "capabilities": capabilities,
         "status": "enabled" if primary["contract_status"] == "enabled" else "blocked",
         "reason": _contract_reason(str(primary["contract_status"])),
-        "execution_status": "blocked",
+        "execution_status": str(primary["execution_status"]),
         "execution_reason": str(primary["execution_reason"]),
         "capability_state": (
             "blocked_missing_credentials"
@@ -238,8 +260,16 @@ def _build_action_descriptions(provider: str) -> list[dict[str, Any]]:
             "max_result_bytes": descriptor.max_result_bytes,
             "required_credential_fields": list(descriptor.required_credential_fields),
             "read_back_verifier": descriptor.read_back_verifier,
-            "availability_status": "blocked",
-            "availability_reason": "provider_adapter_not_registered",
+            "availability_status": (
+                "available"
+                if descriptor.action in _MCP_PRIMARY_ACTIONS.get(provider, ())
+                else "blocked"
+            ),
+            "availability_reason": (
+                "mcp_primary_adapter_registered"
+                if descriptor.action in _MCP_PRIMARY_ACTIONS.get(provider, ())
+                else "provider_adapter_not_registered"
+            ),
         }
         for action in _PROVIDER_ACTIONS.get(provider, ())
         if (descriptor := ACTION_DESCRIPTORS.get(action)) is not None
@@ -252,10 +282,10 @@ def _build_capability(
     status = _contract_status(name, manifest)
     orchestrated = (
         status == "enabled"
-        and name in {
+        and (name in _MCP_PRIMARY_CAPABILITIES or name in {
             "git.diff", "source.read", "source.search", "git.history",
             "verification.run-local", "code.review-local",
-        }
+        })
     )
     return {
         "name": name,
@@ -290,6 +320,8 @@ def _contract_reason(status: str) -> str:
 def _execution_reason(name: str, status: str) -> str:
     if status != "enabled":
         return _contract_reason(status)
+    if name in _MCP_PRIMARY_CAPABILITIES:
+        return "mcp_primary_adapter_registered"
     if name == "git.inspect":
         return "git_inspect_os_sandbox_executor_unregistered"
     if name in {

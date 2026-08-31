@@ -66,15 +66,17 @@ class ProviderReadonlySmokeTests(unittest.TestCase):
         database.DB_PATH = self.previous_db_path
         self.temp_dir.cleanup()
 
-    def test_readonly_smoke_plan_is_descriptive_and_awaits_confirmation(self) -> None:
+    def test_readonly_smoke_plan_is_descriptive_and_needs_no_confirmation(self) -> None:
         plan = build_provider_readonly_smoke_plan(self.profiles)
 
         item = plan["items"][0]
-        self.assertEqual("awaiting_confirmation", item["status"])
+        self.assertEqual("ready_to_execute", item["status"])
         self.assertEqual("git.readonly_smoke", item["action"])
         self.assertEqual("provider_execution_service", item["adapter"])
         self.assertFalse(plan["credentials_read"])
         self.assertFalse(plan["external_calls"])
+        self.assertFalse(plan["confirmation_required"])
+        self.assertFalse(item["confirmation_required"])
 
     def test_run_creates_manager_plan_without_subprocess_or_separate_audit(self) -> None:
         with mock.patch("subprocess.run", side_effect=subprocess.TimeoutExpired("git", 5)) as run:
@@ -88,13 +90,14 @@ class ProviderReadonlySmokeTests(unittest.TestCase):
                 authorizer=self.authorizer,
             )
 
-        self.assertEqual("awaiting_confirmation", result["status"])
+        self.assertEqual("ready_to_execute", result["status"])
+        self.assertEqual("provider_technical_authority_required", result["reason"])
         self.assertEqual("git.readonly_smoke", result["action"])
         self.assertEqual("planned", self.repository.get_action_plan(result["plan_id"])["state"])
         self.assertFalse(run.called)
         self.assertEqual([], self.repository.list_action_audits())
 
-    def test_confirmed_readonly_smoke_delegates_only_to_service(self) -> None:
+    def test_readonly_smoke_delegates_without_confirmation_only_to_service(self) -> None:
         planned = run_provider_readonly_smoke(
             self.profiles,
             provider="git",
@@ -108,9 +111,6 @@ class ProviderReadonlySmokeTests(unittest.TestCase):
         # The Manager smoke target identifies a configured Git profile, not a
         # repository scope.  Its request deliberately contains only timeout.
         self.assertEqual("git.local", plan["target_alias"])
-        authorization = self.authorizer.confirm(
-            planned["plan_id"], actor="manager", ttl_seconds=60
-        )
         adapter = FakeGitAdapter()
         service = ProviderExecutionService(
             self.repository,
@@ -128,7 +128,6 @@ class ProviderReadonlySmokeTests(unittest.TestCase):
             authorizer=self.authorizer,
             execution_service=service,
             plan_id=planned["plan_id"],
-            authorization=authorization,
         )
 
         self.assertEqual("succeeded", result["status"])

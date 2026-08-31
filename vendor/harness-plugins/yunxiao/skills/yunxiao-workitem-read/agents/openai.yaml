@@ -1,0 +1,4 @@
+interface:
+  display_name: "Yunxiao Work Item Read"
+  short_description: "Read Yunxiao work-item evidence with read-only credentials"
+  default_prompt: "Use $yunxiao-workitem-read to collect read-only Yunxiao evidence without changing the work item."

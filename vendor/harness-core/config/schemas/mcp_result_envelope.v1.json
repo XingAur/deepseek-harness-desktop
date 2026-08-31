@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dfhis.example/schemas/mcp_result_envelope.v1.json",
+  "title": "HIS Harness MCP result envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "request_id",
+    "capability",
+    "provider",
+    "status",
+    "data",
+    "evidence_ref",
+    "source",
+    "freshness",
+    "pagination",
+    "redaction",
+    "error",
+    "trace"
+  ],
+  "properties": {
+    "schema_version": {"const": "his-mcp-result-envelope.v1"},
+    "request_id": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$"},
+    "capability": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9._-]{0,127}$"},
+    "provider": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9._-]{0,127}$"},
+    "status": {"type": "string", "enum": ["success", "failed", "denied", "unavailable", "invalid"]},
+    "data": {"type": "object", "additionalProperties": true},
+    "evidence_ref": {"type": "string", "maxLength": 256, "pattern": "^[A-Za-z0-9._:/-]*$"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["system", "object_id", "version", "observed_at"],
+      "properties": {
+        "system": {"type": "string", "maxLength": 256, "pattern": "^[A-Za-z0-9._:/-]*$"},
+        "object_id": {"type": "string", "maxLength": 256, "pattern": "^[A-Za-z0-9._:/-]*$"},
+        "version": {"type": "string", "maxLength": 256, "pattern": "^[A-Za-z0-9._:/-]*$"},
+        "observed_at": {"type": "string", "maxLength": 40}
+      }
+    },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "expires_at"],
+      "properties": {
+        "status": {"type": "string", "enum": ["fresh", "stale", "unknown", "not_applicable"]},
+        "expires_at": {"type": "string", "maxLength": 40}
+      }
+    },
+    "pagination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["truncated", "next_cursor"],
+      "properties": {
+        "truncated": {"type": "boolean"},
+        "next_cursor": {"type": "string", "maxLength": 256, "pattern": "^[A-Za-z0-9._:/-]*$"}
+      }
+    },
+    "redaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["applied", "fields"],
+      "properties": {
+        "applied": {"type": "boolean"},
+        "fields": {
+          "type": "array",
+          "maxItems": 128,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9][A-Za-z0-9_.\\[\\]-]{0,255}$"}
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "retryable", "recovery"],
+      "properties": {
+        "code": {"type": "string", "maxLength": 256, "pattern": "^[A-Za-z0-9._:/-]*$"},
+        "retryable": {"type": "boolean"},
+        "recovery": {"type": "string", "maxLength": 512}
+      }
+    },
+    "trace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mcp_server", "tool", "server_version", "trace_id"],
+      "properties": {
+        "mcp_server": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$"},
+        "tool": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$"},
+        "server_version": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$"},
+        "trace_id": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$"}
+      }
+    }
+  }
+}

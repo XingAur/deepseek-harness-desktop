@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "yunxiao": {
+      "command": "python3",
+      "args": ["./scripts/yunxiao_mcp_server.py"],
+      "cwd": ".",
+      "env_vars": [
+        "HARNESS_CREDENTIALS_FILE",
+        "ALIYUN_DEVOPS_PAT",
+        "ALIYUN_DEVOPS_ORGANIZATION_ID"
+      ]
+    }
+  }
+}

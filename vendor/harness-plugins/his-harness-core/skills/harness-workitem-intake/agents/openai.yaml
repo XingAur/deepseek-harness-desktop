@@ -1,0 +1,5 @@
+# Plugin-owned skill metadata.
+interface:
+  display_name: "Harness 工作项接入"
+  short_description: "接收独立provider证据并创建可追溯门禁批次"
+  default_prompt: "Use $harness-workitem-intake after the standalone provider read skill supplies sanitized evidence, then create a gated HarnessHistory run."

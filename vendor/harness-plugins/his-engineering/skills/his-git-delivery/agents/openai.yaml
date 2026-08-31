@@ -1,0 +1,4 @@
+interface:
+  display_name: "His Git Delivery"
+  short_description: "Gate exact local and remote Git delivery"
+  default_prompt: "Use $his-git-delivery for an explicitly authorized Git delivery."

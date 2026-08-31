@@ -1,0 +1,34 @@
+{
+  "schema_version": "his-capabilities.v1",
+  "plugin": "yunxiao",
+  "plugin_version": "0.1.0+codex.20260830-phase1d",
+  "capabilities": [
+    {
+      "name": "workitem.read",
+      "provider": "yunxiao",
+      "contract_version": "workitem-evidence.v2",
+      "mutation_level": "L1",
+      "credential_class": "yunxiao_read",
+      "entrypoint": "scripts/yunxiao_mcp_server.py",
+      "dependencies": [
+        ".codex-plugin/plugin.json",
+        ".mcp.json",
+        "scripts/workitem_read.py",
+        "scripts/yunxiao_evidence.py",
+        "schemas/requirement-evidence.v2.schema.json"
+      ],
+      "enabled": true,
+      "scopes": ["workitem:read"]
+    },
+    {
+      "name": "workitem.write",
+      "provider": "yunxiao",
+      "contract_version": "workitem-write-plan.v1",
+      "mutation_level": "L4",
+      "credential_class": "yunxiao_write",
+      "enabled": false,
+      "disabled_reason": "首版仅交付独立写技能与授权边界，不开放真实云效写入。",
+      "scopes": ["workitem:comment", "workitem:transition", "workitem:upload"]
+    }
+  ]
+}

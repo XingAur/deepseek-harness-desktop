@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dfhis.example/schemas/mcp_tools/gitlab_read.v1.json",
+  "title": "GitLab bounded read MCP arguments",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["project", "operation", "ref", "path", "object_id"],
+  "properties": {
+    "project": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$"
+    },
+    "operation": {
+      "type": "string",
+      "enum": ["project", "repository_file", "commit", "merge_request"]
+    },
+    "ref": {
+      "type": "string",
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9._/-]*$"
+    },
+    "path": {
+      "type": "string",
+      "maxLength": 512,
+      "pattern": "^[A-Za-z0-9._/-]*$"
+    },
+    "object_id": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._:-]*$"
+    }
+  }
+}

@@ -106,9 +106,18 @@ def load_runtime_config(path_value: str) -> RuntimeConfig:
         or not Path(knowledge_home).is_absolute()
     ):
         raise CliError("knowledge_home 必须是绝对路径。")
+    config_directory = Path(path_value).expanduser().resolve().parent
+    resolved_roots = tuple(
+        str(
+            root.expanduser().resolve()
+            if root.is_absolute()
+            else (config_directory / root).resolve()
+        )
+        for root in (Path(item) for item in roots)
+    )
     return RuntimeConfig(
         routing_mode,
-        tuple(roots),
+        resolved_roots,
         external_writes_default,
         timeout,
         knowledge_home,

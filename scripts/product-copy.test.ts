@@ -87,7 +87,7 @@ describe('product copy', () => {
     expect(readme).toContain('macOS Apple Silicon')
     expect(readme).toContain('手动替换')
     expect(readme).toContain('未使用 Apple Developer ID 签名、未经过 Apple 公证')
-    expect(readme).toContain('每天 10:30')
+    expect(readme).toContain('每 4 小时')
     expect(readme).toContain('Profile、Workspace 和会话数据')
     expect(readme).toContain('npm run release:prepare -- --latest=<已确认存在的精确版本>')
     expect(readme).not.toContain('--dsh-version=')
@@ -127,6 +127,33 @@ describe('product copy', () => {
       expect(architecture, required).toContain(required)
     }
     expect(architecture).toContain('本期没有实现')
+  })
+
+  it('documents official upstream provenance, review-only updates, and license boundaries', () => {
+    const policyPath = 'docs/upstream-policy.md'
+    const noticesPath = 'THIRD_PARTY_NOTICES.md'
+    expect(existsSync(policyPath)).toBe(true)
+    expect(existsSync(noticesPath)).toBe(true)
+
+    const policy = readFileSync(policyPath, 'utf8')
+    const notices = readFileSync(noticesPath, 'utf8')
+    const readme = readFileSync('README.md', 'utf8')
+    for (const required of [
+      'https://github.com/deepseek-ai/deepseek-harness.git',
+      'dshUpstream',
+      'dshVersion',
+      '上游源码领先 / 发行包待发布',
+      'automation/deepseek-harness-upstream',
+      '人工审核并合并',
+      '不得自动合并、打标签或发布',
+    ]) expect(policy, required).toContain(required)
+    expect(notices).toContain('DeepSeek Harness')
+    expect(notices).toContain('MIT License')
+    expect(notices).toContain('https://github.com/deepseek-ai/deepseek-harness')
+    expect(notices).toContain('本仓库自身的许可证状态不会因使用该上游组件而改变')
+    expect(readme).toContain('[上游跟踪与升级策略](docs/upstream-policy.md)')
+    expect(readme).toContain('[第三方许可证声明](THIRD_PARTY_NOTICES.md)')
+    expect(readme).toContain('HIS Harness（实验）')
   })
 
   it('ships one in-app runtime preparation surface', () => {
@@ -291,6 +318,13 @@ describe('product copy', () => {
     expect(workflow).not.toContain('wbAbExHsjryIT22fTuRA3W61tJdaXFC7YxoAeN9uKnQ')
     expect(workflow).toContain('- name: Verify Runtime manifest')
     expect(workflow).toContain('node scripts/verify-runtime-manifest.mjs')
+    const buildBundle = workflow.slice(
+      workflow.indexOf('- name: Build Tauri bundle without publishing'),
+      workflow.indexOf('- name: Verify macOS application bundle entrypoint'),
+    )
+    expect(buildBundle).toContain(
+      'DSH_DESKTOP_RUNTIME_MANIFEST_URL: https://github.com/${{ github.repository }}/releases/download/runtime-v${{ env.MANAGED_RUNTIME_VERSION }}/runtime-{target}.json',
+    )
   })
 
   it('requires the current managed Runtime identity for Windows releases', () => {

@@ -231,6 +231,7 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ runner.os == 'Windows' && (steps.updater_config.outputs.ci_private_key || secrets.TAURI_SIGNING_PRIVATE_KEY) || '' }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ runner.os == 'Windows' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+          DSH_DESKTOP_RUNTIME_MANIFEST_URL: https://github.com/${{ github.repository }}/releases/download/runtime-v${{ env.MANAGED_RUNTIME_VERSION }}/runtime-{target}.json
         with:
           projectPath: .
           tauriScript: npm run tauri

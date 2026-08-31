@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dfhis.example/schemas/mcp_tools/postgresql_inspect.v1.json",
+  "title": "PostgreSQL catalog-only inspection MCP arguments",
+  "description": "Metadata-only catalog inspection through a named readonly connection; raw statements, row samples and filter values are not accepted.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["connection_alias", "operation", "schema", "table"],
+  "properties": {
+    "connection_alias": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9_-]{0,54}_readonly$"
+    },
+    "operation": {
+      "type": "string",
+      "enum": ["schemas", "tables", "columns", "constraints", "indexes", "foreign_keys"]
+    },
+    "schema": {
+      "type": "string",
+      "maxLength": 63,
+      "pattern": "^(?:|[a-z_][a-z0-9_]*)$"
+    },
+    "table": {
+      "type": "string",
+      "maxLength": 63,
+      "pattern": "^(?:|[a-z_][a-z0-9_]*)$"
+    }
+  }
+}

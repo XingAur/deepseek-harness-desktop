@@ -14,6 +14,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from app.change_context_execution import ChangeContextExecutionVerifier, validate_worker_context
 from app.llm_client import BaseLLMClient
 from app.worktree_lifecycle import create_worktree_marker, remove_worktree_marker
 
@@ -118,6 +119,8 @@ class WorktreeExecutionOptions:
     cleanup_worktree: bool = True
     execution_nonce: str = ""
     worktree_run_key: str = ""
+    change_context_binding: dict | None = None
+    change_context_projection: dict | None = None
 
 
 @dataclass
@@ -183,11 +186,35 @@ class WorktreeExecutionResult:
 
 
 class WorktreeCodeExecutor:
-    def __init__(self, llm_client: BaseLLMClient) -> None:
+    def __init__(
+        self,
+        llm_client: BaseLLMClient,
+        *,
+        change_context_verifier: ChangeContextExecutionVerifier | None = None,
+    ) -> None:
         self.llm_client = llm_client
+        self.change_context_verifier = change_context_verifier
 
     def execute(self, options: WorktreeExecutionOptions) -> WorktreeExecutionResult:
         started_at = time.time()
+        context_validation = validate_worker_context(
+            self.change_context_verifier,
+            options.change_context_binding,
+            options.change_context_projection,
+        )
+        if context_validation.status != "ready":
+            return WorktreeExecutionResult(
+                status="blocked",
+                summary=context_validation.message,
+                manifest={
+                    "run_id": options.run_id,
+                    "status": "blocked",
+                    "change_context_binding": options.change_context_binding,
+                    "change_context_validation": context_validation.to_dict(),
+                    "started_at_epoch": started_at,
+                    "finished_at_epoch": time.time(),
+                },
+            )
         project_path = Path(options.project_path).expanduser().resolve()
         worktree_root = Path(options.worktree_root).expanduser().resolve()
         worktree_run_key = options.worktree_run_key or build_worktree_run_key(options.run_id, options.execution_nonce)
@@ -206,6 +233,8 @@ class WorktreeCodeExecutor:
             "apply_to_project": options.apply_to_project,
             "cleanup_worktree": options.cleanup_worktree,
             "started_at_epoch": started_at,
+            "change_context_binding": options.change_context_binding,
+            "change_context_validation": context_validation.to_dict(),
         }
 
         preflight_error = self._preflight(project_path=project_path, allowed_paths=allowed_paths, manifest=manifest)
@@ -380,6 +409,15 @@ class WorktreeCodeExecutor:
             )
             break
 
+        completion_context_validation = validate_worker_context(
+            self.change_context_verifier,
+            options.change_context_binding,
+            options.change_context_projection,
+        )
+        manifest["change_context_completion_validation"] = completion_context_validation.to_dict()
+        if final_status == "success" and completion_context_validation.status != "ready":
+            final_status = "blocked"
+            final_summary = completion_context_validation.message
         if final_status == "success" and verification_status != "passed":
             final_status = "failed"
             final_summary = f"Patch 已保留在临时 worktree，但验证状态为 {verification_status}，未视为成功。"
@@ -713,14 +751,23 @@ def build_patch_user_prompt(
     feedback: str,
     attempt: int,
 ) -> str:
-    evidence = json.dumps(options.evidence_bundle or {}, ensure_ascii=False)[:12000]
+    projection = json.dumps(
+        options.change_context_projection or {},
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    binding = json.dumps(
+        options.change_context_binding or {},
+        ensure_ascii=False,
+        sort_keys=True,
+    )
     return (
         f"【Attempt】{attempt}\n\n"
         f"【原始需求】\n{options.demand_text}\n\n"
+        f"【不可变 ChangeContext 执行绑定】\n{binding}\n\n"
+        f"【implementation 角色投影】\n{projection}\n\n"
         f"【允许修改路径】\n" + "\n".join(f"- {path}" for path in allowed_paths) + "\n\n"
         f"【白名单文件当前源码】\n{source_context}\n\n"
-        f"【工程证据 JSON 摘要】\n{evidence}\n\n"
-        f"【专家团报告】\n{truncate_text(options.report_markdown, 16000)}\n\n"
         f"【上一轮失败反馈】\n{feedback or '无'}\n\n"
         "【硬性约束】\n"
         "- 只输出 unified diff。\n"
@@ -733,6 +780,7 @@ def build_patch_user_prompt(
         "- 不新增文件、不删除文件、不修改锁文件、密钥、云效配置、CI/CD 或发布配置。\n"
         "- 不提交、不推送、不发布、不写云效事务。\n"
         "- 需求不清楚时输出 NO_PATCH，不要强行改。\n"
+        "- 不得重新加载完整工程证据或专家团报告；只使用绑定后的角色投影和白名单源码。\n"
     )
 
 

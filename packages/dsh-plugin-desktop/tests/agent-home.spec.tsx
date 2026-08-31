@@ -27,6 +27,12 @@ const notInstalled = {
 }
 
 describe('AgentHome', () => {
+  it('嵌入智能体能力页时使用紧凑的执行器标题层级', async () => {
+    render(<AgentHome bridge={bridgeFixture(notInstalled)} workspaceId="workspace-1" embedded />)
+    expect(await screen.findByRole('heading', { level: 3, name: 'Codex 执行器' })).toBeVisible()
+    expect(screen.queryByRole('heading', { level: 2, name: 'Agent' })).toBeNull()
+  })
+
   it('只呈现 Codex：没有 Claude 或其他 Provider 卡片', async () => {
     render(<AgentHome bridge={bridgeFixture(notInstalled)} workspaceId="workspace-1" />)
     await screen.findByRole('button', { name: '安装 Codex CLI' })

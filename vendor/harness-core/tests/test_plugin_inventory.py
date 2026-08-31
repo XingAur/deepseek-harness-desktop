@@ -28,7 +28,18 @@ PLUGIN_NAMES = (
     "his-engineering",
     "his-knowledge",
 )
-FORMAL_PLUGIN_ROOTS = tuple(f"/Users/lym/plugins/{name}" for name in PLUGIN_NAMES)
+_RUNTIME_CONFIG_PATH = HARNESS_ROOT / "config" / "capabilities.json"
+_RUNTIME_PLUGIN_ROOTS = json.loads(
+    _RUNTIME_CONFIG_PATH.read_text(encoding="utf-8")
+)["plugin_roots"]
+FORMAL_PLUGIN_ROOTS = tuple(
+    str(
+        Path(root).expanduser().resolve()
+        if Path(root).is_absolute()
+        else (_RUNTIME_CONFIG_PATH.parent / root).resolve()
+    )
+    for root in _RUNTIME_PLUGIN_ROOTS
+)
 PLUGIN_SOURCE_ROOT = resolve_plugin_source_root(
     REPOSITORY_ROOT,
     Path(FORMAL_PLUGIN_ROOTS[0]).parent,

@@ -19,8 +19,8 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = BASE_DIR / "data"
 DB_PATH = Path(os.environ.get("HARNESS_DB_PATH", DATA_DIR / "harness.sqlite"))
 DEFAULT_CONFIG_PATH = BASE_DIR / "prompts" / "default_experts.json"
-HARNESS_SCHEMA_VERSION = 72
-SUPPORTED_MIGRATION_SOURCES = frozenset({0, 69, 70, 71, HARNESS_SCHEMA_VERSION})
+HARNESS_SCHEMA_VERSION = 73
+SUPPORTED_MIGRATION_SOURCES = frozenset({0, 69, 70, 71, 72, HARNESS_SCHEMA_VERSION})
 SQLITE_BUSY_TIMEOUT_MS = 5000
 
 
@@ -1623,6 +1623,133 @@ def _initialize_database_schema(
             create index if not exists idx_flux_lite_candidates_context
             on flux_lite_experience_candidates(scope_key, state, promotion_allowed, high_risk, id);
 
+            create table if not exists change_context_layers (
+                layer_id text primary key,
+                schema_version text not null,
+                layer_type text not null check(layer_type in ('project_graph', 'change_scope', 'code_graph', 'data_graph')),
+                status text not null check(status in ('complete', 'incomplete', 'not_applicable', 'stale')),
+                content_hash text not null,
+                source_fingerprint text not null,
+                artifact_ref text not null,
+                evidence_refs_json text not null,
+                policy_rule_ids_json text not null,
+                blockers_json text not null,
+                created_at text not null
+            );
+
+            create table if not exists change_context_layer_artifacts (
+                content_hash text primary key,
+                artifact_ref text not null unique,
+                relative_path text not null unique,
+                size_bytes integer not null check(size_bytes >= 0),
+                device integer not null,
+                inode integer not null,
+                mode integer not null,
+                link_count integer not null check(link_count = 1),
+                created_at text not null
+            );
+
+            create table if not exists change_context_packs (
+                pack_id text primary key,
+                schema_version text not null,
+                pack_version integer not null check(pack_version > 0),
+                status text not null check(status in ('collecting', 'ready', 'blocked', 'stale', 'superseded')),
+                provider text not null,
+                ticket_id text not null,
+                requirement_revision text not null,
+                request_hash text not null,
+                required_layers_json text not null,
+                supersedes_pack_id text unique,
+                created_at text not null,
+                foreign key(supersedes_pack_id) references change_context_packs(pack_id)
+            );
+
+            create index if not exists idx_change_context_packs_task
+            on change_context_packs(provider, ticket_id, pack_version, created_at);
+
+            create table if not exists change_context_pack_layers (
+                pack_id text not null,
+                ordinal integer not null check(ordinal >= 0 and ordinal < 4),
+                layer_type text not null,
+                layer_id text not null,
+                content_hash text not null,
+                primary key(pack_id, layer_type),
+                unique(pack_id, ordinal),
+                foreign key(pack_id) references change_context_packs(pack_id),
+                foreign key(layer_id) references change_context_layers(layer_id),
+                foreign key(content_hash) references change_context_layer_artifacts(content_hash)
+            );
+
+            create table if not exists change_context_applicability_decisions (
+                id integer primary key autoincrement,
+                pack_id text not null,
+                layer_type text not null,
+                requirement text not null check(requirement in ('required', 'not_applicable')),
+                rule_ids_json text not null,
+                evidence_refs_json text not null,
+                reasons_json text not null,
+                created_at text not null,
+                unique(pack_id, layer_type),
+                foreign key(pack_id) references change_context_packs(pack_id)
+            );
+
+            create table if not exists change_context_gate_results (
+                pack_id text primary key,
+                status text not null check(status in ('ready', 'blocked')),
+                code text not null,
+                missing_json text not null,
+                conflicts_json text not null,
+                blockers_json text not null,
+                created_at text not null,
+                foreign key(pack_id) references change_context_packs(pack_id)
+            );
+
+            create table if not exists change_context_events (
+                id integer primary key autoincrement,
+                pack_id text not null,
+                event_type text not null,
+                payload_hash text not null,
+                payload_json text not null,
+                created_at text not null,
+                foreign key(pack_id) references change_context_packs(pack_id)
+            );
+
+            create index if not exists idx_change_context_events_pack
+            on change_context_events(pack_id, id);
+
+            create table if not exists change_context_projection_metrics (
+                id integer primary key autoincrement,
+                pack_id text not null,
+                role text not null,
+                projection_hash text not null,
+                raw_bytes integer not null check(raw_bytes >= 0),
+                projected_bytes integer not null check(projected_bytes >= 0),
+                reused_layer_count integer not null check(reused_layer_count >= 0),
+                recollected_layer_count integer not null check(recollected_layer_count >= 0),
+                evidence_refs_opened integer not null check(evidence_refs_opened >= 0),
+                reported_model_tokens integer not null check(reported_model_tokens >= 0),
+                created_at text not null,
+                unique(pack_id, role, projection_hash),
+                foreign key(pack_id) references change_context_packs(pack_id)
+            );
+
+            create trigger if not exists trg_change_context_layers_no_update before update on change_context_layers begin select raise(abort, 'change context layers are append only'); end;
+            create trigger if not exists trg_change_context_layers_no_delete before delete on change_context_layers begin select raise(abort, 'change context layers are append only'); end;
+            create trigger if not exists trg_change_context_artifacts_no_update before update on change_context_layer_artifacts begin select raise(abort, 'change context artifacts are append only'); end;
+            create trigger if not exists trg_change_context_artifacts_no_delete before delete on change_context_layer_artifacts begin select raise(abort, 'change context artifacts are append only'); end;
+            create trigger if not exists trg_change_context_packs_no_update before update on change_context_packs begin select raise(abort, 'change context packs are append only'); end;
+            create trigger if not exists trg_change_context_packs_no_delete before delete on change_context_packs begin select raise(abort, 'change context packs are append only'); end;
+            create trigger if not exists trg_change_context_pack_layers_no_update before update on change_context_pack_layers begin select raise(abort, 'change context pack layers are append only'); end;
+            create trigger if not exists trg_change_context_pack_layers_no_delete before delete on change_context_pack_layers begin select raise(abort, 'change context pack layers are append only'); end;
+            create trigger if not exists trg_change_context_applicability_no_update before update on change_context_applicability_decisions begin select raise(abort, 'change context applicability is append only'); end;
+            create trigger if not exists trg_change_context_applicability_no_delete before delete on change_context_applicability_decisions begin select raise(abort, 'change context applicability is append only'); end;
+            create trigger if not exists trg_change_context_gate_no_update before update on change_context_gate_results begin select raise(abort, 'change context gate results are append only'); end;
+            create trigger if not exists trg_change_context_gate_no_delete before delete on change_context_gate_results begin select raise(abort, 'change context gate results are append only'); end;
+            create trigger if not exists trg_change_context_events_no_update before update on change_context_events begin select raise(abort, 'change context events are append only'); end;
+            create trigger if not exists trg_change_context_events_no_delete before delete on change_context_events begin select raise(abort, 'change context events are append only'); end;
+            create trigger if not exists trg_change_context_projection_metrics_no_update before update on change_context_projection_metrics begin select raise(abort, 'change context projection metrics are append only'); end;
+            create trigger if not exists trg_change_context_projection_metrics_no_delete before delete on change_context_projection_metrics begin select raise(abort, 'change context projection metrics are append only'); end;
+
             create trigger if not exists trg_flux_lite_reviewer_opinions_append_only_update
             before update on flux_lite_reviewer_opinions
             begin select raise(abort, 'flux lite reviewer opinions are append only'); end;
@@ -1738,7 +1865,7 @@ def _initialize_database_schema(
             (
                 from_version,
                 HARNESS_SCHEMA_VERSION,
-                "v0.72-flux-opd-lite-learning",
+                "v0.73-change-context-pack",
                 migration_backup_path,
                 now_iso(),
             ),

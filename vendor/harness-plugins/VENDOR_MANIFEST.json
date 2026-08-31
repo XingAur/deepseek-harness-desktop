@@ -1,0 +1,14 @@
+{
+  "schema": "harness-plugin-vendor.v1",
+  "syncedAt": "2026-08-30T12:17:06.293Z",
+  "sources": {
+    "his-harness-core": "/Users/lym/plugins/his-harness-core",
+    "yunxiao": "/Users/lym/plugins/yunxiao",
+    "his-engineering": "/Users/lym/plugins/his-engineering",
+    "his-knowledge": "/Users/lym/plugins/his-knowledge"
+  },
+  "pluginCount": 4,
+  "fileCount": 87,
+  "totalBytes": 887713,
+  "manifestSha256": "4aed284cf95bef645716d96b24050fafea7a43ea2e7919239d49738ce96a3ef6"
+}

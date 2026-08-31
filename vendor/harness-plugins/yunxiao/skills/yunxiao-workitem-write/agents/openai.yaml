@@ -1,0 +1,4 @@
+interface:
+  display_name: "Yunxiao Work Item Write"
+  short_description: "Preview explicitly requested Yunxiao mutations safely"
+  default_prompt: "Use $yunxiao-workitem-write to prepare a non-executing preview for an explicitly requested Yunxiao change."

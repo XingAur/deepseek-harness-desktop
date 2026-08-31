@@ -535,6 +535,93 @@ class ManagerProviderRepository:
             "audit_id": audit_id,
         }
 
+    def consume_read_action_plan(
+        self,
+        *,
+        plan_id: int,
+        actor: str,
+        parameter_hash: str,
+        attempted_at: str,
+    ) -> dict[str, object]:
+        """Atomically consume an approval-free, still-governed read plan."""
+
+        normalized_plan_id = _positive_int(plan_id, "plan_id")
+        attempted_by = _required_text(actor, "actor")
+        _validate_public_values({"actor": attempted_by})
+        supplied_parameter_hash = _validated_sha256(parameter_hash, "parameter_hash")
+        attempted_timestamp = _validated_timestamp(attempted_at, "attempted_at")
+
+        with database.connect() as db:
+            db.execute("begin immediate")
+            row = _select_action_plan(db, normalized_plan_id)
+            current_state = str(row["state"])
+            next_state = current_state
+            allowed = False
+
+            if current_state == "consumed":
+                reason = "execution_grant_reused"
+            elif current_state == "expired":
+                reason = "action_plan_expired"
+            elif current_state == "rejected":
+                reason = "action_plan_rejected"
+            elif current_state not in {"planned", "confirmed"}:
+                reason = "action_plan_not_executable"
+            else:
+                _validate_current_action_plan_profile(db, row)
+                if attempted_by != str(row["requested_by"]):
+                    next_state = "rejected"
+                    reason = "actor_mismatch"
+                elif supplied_parameter_hash != str(row["parameter_hash"]):
+                    next_state = "rejected"
+                    reason = "parameter_hash_mismatch"
+                else:
+                    next_state = "consumed"
+                    allowed = True
+                    reason = "credential_or_endpoint_authority"
+
+            if next_state != current_state:
+                rejected_at = attempted_timestamp if next_state == "rejected" else ""
+                consumed_at = attempted_timestamp if next_state == "consumed" else ""
+                updated = db.execute(
+                    """
+                    update manager_provider_action_plans
+                    set state = ?, rejection_reason = ?, rejected_at = ?, consumed_at = ?
+                    where id = ? and state = ?
+                    """,
+                    (
+                        next_state,
+                        "" if allowed else reason,
+                        rejected_at,
+                        consumed_at,
+                        normalized_plan_id,
+                        current_state,
+                    ),
+                )
+                if updated.rowcount != 1:  # pragma: no cover - protected by begin immediate
+                    raise RuntimeError("action plan state changed during read consume")
+
+            audit_id = _insert_action_audit(
+                db,
+                action_plan_id=normalized_plan_id,
+                profile_id=int(row["profile_id"]),
+                action_type=str(row["action_type"]),
+                target_alias=str(row["target_alias"]),
+                parameter_hash=supplied_parameter_hash,
+                authorization_hash="",
+                status="consumed" if allowed else "rejected",
+                result_summary={"reason": reason},
+                created_at=attempted_timestamp,
+            )
+            final_row = _select_action_plan(db, normalized_plan_id)
+
+        return {
+            "allowed": allowed,
+            "status": str(final_row["state"]),
+            "reason": reason,
+            "plan_id": normalized_plan_id,
+            "audit_id": audit_id,
+        }
+
     def record_action_plan_rejection(
         self,
         *,

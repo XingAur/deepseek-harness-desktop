@@ -127,7 +127,12 @@ class ProviderCapabilityStatusTests(unittest.TestCase):
         by_provider = {item["provider"]: item for item in result["items"]}
         self.assertEqual("enabled", by_provider["yunxiao"]["capabilities"][0]["contract_status"])
         self.assertEqual("disabled", by_provider["yunxiao"]["capabilities"][1]["contract_status"])
-        self.assertEqual("blocked", by_provider["database"]["execution_status"])
+        self.assertEqual("available", by_provider["database"]["execution_status"])
+        self.assertEqual("available", by_provider["database"]["availability_status"])
+        self.assertEqual(
+            "mcp_primary_adapter_registered",
+            by_provider["database"]["availability_reason"],
+        )
         self.assertEqual("canonical_provider_contract_unregistered", by_provider["model"]["reason"])
         capability_statuses = {
             capability["name"]: capability
@@ -135,6 +140,9 @@ class ProviderCapabilityStatusTests(unittest.TestCase):
             for capability in item["capabilities"]
         }
         available_capabilities = {
+            "workitem.read",
+            "gitlab.read",
+            "database.inspect",
             "git.diff",
             "source.read",
             "source.search",
@@ -154,6 +162,12 @@ class ProviderCapabilityStatusTests(unittest.TestCase):
             capability_statuses[name]["execution_reason"]
             == "code_evidence_orchestrator_registered"
             for name in available_capabilities
+            if name.startswith(("git.", "source.", "verification.", "code."))
+        ))
+        self.assertTrue(all(
+            capability_statuses[name]["execution_reason"]
+            == "mcp_primary_adapter_registered"
+            for name in {"workitem.read", "gitlab.read", "database.inspect"}
         ))
         self.assertTrue(all(
             capability["execution_status"] == "blocked"
@@ -167,7 +181,7 @@ class ProviderCapabilityStatusTests(unittest.TestCase):
         )
         self.assertEqual("local_readonly", capability_statuses["git.inspect"]["execution_boundary"])
         self.assertEqual(
-            "readonly_sql_dynamic_database_access",
+            "readonly_mcp_catalog_inspection",
             capability_statuses["database.inspect"]["execution_boundary"],
         )
         self.assertEqual("disabled", capability_statuses["git.push"]["contract_status"])
@@ -192,14 +206,23 @@ class ProviderCapabilityStatusTests(unittest.TestCase):
             "gitlab.merge_request.diffs.read",
             "gitlab.pipeline.jobs.read",
         }.issubset(gitlab_actions))
+        mcp_gitlab_actions = {
+            "gitlab.connection_test",
+            "project.read",
+            "merge_request.read",
+            "gitlab.repository.file.read",
+            "gitlab.commit.read",
+        }
         self.assertTrue(all(
-            action["risk"] == "read"
-            and action["required_credential_fields"] == ["access_token"]
-            and action["availability_status"] == "blocked"
+            action["availability_status"] == "available"
+            and action["availability_reason"] == "mcp_primary_adapter_registered"
             for action in by_provider["gitlab"]["actions"]
-            if action["action"] in gitlab_actions
-            and action["action"].startswith("gitlab.")
-            and action["action"].endswith(".read")
+            if action["action"] in mcp_gitlab_actions
+        ))
+        self.assertTrue(all(
+            action["availability_status"] == "blocked"
+            for action in by_provider["gitlab"]["actions"]
+            if action["action"] not in mcp_gitlab_actions
         ))
 
     def test_result_redacts_profile_connection_and_credential_values(self) -> None:

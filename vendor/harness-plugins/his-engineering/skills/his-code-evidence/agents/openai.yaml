@@ -1,0 +1,4 @@
+interface:
+  display_name: "His Code Evidence"
+  short_description: "Read bounded source, diff, history, and local verification evidence"
+  default_prompt: "Use $his-code-evidence for bounded local code evidence or verification."

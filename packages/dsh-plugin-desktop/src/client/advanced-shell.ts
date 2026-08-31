@@ -13,6 +13,7 @@ import { ExtensionCenterState } from './extension-center-state'
 import { ExtensionCenterFooterAction } from './ExtensionCenterFooterAction'
 import { ModelAgentCenter } from './model-agent/ModelAgentCenter'
 import { installNewSessionTransition } from './new-session-transition'
+import { listPreviewCatalog } from './extensions/preview-catalog'
 
 export interface AdvancedShellOptions {
   bridge?: DesktopBridgeLike
@@ -96,9 +97,44 @@ function currentWorkspaceId(ctx: ClientContextLike): string | undefined {
 
 function desktopBridgeForWindow(targetOrigin?: string, context?: { generationId: string; sessionId: string }): DesktopBridgeLike {
   if (window.parent !== window) return createDesktopBridge({ targetOrigin, context })
+  return createPreviewDesktopBridge()
+}
+
+/** 仅供浏览器直开时验收 UI；它不读取或写入正式桌面配置。 */
+export function createPreviewDesktopBridge(): DesktopBridgeLike {
   return {
-    request: () => Promise.reject(new Error('桌面桥仅在受管工作台中可用')),
-    requestV2: () => Promise.reject(new Error('桌面桥仅在受管工作台中可用')),
+    mode: 'preview',
+    request: async () => { throw new Error('本地预览不连接正式桌面数据') },
+    requestV2: async <T,>(action: string, _context?: unknown, payload: Record<string, unknown> = {}) => {
+      if (action === 'plugin.catalog.list') return listPreviewCatalog(payload) as T
+      if (action === 'plugin.install.status') return { jobRunning: false, jobOutput: [] } as T
+      if (action === 'capability.inventory') return [
+        { id: 'file-read', displayName: '读取文件', mutating: false, approvalRequired: false },
+        { id: 'file-write', displayName: '修改文件', mutating: true, approvalRequired: true },
+        { id: 'mcp-call', displayName: '调用 MCP', mutating: true, approvalRequired: true },
+      ] as T
+      if (action === 'provider.metadata.list') return [{
+        providerId: 'codex', displayName: 'Codex', cliCommand: 'codex', kind: 'cli',
+        adapterProtocol: 'dsh-agent-adapter/v1', credentialSupported: false, developerOnly: false,
+      }] as T
+      if (action === 'harness.status') return { state: 'idle' } as T
+      if (action === 'extension.inventory') return [
+        { extensionId: 'preview.skill.code-review', extensionKind: 'skill', displayName: '代码审查技能', sourceKind: 'preview', status: 'enabled', updatedAt: '2026-08-30T00:00:00Z' },
+        { extensionId: 'preview.mcp.files', extensionKind: 'mcp', displayName: '文件 MCP', sourceKind: 'preview', status: 'enabled', updatedAt: '2026-08-30T00:00:00Z' },
+      ] as T
+      if (action === 'cli.login.status') return { installed: true, cliPath: '/usr/local/bin/codex', loggedIn: true, mode: '预览样例', jobRunning: false, jobOutput: [] } as T
+      if (action === 'cli.install.status') return { command: ['npm', 'install', '-g', '@openai/codex'], installed: true, jobRunning: false, jobOutput: [] } as T
+      if (action === 'harness.connection.list') {
+        const connections = [
+          { profileId: 'preview-yunxiao', kind: 'mcp', transport: 'http', source: 'legacy', templateId: 'yunxiao', providerId: 'yunxiao', displayName: '云效需求读取（样例）', endpoint: 'https://devops.aliyun.com', readOnly: true, enabled: true },
+          { profileId: 'preview-gitlab', kind: 'mcp', transport: 'http', source: 'legacy', templateId: 'gitlab', providerId: 'gitlab', displayName: 'GitLab 代码读取（样例）', endpoint: 'https://gitlab.example.com', readOnly: true, enabled: true },
+          { profileId: 'preview-api', kind: 'http-api', transport: 'http', source: 'custom', templateId: 'custom', displayName: '内部检索 API（样例）', endpoint: 'https://search.example.invalid', healthPath: '/health', readOnly: true, enabled: true },
+          { profileId: 'preview-db', kind: 'database', transport: 'database', source: 'custom', templateId: 'custom', providerId: 'generic', displayName: 'HIS 只读库（样例）', endpoint: 'postgresql://example.invalid:5432/his', databaseType: 'postgresql', host: 'example.invalid', port: 5432, databaseName: 'his', username: 'readonly_user', encoding: 'UTF-8', testQuery: 'SELECT 1', readOnly: true, enabled: true },
+        ]
+        return connections.filter((item) => payload.kind === undefined || item.kind === payload.kind) as T
+      }
+      throw new Error('本地只读预览不执行安装或配置写入')
+    },
     dispose: () => undefined,
   }
 }

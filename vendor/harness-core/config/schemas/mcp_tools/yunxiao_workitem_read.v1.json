@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dfhis.example/schemas/mcp_tools/yunxiao_workitem_read.v1.json",
+  "title": "Yunxiao work item read MCP arguments",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["work_item_id", "include_comments", "include_attachments", "page_cursor", "page_size"],
+  "properties": {
+    "work_item_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "include_comments": {"type": "boolean"},
+    "include_attachments": {"type": "boolean"},
+    "page_cursor": {
+      "type": "string",
+      "maxLength": 32,
+      "pattern": "^$|^v1:(0|[1-9][0-9]*)$"
+    },
+    "page_size": {"type": "integer", "minimum": 1, "maximum": 50}
+  }
+}

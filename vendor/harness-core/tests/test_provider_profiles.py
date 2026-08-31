@@ -144,7 +144,7 @@ class ProviderProfileTests(unittest.TestCase):
         self.assertNotIn("Bearer", rendered)
         self.assertNotIn("password", rendered.lower())
 
-    def test_connection_test_plan_is_inert_and_requires_later_execution_authority(self) -> None:
+    def test_connection_test_plan_is_inert_but_needs_no_harness_confirmation(self) -> None:
         plan = build_provider_connection_test_plan(
             [
                 {
@@ -184,7 +184,9 @@ class ProviderProfileTests(unittest.TestCase):
         self.assertFalse(plan["external_calls"])
         self.assertFalse(plan["execution_allowed"])
         self.assertEqual(["planned", "planned"], [item["status"] for item in plan["tests"]])
-        self.assertTrue(all(item["confirmation_required"] for item in plan["tests"]))
+        self.assertFalse(plan["confirmation_required"])
+        self.assertTrue(all(not item["confirmation_required"] for item in plan["tests"]))
+        self.assertTrue(all(item["execution_allowed"] for item in plan["tests"]))
 
     def test_connection_test_plan_blocks_database_drift(self) -> None:
         plan = build_provider_connection_test_plan(

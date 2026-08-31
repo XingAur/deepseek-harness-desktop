@@ -13,6 +13,8 @@ from app.single_pass_change_contract import (
     SinglePassChangeContract,
     build_single_pass_change_contract,
 )
+from app.change_context_projection import ChangeContextProjectionService
+from tests.test_change_context_projection import fixture as change_context_fixture
 
 
 def trusted_inputs() -> dict:
@@ -85,6 +87,12 @@ _DEFAULT_GOVERNANCE = object()
 
 def build(inputs: dict | None = None, governance: object = _DEFAULT_GOVERNANCE) -> SinglePassChangeContract:
     inputs = copy.deepcopy(inputs or trusted_inputs())
+    pack, payloads = change_context_fixture()
+    projection = ChangeContextProjectionService().render(
+        pack=pack,
+        layer_payloads=payloads,
+        role="implementation",
+    )
     return build_single_pass_change_contract(
         governance_result=ready_governance(inputs) if governance is _DEFAULT_GOVERNANCE else governance,
         objective=inputs["objective"],
@@ -95,10 +103,45 @@ def build(inputs: dict | None = None, governance: object = _DEFAULT_GOVERNANCE) 
         normalized_requirement_evidence=inputs["normalized_requirement_evidence"],
         available_capabilities=inputs["available_capabilities"],
         trusted_authorization=inputs["trusted_authorization"],
+        change_context_gate_result=pack.gate,
+        change_context_pack=pack,
+        change_context_projection=projection,
     )
 
 
 class SinglePassChangeContractTests(unittest.TestCase):
+    def test_missing_or_mismatched_change_context_binding_blocks_contract(self) -> None:
+        inputs = trusted_inputs()
+        governance = ready_governance(inputs)
+        missing = build_single_pass_change_contract(
+            governance_result=governance,
+            objective=inputs["objective"],
+            requirement_calibration=inputs["requirement_calibration"],
+            technical_decision=inputs["technical_decision"],
+            change_ownership=inputs["change_ownership"],
+            acceptance_matrix=inputs["acceptance_matrix"],
+        )
+        self.assertEqual("blocked", missing.status)
+
+        pack, payloads = change_context_fixture()
+        wrong_projection = ChangeContextProjectionService().render(
+            pack=pack,
+            layer_payloads=payloads,
+            role="analysis",
+        )
+        mismatched = build_single_pass_change_contract(
+            governance_result=governance,
+            objective=inputs["objective"],
+            requirement_calibration=inputs["requirement_calibration"],
+            technical_decision=inputs["technical_decision"],
+            change_ownership=inputs["change_ownership"],
+            acceptance_matrix=inputs["acceptance_matrix"],
+            change_context_gate_result=pack.gate,
+            change_context_pack=pack,
+            change_context_projection=wrong_projection,
+        )
+        self.assertEqual("blocked", mismatched.status)
+
     def test_ready_contract_is_frozen_deterministic_and_schema_valid(self) -> None:
         contract = build()
 

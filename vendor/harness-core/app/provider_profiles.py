@@ -322,9 +322,9 @@ def build_provider_connection_test_plan(profiles: Sequence[Mapping[str, Any]]) -
     """Build an inert connection-test plan for Manager review.
 
     This is a planning artifact only: no credentials are resolved, no network
-    connection is attempted, and no provider state is changed. The later
-    executor must require explicit authority before turning any item into a
-    real test connection.
+    connection is attempted, and no provider state is changed. The later read
+    executor uses the Profile token or readonly endpoint/credential as its
+    technical authority and does not require a separate Harness confirmation.
     """
 
     status = build_provider_profile_status(profiles)
@@ -338,11 +338,11 @@ def build_provider_connection_test_plan(profiles: Sequence[Mapping[str, Any]]) -
         "credentials_read": False,
         "external_calls": False,
         "execution_allowed": False,
-        "confirmation_required": True,
+        "confirmation_required": False,
         "tests": tests,
         "next_actions": [
-            "确认本次是否允许读取 credential_ref 对应凭证。",
-            "确认连接目标是测试环境、沙箱对象或只读目标。",
+            "由一次性计划绑定 Provider、Profile、目标、请求人和参数。",
+            "由 personal token 或 readonly endpoint/credential 决定技术访问权限。",
             "连接测试结果必须落审计记录，不能自动升级为写权限。",
         ],
     }
@@ -355,14 +355,14 @@ def _build_connection_test_item(profile: Mapping[str, Any]) -> dict[str, Any]:
         "profile_key": str(profile.get("profile_key") or ""),
         "status": "blocked" if blockers else "planned",
         "blockers": blockers,
-        "confirmation_required": True,
+        "confirmation_required": False,
         "credentials_read": False,
         "external_calls": False,
-        "execution_allowed": False,
+        "execution_allowed": not blockers,
         "required_before_execution": [
             "credential_ref_resolves",
-            "non_production_or_explicit_target_confirmation",
             "network_allowlist_or_local_driver_available",
+            "target_actor_and_parameter_bound_plan",
             "redacted_audit",
         ],
     }

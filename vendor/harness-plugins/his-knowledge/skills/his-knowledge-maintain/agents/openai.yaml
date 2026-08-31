@@ -1,0 +1,4 @@
+interface:
+  display_name: "HIS Knowledge Maintain"
+  short_description: "Record HIS knowledge through controlled local review."
+  default_prompt: "Use $his-knowledge-maintain to record or bootstrap HIS knowledge safely. An active requirement is not required; local documents, source repositories, and audit history may produce review candidates, never automatic promotion."

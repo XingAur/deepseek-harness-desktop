@@ -1,0 +1,4 @@
+interface:
+  display_name: "HIS Requirement Governance"
+  short_description: "Review HIS requirements before any code change"
+  default_prompt: "Use $his-requirement-governance to assess whether this HIS task is complete, compliant, changeable, and ready for a single-pass local change."

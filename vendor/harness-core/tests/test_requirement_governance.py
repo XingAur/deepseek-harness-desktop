@@ -19,6 +19,7 @@ from app.requirement_provider import (
     normalize_requirement_evidence,
 )
 from app.harness import build_requirement_governance_outputs
+from tests.change_context_test_support import ReadyChangeContextService
 
 
 def ready_inputs() -> dict:
@@ -167,6 +168,7 @@ class RequirementGovernanceTests(unittest.TestCase):
             change_ownership=inputs["change_ownership"],
             acceptance_matrix=inputs["acceptance_matrix"],
             local_change_evidence_exception=exception,
+            change_context_result=ReadyChangeContextService().result,
         )
 
         self.assertEqual("", error)

@@ -10,6 +10,7 @@ from app.requirement_calibration import build_requirement_calibration
 from app.requirement_governance import assess_requirement
 from app.requirement_provider import normalize_requirement_evidence
 from app.single_pass_change_contract import build_single_pass_change_contract
+from tests.change_context_test_support import ReadyChangeContextService
 
 
 FIXTURE_DIR = Path(__file__).parents[1] / "fixtures" / "governance"
@@ -21,6 +22,7 @@ def load_fixture(name: str) -> dict:
 
 
 def build_contract(inputs: dict, governance: object):
+    context = ReadyChangeContextService().result
     return build_single_pass_change_contract(
         governance_result=governance,
         objective=inputs["title"],
@@ -31,6 +33,9 @@ def build_contract(inputs: dict, governance: object):
         normalized_requirement_evidence=inputs["normalized_requirement_evidence"],
         available_capabilities=inputs["available_capabilities"],
         trusted_authorization=inputs.get("trusted_authorization"),
+        change_context_gate_result=context.gate,
+        change_context_pack=context.pack,
+        change_context_projection=context.projections["implementation"],
     )
 
 

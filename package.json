@@ -17,6 +17,7 @@
     "agent:build": "npm run build -w @dsh/agent-adapter",
     "agent:test": "npm run test -w @dsh/agent-adapter",
     "harness:vendor": "node scripts/vendor-harness-core.mjs",
+    "harness:plugins:verify": "node --input-type=module -e \"import {verifyCheckedInHarnessPluginBundle} from './scripts/vendor-harness-plugins.mjs'; console.log(verifyCheckedInHarnessPluginBundle('./vendor/harness-plugins'))\"",
     "harness:assemble": "node scripts/assemble-harness-core.mjs",
     "e2e": "wdio run e2e/wdio.conf.ts",
     "e2e:installer": "vitest run --config vitest.e2e.config.ts",

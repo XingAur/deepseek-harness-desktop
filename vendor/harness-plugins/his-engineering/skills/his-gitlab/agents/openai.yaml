@@ -1,0 +1,4 @@
+interface:
+  display_name: "His GitLab"
+  short_description: "Read GitLab evidence through readonly MCP"
+  default_prompt: "Use $his-gitlab for a bounded GitLab read through the frozen MCP connector."

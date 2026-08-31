@@ -75,6 +75,25 @@ it('maps plugin market actions to dedicated commands with bounded payloads', () 
     expect(isVersionedBridgePayload('plugin.install.status', { pluginId: 'a/b' })).toBe(true)
   })
 
+  it('maps local skill creation and native-folder import with bounded instructions', () => {
+    expect(bridgeCommandByActionV2['skill.create']).toBe('agent_skill_create')
+    expect(bridgeCommandByActionV2['skill.import']).toBe('agent_skill_import')
+    expect(isVersionedBridgePayload('skill.import', {})).toBe(true)
+    expect(isVersionedBridgePayload('skill.import', { path: '/tmp/untrusted' })).toBe(false)
+    expect(isVersionedBridgePayload('skill.create', {
+      skillId: 'code-review',
+      displayName: '代码审查',
+      description: '执行本地代码审查',
+      instructions: '先读取目标文件，再按严重程度输出问题。',
+    })).toBe(true)
+    expect(isVersionedBridgePayload('skill.create', {
+      skillId: '../escape', displayName: 'bad', description: '', instructions: 'bad',
+    })).toBe(false)
+    expect(isVersionedBridgePayload('skill.create', {
+      skillId: 'oversized', displayName: 'oversized', description: '', instructions: 'x'.repeat(16 * 1024 + 1),
+    })).toBe(false)
+  })
+
   it('requires a bounded non-empty task prompt', () => {
     expect(isVersionedBridgePayload('task.create', {
       workspaceId: 'workspace-1',
@@ -162,10 +181,64 @@ it('maps plugin market actions to dedicated commands with bounded payloads', () 
     expect(isVersionedBridgePayload('harness.connection.save', {
       profileId: 'his-db-readonly', kind: 'database', providerId: 'generic', displayName: 'HIS 只读库',
       endpoint: 'postgresql://db.internal:5432/his', readOnly: true, enabled: true,
+      transport: 'database', databaseType: 'postgresql', host: 'db.internal', port: 5432,
+      databaseName: 'his', username: 'readonly_user', encoding: 'UTF-8', testQuery: 'SELECT 1',
       credentialId: 'credential-1',
     })).toBe(true)
     expect(isVersionedBridgePayload('harness.connection.save', {
       kind: 'database', displayName: 'HIS 只读库', password: 'must-not-cross',
+    })).toBe(false)
+  })
+
+  it('accepts generalized custom connection profiles with bounded transport fields', () => {
+    expect(isVersionedBridgePayload('harness.connection.list', { kind: 'http-api' })).toBe(true)
+    expect(isVersionedBridgePayload('harness.connection.save', {
+      profileId: 'project-memory',
+      kind: 'mcp',
+      transport: 'stdio',
+      templateId: 'custom',
+      displayName: '项目记忆',
+      command: 'node',
+      args: ['server.js', '--readonly'],
+      environmentKeys: ['PROJECT_ROOT'],
+      workingDirectoryPolicy: 'workspace',
+      endpoint: '',
+      healthPath: '',
+      readOnly: true,
+      enabled: true,
+    })).toBe(true)
+    expect(isVersionedBridgePayload('harness.connection.save', {
+      kind: 'http-api',
+      transport: 'http',
+      templateId: 'custom',
+      providerId: 'internal-search',
+      displayName: '内部搜索 API',
+      endpoint: 'https://search.example.test',
+      healthPath: '/health',
+      command: '',
+      args: [],
+      environmentKeys: [],
+      workingDirectoryPolicy: 'none',
+      readOnly: true,
+      enabled: true,
+    })).toBe(true)
+  })
+
+  it('rejects secret-bearing or unsafe generalized connection payloads', () => {
+    expect(isVersionedBridgePayload('harness.connection.save', {
+      kind: 'http-api', transport: 'http', templateId: 'custom', displayName: 'Unsafe API',
+      endpoint: 'https://user:password@example.test', healthPath: '/health', command: '', args: [],
+      environmentKeys: [], workingDirectoryPolicy: 'none', readOnly: true, enabled: true,
+    })).toBe(false)
+    expect(isVersionedBridgePayload('harness.connection.save', {
+      kind: 'mcp', transport: 'stdio', templateId: 'custom', displayName: 'Unsafe MCP',
+      endpoint: '', command: 'node', args: [], environmentKeys: ['API_TOKEN=secret'],
+      workingDirectoryPolicy: 'workspace', readOnly: true, enabled: true,
+    })).toBe(false)
+    expect(isVersionedBridgePayload('harness.connection.save', {
+      kind: 'http-api', transport: 'http', templateId: 'custom', displayName: 'Secret API',
+      endpoint: 'https://example.test', healthPath: '/health', command: '', args: [], environmentKeys: [],
+      workingDirectoryPolicy: 'none', readOnly: true, enabled: true, authorization: 'Bearer secret',
     })).toBe(false)
   })
 

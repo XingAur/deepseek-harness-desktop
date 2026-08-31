@@ -81,7 +81,7 @@ class ProviderConnectionTestTests(unittest.TestCase):
         database.DB_PATH = self.previous_db_path
         self.temp_dir.cleanup()
 
-    def test_connection_request_creates_plan_and_awaits_task1_confirmation_without_audit(self) -> None:
+    def test_connection_request_creates_approval_free_governed_read_plan_without_audit(self) -> None:
         legacy_path = Path(self.temp_dir.name) / "legacy.jsonl"
         legacy_path.write_text("legacy\n", encoding="utf-8")
 
@@ -95,17 +95,19 @@ class ProviderConnectionTestTests(unittest.TestCase):
             authorizer=self.authorizer,
         )
 
-        self.assertEqual("awaiting_confirmation", result["status"])
+        self.assertEqual("ready_to_execute", result["status"])
+        self.assertEqual("provider_technical_authority_required", result["reason"])
         self.assertEqual("yunxiao.connection_test", result["action"])
         self.assertIsInstance(result["plan_id"], int)
         self.assertFalse(result["credentials_read"])
         self.assertFalse(result["external_calls"])
-        self.assertFalse(result["execution_allowed"])
+        self.assertTrue(result["execution_allowed"])
+        self.assertFalse(result["confirmation_required"])
         self.assertEqual("planned", self.repository.get_action_plan(result["plan_id"])["state"])
         self.assertEqual([], self.repository.list_action_audits())
         self.assertEqual("legacy\n", legacy_path.read_text(encoding="utf-8"))
 
-    def test_confirmed_connection_delegates_execution_and_audit_only_to_service(self) -> None:
+    def test_read_connection_delegates_without_confirmation_and_audits_in_service(self) -> None:
         planned = run_provider_connection_test(
             self.profiles,
             provider="yunxiao",
@@ -113,9 +115,6 @@ class ProviderConnectionTestTests(unittest.TestCase):
             requested_by="manager",
             repository=self.repository,
             authorizer=self.authorizer,
-        )
-        authorization = self.authorizer.confirm(
-            planned["plan_id"], actor="manager", ttl_seconds=60
         )
         adapter = FakeConnectionAdapter()
         service = ProviderExecutionService(
@@ -134,7 +133,6 @@ class ProviderConnectionTestTests(unittest.TestCase):
             authorizer=self.authorizer,
             execution_service=service,
             plan_id=planned["plan_id"],
-            authorization=authorization,
         )
 
         self.assertEqual("succeeded", result["status"])
@@ -213,7 +211,7 @@ class ProviderConnectionTestTests(unittest.TestCase):
         self.assertEqual("github.connection_test", planned["action"])
         self.assertEqual("github.connection", plan["target_alias"])
 
-    def test_confirmed_github_connection_uses_the_manager_readonly_adapter(self) -> None:
+    def test_github_connection_uses_the_manager_readonly_adapter_without_confirmation(self) -> None:
         github_profile = self.repository.upsert_profile(
             scope_type="local",
             scope_key="default",
@@ -237,9 +235,6 @@ class ProviderConnectionTestTests(unittest.TestCase):
             repository=self.repository,
             authorizer=self.authorizer,
         )
-        authorization = self.authorizer.confirm(
-            planned["plan_id"], actor="manager", ttl_seconds=60
-        )
         transport = FakeGitHubConnectionTransport()
         service = ProviderExecutionService(
             self.repository,
@@ -257,7 +252,6 @@ class ProviderConnectionTestTests(unittest.TestCase):
             authorizer=self.authorizer,
             execution_service=service,
             plan_id=planned["plan_id"],
-            authorization=authorization,
         )
 
         self.assertEqual("succeeded", result["status"])

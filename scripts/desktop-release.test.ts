@@ -10,13 +10,18 @@ import {
 } from './desktop-release.mjs'
 
 const versions = {
-  schemaVersion: 1 as const,
+  schemaVersion: 2 as const,
   desktopVersion: '0.1.13',
   runtimeVersion: '0.1.10-preview',
   dshVersion: '0.1.1-rc.2',
   nodeVersion: '24.14.0',
   pnpmVersion: '11.7.0',
   legacyReleaseBaseline: '0.1.12',
+  dshUpstream: {
+    repository: 'https://github.com/deepseek-ai/deepseek-harness.git',
+    tag: 'dsh-v0.1.2-alpha.1',
+    commit: 'cd5ef8148158c3a752a658978873241fdf8e2bbc',
+  },
 }
 
 describe('desktop release metadata', () => {

@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "change_context_pack.v1.json",
+  "title": "Change Context Pack",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "pack_id", "pack_version", "status", "task_binding", "required_layers", "layers", "gate", "supersedes_pack_id"],
+  "properties": {
+    "schema_version": {"const": "change-context-pack.v1"},
+    "pack_id": {"type": "string", "pattern": "^ccp:sha256:[0-9a-f]{64}$"},
+    "pack_version": {"type": "integer", "minimum": 1},
+    "status": {"enum": ["collecting", "ready", "blocked", "stale", "superseded"]},
+    "task_binding": {"$ref": "#/$defs/task_binding"},
+    "required_layers": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": {"enum": ["project_graph", "change_scope", "code_graph", "data_graph"]}
+    },
+    "layers": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {"$ref": "#/$defs/layer"}
+    },
+    "gate": {"$ref": "#/$defs/gate"},
+    "supersedes_pack_id": {"type": "string", "pattern": "^(|ccp:sha256:[0-9a-f]{64})$"}
+  },
+  "$defs": {
+    "task_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "ticket_id", "requirement_revision", "request_hash"],
+      "properties": {
+        "provider": {"type": "string", "minLength": 1, "maxLength": 128},
+        "ticket_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "requirement_revision": {"type": "string", "minLength": 1, "maxLength": 512},
+        "request_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
+    "layer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "layer_type", "layer_id", "status", "content_hash", "source_fingerprint", "artifact_ref", "evidence_refs", "policy_rule_ids", "blockers"],
+      "properties": {
+        "schema_version": {"const": "change-context-layer.v1"},
+        "layer_type": {"enum": ["project_graph", "change_scope", "code_graph", "data_graph"]},
+        "layer_id": {"type": "string", "pattern": "^ccl:sha256:[0-9a-f]{64}$"},
+        "status": {"enum": ["complete", "incomplete", "not_applicable", "stale"]},
+        "content_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "source_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "artifact_ref": {"type": "string", "pattern": "^artifact://[A-Za-z0-9][A-Za-z0-9._:/@+\\-]{0,511}$"},
+        "evidence_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^((evidence|artifact)://|mcp-evidence:)[A-Za-z0-9][A-Za-z0-9._:/@+\\-]{0,511}$"}},
+        "policy_rule_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9-]{2,63}$"}},
+        "blockers": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 512}}
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "code", "missing", "conflicts", "blockers"],
+      "properties": {
+        "status": {"enum": ["ready", "blocked"]},
+        "code": {"enum": ["CHANGE_CONTEXT_READY", "BLOCKED_CONTEXT_INCOMPLETE", "BLOCKED_CONTEXT_STALE", "BLOCKED_CONTEXT_CONFLICT", "BLOCKED_CONTEXT_SOURCE_UNAVAILABLE", "BLOCKED_CONTEXT_HASH_MISMATCH", "BLOCKED_CONTEXT_PROJECTION_BUDGET", "BLOCKED_CONTEXT_VERSION_MISMATCH"]},
+        "missing": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 512}},
+        "conflicts": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 512}},
+        "blockers": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 512}}
+      }
+    }
+  }
+}

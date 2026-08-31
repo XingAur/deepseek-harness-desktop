@@ -80,6 +80,15 @@ def ready_single_pass() -> SinglePassChangeContract:
         manual_acceptance=("页面展示验收",),
         rollback_strategy="restore_pre_change_local_files",
         blockers=(),
+        change_context_pack_id="ccp:sha256:" + "a" * 64,
+        change_context_projection_hash="sha256:" + "b" * 64,
+        change_context_layer_hashes=tuple(
+            {"layer_type": layer_type, "content_hash": "sha256:" + character * 64}
+            for layer_type, character in zip(
+                ("project_graph", "change_scope", "code_graph", "data_graph"),
+                "cdef",
+            )
+        ),
     )
 
 
@@ -202,12 +211,23 @@ class RequirementGovernanceIntegrationTests(unittest.TestCase):
         self.assertEqual("visual_evidence_blocked", result.evaluation_status)
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
-        self.env_patch = patch.dict(os.environ, {"HARNESS_DB_PATH": str(Path(self.temp_dir.name) / "harness.sqlite")})
+        self.test_db_path = Path(self.temp_dir.name) / "harness.sqlite"
+        self.env_patch = patch.dict(os.environ, {"HARNESS_DB_PATH": str(self.test_db_path)})
+        self.db_path_patch = patch.object(database, "DB_PATH", self.test_db_path)
         self.env_patch.start()
+        self.db_path_patch.start()
 
     def tearDown(self) -> None:
+        self.db_path_patch.stop()
         self.env_patch.stop()
         self.temp_dir.cleanup()
+
+    def test_suite_uses_temporary_control_database(self) -> None:
+        self.assertEqual(self.test_db_path, database.DB_PATH)
+        self.assertNotEqual(
+            Path(__file__).resolve().parents[1] / "data" / "harness.sqlite",
+            database.DB_PATH,
+        )
 
     def test_invalid_governance_mode_fails_before_provider_work(self) -> None:
         runner = RequirementWorkflowRunner(MockLLMClient(), allow_mock=True)
@@ -538,6 +558,9 @@ class RequirementGovernanceIntegrationTests(unittest.TestCase):
             automatic_acceptance=original.automatic_acceptance,
             manual_acceptance=original.manual_acceptance,
             rollback_strategy=original.rollback_strategy,
+            change_context_pack_id=original.change_context_pack_id,
+            change_context_projection_hash=original.change_context_projection_hash,
+            change_context_layer_hashes=original.change_context_layer_hashes,
             blockers=original.blockers,
         )
         for candidate in (forged, subclass):

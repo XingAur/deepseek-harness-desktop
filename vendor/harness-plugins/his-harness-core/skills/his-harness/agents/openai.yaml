@@ -1,0 +1,5 @@
+# Plugin-owned skill metadata.
+interface:
+  display_name: "Engineering Harness"
+  short_description: "编排通用工程任务，并按需叠加 HIS/DFHIS 专项治理"
+  default_prompt: "Use $his-harness to orchestrate this engineering task from a work item or local evidence. Do not require Yunxiao or HIS context for a local or non-HIS task; apply HIS governance only as a domain overlay when relevant. Keep external writes separately authorized. Treat a clear user reply to the prior Harness question as the answer to that pending gate and automatically resume the original task; do not wait for a separate continue instruction."

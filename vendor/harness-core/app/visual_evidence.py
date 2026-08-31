@@ -26,6 +26,70 @@ class VisualEvidenceAnalyzer(Protocol):
     def analyze(self, *, title: str, description: str, image_paths: tuple[Path, ...]) -> Mapping[str, Any]: ...
 
 
+class _SilentVisualWorkerSink:
+    def on_started(self, pid: int, start_identity: str) -> None:
+        del pid, start_identity
+
+    def on_event(self, event: dict[str, object]) -> None:
+        del event
+
+
+class CodexCliVisualEvidenceAnalyzer:
+    """Run an explicitly selected, read-only Codex visual reviewer."""
+
+    def __init__(
+        self,
+        *,
+        worker: CodexCliWorker | None = None,
+        timeout_seconds: int = 120,
+        schema_path: str | Path | None = None,
+    ) -> None:
+        if not isinstance(timeout_seconds, int) or isinstance(timeout_seconds, bool) or not 1 <= timeout_seconds <= 3600:
+            raise ValueError("visual_evidence_timeout_invalid")
+        target = Path(schema_path or Path(__file__).resolve().parents[1] / "config" / "schemas" / "visual_evidence.v1.json")
+        if not target.is_absolute() or target.is_symlink() or not target.is_file():
+            raise ValueError("visual_evidence_schema_invalid")
+        self._worker = worker or CodexCliWorker()
+        self._timeout_seconds = timeout_seconds
+        self._schema_path = target.resolve()
+        self._schema_sha256 = hashlib.sha256(self._schema_path.read_bytes()).hexdigest()
+
+    def analyze(
+        self,
+        *,
+        title: str,
+        description: str,
+        image_paths: tuple[Path, ...],
+    ) -> Mapping[str, Any]:
+        try:
+            extraction_request = VisualEvidenceExtractionRequest(
+                title=title[:500],
+                description=description[:2000],
+                image_paths=image_paths,
+            )
+            worker_request = CodexWorkerRequest.visual_reviewer(
+                Path(__file__).resolve().parents[1],
+                _prompt(extraction_request.title, extraction_request.description),
+                self._timeout_seconds,
+                self._schema_path,
+                self._schema_sha256,
+                extraction_request.image_paths,
+            )
+            worker_result = self._worker.start(worker_request, _SilentVisualWorkerSink())
+            if str(getattr(worker_result, "error_code", "") or ""):
+                return {"facts": [], "blockers": ["视觉证据读取失败；已保持改码门禁关闭。"]}
+            result = parse_visual_evidence_result(
+                getattr(worker_result, "final_response", None),
+                image_paths=extraction_request.image_paths,
+            )
+        except (OSError, UnicodeError, ValueError, TypeError):
+            return {"facts": [], "blockers": ["视觉证据结果无效；已保持改码门禁关闭。"]}
+        return {
+            "facts": [dict(item) for item in result.facts],
+            "blockers": list(result.blockers),
+            "host": {"type": "codex_cli", "executable": str(CODEX_EXECUTABLE)},
+        }
+
 class HostVisualEvidenceAnalyzer:
     """Adapt one host-declared local image reader to the Harness gate."""
 

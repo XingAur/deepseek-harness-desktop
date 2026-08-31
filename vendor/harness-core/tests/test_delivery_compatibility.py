@@ -651,6 +651,12 @@ class PluginResolutionCompatibilityTests(unittest.TestCase):
         fixtures = ("incomplete", "syntax", "symlink")
         for fixture in fixtures:
             with self.subTest(fixture=fixture), tempfile.TemporaryDirectory() as directory:
+                before_modules = {
+                    name
+                    for name in sys.modules
+                    if name == "_harness_his_engineering"
+                    or name.startswith("_harness_his_engineering.")
+                }
                 parent = Path(directory).resolve()
                 root = self.plugin_copy(parent)
                 closure_path = root / "scripts" / "delivery_closure.py"
@@ -666,13 +672,14 @@ class PluginResolutionCompatibilityTests(unittest.TestCase):
                 with self.patched_roots(root):
                     with self.assertRaisesRegex(adapter._PluginResolutionError, "^" + adapter._ERROR + "$"):
                         adapter._canonical()
-                self.assertFalse(
-                    any(
-                        name == "_harness_his_engineering"
-                        or name.startswith("_harness_his_engineering.")
+                self.assertEqual(
+                    before_modules,
+                    {
+                        name
                         for name in sys.modules
-                        if sys.modules[name] is not adapter._closure
-                    )
+                        if name == "_harness_his_engineering"
+                        or name.startswith("_harness_his_engineering.")
+                    },
                 )
 
     def test_complete_registry_rejects_missing_enabled_entrypoint_stably(self) -> None:

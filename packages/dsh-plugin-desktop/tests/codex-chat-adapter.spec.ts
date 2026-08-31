@@ -28,6 +28,12 @@ process.stdin.on('data', (chunk) => {
 });
 function send(message) { process.stdout.write(JSON.stringify(message) + '\\n'); }
 function handle(frame) {
+  if (frame.id === 900 && frame.method === undefined) {
+    if (frame.result && frame.result.decision === 'decline') {
+      send({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { status: 'failed' } } });
+    }
+    return;
+  }
   if (frame.method === 'initialize') { send({ id: frame.id, result: { ok: true } }); return; }
   if (frame.method === 'initialized') { initialized = true; return; }
   if (['model/list', 'thread/start', 'thread/resume', 'turn/start', 'turn/interrupt'].includes(frame.method) && !initialized) {
@@ -66,6 +72,11 @@ function handle(frame) {
       ? frame.params.input.filter((item) => item.type === 'text').map((item) => item.text).join('\\n')
       : '';
     if (promptText.includes('never-complete') || promptText.includes('abort-me')) return;
+    if (promptText.includes('approval-required')) {
+      send({ id: 900, method: 'item/fileChange/requestApproval', params: { paths: ['src/example.ts'], reason: 'write test fixture' } });
+      send({ id: frame.id, result: {} });
+      return;
+    }
     if (promptText.includes('failed-completion')) {
       send({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { status: 'failed' } } });
       send({ id: frame.id, result: {} });
@@ -283,6 +294,17 @@ describe('codex chat adapter（假 CLI 端到端）', () => {
       onDelta: () => undefined,
     })).rejects.toThrow(/failed|失败/i)
   }, 20_000)
+
+  it('未接入审批处理器时立即失败闭合，而不是等待到超时假死', async () => {
+    installFakeCli()
+    await expect(runCodexTurn({
+      sessionId: 'session-approval-required',
+      prompt: 'approval-required',
+      cwd: process.cwd(),
+      timeoutMs: 500,
+      onDelta: () => undefined,
+    })).rejects.toThrow(/需要审批|审批处理器/)
+  }, 5_000)
 
   it('AbortSignal 会中断 Codex turn，而不是一直等待', async () => {
     installFakeCli()

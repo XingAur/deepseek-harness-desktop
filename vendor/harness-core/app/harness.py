@@ -22,7 +22,16 @@ from app.capability_contracts import (
     RESULT_SCHEMA_VERSION,
     CapabilityAuthorization,
     CapabilityRequest,
+    CapabilityResult,
     MutationLevel,
+)
+from app.change_context_applicability import CandidateTarget
+from app.change_context_contracts import ChangeContextProjection, McpEvidenceReceipt
+from app.change_context_execution import ChangeContextExecutionBinding, ChangeContextExecutionVerifier
+from app.change_context_service import (
+    ChangeContextBuildResult,
+    ChangeContextService,
+    build_default_change_context_service,
 )
 from app.clarification_gate import evaluate_patch_readiness
 from app.change_ownership import build_change_ownership_matrix
@@ -81,6 +90,7 @@ from app.scope_confirmation import (
 )
 from app.task_capability_routing import route_task_capabilities
 from app.task_intent_router import IntentContext
+from app.task_context import TaskIntentContext
 from app.task_intent_service import (
     TaskIntentRoutingResult,
     TaskIntentService,
@@ -90,6 +100,7 @@ from app.technical_decision import (
     DEFAULT_PROJECT_ROOT,
     TechnicalDecisionResult,
     build_technical_decision,
+    discover_technical_context,
     remove_generated_analysis_appendices,
 )
 from app.worktree_executor import (
@@ -213,6 +224,8 @@ TASK_CAPABILITY_SEQUENCE = (
     "intake",
     "provider_evidence",
     "calibration",
+    "context_discovery",
+    "change_context",
     "technical_decision",
     "ownership",
     "acceptance",
@@ -229,6 +242,9 @@ TASK_STAGE_REASONS = {
     "provider_evidence_loaded": "已读取显式授权的只读需求证据。",
     "provider_evidence_not_requested": "本次任务未请求外部或本地需求证据。",
     "calibration_generated": "已生成需求理解确认卡。",
+    "context_discovery_completed": "已完成不授予修改权限的项目与代码只读发现。",
+    "change_context_ready": "ChangeContextPack 已完成持久化、哈希、时效和投影预算门禁。",
+    "change_context_blocked": "ChangeContextPack 未 ready；保留诊断证据并关闭所有修改入口。",
     "technical_decision_completed": "已完成技术边界与可修改性判断。",
     "ownership_generated": "已生成需求变更归属矩阵。",
     "acceptance_generated": "已生成自动与人工验收矩阵。",
@@ -539,12 +555,13 @@ def _governance_outputs_from_capability_data(
         governance_payload["evidence_refs"] = _strict_payload_tuple(governance_payload, "evidence_refs", dict)
         governance = RequirementGovernanceResult(**governance_payload)
 
-        mapping_fields = {"repositories", "business_rules", "database_impacts", "configuration_impacts"}
+        mapping_fields = {"repositories", "business_rules", "database_impacts", "configuration_impacts", "change_context_layer_hashes"}
         for field in (
             "in_scope", "out_of_scope", "repositories", "allowed_paths",
             "business_rules", "preserved_behaviors", "adjacent_paths",
             "database_impacts", "configuration_impacts", "verify_commands",
             "automatic_acceptance", "manual_acceptance", "blockers",
+            "change_context_layer_hashes",
         ):
             contract_payload[field] = _strict_payload_tuple(
                 contract_payload, field, dict if field in mapping_fields else str
@@ -1044,6 +1061,7 @@ class RequirementWorkflowRunner:
         max_retries: int = DEFAULT_MAX_RETRIES,
         capability_service: Any | None = None,
         visual_evidence_analyzer: VisualEvidenceAnalyzer | None = None,
+        change_context_service: ChangeContextService | None = None,
     ) -> None:
         self.evidence_warnings: list[dict[str, Any]] = []
         self.runtime_fallback_root: Path | None = None
@@ -1077,6 +1095,11 @@ class RequirementWorkflowRunner:
         self.yunxiao_transactions = YunxiaoTransactionManager.readonly()
         self.capability_service = capability_service
         self.visual_evidence_analyzer = visual_evidence_analyzer
+        self.change_context_service = (
+            change_context_service
+            if change_context_service is not None
+            else build_default_change_context_service()
+        )
 
     def _visual_evidence_blocked_result(
         self,
@@ -1197,6 +1220,8 @@ class RequirementWorkflowRunner:
         database_change: Mapping[str, Any] | None = None,
         knowledge_candidate: Mapping[str, Any] | None = None,
         routing_result: TaskIntentRoutingResult | None = None,
+        task_intent_context: TaskIntentContext | None = None,
+        change_context_reuse_pack_id: str = "",
     ) -> WorkflowResult:
         demand_text = demand_text.strip()
         if not demand_text:
@@ -1232,6 +1257,8 @@ class RequirementWorkflowRunner:
             and not isinstance(knowledge_candidate, Mapping)
         ):
             raise ValueError("knowledge_candidate 必须是结构化对象")
+        if task_intent_context is not None and not isinstance(task_intent_context, TaskIntentContext):
+            raise ValueError("task_intent_context 必须是 TaskIntentContext")
         if routing_result is None:
             routing_nonce = uuid4().hex
             routing_result = TaskIntentService().route(
@@ -1340,6 +1367,7 @@ class RequirementWorkflowRunner:
             )
 
         requirement_evidence_started = time.perf_counter()
+        provider_mcp_receipt: McpEvidenceReceipt | None = None
         if yunxiao_read and self.capability_service is not None:
             read_request = build_workitem_read_request(
                 yunxiao_url=yunxiao_url,
@@ -1365,6 +1393,16 @@ class RequirementWorkflowRunner:
                 equivalence_fields=("status", "data.status", "data.work_item_id"),
             )
             routed_evidence_result = dict(routed_evidence.result)
+            try:
+                provider_capability_result = CapabilityResult.from_dict(
+                    routed_evidence_result,
+                    request=read_request,
+                )
+                provider_mcp_receipt = McpEvidenceReceipt.from_capability_result(
+                    provider_capability_result
+                )
+            except (TypeError, ValueError):
+                provider_mcp_receipt = None
             yunxiao_evidence = dict(
                 routed_evidence_result.get("data") or {}
             )
@@ -1378,13 +1416,15 @@ class RequirementWorkflowRunner:
                     str(routed_evidence_result.get("summary") or "能力路由失败"),
                 )
         else:
+            # External requirement reads are MCP-only.  Missing runtime or
+            # receipts remain an explicit blocker; legacy direct provider
+            # calls are not a fallback path.
             yunxiao_evidence = (
-                collect_yunxiao_evidence(
-                    yunxiao_url=yunxiao_url,
-                    demand_text=demand_text,
-                    output_dir=yunxiao_output_dir,
-                    include_comments=yunxiao_include_comments,
-                )
+                {
+                    "status": "failed",
+                    "error": "BLOCKED_CONTEXT_SOURCE_UNAVAILABLE: workitem.read MCP service is required.",
+                    "work_item_id": parse_work_item_id(yunxiao_url or demand_text),
+                }
                 if yunxiao_read
                 else None
             )
@@ -1527,7 +1567,7 @@ class RequirementWorkflowRunner:
                     for item in visual_facts if isinstance(item, dict)
                 )
         technical_decision_started = time.perf_counter()
-        technical_decision = build_technical_decision(
+        technical_discovery = discover_technical_context(
             # Pass the user's actual request here.  Provider evidence is
             # already supplied through the structured arguments below; feeding
             # the rendered evidence markdown back as demand text introduces
@@ -1542,6 +1582,58 @@ class RequirementWorkflowRunner:
             contract_parameters=explicit_contract_parameters or None,
             default_value_precedence=requirement_calibration.get("default_value_precedence"),
             authoritative_code_locators=conversation_locators,
+        )
+        task_stages.record(
+            "context_discovery",
+            "completed",
+            "context_discovery_completed",
+        )
+        context_requirement_evidence = _change_context_requirement_evidence(
+            title=title,
+            demand_text=demand_text,
+            source_type=source_type,
+            requirement_evidence=requirement_evidence,
+            yunxiao_evidence=yunxiao_evidence,
+            yunxiao_url=yunxiao_url,
+        )
+        effective_task_intent_context = task_intent_context or _derive_task_intent_context(
+            title=title,
+            demand_text=demand_text,
+            requirement_evidence=context_requirement_evidence,
+            requirement_calibration=requirement_calibration,
+        )
+        candidate_targets = _change_context_candidate_targets(
+            technical_discovery,
+            demand_text=demand_text,
+        )
+        data_scope = _change_context_data_scope(database_inspect)
+        context_task_key = hashlib.sha256(
+            f"{source_type}:{title}:{demand_text}".encode("utf-8")
+        ).hexdigest()[:16]
+        change_context_result = self.change_context_service.build(
+            discovery=technical_discovery,
+            task_context=effective_task_intent_context,
+            normalized_requirement_evidence=context_requirement_evidence,
+            current_user_correction=demand_text,
+            calibrated_scope=requirement_calibration.get("resolved_scope") or {},
+            candidate_targets=candidate_targets,
+            task_id=f"task-{context_task_key}",
+            run_id=f"pre-run-{context_task_key}",
+            mcp_receipt=provider_mcp_receipt,
+            data_connection_alias=data_scope["connection_alias"],
+            data_schema=data_scope["schema"],
+            data_tables=data_scope["tables"],
+            reuse_pack_id=change_context_reuse_pack_id,
+        )
+        task_stages.record(
+            "change_context",
+            "completed" if change_context_result.gate.status == "ready" else "blocked",
+            "change_context_ready" if change_context_result.gate.status == "ready" else "change_context_blocked",
+        )
+        technical_decision = build_technical_decision(
+            demand_text=technical_discovery_text,
+            discovery=technical_discovery,
+            change_context_projection=change_context_result.projections.get("analysis"),
         )
         change_ownership_matrix = build_change_ownership_matrix(
             user_instruction=demand_text,
@@ -1653,8 +1745,8 @@ class RequirementWorkflowRunner:
         project_context_started = time.perf_counter()
         if (
             fast_local_decision
+            and fast_local_decision.get("eligible") is True
             and fast_local_decision["skip_project_context_scan"]
-            and not mutation_requested
         ):
             evidence_bundle = None
             record_auto_local_stage(
@@ -1721,11 +1813,6 @@ class RequirementWorkflowRunner:
         understanding_execution_blocked = (
             mutation_requested and not requirement_understanding.can_modify
         )
-        task_stages.record(
-            "understanding",
-            "blocked" if understanding_execution_blocked else "completed",
-            "understanding_blocked" if understanding_execution_blocked else "understanding_ready",
-        )
         legacy_governance_result = None
         legacy_single_pass_contract = None
         legacy_governance_error = ""
@@ -1746,6 +1833,7 @@ class RequirementWorkflowRunner:
                 change_ownership=change_ownership_matrix.to_dict(),
                 acceptance_matrix=acceptance_matrix,
                 local_change_evidence_exception=local_change_evidence_exception,
+                change_context_result=change_context_result,
             )
             (
                 legacy_governance_result,
@@ -1771,6 +1859,19 @@ class RequirementWorkflowRunner:
                     "change_ownership": change_ownership_matrix.to_dict(),
                     "acceptance_matrix": acceptance_matrix,
                     "local_change_evidence_exception": local_change_evidence_exception,
+                    "change_context_binding": {
+                        "pack_id": change_context_result.pack.pack_id,
+                        "gate": change_context_result.gate.to_dict(),
+                        "implementation_projection_hash": (
+                            change_context_result.projections["implementation"].projection_hash
+                            if "implementation" in change_context_result.projections
+                            else ""
+                        ),
+                        "layer_hashes": {
+                            layer.layer_type: layer.content_hash
+                            for layer in change_context_result.pack.layers
+                        },
+                    },
                 }
                 governance_request = build_requirement_governance_request(
                     governance_input
@@ -1836,10 +1937,68 @@ class RequirementWorkflowRunner:
             trusted_allowed_paths=list(effective_allowed_paths or ()),
             trusted_verify_commands=list(effective_verify_commands or ()),
         )
+        if (
+            understanding_execution_blocked
+            and effective_governance_mode == "enforce"
+            and not governance_execution_blocked
+            and _governance_outputs_ready(governance_result, single_pass_contract)
+            and all(
+                check.name in {
+                    "business_background",
+                    "usage_scenario",
+                    "target_and_boundary",
+                    "change_and_impact_scope",
+                    "verification_baseline",
+                }
+                for check in requirement_understanding.checks
+                if check.status == "blocked"
+            )
+        ):
+            requirement_understanding = replace(
+                requirement_understanding,
+                status="ready_for_change",
+                can_modify=True,
+                checks=tuple(
+                    replace(
+                        check,
+                        status="pass",
+                        summary="enforce 需求治理与一次改好合同已复核并闭合该项。",
+                        blockers=(),
+                    )
+                    if check.status == "blocked"
+                    else check
+                    for check in requirement_understanding.checks
+                ),
+                blockers=(),
+                next_readonly_actions=(),
+            )
+            understanding_execution_blocked = False
+        task_stages.record(
+            "understanding",
+            "blocked" if understanding_execution_blocked else "completed",
+            "understanding_blocked" if understanding_execution_blocked else "understanding_ready",
+        )
         governance_ready = (
             not governance_execution_blocked
             and _governance_outputs_ready(governance_result, single_pass_contract)
         )
+        if mutation_requested and change_context_result.gate.status != "ready":
+            governance_execution_blocked = True
+            governance_ready = False
+            context_reason = (
+                "ChangeContextPack 未通过企业级改动前门禁："
+                f"{change_context_result.gate.code}；"
+                + "；".join(
+                    change_context_result.gate.blockers
+                    or change_context_result.gate.missing
+                    or change_context_result.gate.conflicts
+                )
+            )
+            governance_error = (
+                f"{governance_error}；{context_reason}"
+                if governance_error
+                else context_reason
+            )
         if understanding_execution_blocked:
             governance_execution_blocked = True
             governance_ready = False
@@ -2113,6 +2272,47 @@ class RequirementWorkflowRunner:
         )
         database.add_artifact(
             run_id,
+            "change_context_pack_json",
+            "企业级 ChangeContextPack 清单",
+            json.dumps(change_context_result.pack.to_dict(), ensure_ascii=False, indent=2, sort_keys=True),
+        )
+        database.add_artifact(
+            run_id,
+            "change_context_gate_json",
+            "企业级 ChangeContext 门禁结果",
+            json.dumps(change_context_result.gate.to_dict(), ensure_ascii=False, indent=2, sort_keys=True),
+        )
+        for projection_role, projection in sorted(change_context_result.projections.items()):
+            database.add_artifact(
+                run_id,
+                f"change_context_projection_{projection_role}_json",
+                f"ChangeContext {projection_role} 角色投影",
+                json.dumps(projection.to_dict(), ensure_ascii=False, indent=2, sort_keys=True),
+            )
+        database.add_artifact(
+            run_id,
+            "change_context_metrics_json",
+            "ChangeContext 复用与重采集指标",
+            json.dumps(
+                {
+                    "pack_id": change_context_result.pack.pack_id,
+                    "reused_layer_count": change_context_result.reused_layer_count,
+                    "recollected_layer_count": change_context_result.recollected_layer_count,
+                    "projection_bytes": {
+                        role: {
+                            "tier0": len(json.dumps(projection.tier0, ensure_ascii=False, sort_keys=True).encode("utf-8")),
+                            "tier1": len(json.dumps(projection.tier1, ensure_ascii=False, sort_keys=True).encode("utf-8")),
+                        }
+                        for role, projection in sorted(change_context_result.projections.items())
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            ),
+        )
+        database.add_artifact(
+            run_id,
             "worktree_startup_recovery_json",
             "v0.64 Worktree 启动恢复检查",
             json.dumps(worktree_startup_recovery, ensure_ascii=False, indent=2),
@@ -2363,7 +2563,14 @@ class RequirementWorkflowRunner:
             ),
             readonly_analysis_complete=readonly_analysis_complete,
         )
-        if governance_execution_blocked:
+        if governance_execution_blocked and (
+            resolved_execution_mode != "core-closure-trial"
+            or effective_governance_mode == "enforce"
+            or (
+                routed_governance is not None
+                and getattr(routed_governance, "mode", None) == "enforce"
+            )
+        ):
             block_reason = governance_error or "需求治理未 ready，enforce 模式禁止进入 worktree 或 patch。"
             task_stages.record(
                 "single_pass_contract",
@@ -2419,7 +2626,8 @@ class RequirementWorkflowRunner:
                 run_id=run_id,
                 routing_result=routing_result,
                 title=title,
-                demand_text=base_workflow_demand_text,
+                demand_text=demand_text,
+                contract_demand_text=base_workflow_demand_text,
                 requirement_calibration=requirement_calibration,
                 technical_decision=technical_decision,
                 change_ownership_matrix=change_ownership_matrix.to_dict(),
@@ -2437,6 +2645,7 @@ class RequirementWorkflowRunner:
                 requirement_governance=effective_governance_mode,
                 governance_result=governance_result,
                 single_pass_contract=single_pass_contract,
+                change_context_result=change_context_result,
                 governance_error=governance_error,
                 capability_contract_authoritative=capability_contract_authoritative,
                 knowledge_candidate=knowledge_candidate,
@@ -2489,6 +2698,10 @@ class RequirementWorkflowRunner:
                     previous_outputs=[outputs_by_order[order] for order in sorted(outputs_by_order) if order < step["step_order"]],
                     review_feedback=retry_feedback_by_order.get(step["step_order"], ""),
                     attempt_round=retry_round,
+                    change_context_projection=_projection_for_workflow_step(
+                        change_context_result,
+                        step,
+                    ),
                 )
                 started_at = database.now_iso()
                 started = time.perf_counter()
@@ -2673,13 +2886,14 @@ class RequirementWorkflowRunner:
                 else:
                     worktree_result = self._run_worktree_execution(
                         run_id=run_id,
-                        demand_text=workflow_demand_text,
+                        demand_text=demand_text,
                         project_path=primary_project_path,
                         evidence_bundle=evidence_bundle,
                         allowed_paths=effective_allowed_paths or [],
                         verify_commands=effective_verify_commands or [],
                         worktree_dir=worktree_dir,
                         max_edit_rounds=max_edit_rounds,
+                        change_context_result=change_context_result,
                         apply_to_project=not self._capability_mutations_enforced(),
                     )
                     diff_review = (
@@ -2724,13 +2938,14 @@ class RequirementWorkflowRunner:
             if run_after_workflow.get("status") == "success" and final_evaluation and final_evaluation.status == "pass":
                 fullstack_result = self._run_fullstack_execution(
                     run_id=run_id,
-                    demand_text=workflow_demand_text,
+                    demand_text=demand_text,
                     project_root=project_root,
                     technical_decision=fullstack_technical_decision,
                     verify_commands=fullstack_verify_commands,
                     worktree_dir=worktree_dir,
                     authority_mode=fullstack_authority_mode,
                     authoritative_contract=fullstack_authoritative_contract,
+                    change_context_result=change_context_result,
                 )
                 self._store_fullstack_artifacts(run_id, fullstack_result)
                 if fullstack_result.status != "success":
@@ -2763,6 +2978,7 @@ class RequirementWorkflowRunner:
                     ui_evidence_paths=ui_evidence_paths or [],
                     ui_capture_commands=ui_capture_commands or [],
                     worktree_dir=worktree_dir,
+                    change_context_result=change_context_result,
                 )
                 self._store_precommit_verification_artifacts(run_id, precommit_result)
                 if precommit_result.status != "success":
@@ -2841,13 +3057,14 @@ class RequirementWorkflowRunner:
                 else:
                     worktree_result = self._run_worktree_execution(
                         run_id=run_id,
-                        demand_text=workflow_demand_text,
+                        demand_text=demand_text,
                         project_path=primary_project_path,
                         evidence_bundle=evidence_bundle,
                         allowed_paths=effective_allowed_paths or [],
                         verify_commands=effective_verify_commands or [],
                         worktree_dir=worktree_dir,
                         max_edit_rounds=max_edit_rounds,
+                        change_context_result=change_context_result,
                         apply_to_project=not self._capability_mutations_enforced(),
                     )
                     diff_review = (
@@ -3007,6 +3224,7 @@ class RequirementWorkflowRunner:
         previous_outputs: list[dict],
         review_feedback: str,
         attempt_round: int,
+        change_context_projection: ChangeContextProjection | None = None,
     ) -> str:
         upstream = "\n\n".join(
             f"### {item['step_name']} / {item['expert_name']}\n{compress_text(item['output'], 2600)}"
@@ -3016,13 +3234,21 @@ class RequirementWorkflowRunner:
             upstream = "暂无，上游为空，本步骤是首个阶段。"
         feedback = review_feedback.strip() or "无。本轮不是返工，按专家职责直接输出。"
         mock_notice = "当前为 MOCK 模式，只能用于演示，不可用于业务判断。\n\n" if self.llm_client.is_mock else ""
+        projection_ready = (
+            isinstance(change_context_projection, ChangeContextProjection)
+            and change_context_projection.tier0.get("gate_status") == "ready"
+        )
         evidence_context = (
-            evidence_bundle.to_prompt_context()
+            "已由 ChangeContext 角色投影替代；禁止重新注入完整工程证据包。"
+            if projection_ready
+            else evidence_bundle.to_prompt_context()
             if evidence_bundle is not None
             else "未接入项目路径，本轮没有工程证据包；不得给出确定代码文件结论，只能说明需要人工补充项目上下文。"
         )
         calibration_context = (
-            requirement_calibration_to_prompt_context(requirement_calibration)
+            "已由 ChangeContext 角色投影替代；禁止重复注入完整需求确认卡。"
+            if projection_ready
+            else requirement_calibration_to_prompt_context(requirement_calibration)
             if requirement_calibration
             else "未生成 v0.15 需求理解确认卡；必须先确认需求来源优先级、字段/参数和值域。"
         )
@@ -3032,9 +3258,16 @@ class RequirementWorkflowRunner:
             else "未生成需求验收矩阵；必须在测试验收中明确需求验收、自动验证和人工验收。"
         )
         technical_context = (
-            technical_decision.to_prompt_context()
+            "已由 ChangeContext 角色投影替代；技术决策仅保留在哈希绑定合同中。"
+            if projection_ready
+            else technical_decision.to_prompt_context()
             if technical_decision is not None
             else "未生成技术自治决策；不得让用户指定技术文件名、代码规范或前后端边界，必须先基于工程证据判断。"
+        )
+        projection_context = (
+            json.dumps(change_context_projection.to_dict(), ensure_ascii=False, sort_keys=True)
+            if projection_ready
+            else "ChangeContextPack 未 ready；本步骤不得产生可执行修改建议。"
         )
         review_note = ""
         if evidence_bundle is not None and evidence_bundle.review:
@@ -3052,6 +3285,7 @@ class RequirementWorkflowRunner:
             f"- 模式：{step['mode']}\n"
             f"- Attempt：{attempt_round}\n\n"
             f"【原始需求】\n{demand_text}\n\n"
+            f"【ChangeContext 角色投影】\n{projection_context}\n\n"
             f"【v0.15 需求理解确认卡】\n{calibration_context}\n\n"
             f"【只读工程证据包】\n{evidence_context}\n\n"
             f"【v0.8.8 技术自治决策】\n{technical_context}\n\n"
@@ -3160,6 +3394,7 @@ class RequirementWorkflowRunner:
         verify_commands: list[str],
         worktree_dir: str | Path,
         max_edit_rounds: int,
+        change_context_result: ChangeContextBuildResult,
         apply_to_project: bool = True,
     ) -> WorktreeExecutionResult:
         if not project_path:
@@ -3170,7 +3405,17 @@ class RequirementWorkflowRunner:
                 allowed_paths=allowed_paths,
             )
         report_markdown = build_markdown_report(run_id)
-        executor = WorktreeCodeExecutor(self.llm_client)
+        context_binding, context_projection = _change_context_execution_payload(
+            change_context_result,
+            role="implementation",
+        )
+        executor = WorktreeCodeExecutor(
+            self.llm_client,
+            change_context_verifier=ChangeContextExecutionVerifier(
+                repository=self.change_context_service.repository,
+                gate=self.change_context_service.gate,
+            ),
+        )
         return executor.execute(
             WorktreeExecutionOptions(
                 project_path=str(project_path),
@@ -3183,6 +3428,8 @@ class RequirementWorkflowRunner:
                 verify_commands=verify_commands,
                 max_edit_rounds=max_edit_rounds,
                 apply_to_project=apply_to_project,
+                change_context_binding=context_binding,
+                change_context_projection=context_projection,
             )
         )
 
@@ -3202,12 +3449,19 @@ class RequirementWorkflowRunner:
         if not self._capability_mutations_enforced() or result.status != "success":
             return result
         final_diff = result.final_diff
+        context_validation = ChangeContextExecutionVerifier(
+            repository=self.change_context_service.repository,
+            gate=self.change_context_service.gate,
+        ).validate(result.manifest.get("change_context_binding"), role="implementation")
+        result.manifest["change_context_pre_apply_validation"] = context_validation.to_dict()
         canonical_project_path = (
             Path(project_path).expanduser().resolve()
             if project_path
             else None
         )
-        if (
+        if context_validation.status != "ready":
+            blockers = (context_validation.code,)
+        elif (
             contract_ready is not True
             or canonical_project_path is None
             or type(final_diff) is not str
@@ -3268,6 +3522,7 @@ class RequirementWorkflowRunner:
         routing_result: TaskIntentRoutingResult,
         title: str,
         demand_text: str,
+        contract_demand_text: str,
         requirement_calibration: dict,
         technical_decision: TechnicalDecisionResult,
         change_ownership_matrix: dict,
@@ -3285,6 +3540,7 @@ class RequirementWorkflowRunner:
         requirement_governance: str = "legacy",
         governance_result: object | None = None,
         single_pass_contract: object | None = None,
+        change_context_result: ChangeContextBuildResult,
         governance_error: str = "",
         capability_contract_authoritative: bool = False,
         knowledge_candidate: Mapping[str, Any] | None = None,
@@ -3302,7 +3558,7 @@ class RequirementWorkflowRunner:
         technical_payload["recommended_verify_commands"] = verify_commands
         legacy_contract = build_requirement_contract(
             title=title,
-            demand_text=demand_text,
+            demand_text=contract_demand_text,
             requirement_calibration=requirement_calibration,
             technical_decision=technical_payload,
             acceptance_matrix=acceptance_matrix,
@@ -3313,7 +3569,7 @@ class RequirementWorkflowRunner:
         if requirement_governance == "enforce":
             contract = build_requirement_contract_from_single_pass(
                 title=title,
-                demand_text=demand_text,
+                demand_text=contract_demand_text,
                 governance_result=governance_result,
                 single_pass_contract=single_pass_contract,
                 apply_to_project=apply_approved_diff,
@@ -3321,26 +3577,18 @@ class RequirementWorkflowRunner:
                 legacy_contract=legacy_contract,
                 acceptance_contract_result=acceptance_contract_result,
             )
-            if (
-                contract.status == "ready"
-                and capability_contract_authoritative
-                and acceptance_contract_result is not None
-                and acceptance_contract_result.status == "pass"
-                and acceptance_contract_result.verify_command
-                not in single_pass_contract.verify_commands
-            ):
-                contract = replace(
-                    contract,
-                    status="blocked",
-                    allowed_paths=(),
-                    verify_commands=(),
-                    blockers=(GOVERNANCE_ACCEPTANCE_ERROR,),
-                )
-            elif contract.status == "ready" and capability_contract_authoritative:
+            if contract.status == "ready" and capability_contract_authoritative:
+                authoritative_verify_commands = list(single_pass_contract.verify_commands)
+                if (
+                    acceptance_contract_result is not None
+                    and acceptance_contract_result.status == "pass"
+                    and acceptance_contract_result.verify_command
+                ):
+                    authoritative_verify_commands.append(acceptance_contract_result.verify_command)
                 contract = replace(
                     contract,
                     allowed_paths=tuple(single_pass_contract.allowed_paths),
-                    verify_commands=tuple(single_pass_contract.verify_commands),
+                    verify_commands=tuple(dict.fromkeys(authoritative_verify_commands)),
                 )
         else:
             contract = legacy_contract
@@ -3364,8 +3612,14 @@ class RequirementWorkflowRunner:
         final_scope_contract_payload = contract.to_dict()
         if single_pass_contract is not None and hasattr(single_pass_contract, "to_dict"):
             original_contract_payload = single_pass_contract.to_dict()
-            if original_contract_payload.get("repositories"):
-                final_scope_contract_payload["repositories"] = original_contract_payload["repositories"]
+            for field in (
+                "repositories",
+                "change_context_pack_id",
+                "change_context_projection_hash",
+                "change_context_layer_hashes",
+            ):
+                if original_contract_payload.get(field):
+                    final_scope_contract_payload[field] = original_contract_payload[field]
         final_scope_governance_status = (
             getattr(governance_result, "status", None) or requirement_governance
         )
@@ -3437,6 +3691,7 @@ class RequirementWorkflowRunner:
                 verify_commands=list(contract.verify_commands),
                 worktree_dir=worktree_dir,
                 max_edit_rounds=max_edit_rounds,
+                change_context_result=change_context_result,
                 apply_to_project=False,
             )
             diff_review = review_final_diff(
@@ -3469,11 +3724,26 @@ class RequirementWorkflowRunner:
                         )
                         apply_result = worktree_result.apply_to_project
                     else:
-                        apply_result = apply_final_diff_to_project(
-                            project_path=Path(
-                                project_path or handoff.project_path
-                            ),
-                            final_diff=worktree_result.final_diff,
+                        pre_apply_context = ChangeContextExecutionVerifier(
+                            repository=self.change_context_service.repository,
+                            gate=self.change_context_service.gate,
+                        ).validate(
+                            worktree_result.manifest.get("change_context_binding"),
+                            role="implementation",
+                        )
+                        worktree_result.manifest["change_context_pre_apply_validation"] = pre_apply_context.to_dict()
+                        apply_result = (
+                            apply_final_diff_to_project(
+                                project_path=Path(
+                                    project_path or handoff.project_path
+                                ),
+                                final_diff=worktree_result.final_diff,
+                            )
+                            if pre_apply_context.status == "ready"
+                            else {
+                                "status": "blocked",
+                                "message": pre_apply_context.message,
+                            }
                         )
                     worktree_result.apply_to_project = apply_result
                     if apply_result.get("status") == "success":
@@ -3596,14 +3866,26 @@ class RequirementWorkflowRunner:
         worktree_dir: str | Path,
         authority_mode: str,
         authoritative_contract: dict | None = None,
+        change_context_result: ChangeContextBuildResult,
     ) -> FullstackExecutionResult:
         report_markdown = build_markdown_report(run_id)
+        context_binding, context_projection = _change_context_execution_payload(
+            change_context_result,
+            role="implementation",
+        )
+        context_verifier = ChangeContextExecutionVerifier(
+            repository=self.change_context_service.repository,
+            gate=self.change_context_service.gate,
+        )
         multi_service_contract = technical_decision.multi_service_change_contract or {}
         if (
             multi_service_contract.get("schema_version")
             == MULTI_SERVICE_CHANGE_CONTRACT_SCHEMA_VERSION
         ):
-            multi_result = MultiServiceWorktreeExecutor(self.llm_client).execute(
+            multi_result = MultiServiceWorktreeExecutor(
+                self.llm_client,
+                change_context_verifier=context_verifier,
+            ).execute(
                 MultiServiceExecutionOptions(
                     contract=multi_service_contract,
                     run_id=run_id,
@@ -3615,6 +3897,8 @@ class RequirementWorkflowRunner:
                     # write-back after the aggregate diff is reviewed.
                     apply_to_projects=False,
                     cleanup_worktrees=False,
+                    change_context_binding=context_binding,
+                    change_context_projection=context_projection,
                 )
             )
             targets = []
@@ -3647,7 +3931,9 @@ class RequirementWorkflowRunner:
                     "repositories": multi_result.repositories,
                 },
             )
-        executor = FullstackWorktreeExecutor()
+        executor = FullstackWorktreeExecutor(
+            change_context_verifier=context_verifier,
+        )
         result = executor.execute(
             FullstackExecutionOptions(
                 run_id=run_id,
@@ -3660,6 +3946,8 @@ class RequirementWorkflowRunner:
                 verify_commands=verify_commands,
                 authoritative_contract=authoritative_contract,
                 apply_to_project=not self._capability_mutations_enforced(),
+                change_context_binding=context_binding,
+                change_context_projection=context_projection,
             )
         )
         if self._capability_mutations_enforced() and result.status == "success":
@@ -3688,8 +3976,18 @@ class RequirementWorkflowRunner:
         ui_evidence_paths: list[str] | None = None,
         ui_capture_commands: list[str] | None = None,
         worktree_dir: str | Path,
+        change_context_result: ChangeContextBuildResult,
     ) -> PrecommitVerificationResult:
-        verifier = PrecommitVerifier()
+        context_binding, context_projection = _change_context_execution_payload(
+            change_context_result,
+            role="review",
+        )
+        verifier = PrecommitVerifier(
+            change_context_verifier=ChangeContextExecutionVerifier(
+                repository=self.change_context_service.repository,
+                gate=self.change_context_service.gate,
+            )
+        )
         return verifier.execute(
             PrecommitVerificationOptions(
                 run_id=run_id,
@@ -3705,6 +4003,8 @@ class RequirementWorkflowRunner:
                 ui_evidence_paths=ui_evidence_paths or [],
                 ui_capture_commands=ui_capture_commands or [],
                 worktree_root=str(worktree_dir),
+                change_context_binding=context_binding,
+                change_context_projection=context_projection,
             )
         )
 
@@ -5229,6 +5529,223 @@ def unique_strings(values) -> list[str]:
     return result
 
 
+def _change_context_requirement_evidence(
+    *,
+    title: str,
+    demand_text: str,
+    source_type: str,
+    requirement_evidence: Mapping[str, Any] | None,
+    yunxiao_evidence: Mapping[str, Any] | None,
+    yunxiao_url: str,
+) -> dict[str, Any]:
+    value = dict(requirement_evidence or {})
+    if not value:
+        value = {
+            "source_type": "yunxiao" if yunxiao_url or source_type == "yunxiao" else "manual",
+            "title": title,
+            "description_text": demand_text,
+            "comments": list((yunxiao_evidence or {}).get("comments") or []),
+            "attachments": list((yunxiao_evidence or {}).get("attachments") or []),
+        }
+    value.setdefault("source_type", source_type or "manual")
+    identity_text = json.dumps(
+        {
+            "source_type": value.get("source_type"),
+            "title": value.get("title") or title,
+            "description_text": value.get("description_text") or demand_text,
+            "comments": value.get("comments") or [],
+            "attachments": value.get("attachments") or [],
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    revision = "sha256:" + hashlib.sha256(identity_text.encode("utf-8")).hexdigest()
+    value.setdefault("revision", revision)
+    ticket_id = str(value.get("ticket_id") or (yunxiao_evidence or {}).get("work_item_id") or "").strip()
+    if not ticket_id and (yunxiao_url or source_type == "yunxiao"):
+        ticket_id = parse_work_item_id(yunxiao_url or demand_text)
+    if not ticket_id:
+        ticket_id = "LOCAL-" + revision.removeprefix("sha256:")[:12].upper()
+    value["ticket_id"] = ticket_id
+    value.setdefault("comments", [])
+    value.setdefault("attachments", [])
+    return value
+
+
+def _derive_task_intent_context(
+    *,
+    title: str,
+    demand_text: str,
+    requirement_evidence: Mapping[str, Any],
+    requirement_calibration: Mapping[str, Any],
+) -> TaskIntentContext:
+    resolved_scope = requirement_calibration.get("resolved_scope")
+    scope = resolved_scope if isinstance(resolved_scope, Mapping) else {}
+    raw_scenarios = requirement_evidence.get("scenarios")
+    scenarios = [str(item).strip() for item in raw_scenarios] if isinstance(raw_scenarios, (list, tuple)) else []
+    if not scenarios:
+        visual = requirement_evidence.get("visual_evidence")
+        facts = visual.get("facts") if isinstance(visual, Mapping) else []
+        if isinstance(facts, (list, tuple)):
+            scenarios = [
+                str(item.get("business_scene") or item.get("action") or "").strip()
+                for item in facts
+                if isinstance(item, Mapping)
+            ]
+    if not scenarios:
+        in_scope = scope.get("in_scope")
+        if isinstance(in_scope, (list, tuple)):
+            scenarios = [str(item).strip() for item in in_scope]
+    background = str(
+        requirement_evidence.get("description_text")
+        or requirement_evidence.get("title")
+        or title
+        or ""
+    ).strip()
+    desired_outcome = str(
+        requirement_evidence.get("desired_outcome")
+        or scope.get("do")
+        or ""
+    ).strip()
+    do_not = scope.get("do_not")
+    constraints = tuple(str(item).strip() for item in do_not) if isinstance(do_not, (list, tuple)) else ()
+    source_identity = hashlib.sha256(
+        f"{requirement_evidence.get('source_type')}:{requirement_evidence.get('ticket_id')}:{requirement_evidence.get('revision')}".encode("utf-8")
+    ).hexdigest()
+    return TaskIntentContext(
+        background=background,
+        goal=demand_text,
+        scenarios=tuple(dict.fromkeys(item for item in scenarios if item))[:16],
+        desired_outcome=desired_outcome,
+        constraints=tuple(dict.fromkeys(item for item in constraints if item))[:16],
+        acceptance_criteria=(),
+        source_refs=(f"evidence://requirement/{source_identity}",),
+    )
+
+
+def _change_context_candidate_targets(
+    discovery: object,
+    *,
+    demand_text: str,
+) -> tuple[CandidateTarget, ...]:
+    selected = list(getattr(discovery, "selected_projects", ()) or ())
+    default_alias = _context_repository_alias(selected[0] if selected else {})
+    paths: list[tuple[str, str]] = []
+    for path in getattr(discovery, "explicit_allowed_paths", ()) or ():
+        paths.append((default_alias, str(path)))
+    if not paths:
+        graph = getattr(getattr(discovery, "demand_discovery", None), "graph", None)
+        for node in getattr(graph, "nodes", ()) or ():
+            paths.append((_context_repository_alias({"name": getattr(node, "project", "")}), str(getattr(node, "path", ""))))
+    result: list[CandidateTarget] = []
+    for repository_alias, relative_path in paths[:64]:
+        if not relative_path or any(item.relative_path == relative_path and item.repository_alias == repository_alias for item in result):
+            continue
+        target_kind, relationships = _context_target_classification(relative_path, demand_text)
+        digest = hashlib.sha256(f"{repository_alias}:{relative_path}".encode("utf-8")).hexdigest()
+        result.append(
+            CandidateTarget(
+                repository_alias=repository_alias,
+                relative_path=relative_path,
+                target_kind=target_kind,
+                evidence_refs=(f"evidence://code/{digest}",),
+                relationships=relationships,
+            )
+        )
+    return tuple(result)
+
+
+def _context_repository_alias(project: Mapping[str, Any]) -> str:
+    raw = str(project.get("name") or Path(str(project.get("path") or "project")).name or "project")
+    normalized = re.sub(r"[^A-Za-z0-9_.:-]", "-", raw).strip("-")
+    return normalized[:128] or "project"
+
+
+def _context_target_classification(path: str, demand_text: str) -> tuple[str, tuple[str, ...]]:
+    lowered = path.casefold()
+    name = Path(path).name.casefold()
+    suffix = Path(path).suffix.casefold()
+    if suffix in {".md", ".txt", ".rst"}:
+        return "documentation", ()
+    if suffix in {".css", ".scss", ".less", ".sass"}:
+        return "style_only", ()
+    if suffix == ".sql" or "migration" in lowered:
+        return "sql", ("sql",)
+    if any(token in name for token in ("repository", "mapper", "dao")):
+        return "repository", ("persistence_call",)
+    if any(token in name for token in ("entity", "dto")):
+        return "entity" if "entity" in name else "dto", ("orm_mapping",)
+    if suffix in {".vue", ".tsx", ".jsx", ".js", ".ts"}:
+        if any(word in demand_text for word in ("样式", "布局", "颜色", "间距")) and not any(
+            word in demand_text for word in ("接口", "字段", "保存", "提交", "查询", "加载")
+        ):
+            return "style_only", ()
+        return "frontend_api_field", ("api_field",)
+    if suffix in {".java", ".kt", ".groovy", ".py"}:
+        return "service", ("persistence_call",)
+    return "unclassified", ()
+
+
+def _change_context_data_scope(value: Mapping[str, Any] | None) -> dict[str, Any]:
+    payload = dict(value or {})
+    tables_value = payload.get("tables")
+    tables = [str(item).strip() for item in tables_value] if isinstance(tables_value, (list, tuple)) else []
+    single_table = str(payload.get("table") or "").strip()
+    if single_table:
+        tables.append(single_table)
+    return {
+        "connection_alias": str(payload.get("connection_alias") or "").strip(),
+        "schema": str(payload.get("schema") or "").strip(),
+        "tables": tuple(dict.fromkeys(item for item in tables if item)),
+    }
+
+
+def _change_context_execution_payload(
+    result: ChangeContextBuildResult,
+    *,
+    role: str,
+) -> tuple[dict[str, object] | None, dict[str, object] | None]:
+    projection = result.projections.get(role)
+    if projection is None:
+        return None, None
+    binding = ChangeContextExecutionBinding(
+        pack_id=result.pack.pack_id,
+        projection_hash=projection.projection_hash,
+        layer_hashes={
+            layer.layer_type: layer.content_hash
+            for layer in result.pack.layers
+        },
+    )
+    return binding.to_dict(), projection.to_dict()
+
+
+def _projection_for_workflow_step(
+    result: ChangeContextBuildResult,
+    step: Mapping[str, Any],
+) -> ChangeContextProjection | None:
+    """Map each worker to one bounded, immutable role projection."""
+    identity = " ".join(
+        str(step.get(key) or "").casefold()
+        for key in ("step_key", "step_name", "expert_name", "mode")
+    )
+    if any(token in identity for token in ("review", "审核", "测试", "test", "verify", "验证")):
+        role = "review"
+    elif any(
+        token in identity
+        for token in (
+            "implement", "develop", "frontend", "backend", "architecture",
+            "研发", "开发", "前端", "后端", "架构", "数据库",
+        )
+    ):
+        role = "implementation"
+    elif any(token in identity for token in ("manager", "product", "requirement", "产品", "需求", "经理")):
+        role = "manager"
+    else:
+        role = "analysis"
+    return result.projections.get(role)
+
+
 def build_requirement_governance_outputs(
     *,
     title: str,
@@ -5241,6 +5758,7 @@ def build_requirement_governance_outputs(
     change_ownership: dict,
     acceptance_matrix: dict,
     local_change_evidence_exception: Mapping[str, Any] | None = None,
+    change_context_result: ChangeContextBuildResult | None = None,
 ) -> tuple[object, object, str]:
     """Build governance data from already collected local evidence only."""
     from app.requirement_governance import GOVERNANCE_CHECK_NAMES, GovernanceCheck, RequirementGovernanceResult, assess_requirement
@@ -5324,6 +5842,17 @@ def build_requirement_governance_outputs(
             acceptance_matrix=acceptance_matrix,
             normalized_requirement_evidence=evidence,
             available_capabilities=(),
+            change_context_gate_result=(
+                change_context_result.gate if change_context_result is not None else None
+            ),
+            change_context_pack=(
+                change_context_result.pack if change_context_result is not None else None
+            ),
+            change_context_projection=(
+                change_context_result.projections.get("implementation")
+                if change_context_result is not None
+                else None
+            ),
         )
         if not isinstance(contract, SinglePassChangeContract):
             return blocked("一次改好变更契约结构无效。")

@@ -1,0 +1,56 @@
+{
+  "schema_version": "his-mcp-capabilities.v1",
+  "capabilities": [
+    {
+      "capability": "workitem.read",
+      "provider": "yunxiao",
+      "server": "yunxiao",
+      "tool": "workitem_get",
+      "contract_version": "workitem-read.v1",
+      "mutation_level": "L1",
+      "required_scopes": ["workitem:read"],
+      "timeout_seconds": 30,
+      "max_result_bytes": 262144,
+      "input_schema_path": "config/schemas/mcp_tools/yunxiao_workitem_read.v1.json",
+      "input_schema_sha256": "e4bc6fb119b65008a97ab1ca3fb9918b2baf7d420a6e01fbab52b0685a1a6e4e",
+      "result_schema_path": "config/schemas/mcp_result_envelope.v1.json",
+      "result_schema_sha256": "919a5be5dc8c05b50f4b053c292c08a09a7e60bc423b21bd01fd5ff8bde74bf4",
+      "enabled": true,
+      "disabled_reason": ""
+    },
+    {
+      "capability": "gitlab.read",
+      "provider": "gitlab",
+      "server": "gitlab",
+      "tool": "repository_read",
+      "contract_version": "gitlab-read.v1",
+      "mutation_level": "L1",
+      "required_scopes": ["gitlab:read"],
+      "timeout_seconds": 30,
+      "max_result_bytes": 262144,
+      "input_schema_path": "config/schemas/mcp_tools/gitlab_read.v1.json",
+      "input_schema_sha256": "22759dadc1a9b73b2096d91742150f19d6ddbe4bb4b763ff623767f67e017f38",
+      "result_schema_path": "config/schemas/mcp_result_envelope.v1.json",
+      "result_schema_sha256": "919a5be5dc8c05b50f4b053c292c08a09a7e60bc423b21bd01fd5ff8bde74bf4",
+      "enabled": true,
+      "disabled_reason": ""
+    },
+    {
+      "capability": "database.inspect",
+      "provider": "postgresql",
+      "server": "postgresql",
+      "tool": "readonly_inspect",
+      "contract_version": "database-inspect.v1",
+      "mutation_level": "L1",
+      "required_scopes": ["database:inspect"],
+      "timeout_seconds": 30,
+      "max_result_bytes": 262144,
+      "input_schema_path": "config/schemas/mcp_tools/postgresql_inspect.v1.json",
+      "input_schema_sha256": "0936354f02fba0bc1655d0785e9fb7d32f74a9cad44d6e3158cbe34c040a06d3",
+      "result_schema_path": "config/schemas/mcp_result_envelope.v1.json",
+      "result_schema_sha256": "919a5be5dc8c05b50f4b053c292c08a09a7e60bc423b21bd01fd5ff8bde74bf4",
+      "enabled": true,
+      "disabled_reason": ""
+    }
+  ]
+}

@@ -302,7 +302,7 @@ class ManagerReadinessCardTests(unittest.TestCase):
         self.assertIn("真实外部写入默认禁用", html)
         self.assertIn("云效/Git/GitLab 写动作：dry-run -&gt; review -&gt; explicit confirmation -&gt; execute -&gt; audit", html)
         self.assertIn(
-            "数据库永久只读：Harness 只生成 SQL 草案，由人工在 Harness 外执行；绝不提供数据库执行按钮、API、任务队列或执行流程。",
+            "数据库修改/删除默认绝对禁止：当前 Harness 只生成 SQL 草案且没有写 executor；只有用户明确授权精确对象、操作、条件和影响范围后才可进入独立变更流程。",
             html,
         )
         operating_console = html.split("运营控制台", 1)[1]
@@ -349,9 +349,9 @@ class ManagerReadinessCardTests(unittest.TestCase):
         self.assertIn("写能力仅展示为 disabled", html)
         self.assertNotIn('"schema_version": "his-provider-capability-status.v1"', html)
         self.assertNotIn("/Users/lym/plugins/his-engineering/capabilities.json", html)
-        self.assertIn("本地、只读、免凭证且离线", html)
+        self.assertIn("免人工确认", html)
         self.assertIn("OS-sandboxed Git Provider/Skill", html)
-        self.assertIn("确认本地只读 smoke", html)
+        self.assertIn("执行本地只读 smoke", html)
         self.assertNotIn(sentinel, html)
 
     def test_provider_page_escapes_stored_public_values_and_never_renders_hidden_secrets(self) -> None:

@@ -17,6 +17,7 @@ from app.requirement_governance import GovernanceCheck, RequirementGovernanceRes
 from app.single_pass_change_contract import SinglePassChangeContract
 from app.technical_decision import TechnicalDecisionResult
 from app.worktree_executor import WorktreeExecutionResult, extract_unified_diff
+from tests.change_context_test_support import ReadyChangeContextService
 
 
 PAIBAN_DEMAND = (
@@ -623,6 +624,8 @@ def ready_governance_for_enforce() -> RequirementGovernanceResult:
 
 
 def ready_single_pass_for_ordering(project_path: Path) -> SinglePassChangeContract:
+    context = ReadyChangeContextService().result
+    projection = context.projections["implementation"]
     return SinglePassChangeContract(
         schema_version="single-pass-change-contract.v1",
         status="ready",
@@ -641,6 +644,12 @@ def ready_single_pass_for_ordering(project_path: Path) -> SinglePassChangeContra
         manual_acceptance=("排班列表与树一致",),
         rollback_strategy="restore_pre_change_local_files",
         blockers=(),
+        change_context_pack_id=context.pack.pack_id,
+        change_context_projection_hash=projection.projection_hash,
+        change_context_layer_hashes=tuple(
+            {"layer_type": layer.layer_type, "content_hash": layer.content_hash}
+            for layer in context.pack.layers
+        ),
     )
 
 
@@ -664,10 +673,18 @@ class CoreClosureRunnerTests(unittest.TestCase):
         self.db_path = self.root / "harness.sqlite"
         self.env_patch = patch.dict(os.environ, {"HARNESS_DB_PATH": str(self.db_path)})
         self.env_patch.start()
+        self.change_context = ReadyChangeContextService()
 
     def tearDown(self) -> None:
         self.env_patch.stop()
         self.temp_dir.cleanup()
+
+    def _runner(self, llm_client, **kwargs) -> RequirementWorkflowRunner:
+        return RequirementWorkflowRunner(
+            llm_client,
+            change_context_service=self.change_context,
+            **kwargs,
+        )
 
     def _run_with_scope_confirmation(self, runner: RequirementWorkflowRunner, **options):
         """Replay the real preview -> exact token -> mutating execution flow."""
@@ -701,7 +718,7 @@ class CoreClosureRunnerTests(unittest.TestCase):
             patch("app.harness.build_technical_decision", return_value=core_technical_decision(self.project_path, verify_commands=[])),
             patch("app.harness.build_acceptance_matrix", return_value=acceptance_matrix()),
         ):
-            result = RequirementWorkflowRunner(FixturePatchLLMClient()).run(
+            result = self._runner(FixturePatchLLMClient()).run(
                 title="DFHIS-31465",
                 demand_text=PAIBAN_DEMAND,
                 project_path=self.project_path,
@@ -719,7 +736,7 @@ class CoreClosureRunnerTests(unittest.TestCase):
             patch("app.harness.build_technical_decision", return_value=core_technical_decision(self.project_path)),
             patch("app.harness.build_acceptance_matrix", return_value=acceptance_matrix()),
         ):
-            result = RequirementWorkflowRunner(FixturePatchLLMClient()).run(
+            result = self._runner(FixturePatchLLMClient()).run(
                 title="DFHIS-31558",
                 demand_text="科室树和右侧排班按顺序号排序并保持一致。",
                 project_path=self.project_path,
@@ -740,7 +757,7 @@ class CoreClosureRunnerTests(unittest.TestCase):
                 return_value={"status": "success", "clean_text": "科室树和右侧排班按顺序号排序并保持一致。"},
             ),
         ):
-            result = RequirementWorkflowRunner(FixturePatchLLMClient()).run(
+            result = self._runner(FixturePatchLLMClient()).run(
                 title="DFHIS-31558",
                 demand_text="按云效需求处理。",
                 project_path=self.project_path,
@@ -755,7 +772,10 @@ class CoreClosureRunnerTests(unittest.TestCase):
             if item["kind"] == "core_closure_json"
         )
         self.assertEqual("blocked", result.status)
-        self.assertIn("可执行排序验收契约", "\n".join(closure["contract"]["blockers"]))
+        self.assertIn("需求校准未达到 ready_for_development", "\n".join(closure["contract"]["blockers"]))
+        artifacts = {item["kind"] for item in database.get_artifacts(result.run_id)}
+        self.assertNotIn("worktree_manifest_json", artifacts)
+        self.assertEqual([], database.get_step_runs(result.run_id))
 
     def test_sorting_fixture_adds_targeted_command_before_worktree(self) -> None:
         worktree_result = WorktreeExecutionResult(status="failed", summary="fixture worktree stop")
@@ -765,7 +785,7 @@ class CoreClosureRunnerTests(unittest.TestCase):
             patch("app.harness.build_requirement_calibration", return_value=ready_calibration()),
             patch.object(RequirementWorkflowRunner, "_run_worktree_execution", return_value=worktree_result) as executor,
         ):
-            result = self._run_with_scope_confirmation(RequirementWorkflowRunner(FixturePatchLLMClient()),
+            result = self._run_with_scope_confirmation(self._runner(FixturePatchLLMClient()),
                 title="DFHIS-31558",
                 demand_text="科室树和右侧排班按顺序号排序并保持一致。",
                 project_path=self.project_path,
@@ -798,7 +818,7 @@ class CoreClosureRunnerTests(unittest.TestCase):
             ),
             patch.object(RequirementWorkflowRunner, "_run_worktree_execution", return_value=worktree_result) as executor,
         ):
-            result = self._run_with_scope_confirmation(RequirementWorkflowRunner(FixturePatchLLMClient()),
+            result = self._run_with_scope_confirmation(self._runner(FixturePatchLLMClient()),
                 title="DFHIS-31558",
                 demand_text="科室树和右侧排班按顺序号排序并保持一致。",
                 project_path=self.project_path,
@@ -831,7 +851,7 @@ class CoreClosureRunnerTests(unittest.TestCase):
             patch("app.harness.build_technical_decision", return_value=core_technical_decision(self.project_path)),
             patch("app.harness.build_acceptance_matrix", return_value=acceptance_matrix()),
         ):
-            result = self._run_with_scope_confirmation(RequirementWorkflowRunner(FixturePatchLLMClient()),
+            result = self._run_with_scope_confirmation(self._runner(FixturePatchLLMClient()),
                 title="DFHIS-31465",
                 demand_text=PAIBAN_DEMAND,
                 project_path=self.project_path,
@@ -857,7 +877,7 @@ class CoreClosureRunnerTests(unittest.TestCase):
             patch("app.harness.build_technical_decision", return_value=core_technical_decision(self.project_path)),
             patch("app.harness.build_acceptance_matrix", return_value=acceptance_matrix()),
         ):
-            result = self._run_with_scope_confirmation(RequirementWorkflowRunner(FixturePatchLLMClient()),
+            result = self._run_with_scope_confirmation(self._runner(FixturePatchLLMClient()),
                 title="DFHIS-31465",
                 demand_text=PAIBAN_DEMAND,
                 project_path=self.project_path,
@@ -881,7 +901,7 @@ class CoreClosureRunnerTests(unittest.TestCase):
             patch("app.harness.build_technical_decision", return_value=core_technical_decision(self.project_path)),
             patch("app.harness.build_acceptance_matrix", return_value=acceptance_matrix()),
         ):
-            result = self._run_with_scope_confirmation(RequirementWorkflowRunner(FixturePatchLLMClient()),
+            result = self._run_with_scope_confirmation(self._runner(FixturePatchLLMClient()),
                 title="DFHIS-31465",
                 demand_text=PAIBAN_DEMAND,
                 project_path=self.project_path,
@@ -905,7 +925,7 @@ class CoreClosureRunnerTests(unittest.TestCase):
             patch("app.harness.build_technical_decision", return_value=core_technical_decision(self.project_path)),
             patch("app.harness.build_acceptance_matrix", return_value=acceptance_matrix()),
         ):
-            result = RequirementWorkflowRunner(FixturePatchLLMClient()).run(
+            result = self._runner(FixturePatchLLMClient()).run(
                 title="DFHIS-31465",
                 demand_text=PAIBAN_DEMAND,
                 project_path=self.project_path,
@@ -931,7 +951,7 @@ class CoreClosureRunnerTests(unittest.TestCase):
             patch("app.harness.build_acceptance_matrix", return_value=acceptance_matrix()),
             patch.object(RequirementWorkflowRunner, "_build_evidence_bundle", side_effect=AssertionError("不应执行全仓扫描")) as scanner,
         ):
-            result = self._run_with_scope_confirmation(RequirementWorkflowRunner(FixturePatchLLMClient()),
+            result = self._run_with_scope_confirmation(self._runner(FixturePatchLLMClient()),
                 title="DFHIS-31465",
                 demand_text=PAIBAN_DEMAND,
                 project_path=self.project_path,
@@ -965,7 +985,7 @@ class CoreClosureRunnerTests(unittest.TestCase):
             patch("app.harness.build_technical_decision", return_value=core_technical_decision(self.project_path)),
             patch("app.harness.build_acceptance_matrix", return_value=acceptance_matrix()),
         ):
-            result = RequirementWorkflowRunner(FixturePatchLLMClient()).run(
+            result = self._runner(FixturePatchLLMClient()).run(
                 title="DFHIS-高风险医保退费",
                 demand_text="医保患者部分退费前需要校验在院状态，并按参数控制是否允许继续。",
                 project_path=self.project_path,
@@ -986,7 +1006,7 @@ class CoreClosureRunnerTests(unittest.TestCase):
             patch("app.harness.build_technical_decision", return_value=core_technical_decision(self.project_path)),
             patch("app.harness.build_acceptance_matrix", return_value=acceptance_matrix()),
         ):
-            result = self._run_with_scope_confirmation(RequirementWorkflowRunner(MissingDefaultGuardPatchLLMClient()),
+            result = self._run_with_scope_confirmation(self._runner(MissingDefaultGuardPatchLLMClient()),
                 title="DFHIS-31465",
                 demand_text=PAIBAN_DEMAND,
                 project_path=self.project_path,
@@ -1011,7 +1031,7 @@ class CoreClosureRunnerTests(unittest.TestCase):
             patch("app.harness.build_technical_decision", return_value=core_technical_decision(self.project_path)),
             patch("app.harness.build_acceptance_matrix", return_value=acceptance_matrix()),
         ):
-            result = self._run_with_scope_confirmation(RequirementWorkflowRunner(FixturePatchLLMClient()),
+            result = self._run_with_scope_confirmation(self._runner(FixturePatchLLMClient()),
                 title="DFHIS-31465",
                 demand_text=PAIBAN_DEMAND,
                 project_path=self.project_path,
@@ -1032,7 +1052,7 @@ class CoreClosureRunnerTests(unittest.TestCase):
         self.assertIn("filterByPaiBanMs", target.read_text(encoding="utf-8"))
 
     def test_legacy_readonly_mode_keeps_nine_step_workflow(self) -> None:
-        result = RequirementWorkflowRunner(MockLLMClient(), allow_mock=True).run(
+        result = self._runner(MockLLMClient(), allow_mock=True).run(
             title="兼容性检查",
             demand_text="挂号页面显示一个只读提示字段，不涉及收费、医保或结算。",
             project_path=self.project_path,

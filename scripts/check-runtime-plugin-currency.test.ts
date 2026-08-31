@@ -403,9 +403,9 @@ describe('fetchRuntimeManifest', () => {
 describe('currentPluginSha256', () => {
   it('hashes the plugin tarball produced in the injected pack destination without network access', () => {
     const repositoryRoot = mkdtempSync(join(tmpdir(), 'dsh-plugin-currency-root-'))
-    const calls = []
+    const calls: Array<{ cwd: string; args: string[] }> = []
     const tarballBytes = 'fake-plugin-tarball'
-    const runNpm = (cwd, args) => {
+    const runNpm = (cwd: string, args: string[]) => {
       calls.push({ cwd, args })
       if (args[0] === 'pack') {
         const packDestination = args[args.indexOf('--pack-destination') + 1]

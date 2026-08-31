@@ -1,0 +1,5 @@
+# Plugin-owned skill metadata.
+interface:
+  display_name: "Harness History"
+  short_description: "归档需求证据、项目映射、评审结论与可追溯改动历史"
+  default_prompt: "Use $harness-history to archive this requirement run and preserve its evidence, project mapping, review, and change history."

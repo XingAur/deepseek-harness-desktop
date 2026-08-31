@@ -5,6 +5,7 @@
  * 产物布局：
  *   build/harness-core/            ← vendor/harness-core 的代码副本
  *   build/harness-core/runtime/    ← 可重定位的 python-build-standalone
+ *   build/plugins/                 ← 与 Core 冻结清单完全匹配的正式插件
  *
  * 关键点：普通 venv 不可重定位（绝对路径写死在 pyvenv.cfg/脚本里，CI 构建
  * 机的路径在用户机器上不存在），因此使用 python-build-standalone 的
@@ -22,7 +23,14 @@ import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { copyHarnessCore, syncVendorFromSource } from './vendor-harness-core.mjs'
+import { copyHarnessCore, syncVendorFromSource, verifyHarnessCoreLayout } from './vendor-harness-core.mjs'
+import {
+  HARNESS_PLUGIN_VENDOR_MANIFEST,
+  copyCheckedInHarnessPluginBundle,
+  verifyHarnessPluginBundle,
+  writeFrozenPluginInventoryFromBundle,
+  writePackagedCapabilitiesConfig,
+} from './vendor-harness-plugins.mjs'
 
 export const PBS_TAG = '20260825'
 export const PBS_PYTHON_VERSION = 'cpython-3.12.14'
@@ -44,6 +52,10 @@ export function pythonAssetName(platform = process.platform, arch = process.arch
 
 export function pythonDownloadUrl(platform = process.platform, arch = process.arch) {
   return `${PBS_BASE}/${pythonAssetName(platform, arch).replaceAll('+', '%2B')}`
+}
+
+export function shouldSyncHarnessVendor(environment = process.env) {
+  return environment.CI !== 'true' && environment.DSH_HARNESS_VENDOR_SYNC === '1'
 }
 
 export function bundledPythonExecutable(coreRoot, platform = process.platform) {
@@ -148,8 +160,11 @@ function assembleSystemVenv(out) {
 async function main() {
   const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
   const vendor = join(repositoryRoot, 'vendor', 'harness-core')
-  // 构建前自动同步本机 Harness 源码（无需记忆手动命令）；CI/无源目录时跳过。
-  const sync = syncVendorFromSource(repositoryRoot)
+  // 普通构建只使用已经审核并冻结的 vendor；显式设置为 1 才同步本机源码。
+  // 这样本机 Harness 正在开发中的能力不会绕过插件兼容门禁进入安装包。
+  const sync = shouldSyncHarnessVendor()
+    ? syncVendorFromSource(repositoryRoot)
+    : { synced: false, changed: false, source: '', reason: 'disabled' }
   if (sync.synced) {
     process.stdout.write(
       sync.changed
@@ -158,6 +173,8 @@ async function main() {
     )
   } else if (sync.reason === 'source-unavailable') {
     process.stdout.write('未找到本机 Harness 源目录，使用仓库内 vendor 副本（CI 常态）\n')
+  } else if (sync.reason === 'disabled') {
+    process.stdout.write('使用已审核的 vendor/harness-core；本机源码同步未显式启用\n')
   }
   if (!existsSync(vendor)) {
     throw new Error('缺少 vendor/harness-core 且本机没有可同步的 Harness 源目录')
@@ -165,7 +182,26 @@ async function main() {
   const out = join(repositoryRoot, 'build', 'harness-core')
   // 保留已安装的 Python 运行时与组装清单，只刷新 Core 代码，重复构建保持幂等高效。
   const copied = copyHarnessCore(vendor, out, { preserve: ['runtime', '.venv', 'BUNDLE_MANIFEST.json'] })
+  verifyHarnessCoreLayout(out)
   process.stdout.write(`已拷贝 Core 代码：${copied.fileCount} 个文件\n`)
+
+  const pluginInventoryPath = join(out, 'config', 'plugin_inventory.json')
+  const pluginVendor = join(repositoryRoot, 'vendor', 'harness-plugins')
+  writeFrozenPluginInventoryFromBundle(pluginVendor, pluginInventoryPath)
+  const recordedPluginManifest = JSON.parse(
+    readFileSync(join(pluginVendor, HARNESS_PLUGIN_VENDOR_MANIFEST), 'utf8'),
+  )
+  const vendorPluginSummary = verifyHarnessPluginBundle(pluginVendor, pluginInventoryPath)
+  for (const key of ['pluginCount', 'fileCount', 'totalBytes', 'manifestSha256']) {
+    if (vendorPluginSummary[key] !== recordedPluginManifest[key]) {
+      throw new Error(`Harness 插件 vendor 清单漂移：${key}`)
+    }
+  }
+  const pluginOut = join(repositoryRoot, 'build', 'plugins')
+  const plugins = copyCheckedInHarnessPluginBundle(pluginVendor, pluginOut, pluginInventoryPath)
+  const pluginNames = JSON.parse(readFileSync(pluginInventoryPath, 'utf8')).plugins.map((item) => item.name)
+  writePackagedCapabilitiesConfig(out, pluginNames)
+  process.stdout.write(`已拷贝冻结插件：${plugins.pluginCount} 个，${plugins.fileCount} 个文件\n`)
 
   let python = { bundled: false, executable: '', asset: '' }
   if (process.env.DSH_HARNESS_SKIP_PYTHON !== '1') {
@@ -216,6 +252,7 @@ async function main() {
     generatedAt: new Date().toISOString(),
     fileCount: copied.fileCount,
     manifestSha256: copied.manifestSha256,
+    plugins,
     python,
   }
   writeFileSync(join(out, 'BUNDLE_MANIFEST.json'), `${JSON.stringify(manifest, null, 2)}\n`)

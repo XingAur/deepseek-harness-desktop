@@ -352,7 +352,10 @@ mod tests {
     }
 
     async fn wait_until(mut predicate: impl FnMut() -> bool) {
-        for _ in 0..50 {
+        // The coordinator work runs on a spawned task. Keep this assertion
+        // bounded, but allow enough time when the complete Rust suite is
+        // competing for the async runtime on a busy release runner.
+        for _ in 0..200 {
             if predicate() {
                 return;
             }

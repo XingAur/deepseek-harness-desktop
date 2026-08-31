@@ -1110,173 +1110,20 @@ class PluginLegacyEquivalenceTests(unittest.TestCase):
         ):
             self.assertFalse(plugin_plan["actions"][external_action])
 
-    def test_postgresql_legacy_runner_matches_readonly_capability(self) -> None:
-        capability = _load_database_capability()
-        policy_path = self.root / "pg-policy.json"
-        policy_path.write_text(
-            json.dumps(
-                {
-                    "schema_version": "1.0-pg-evidence-profiles",
-                    "default_mode": "off",
-                    "profiles": {
-                        "his_test": {
-                            "environment": "test",
-                            "enabled": True,
-                            "max_rows": 2,
-                            "connect_timeout_seconds": 5,
-                            "query_timeout_seconds": 10,
-                            "total_timeout_seconds": 45,
-                            "max_metadata_queries": 3,
-                            "sensitive_column_patterns": ["patient", "phone"],
-                        }
-                    },
-                }
-            ),
-            encoding="utf-8",
+    def test_postgresql_legacy_runner_is_retired_in_favor_of_mcp_catalog(self) -> None:
+        self.assertTrue(legacy_pg.LEGACY_PG_EVIDENCE_DISABLED)
+        self.assertFalse(hasattr(legacy_pg, "run_pg_evidence"))
+        self.assertFalse(hasattr(legacy_pg, "PgEvidenceRequest"))
+        with self.assertRaisesRegex(
+            legacy_pg.LegacyPgEvidenceDisabled,
+            legacy_pg.LEGACY_PG_EVIDENCE_ERROR_CODE,
+        ):
+            legacy_pg.require_database_inspect_mcp()
+        descriptor = json.loads(
+            (PLUGIN_SOURCE_ROOT / "his-engineering" / ".mcp.json").read_text(encoding="utf-8")
         )
-        credentials = {
-            "pg_his_test_readonly_dsn": (
-                "postgresql://fixture:fixture-password@localhost/his_test"
-            ),
-            "pg_his_test_readonly_user": "fixture",
-            "pg_his_test_readonly_password": "fixture-password",
-        }
-        sql = (
-            "SELECT code, patient_phone FROM his_test.his_config "
-            "WHERE code = %(code)s"
-        )
-        parameters = {"code": "SAFE-CODE"}
-        legacy_executors: list[_FakePgExecutor] = []
-        plugin_executors: list[_FakePgExecutor] = []
-
-        def legacy_factory(*, plan: object) -> _FakePgExecutor:
-            executor = _FakePgExecutor()
-            legacy_executors.append(executor)
-            return executor
-
-        def plugin_factory(*, plan: object) -> _FakePgExecutor:
-            executor = _FakePgExecutor()
-            plugin_executors.append(executor)
-            return executor
-
-        with mock.patch.object(
-            legacy_pg,
-            "run_pg_evidence",
-            wraps=legacy_pg.run_pg_evidence,
-        ) as legacy_entry:
-            legacy_run = legacy_entry(
-                request=legacy_pg.PgEvidenceRequest(
-                    subject="脱敏配置核验",
-                    keywords=("配置",),
-                    sql=sql,
-                    parameters=parameters,
-                ),
-                policy=legacy_pg.load_pg_policy(policy_path),
-                profiles=legacy_pg.discover_pg_profiles(credentials),
-                project_root=self.root,
-                mode="execute",
-                executor_factory=legacy_factory,
-            )
-        request = {
-            "schema_version": "his-capability-request.v1",
-            "request_id": "task7-postgresql",
-            "capability": "database.inspect",
-            "provider": "postgresql",
-            "mode": "apply",
-            "mutation_level": "L1",
-            "authorization": {
-                "explicit": True,
-                "scope": [
-                    "database:metadata:read",
-                    "database:rows:read",
-                ],
-            },
-            "input": {
-                "subject": "脱敏配置核验",
-                "keywords": ["配置"],
-                "sql": sql,
-                "parameters": parameters,
-                "project_root": str(self.root),
-                "profile_policy": str(policy_path),
-                "mode": "execute",
-            },
-            "context": {},
-        }
-        with mock.patch.object(
-            capability,
-            "execute_request",
-            wraps=capability.execute_request,
-        ) as plugin_entry:
-            plugin = plugin_entry(
-                request,
-                executor_factory=plugin_factory,
-                environ=credentials,
-            )
-        legacy_entry.assert_called_once()
-        plugin_entry.assert_called_once()
-        self.assertIsNot(legacy_pg.run_pg_evidence, capability.execute_request)
-        self.assertNotEqual(
-            legacy_pg.run_pg_evidence.__module__,
-            capability.execute_request.__module__,
-        )
-        legacy_plan = legacy_run.plan.to_dict()
-        legacy_result = legacy_run.result.to_dict()
-        plugin_plan = plugin["data"]["plan"]
-        plugin_result = plugin["data"]["result"]
-
-        projection = lambda plan, result, audit: {
-            "sql_guard": {
-                "guard": plan["guard"],
-                "parameter_names": plan["parameter_names"],
-                "plan_status": plan["status"],
-                "plan_blockers": plan["blockers"],
-            },
-            "candidates": plan["candidates"],
-            "profile": result["profile"] or plan["selected_profile"],
-            "query_template_id": result["query_template_id"],
-            "rows": result["rows"],
-            "masked_columns": result["masked_columns"],
-            "parameter_audit": result["parameter_audit"],
-            "audit": {
-                "database_connection_attempted": (
-                    audit.get("executor_created") is True
-                    or audit.get("database_connection_attempted") is True
-                ),
-                "profile": audit.get("profile"),
-                "query_template_id": audit.get("query_template_id"),
-                "parameter_audit": audit.get("parameter_audit"),
-                "masked_columns": (
-                    None
-                    if audit.get("masked_columns") is None
-                    else ",".join(audit["masked_columns"])
-                ),
-                "row_count": audit.get("row_count"),
-            },
-        }
-        legacy_envelope = _envelope(
-            projection(legacy_plan, legacy_result, legacy_run.audit),
-            plugin=False,
-        )
-        plugin_envelope = _envelope(
-            projection(plugin_plan, plugin_result, plugin["audit"]),
-            plugin=True,
-        )
-        assert_equivalent(
-            self,
-            legacy_envelope,
-            plugin_envelope,
-            allowlist=PG_ALLOWLIST,
-        )
-        assert_mutation_matrix(
-            self,
-            legacy_envelope,
-            plugin_envelope,
-            allowlist=PG_ALLOWLIST,
-        )
-        self.assertEqual([["select"]], [item.calls for item in legacy_executors])
-        self.assertEqual([["select"]], [item.calls for item in plugin_executors])
-        serialized = json.dumps(plugin, ensure_ascii=False)
-        self.assertNotIn("fixture-password", serialized)
+        command = descriptor["mcpServers"]["postgresql"]["args"][-1]
+        self.assertEqual("./scripts/postgresql_mcp_server.py", command)
 
     def test_core_legacy_governance_matches_capability_adapter(self) -> None:
         capability = _load_core_capability()
@@ -1376,7 +1223,11 @@ class PluginLegacyEquivalenceTests(unittest.TestCase):
             capability,
             "execute_request",
             wraps=capability.execute_request,
-        ) as plugin_entry:
+        ) as plugin_entry, mock.patch.dict(
+            os.environ,
+            {"HIS_HARNESS_ROOT": str(HARNESS_ROOT)},
+            clear=False,
+        ):
             plugin = plugin_entry(request)
         plugin_entry.assert_called_once()
         plugin_loader_entry.assert_called_once()

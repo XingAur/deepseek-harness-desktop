@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
 import re
 import subprocess
 import sys
@@ -10,8 +11,12 @@ import time
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from app.version import VERSION
+
 
 ENTERPRISE_GATE_SCHEMA_VERSION = "1.0-enterprise-core-gate"
+STAGE_TIMEOUT_SECONDS = 300
+UNIT_STAGE_TIMEOUT_SECONDS = 1200
 DEFAULT_GATE_STAGES = ("compile", "unit", "selfcheck", "replay", "secret")
 SOURCE_SCAN_DIRECTORIES = ("app", "tools", "harnesses", "fixtures", "config", "prompts")
 SECRET_ENV_EXACT_NAMES = frozenset({"PAT", "TOKEN", "PASSWORD", "SECRET", "CREDENTIALS"})
@@ -170,6 +175,11 @@ def run_enterprise_gate(
     result: dict[str, Any] = {
         "schema_version": ENTERPRISE_GATE_SCHEMA_VERSION,
         "status": "passed" if passed else "failed",
+        "version": VERSION,
+        "interpreter": sys.executable,
+        "python_version": platform.python_version(),
+        "stage_timeout_seconds": STAGE_TIMEOUT_SECONDS,
+        "unit_stage_timeout_seconds": UNIT_STAGE_TIMEOUT_SECONDS,
         "technical_valid": passed,
         "business_valid": False,
         "runtime_verified": False,
@@ -221,6 +231,9 @@ def validate_stages(stages: Sequence[str]) -> tuple[str, ...]:
     return normalized
 
 
+def stage_timeout_seconds(stage: str) -> int:
+    return UNIT_STAGE_TIMEOUT_SECONDS if stage == "unit" else STAGE_TIMEOUT_SECONDS
+
 def run_gate_stage(
     stage: str,
     *,
@@ -260,7 +273,7 @@ def run_gate_stage(
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=300,
+            timeout=stage_timeout_seconds(stage),
             check=False,
         )
         output = "\n".join(part for part in (completed.stdout, completed.stderr) if part)
@@ -278,6 +291,7 @@ def run_gate_stage(
             "name": stage,
             "status": "failed",
             "returncode": None,
+            "reason": "timeout",
             "duration_ms": round((time.monotonic() - started) * 1000),
             "error": "timeout",
             "output_digest": hashlib.sha256(output.encode("utf-8")).hexdigest(),
@@ -300,7 +314,7 @@ def build_stage_command(
 ) -> tuple[list[str], Path | None]:
     python = sys.executable
     if stage == "compile":
-        return [python, "-m", "compileall", "-q", "app", "tools", "harnesses", "tests"], None
+        return [python, str(project_root / "tools" / "syntax_check.py")], None
     if stage == "unit":
         return [python, "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"], None
     if stage == "selfcheck":

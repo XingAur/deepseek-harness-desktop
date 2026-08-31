@@ -1,0 +1,4 @@
+interface:
+  display_name: "HIS Database Change"
+  short_description: "Review static HIS database change and rollback plans"
+  default_prompt: "Use $his-database-change to review a schema or data change as a static plan only."

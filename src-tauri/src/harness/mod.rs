@@ -300,18 +300,29 @@ fn resolve_profile_environment(
     };
     let unavailable = || HarnessError::Process("连接 Profile 读取失败".to_owned());
     let reader = store.reader().map_err(|_| unavailable())?;
-    crate::commands::ensure_harness_connection_table(&reader).map_err(|_| unavailable())?;
+    crate::commands::ensure_harness_connection_tables(&reader).map_err(|_| unavailable())?;
     let mut environment = Vec::new();
     for (profile_id, provider) in wanted {
-        let row: Option<(String, String, Option<String>)> = reader
+        let generalized: Option<(String, String, String, Option<String>, String)> = reader
             .query_row(
-                "SELECT kind, endpoint, credential_id FROM harness_connection_profiles WHERE profile_id = ?1",
+                "SELECT kind, endpoint, username, credential_id,
+                        CASE WHEN provider_id = 'generic' THEN template_id ELSE provider_id END
+                 FROM harness_connection_profiles_v2 WHERE profile_id = ?1 AND enabled = 1",
                 [profile_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
             )
             .optional()
             .map_err(|_| unavailable())?;
-        let Some((kind, endpoint, credential_id)) = row else {
+        let row = if generalized.is_some() { generalized } else { reader
+            .query_row(
+                "SELECT kind, endpoint, '', credential_id, provider_id
+                 FROM harness_connection_profiles WHERE profile_id = ?1 AND enabled = 1",
+                [profile_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            )
+            .optional()
+            .map_err(|_| unavailable())? };
+        let Some((kind, endpoint, username, credential_id, profile_provider)) = row else {
             continue; // profile 已被删除：不注入，Core 按无凭证处理
         };
         let Some(credential_id) = credential_id else {
@@ -328,11 +339,14 @@ fn resolve_profile_environment(
         if value.trim().is_empty() {
             return Err(HarnessError::Process("连接凭证不可用".to_owned()));
         }
-        match (kind.as_str(), provider) {
-            ("mcp", "yunxiao") => environment.push(("ALIYUN_DEVOPS_PAT".to_owned(), value)),
-            ("mcp", "gitlab") => environment.push(("DSH_GITLAB_TOKEN".to_owned(), value)),
-            ("database", _) => {
-                let dsn = compose_readonly_dsn(&endpoint, &value)?;
+        match (kind.as_str(), provider, profile_provider.as_str()) {
+            ("mcp", "yunxiao", "yunxiao") => environment.push(("ALIYUN_DEVOPS_PAT".to_owned(), value)),
+            ("mcp", "gitlab", "gitlab") => environment.push(("DSH_GITLAB_TOKEN".to_owned(), value)),
+            ("database", _, _) => {
+                if !endpoint.starts_with("postgresql://") {
+                    return Err(HarnessError::Process("当前 Harness 只读执行仅支持 PostgreSQL 数据库".to_owned()));
+                }
+                let dsn = compose_readonly_dsn(&endpoint, &username, &value)?;
                 environment.push(("DSH_DATABASE_DSN".to_owned(), dsn));
             }
                 _ => continue,
@@ -342,12 +356,14 @@ fn resolve_profile_environment(
 }
 
 /// 把 endpoint 与密码组合成只读探测 DSN；无法安全组合时返回错误而不是拼出坏连接串。
-fn compose_readonly_dsn(endpoint: &str, password: &str) -> Result<String, HarnessError> {
+fn compose_readonly_dsn(endpoint: &str, username: &str, password: &str) -> Result<String, HarnessError> {
     let mut url = url::Url::parse(endpoint)
         .map_err(|_| HarnessError::Process("数据库连接地址无效".to_owned()))?;
     if url.host_str().is_none() {
         return Err(HarnessError::Process("数据库连接地址无效".to_owned()));
     }
+    url.set_username(username)
+        .map_err(|_| HarnessError::Process("数据库连接地址无效".to_owned()))?;
     url.set_password(Some(password))
         .map_err(|_| HarnessError::Process("数据库连接地址无效".to_owned()))?;
     Ok(url.to_string())
@@ -508,15 +524,16 @@ mod tests {
     use super::process::validate_sidecar_path;
 
     #[test]
-    fn composes_readonly_dsn_with_password_only() {
+    fn composes_readonly_dsn_with_structured_username_and_password() {
         let dsn = super::compose_readonly_dsn(
             "postgresql://db.internal:5432/his",
+            "readonly_user",
             "s3cret-pass",
         )
         .unwrap();
-        assert!(dsn.starts_with("postgresql://:s3cret-pass@db.internal:5432/his"));
-        assert!(super::compose_readonly_dsn("not a url", "x").is_err());
-        assert!(super::compose_readonly_dsn("postgresql:///no-host", "x").is_err());
+        assert!(dsn.starts_with("postgresql://readonly_user:s3cret-pass@db.internal:5432/his"));
+        assert!(super::compose_readonly_dsn("not a url", "user", "x").is_err());
+        assert!(super::compose_readonly_dsn("postgresql:///no-host", "user", "x").is_err());
     }
 
     #[test]

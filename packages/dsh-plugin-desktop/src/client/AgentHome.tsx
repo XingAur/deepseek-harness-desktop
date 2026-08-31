@@ -12,6 +12,7 @@ import { messageOf } from './model-agent/state'
 export interface AgentHomeProps {
   bridge: DesktopBridgeLike
   workspaceId?: string
+  embedded?: boolean
 }
 
 interface LoginStatus {
@@ -37,7 +38,7 @@ interface InstallStatus {
 
 type StepState = 'done' | 'active' | 'todo'
 
-export function AgentHome({ bridge, workspaceId }: AgentHomeProps) {
+export function AgentHome({ bridge, workspaceId, embedded = false }: AgentHomeProps) {
   const [login, setLogin] = useState<LoginStatus | null>(null)
   const [install, setInstall] = useState<InstallStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -124,9 +125,9 @@ export function AgentHome({ bridge, workspaceId }: AgentHomeProps) {
   const jobLog = [...(install?.jobOutput ?? []), ...(login?.jobOutput ?? [])]
 
   return (
-    <section className="dshAgentHome" aria-label="Agent">
+    <section className="dshAgentHome" aria-label="Agent" data-embedded={embedded || undefined}>
       <header className="dshAgentHomeHero">
-        <h2>Agent</h2>
+        {embedded ? <h3>Codex 执行器</h3> : <h2>Agent</h2>}
         <button type="button" className="dshAgentGhostButton" disabled={busy} onClick={() => { void load() }}>
           {busy ? '检测中…' : '重新检测'}
         </button>

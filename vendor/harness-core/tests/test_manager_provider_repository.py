@@ -90,7 +90,7 @@ class ManagerProviderRepositoryTests(unittest.TestCase):
         for phrase in (
             "Manager 数据库",
             "加密凭证",
-            "数据库永久只读",
+            "数据库修改和删除默认绝对禁止",
             "SQLite 本地",
             "PostgreSQL 团队部署",
         ):

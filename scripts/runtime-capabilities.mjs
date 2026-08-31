@@ -1,8 +1,9 @@
+import { createHash } from 'node:crypto'
 import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-export const CAPABILITY_REPORT_SCHEMA_VERSION = 1
+export const CAPABILITY_REPORT_SCHEMA_VERSION = 2
 export const PROFILE_BUNDLES = Object.freeze([
   '@deepseek-ai/dsh-base',
   '@deepseek-ai/dsh-web-app',
@@ -19,6 +20,7 @@ export const CAPABILITY_REASON_CODES = Object.freeze([
   'EXPORTS_INVALID',
   'ENTRYPOINT_INVALID',
   'BUNDLE_PATCH_INVALID',
+  'DEPENDENCY_RANGE_INVALID',
 ])
 
 const optionalCapabilities = Object.freeze([
@@ -47,6 +49,24 @@ const packageContracts = Object.freeze({
   '@deepseek-ai/dsh-skill': { entrypoints: optionalBundleEntrypoints, license: 'MIT', dshVersion: true },
   '@deepseek-ai/dsh-mcp-client': { entrypoints: optionalBundleEntrypoints, license: 'MIT', dshVersion: true },
 })
+const featureGroupMatchers = Object.freeze({
+  modelProvider: (name) => /(?:dsh-llm|provider)/.test(name),
+  sessionTrajectory: (name) => /(?:dsh-session|trajectory)/.test(name),
+  planGoal: (name) => /(?:dsh-plan-mode|dsh-goal)/.test(name),
+  jobsScheduling: (name) => /(?:dsh-jobs|dsh-schedule|tool-jobs)/.test(name),
+  skill: (name) => /dsh-skill/.test(name),
+  mcp: (name) => /dsh-mcp-client/.test(name),
+  subagent: (name) => /subagent/.test(name),
+  workflow: (name) => /workflow/.test(name),
+  approvalQuestions: (name) => /(?:user-approval|ask-user)/.test(name),
+  filesystemShell: (name) => /(?:tool-fs|fs-local|terminal|tool-bash|pwsh)/.test(name),
+  webTools: (name) => /tool-web/.test(name),
+  hooksWebhooks: (name) => /(?:hooks-|webhook)/.test(name),
+  sessionsSettings: (name) => /(?:dsh-session|dsh-settings)/.test(name),
+  officialWebUi: (name) => name === '@deepseek-ai/dsh-web-app',
+})
+const packageNamePattern = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/
+const exactSemVer = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
 const defaultPath = { resolve, relative, isAbsolute, sep }
 const defaultFs = { existsSync, lstatSync, readFileSync, realpathSync, statSync }
 
@@ -59,15 +79,18 @@ export function inspectRuntimeCapabilities(runtimeRoot, expectedVersions, adapte
     { noExports: contract.noExports, bundle: contract.bundle, license: contract.license }, fs, pathImplementation,
   ))
   const byName = new Map(packages.map((record) => [record.name, record]))
+  const officialClosure = inspectOfficialClosure(runtimeRoot, expectedVersions, fs, pathImplementation)
   const profileBundles = PROFILE_BUNDLES.every((name) => byName.get(name)?.status === 'compatible') ? [...PROFILE_BUNDLES] : undefined
   return { schemaVersion: CAPABILITY_REPORT_SCHEMA_VERSION, packages,
     capabilities: Object.fromEntries(optionalCapabilities.map(([capability, name]) => [capability, { package: name, available: byName.get(name)?.status === 'compatible' }])),
+    officialClosure,
+    featureGroups: buildFeatureGroups(featureRecords(officialClosure.packages, packages)),
     ...(profileBundles ? { profileBundles } : {}), }
 }
 
 export function assertRuntimeCapabilities(report, expectedVersions) {
   assertExpectedVersions(expectedVersions)
-  failIf(report?.schemaVersion !== CAPABILITY_REPORT_SCHEMA_VERSION || !hasExactKeys(report, ['capabilities', 'packages', 'profileBundles', 'schemaVersion']), 'capability report is invalid')
+  failIf(report?.schemaVersion !== CAPABILITY_REPORT_SCHEMA_VERSION || !hasExactKeys(report, ['capabilities', 'featureGroups', 'officialClosure', 'packages', 'profileBundles', 'schemaVersion']), 'capability report is invalid')
   failIf(!Array.isArray(report.packages) || report.packages.length !== Object.keys(packageContracts).length, 'capability package records are incomplete')
   const records = new Map()
   for (const record of report.packages) {
@@ -75,9 +98,158 @@ export function assertRuntimeCapabilities(report, expectedVersions) {
     records.set(record.name, record)
   }
   for (const [name, contract] of Object.entries(packageContracts)) validateRecord(records.get(name), contract, expectedVersion(contract, expectedVersions))
+  const closureRecords = assertOfficialClosure(report.officialClosure)
+  assertFeatureGroups(report.featureGroups, featureRecords(closureRecords, [...records.values()]))
   assertCapabilityRecords(report.capabilities, records)
   failIf(!sameBundles(report.profileBundles, PROFILE_BUNDLES), 'exact desktop profile bundles are unavailable')
   return report
+}
+
+function inspectOfficialClosure(runtimeRoot, expectedVersions, fs, pathImplementation) {
+  const cliLocation = locatePackage(runtimeRoot, '@deepseek-ai/dsh', fs, pathImplementation)
+  failIf(cliLocation.kind !== 'found', 'official CLI manifest is unavailable')
+  let cliManifest
+  try { cliManifest = JSON.parse(fs.readFileSync(cliLocation.packagePath, 'utf8')) } catch { failIf(true, 'official CLI manifest is invalid') }
+  failIf(!isRecord(cliManifest.dependencies), 'official CLI dependencies are invalid')
+  const dependencyEntries = Object.entries(cliManifest.dependencies)
+  failIf(dependencyEntries.length === 0 || dependencyEntries.length > 512, 'official CLI dependencies are invalid')
+  const packages = dependencyEntries
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, declaredRange]) => inspectClosurePackage(runtimeRoot, name, declaredRange, expectedVersions, fs, pathImplementation))
+  return { digest: closureDigest(packages), packages }
+}
+
+function inspectClosurePackage(runtimeRoot, name, declaredRange, expectedVersions, fs, pathImplementation) {
+  failIf(typeof name !== 'string' || !packageNamePattern.test(name), 'official CLI dependency name is invalid')
+  failIf(typeof declaredRange !== 'string' || !isSupportedRange(declaredRange), 'official CLI dependency range is invalid')
+  const location = locatePackage(runtimeRoot, name, fs, pathImplementation)
+  if (location.kind === 'missing') return closureFailure(name, declaredRange, 'missing', 'MISSING_PACKAGE_JSON')
+  if (location.kind === 'invalid') return closureFailure(name, declaredRange, 'incompatible', 'PACKAGE_PATH_INVALID')
+  let manifest
+  try { manifest = JSON.parse(fs.readFileSync(location.packagePath, 'utf8')) } catch { return closureFailure(name, declaredRange, 'incompatible', 'MANIFEST_INVALID') }
+  const observedVersion = isVersion(manifest?.version) ? manifest.version : null
+  const license = typeof manifest?.license === 'string' && manifest.license.length > 0 && manifest.license.length <= 128 ? manifest.license : null
+  if (manifest?.name !== name) return closureFailure(name, declaredRange, 'incompatible', 'MANIFEST_NAME_INVALID', observedVersion, license)
+  if (observedVersion === null || !versionSatisfies(observedVersion, declaredRange)) return closureFailure(name, declaredRange, 'incompatible', 'VERSION_MISMATCH', observedVersion, license)
+  if (name.startsWith('@deepseek-ai/dsh-') && observedVersion !== expectedVersions.dshVersion) {
+    return closureFailure(name, declaredRange, 'incompatible', 'VERSION_MISMATCH', observedVersion, license)
+  }
+  if (license === null) return closureFailure(name, declaredRange, 'incompatible', 'LICENSE_INVALID', observedVersion, null)
+  const entrypoint = packageHasEntrypoint(location.directory, manifest, fs, pathImplementation)
+  if (!entrypoint) return closureFailure(name, declaredRange, 'incompatible', 'ENTRYPOINT_INVALID', observedVersion, license)
+  return { name, declaredRange, observedVersion, license, entrypoint: true, status: 'compatible' }
+}
+
+function packageHasEntrypoint(directory, manifest, fs, pathImplementation) {
+  const candidates = []
+  collectEntrypoints(manifest.exports, candidates)
+  collectEntrypoints(manifest.main, candidates)
+  collectEntrypoints(manifest.module, candidates)
+  collectEntrypoints(manifest.bin, candidates)
+  return [...new Set(candidates)]
+    .filter((candidate) => candidate !== './package.json' && candidate !== 'package.json')
+    .some((candidate) => isFileWithin(directory, candidate, { pathImplementation, ...fs }))
+}
+
+function collectEntrypoints(value, output) {
+  if (typeof value === 'string') { output.push(value); return }
+  if (Array.isArray(value)) { for (const item of value) collectEntrypoints(item, output); return }
+  if (isRecord(value)) for (const item of Object.values(value)) collectEntrypoints(item, output)
+}
+
+function closureFailure(name, declaredRange, status, reasonCode, observedVersion = null, license = null) {
+  return { name, declaredRange, observedVersion, license, entrypoint: false, status, reasonCode }
+}
+
+function closureDigest(packages) {
+  return createHash('sha256').update(JSON.stringify(packages)).digest('hex')
+}
+
+function buildFeatureGroups(packages) {
+  return Object.fromEntries(Object.entries(featureGroupMatchers).map(([feature, matches]) => {
+    const owners = packages.filter((record) => matches(record.name)).map((record) => record.name)
+    return [feature, { packages: owners, available: owners.length > 0 && owners.every((name) => packages.find((record) => record.name === name)?.status === 'compatible') }]
+  }))
+}
+
+function featureRecords(closurePackages, fixedPackages) {
+  const records = new Map(closurePackages.map((record) => [record.name, record]))
+  for (const record of fixedPackages) {
+    const existing = records.get(record.name)
+    if (existing === undefined || record.status !== 'compatible') records.set(record.name, record)
+  }
+  return [...records.values()].sort((left, right) => left.name.localeCompare(right.name))
+}
+
+function assertOfficialClosure(closure) {
+  failIf(!hasExactKeys(closure, ['digest', 'packages']) || typeof closure.digest !== 'string' || !/^[0-9a-f]{64}$/.test(closure.digest) || !Array.isArray(closure.packages), 'official dependency closure is invalid')
+  failIf(closure.packages.length === 0 || closure.packages.length > 512 || closure.digest !== closureDigest(closure.packages), 'official dependency closure is invalid')
+  let previous = ''
+  for (const record of closure.packages) {
+    failIf(!isRecord(record) || typeof record.name !== 'string' || record.name <= previous || typeof record.declaredRange !== 'string', 'official dependency closure is malformed or unsorted')
+    previous = record.name
+    if (record.status === 'compatible') {
+      failIf(!hasExactKeys(record, ['declaredRange', 'entrypoint', 'license', 'name', 'observedVersion', 'status']) || record.entrypoint !== true || !isVersion(record.observedVersion) || typeof record.license !== 'string', 'official dependency closure is malformed')
+    } else {
+      failIf(!hasExactKeys(record, ['declaredRange', 'entrypoint', 'license', 'name', 'observedVersion', 'reasonCode', 'status']) || !['missing', 'incompatible'].includes(record.status) || record.entrypoint !== false || !CAPABILITY_REASON_CODES.includes(record.reasonCode), 'official dependency closure is malformed')
+      failIf(true, 'official dependency closure is not compatible')
+    }
+  }
+  for (const required of ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']) failIf(!closure.packages.some((record) => record.name === required), 'official dependency closure is incomplete')
+  return closure.packages
+}
+
+function assertFeatureGroups(featureGroups, packages) {
+  const expected = buildFeatureGroups(packages)
+  failIf(!sameValue(featureGroups, expected), 'feature group records are invalid')
+}
+
+function isSupportedRange(value) {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 128) return false
+  const candidate = value.startsWith('^') || value.startsWith('~') ? value.slice(1) : value
+  return exactSemVer.test(candidate)
+}
+
+function versionSatisfies(version, range) {
+  const operator = range[0] === '^' || range[0] === '~' ? range[0] : ''
+  const base = operator ? range.slice(1) : range
+  if (!exactSemVer.test(version) || !exactSemVer.test(base)) return false
+  if (!operator) return version === base
+  if (compareVersions(version, base) < 0) return false
+  const parsed = parseVersion(base)
+  const upper = operator === '~'
+    ? `${parsed.major}.${parsed.minor + 1}.0`
+    : parsed.major > 0
+      ? `${parsed.major + 1}.0.0`
+      : parsed.minor > 0
+        ? `0.${parsed.minor + 1}.0`
+        : `0.0.${parsed.patch + 1}`
+  return compareVersions(version, upper) < 0
+}
+
+function compareVersions(left, right) {
+  const a = parseVersion(left)
+  const b = parseVersion(right)
+  for (const field of ['major', 'minor', 'patch']) if (a[field] !== b[field]) return a[field] < b[field] ? -1 : 1
+  if (a.prerelease.length === 0 || b.prerelease.length === 0) return a.prerelease.length === b.prerelease.length ? 0 : a.prerelease.length === 0 ? 1 : -1
+  const length = Math.max(a.prerelease.length, b.prerelease.length)
+  for (let index = 0; index < length; index += 1) {
+    const aPart = a.prerelease[index]
+    const bPart = b.prerelease[index]
+    if (aPart === undefined || bPart === undefined) return aPart === undefined ? -1 : 1
+    if (aPart === bPart) continue
+    const aNumber = /^\d+$/.test(aPart)
+    const bNumber = /^\d+$/.test(bPart)
+    if (aNumber && bNumber) return Number(aPart) < Number(bPart) ? -1 : 1
+    if (aNumber !== bNumber) return aNumber ? -1 : 1
+    return aPart < bPart ? -1 : 1
+  }
+  return 0
+}
+
+function parseVersion(value) {
+  const match = exactSemVer.exec(value)
+  return { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]), prerelease: match[4]?.split('.') ?? [] }
 }
 
 function validateRecord(record, contract, version) {
@@ -166,7 +338,16 @@ export function isFileWithin(directory, relativePath, { pathImplementation = def
   try { if (inspectLstatSync(target).isSymbolicLink()) return false; const canonicalDirectory = inspectRealpathSync(directory); const canonicalTarget = inspectRealpathSync(target); return isWithin(canonicalDirectory, canonicalTarget, pathImplementation) && inspectStatSync(canonicalTarget).isFile() } catch { return false }
 }
 function sameBundles(value, expected) { return Array.isArray(value) && value.length === expected.length && value.every((bundle, index) => bundle === expected[index]) }
-function sameValue(actual, expected) { if (actual === expected) return true; if (!isRecord(actual) || !isRecord(expected)) return false; const actualKeys = Object.keys(actual).sort(); const expectedKeys = Object.keys(expected).sort(); return actualKeys.length === expectedKeys.length && actualKeys.every((key, index) => key === expectedKeys[index] && sameValue(actual[key], expected[key])) }
+function sameValue(actual, expected) {
+  if (actual === expected) return true
+  if (Array.isArray(actual) || Array.isArray(expected)) {
+    return Array.isArray(actual) && Array.isArray(expected) && actual.length === expected.length && actual.every((value, index) => sameValue(value, expected[index]))
+  }
+  if (!isRecord(actual) || !isRecord(expected)) return false
+  const actualKeys = Object.keys(actual).sort()
+  const expectedKeys = Object.keys(expected).sort()
+  return actualKeys.length === expectedKeys.length && actualKeys.every((key, index) => key === expectedKeys[index] && sameValue(actual[key], expected[key]))
+}
 
 const invokedPath = process.argv[1] ? resolve(process.argv[1]) : ''
 if (invokedPath === resolve(fileURLToPath(import.meta.url))) {

@@ -606,6 +606,39 @@ class LocalAgentRunRepositoryTests(unittest.TestCase):
             connection.execute("update local_agent_runs set contract_hash=? where id=?", (second_digest, run["id"]))
         self.assertEqual(second_digest, self.repository.snapshot(run["id"])["run"]["contract_hash"])
 
+    def test_harness_decision_event_accepts_pii_shaped_sha256_digest(self) -> None:
+        run, attempt = self._create_run_and_attempt()
+        payload = {
+            "plan_version": 1,
+            "supersedes_plan_version": None,
+            "decision_kind": "initial_plan",
+            "failure_code": "initial_execution",
+            "decision_digest": "sha256:7cff524767863421371581b5319a473a1e2613e46b0af04b7eaf63068ffad89d",
+            "must_reinspect": True,
+            "execute_only": True,
+        }
+
+        event = self.repository.append_event(
+            run["id"], attempt["id"], "harness_decision_issued", payload,
+        )
+
+        self.assertEqual(payload, event["payload"])
+        self.assertEqual(payload, self.repository.snapshot(run["id"])["events"][-1]["payload"])
+        for mutation in (
+            {"decision_digest": "7cff524767863421371581b5319a473a1e2613e46b0af04b7eaf63068ffad89d"},
+            {"decision_kind": "replan"},
+            {"supersedes_plan_version": 1},
+            {"must_reinspect": False},
+            {"extra": "value"},
+        ):
+            with self.subTest(mutation=mutation), self.assertRaisesRegex(
+                ValueError, "local_agent_storage_invalid",
+            ):
+                self.repository.append_event(
+                    run["id"], attempt["id"], "harness_decision_issued",
+                    {**payload, **mutation},
+                )
+
     def test_protocol_rejection_event_rejects_polluted_payload_without_echo(self) -> None:
         run, attempt = self._create_run_and_attempt()
         self._bind_worker(attempt)

@@ -5,9 +5,22 @@ import { describe, expect, it, vi } from 'vitest'
 import { assertReleaseVersionConsistency } from './release-versions.mjs'
 import {
   compareSemVer,
+  fetchLatestDshSource,
   fetchLatestDshVersion,
+  parseDshTagRefs,
   prepareUpstreamRelease,
 } from './prepare-upstream-release.mjs'
+
+const initialSource = {
+  repository: 'https://github.com/deepseek-ai/deepseek-harness.git',
+  tag: 'dsh-v0.1.0-rc.8',
+  commit: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+}
+const latestSource = {
+  repository: 'https://github.com/deepseek-ai/deepseek-harness.git',
+  tag: 'dsh-v0.1.2-alpha.1',
+  commit: 'cd5ef8148158c3a752a658978873241fdf8e2bbc',
+}
 
 const trackedFiles = [
   'release/versions.json',
@@ -22,7 +35,7 @@ describe('prepare upstream release', () => {
   it('bumps desktop and Runtime patch versions for a newer DSH version', async () => {
     const root = await releaseFixture()
 
-    const result = await prepareUpstreamRelease({ root, latestVersion: '0.1.1-rc.2' })
+    const result = await prepareUpstreamRelease({ root, latestVersion: '0.1.1-rc.2', latestSource })
 
     expect(result).toEqual({
       action: 'upgrade',
@@ -31,11 +44,38 @@ describe('prepare upstream release', () => {
       desktopVersion: '0.1.13',
       runtimeVersion: '0.1.10-preview',
       tag: 'desktop-v0.1.13',
+      previousUpstreamTag: 'dsh-v0.1.0-rc.8',
+      upstreamTag: 'dsh-v0.1.2-alpha.1',
+      upstreamCommit: 'cd5ef8148158c3a752a658978873241fdf8e2bbc',
     })
     expect(assertReleaseVersionConsistency(root)).toMatchObject({
       desktopVersion: '0.1.13',
       runtimeVersion: '0.1.10-preview',
       dshVersion: '0.1.1-rc.2',
+      dshUpstream: latestSource,
+    })
+  })
+
+  it('tracks a newer official source tag without pretending it is an npm release', async () => {
+    const root = await releaseFixture()
+
+    const result = await prepareUpstreamRelease({ root, latestVersion: '0.1.0-rc.8', latestSource })
+
+    expect(result).toMatchObject({
+      action: 'source-update',
+      previousDshVersion: '0.1.0-rc.8',
+      dshVersion: '0.1.0-rc.8',
+      desktopVersion: '0.1.12',
+      runtimeVersion: '0.1.9-preview',
+      previousUpstreamTag: 'dsh-v0.1.0-rc.8',
+      upstreamTag: 'dsh-v0.1.2-alpha.1',
+      upstreamCommit: 'cd5ef8148158c3a752a658978873241fdf8e2bbc',
+    })
+    expect(assertReleaseVersionConsistency(root)).toMatchObject({
+      desktopVersion: '0.1.12',
+      runtimeVersion: '0.1.9-preview',
+      dshVersion: '0.1.0-rc.8',
+      dshUpstream: latestSource,
     })
   })
 
@@ -43,13 +83,16 @@ describe('prepare upstream release', () => {
     const root = await releaseFixture()
     const before = await snapshotFixture(root)
 
-    expect(await prepareUpstreamRelease({ root, latestVersion: '0.1.0-rc.8' })).toEqual({
+    expect(await prepareUpstreamRelease({ root, latestVersion: '0.1.0-rc.8', latestSource: initialSource })).toEqual({
       action: 'noop',
       previousDshVersion: '0.1.0-rc.8',
       dshVersion: '0.1.0-rc.8',
       desktopVersion: '0.1.12',
       runtimeVersion: '0.1.9-preview',
       tag: 'desktop-v0.1.12',
+      previousUpstreamTag: 'dsh-v0.1.0-rc.8',
+      upstreamTag: 'dsh-v0.1.0-rc.8',
+      upstreamCommit: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     })
     expect(await snapshotFixture(root)).toEqual(before)
   })
@@ -59,7 +102,7 @@ describe('prepare upstream release', () => {
     async (version) => {
       const root = await releaseFixture()
       const before = await snapshotFixture(root)
-      await expect(prepareUpstreamRelease({ root, latestVersion: version })).rejects.toThrow()
+      await expect(prepareUpstreamRelease({ root, latestVersion: version, latestSource: initialSource })).rejects.toThrow()
       expect(await snapshotFixture(root)).toEqual(before)
     },
   )
@@ -86,6 +129,38 @@ describe('prepare upstream release', () => {
     )
   })
 
+  it('parses lightweight and annotated official tags using SemVer order', () => {
+    expect(parseDshTagRefs([
+      'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\trefs/tags/dsh-v0.1.1-rc.10',
+      'cccccccccccccccccccccccccccccccccccccccc\trefs/tags/dsh-v0.1.2-alpha.1',
+      'cd5ef8148158c3a752a658978873241fdf8e2bbc\trefs/tags/dsh-v0.1.2-alpha.1^{}',
+      'dddddddddddddddddddddddddddddddddddddddd\trefs/tags/not-dsh',
+    ].join('\n'))).toEqual({
+      repository: 'https://github.com/deepseek-ai/deepseek-harness.git',
+      tag: 'dsh-v0.1.2-alpha.1',
+      version: '0.1.2-alpha.1',
+      commit: 'cd5ef8148158c3a752a658978873241fdf8e2bbc',
+    })
+  })
+
+  it('runs a bounded read against the fixed public repository', () => {
+    const runner = vi.fn(() => ({
+      status: 0,
+      stdout: 'cd5ef8148158c3a752a658978873241fdf8e2bbc\trefs/tags/dsh-v0.1.2-alpha.1\n',
+    }))
+
+    expect(fetchLatestDshSource(runner)).toMatchObject(latestSource)
+    expect(runner).toHaveBeenCalledWith('git', [
+      'ls-remote', '--tags',
+      'https://github.com/deepseek-ai/deepseek-harness.git',
+      'refs/tags/dsh-v*',
+    ], expect.objectContaining({ encoding: 'utf8', timeout: 10_000 }))
+  })
+
+  it.each(['', 'not-a-ref', 'abc\trefs/tags/dsh-v0.1.2-alpha.1'])('rejects invalid source refs without guessing: %s', (refs) => {
+    expect(() => parseDshTagRefs(refs)).toThrow(/官方 DSH tag/)
+  })
+
   it.each([
     new Response('offline', { status: 503 }),
     new Response('{', { status: 200 }),
@@ -99,10 +174,11 @@ async function releaseFixture() {
   const root = await mkdtemp(join(tmpdir(), 'dsh-release-versions-'))
   for (const directory of ['release', 'src-tauri', 'scripts']) await mkdir(join(root, directory), { recursive: true })
   await writeJson(root, 'release/versions.json', {
-    schemaVersion: 1,
+    schemaVersion: 2,
     desktopVersion: '0.1.12',
     runtimeVersion: '0.1.9-preview',
     dshVersion: '0.1.0-rc.8',
+    dshUpstream: initialSource,
     nodeVersion: '24.14.0',
     pnpmVersion: '11.7.0',
     legacyReleaseBaseline: '0.1.12',
