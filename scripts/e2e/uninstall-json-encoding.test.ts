@@ -14,7 +14,11 @@ describe('uninstall PowerShell JSON encoding', () => {
     const command = `$value = (Get-Content -LiteralPath '${escapedPath}' -Raw -Encoding UTF8 | ConvertFrom-Json).entries[0].path; [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($value))`
     const encoded = Buffer.from(command, 'utf16le').toString('base64')
     try {
-      const output = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], { encoding: 'utf8' }).trim()
+      const output = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], {
+        encoding: 'utf8',
+        timeout: 30_000,
+        windowsHide: true,
+      }).trim()
       expect(Buffer.from(output, 'base64').toString('utf8')).toBe(projectPath)
     } finally {
       rmSync(root, { recursive: true, force: true })

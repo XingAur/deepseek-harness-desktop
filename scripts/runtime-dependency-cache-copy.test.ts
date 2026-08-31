@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { restoreRuntimeDependencyCache } from './runtime-dependency-cache-copy.mjs'
 
@@ -16,8 +16,8 @@ describe('restoreRuntimeDependencyCache', () => {
       dshVersion: '0.1.1-rc.2', pnpmVersion: '11.7.0',
     }, { existsSync: () => true, readFileSync, cpSync })).toBe(true)
     expect(cpSync).toHaveBeenCalledWith(
-      '/cache/node_modules',
-      '/runtime/app/node_modules',
+      resolve('/cache/node_modules'),
+      resolve('/runtime/app/node_modules'),
       { recursive: true, verbatimSymlinks: true },
     )
   })

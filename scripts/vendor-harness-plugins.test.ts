@@ -155,7 +155,8 @@ describe('Harness plugin bundle', () => {
     expect(result.pluginCount).toBe(1)
     expect(result.compatibilityPatches).toEqual([])
     expect(readFileSync(inventoryPath, 'utf8')).toBe(inventoryText)
-    expect(readFileSync(join(target, HARNESS_PLUGIN_VENDOR_MANIFEST), 'utf8')).toContain(sourceRoot)
+    const manifest = JSON.parse(readFileSync(join(target, HARNESS_PLUGIN_VENDOR_MANIFEST), 'utf8'))
+    expect(manifest.sources['his-engineering']).toBe(join(sourceRoot, 'his-engineering'))
   })
 
   it('writes relocatable plugin roots into the assembled Core config', () => {
