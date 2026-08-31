@@ -41,8 +41,6 @@ export interface ClientContextLike {
   }
   workspaces: WorkspacesLike
   sessions: SessionsLike
-  /** The official shell may expose its current model through this optional service. */
-  llm?: unknown
 }
 
 export interface ObservableSnapshot<T> {

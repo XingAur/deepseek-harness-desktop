@@ -83,27 +83,10 @@ export function applyAdvancedShell(
         details: { kind: 'single', scope: 'session' },
         'shell.overlay': { kind: 'list', scope: 'root' },
       },
-      inject: () => ({ layout, platform, workspaces: ctx.workspaces, sessions: ctx.sessions, bridge, modelId: currentModelId(ctx), localProjects, extensionCenter }),
+      inject: () => ({ layout, platform, workspaces: ctx.workspaces, sessions: ctx.sessions, bridge, localProjects, extensionCenter }),
     }, AdvancedFrame)
     return () => { disposeRegistration(); disposeService(); bridge.dispose() }
   }, 'desktop: layout service + advanced root slot')
-}
-
-function currentModelId(ctx: ClientContextLike): string | undefined {
-  const llm = ctx.llm
-  if (typeof llm !== 'object' || llm === null) return undefined
-  const service = llm as {
-    currentModelId?: unknown
-    selectedModelId?: unknown
-    getCurrentModelId?: () => unknown
-  }
-  if (typeof service.currentModelId === 'string' && service.currentModelId.trim() !== '') return service.currentModelId.trim()
-  if (typeof service.selectedModelId === 'string' && service.selectedModelId.trim() !== '') return service.selectedModelId.trim()
-  if (typeof service.getCurrentModelId === 'function') {
-    const value = service.getCurrentModelId()
-    if (typeof value === 'string' && value.trim() !== '') return value.trim()
-  }
-  return undefined
 }
 
 function currentWorkspaceId(ctx: ClientContextLike): string | undefined {

@@ -77,25 +77,37 @@ describe('advanced shell', () => {
     expect(registeredRoot?.inject()).toMatchObject({ workspaces, sessions })
   })
 
-  it('passes the official current model through to the main-chat Harness surface when exposed', () => {
+  it('does not read an undeclared llm service while preparing the root slot', () => {
     let registeredRoot: { inject(): Record<string, unknown> } | undefined
-    const context = {
+    const provide = vi.fn(() => () => undefined)
+    const rawContext = {
       effect: (setup: () => void | (() => void)) => { setup() },
-      reflect: { provide: vi.fn(() => () => undefined) },
+      reflect: { provide },
       slots: {
         register: vi.fn((definition) => {
-          registeredRoot = definition
+          if (definition.name === 'root') registeredRoot = definition
           return () => undefined
         }),
       },
       workspaces: { list: {} },
       sessions: { list: {} },
-      llm: { currentModelId: 'gpt-5.6-sol' },
     } as unknown as ClientContextLike
+    const context = new Proxy(rawContext, {
+      get(target, property, receiver) {
+        if (property === 'llm') throw new Error('cannot get property llm without inject')
+        return Reflect.get(target, property, receiver)
+      },
+    })
 
     applyAdvancedShell(context, 'win32')
 
-    expect(registeredRoot?.inject()).toMatchObject({ modelId: 'gpt-5.6-sol' })
+    expect(() => registeredRoot?.inject()).not.toThrow()
+    expect(provide).toHaveBeenCalledWith('layout', expect.any(Object))
+    expect(registeredRoot?.inject()).toEqual(expect.objectContaining({
+      workspaces: rawContext.workspaces,
+      sessions: rawContext.sessions,
+    }))
+    expect(registeredRoot?.inject()).not.toHaveProperty('modelId')
   })
 
   it('registers local projects in the official sidebar footer action slot', () => {
