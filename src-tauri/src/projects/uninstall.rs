@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::{
-    data_cleanup::live_app_data_root, profile::model::ProfileRecord,
+    data_cleanup::{documents_folder, live_app_data_root}, profile::model::ProfileRecord,
     runtime::model::RuntimeFailure, safe_remove::remove_tree_without_following_reparse_points,
     storage::atomic_json::read_optional,
 };
@@ -25,6 +25,23 @@ const PREVIEW_PREFIX: &str = "deepseek-harness-uninstall-projects-";
 const REPORT_PREFIX: &str = "deepseek-harness-uninstall-report-";
 
 pub(crate) fn collect_registered_projects(app_root: &Path) -> ProjectInventory {
+    // 受管项目根 = <用户文档目录>\DeepSeek Harness\Projects，是应用创建本地项目的
+    // 唯一位置（见 projects/location.rs 的 projects_root；这里只解析不创建）。
+    let managed_root = documents_folder()
+        .ok()
+        .map(|documents| documents.join("DeepSeek Harness").join("Projects"));
+    collect_registered_projects_with_managed_root(app_root, managed_root.as_deref())
+}
+
+pub(crate) fn collect_registered_projects_with_managed_root(
+    app_root: &Path,
+    managed_root: Option<&Path>,
+) -> ProjectInventory {
+    // 规范化受管根（目录不存在等失败等价于 None：没有任何路径能被证明在根内）。
+    // path_key 已做 `\\?\` 前缀折叠与 Windows 大小写归一化，与受保护目录比较同款。
+    let managed_root_key = managed_root
+        .and_then(|root| fs::canonicalize(root).ok())
+        .map(|root| path_key(&root));
     let profiles_path = app_root.join("profiles/profiles.json");
     let profiles = match read_optional::<Vec<ProfileRecord>>(&profiles_path) {
         Ok(Some(profiles)) => profiles,
@@ -57,6 +74,9 @@ pub(crate) fn collect_registered_projects(app_root: &Path) -> ProjectInventory {
                     .and_then(|protected| validate_recycle_target(&candidate, &protected));
                     match result {
                         Ok(()) => {
+                            if !is_inside_managed_root(&candidate, managed_root_key.as_deref()) {
+                                continue;
+                            }
                             projects.entry(path_key(&candidate)).or_insert(candidate);
                         }
                         Err(error) => failures.push(format!("{}：{}", profile.name, error.message)),
@@ -71,6 +91,26 @@ pub(crate) fn collect_registered_projects(app_root: &Path) -> ProjectInventory {
         projects: projects.into_values().collect(),
         failures,
     }
+}
+
+/// 真实事故背景：用户曾把 `D:\Code` 这类自己收录的外部目录登记为项目，旧逻辑在
+/// 卸载时险些把它连根删除。因此这里有意把「规范化后不在受管 Projects 根内」的
+/// 登记项静默排除，且不计入 failures——failure 会阻止整个项目清理流程，把保护性
+/// 排除误报成故障；删除是破坏性操作，宁可少删也绝不误删用户自己的源码目录。
+fn is_inside_managed_root(candidate: &Path, managed_root_key: Option<&str>) -> bool {
+    let Some(managed_root_key) = managed_root_key else {
+        return false;
+    };
+    // 候选必须真实存在才能规范化；不存在的登记项一律排除。
+    let Ok(resolved) = fs::canonicalize(candidate) else {
+        return false;
+    };
+    let candidate_key = path_key(&resolved);
+    // 组件级边界：`C:\ProjectsFoo` 不得因共享字符串前缀而被判入 `C:\Projects`。
+    candidate_key != managed_root_key
+        && candidate_key
+            .strip_prefix(managed_root_key)
+            .is_some_and(|remainder| remainder.starts_with('/'))
 }
 
 pub(crate) fn preview_path(token: u32) -> PathBuf {
@@ -217,11 +257,17 @@ mod tests {
         .unwrap();
     }
 
+    /// 既有用例经由本辅助注入假想的受管 Projects 根，避免依赖本机真实文档目录。
+    fn collect_with_fake_root(app_root: &Path, managed_root: Option<&Path>) -> ProjectInventory {
+        collect_registered_projects_with_managed_root(app_root, managed_root)
+    }
+
     #[test]
     fn collects_and_deduplicates_registered_projects_across_profiles() {
         let root = tempfile::tempdir().unwrap();
         let app = root.path().join("app-data");
-        let project = root.path().join("project");
+        let managed_root = root.path().join("DeepSeek Harness").join("Projects");
+        let project = managed_root.join("project");
         let profile_a = app.join("profiles/a");
         let profile_b = app.join("profiles/b");
         fs::create_dir_all(&project).unwrap();
@@ -229,7 +275,7 @@ mod tests {
         write_workspace(&profile_b, "b", &project);
         write_profiles(&app, &[profile("A", profile_a), profile("B", profile_b)]);
 
-        let inventory = collect_registered_projects(&app);
+        let inventory = collect_with_fake_root(&app, Some(&managed_root));
         assert!(inventory.failures.is_empty());
         assert_eq!(inventory.projects, vec![project.canonicalize().unwrap()]);
     }
@@ -243,7 +289,8 @@ mod tests {
         fs::write(profile_root.join("storages/workspace.json"), b"{").unwrap();
         write_profiles(&app, &[profile("Broken", profile_root)]);
 
-        let inventory = collect_registered_projects(&app);
+        // Profile 读取失败与受管根无关，传 None 也能暴露清单故障。
+        let inventory = collect_with_fake_root(&app, None);
         assert!(inventory.projects.is_empty());
         assert_eq!(inventory.failures.len(), 1);
     }
@@ -257,7 +304,7 @@ mod tests {
             &[profile("Relative", PathBuf::from("relative-profile"))],
         );
 
-        let inventory = collect_registered_projects(&app);
+        let inventory = collect_with_fake_root(&app, None);
         assert!(inventory.projects.is_empty());
         assert_eq!(inventory.failures.len(), 1);
         assert!(inventory.failures[0].contains("不是绝对路径"));
@@ -267,16 +314,96 @@ mod tests {
     fn a_registered_path_inside_the_managed_runtime_blocks_the_inventory() {
         let root = tempfile::tempdir().unwrap();
         let app = root.path().join("app-data");
+        let managed_root = root.path().join("DeepSeek Harness").join("Projects");
         let profile_root = app.join("profiles/default");
         let protected_project = app.join("runtime/project");
         fs::create_dir_all(&protected_project).unwrap();
         write_workspace(&profile_root, "protected", &protected_project);
         write_profiles(&app, &[profile("Default", profile_root)]);
 
-        let inventory = collect_registered_projects(&app);
+        // 受保护目录校验先于受管根过滤，候选在根外也必须以 failure 阻止清理。
+        let inventory = collect_with_fake_root(&app, Some(&managed_root));
         assert!(inventory.projects.is_empty());
         assert_eq!(inventory.failures.len(), 1);
         assert!(inventory.failures[0].contains("已拒绝删除"));
+    }
+
+    #[test]
+    fn a_registered_project_outside_the_managed_root_is_silently_excluded() {
+        let root = tempfile::tempdir().unwrap();
+        let app = root.path().join("app-data");
+        let managed_root = root.path().join("Projects");
+        // 兄弟目录名共享字符串前缀但不在组件边界内，必须与受管根区分开。
+        let imported = root.path().join("ProjectsFoo");
+        fs::create_dir_all(&managed_root).unwrap();
+        fs::create_dir_all(&imported).unwrap();
+        let profile_root = app.join("profiles/default");
+        write_workspace(&profile_root, "imported", &imported);
+        write_profiles(&app, &[profile("Default", profile_root)]);
+
+        let inventory = collect_with_fake_root(&app, Some(&managed_root));
+        // 静默排除：不进清单，也不计 failure（failure 会阻止整个清理流程）。
+        assert!(inventory.projects.is_empty());
+        assert!(inventory.failures.is_empty());
+        assert!(imported.exists());
+    }
+
+    #[test]
+    fn without_a_managed_root_no_registered_project_is_collected() {
+        let root = tempfile::tempdir().unwrap();
+        let app = root.path().join("app-data");
+        let project = root.path().join("Projects").join("demo");
+        fs::create_dir_all(&project).unwrap();
+        let profile_root = app.join("profiles/default");
+        write_workspace(&profile_root, "demo", &project);
+        write_profiles(&app, &[profile("Default", profile_root)]);
+
+        let inventory = collect_with_fake_root(&app, None);
+        assert!(inventory.projects.is_empty());
+        assert!(inventory.failures.is_empty());
+    }
+
+    #[test]
+    fn a_project_link_resolving_outside_the_managed_root_is_excluded() {
+        let root = tempfile::tempdir().unwrap();
+        let app = root.path().join("app-data");
+        let managed_root = root.path().join("Projects");
+        let outside = root.path().join("outside");
+        fs::create_dir_all(&managed_root).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("keep.txt"), "keep").unwrap();
+        let project = managed_root.join("linked");
+        // Windows 普通用户创建目录 junction 无需特权，比 symlink_dir 更可靠。
+        #[cfg(windows)]
+        let linked = {
+            use std::os::windows::process::CommandExt;
+            std::process::Command::new("cmd")
+                .args([
+                    "/d",
+                    "/c",
+                    "mklink",
+                    "/J",
+                    project.to_string_lossy().as_ref(),
+                    outside.to_string_lossy().as_ref(),
+                ])
+                .creation_flags(0x0800_0000)
+                .status()
+                .is_ok_and(|status| status.success())
+        };
+        #[cfg(unix)]
+        let linked = std::os::unix::fs::symlink(&outside, &project).is_ok();
+        if !linked {
+            return;
+        }
+        let profile_root = app.join("profiles/default");
+        write_workspace(&profile_root, "linked", &project);
+        write_profiles(&app, &[profile("Default", profile_root)]);
+
+        // 登记的是根内路径，但规范化后指向根外目标——按真实位置排除。
+        let inventory = collect_with_fake_root(&app, Some(&managed_root));
+        assert!(inventory.projects.is_empty());
+        assert!(inventory.failures.is_empty());
+        assert!(outside.join("keep.txt").exists());
     }
 
     #[test]

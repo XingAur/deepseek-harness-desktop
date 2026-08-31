@@ -106,6 +106,23 @@ pub(crate) fn current_user_profile_root() -> Result<PathBuf, RuntimeFailure> {
     })
 }
 
+/// 解析用户「文档」已知文件夹（只查询，不创建目录）。
+/// 目前仅卸载器用它定位受管 Projects 根（见 projects/uninstall.rs）；
+/// 非 Windows 卸载器不存在该流程，因此直接报错。
+#[cfg(windows)]
+pub(crate) fn documents_folder() -> Result<PathBuf, RuntimeFailure> {
+    known_folder_result(|| {
+        windows_known_folder(&windows_sys::Win32::UI::Shell::FOLDERID_Documents)
+    })
+}
+
+#[cfg(not(windows))]
+pub(crate) fn documents_folder() -> Result<PathBuf, RuntimeFailure> {
+    Err(RuntimeFailure::internal(
+        "「文档」目录解析仅在 Windows 卸载器中受支持",
+    ))
+}
+
 #[cfg(windows)]
 fn windows_known_folder(folder_id: &windows_sys::core::GUID) -> Result<PathBuf, RuntimeFailure> {
     use std::{ffi::c_void, os::windows::ffi::OsStringExt};

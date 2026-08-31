@@ -527,7 +527,7 @@ Function un.ConfirmShow ; Add add a `Delete app data` check box
   ; DSH_CUSTOM_BEGIN uninstall-project-controls
   IntOp $5 130 * $2
   IntOp $5 $5 / 96
-  System::Call 'user32::CreateWindowEx(i r3, w "${__NSD_CheckBox_CLASS}", w "同时删除已登记的本地项目文件夹（包含项目源码）", i ${__NSD_CheckBox_STYLE}, i r4, i r5, i r6, i r7, p $UninstallConfirmDialog, i0, i0, i0) i .s'
+  System::Call 'user32::CreateWindowEx(i r3, w "${__NSD_CheckBox_CLASS}", w "同时删除应用创建的本地项目文件夹（仅限文档\DeepSeek Harness\Projects 内）", i ${__NSD_CheckBox_STYLE}, i r4, i r5, i r6, i r7, p $UninstallConfirmDialog, i0, i0, i0) i .s'
   Pop $DeleteProjectsCheckbox
   SendMessage $DeleteProjectsCheckbox ${BM_SETCHECK} $DeleteProjectsCheckboxState 0
   SendMessage $DeleteProjectsCheckbox ${WM_SETFONT} $1 1
