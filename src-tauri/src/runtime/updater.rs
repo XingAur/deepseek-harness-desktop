@@ -1228,6 +1228,7 @@ mod tests {
             entrypoint: "app/runtime.txt".to_string(),
             args: Vec::new(),
             health_path: "/health".to_string(),
+            desktop_plugin_sha256: None,
         })
     }
 

@@ -486,6 +486,7 @@ mod tests {
             entrypoint: "app/runtime.txt".into(),
             args: Vec::new(),
             health_path: "/health".into(),
+            desktop_plugin_sha256: None,
         })
     }
 
