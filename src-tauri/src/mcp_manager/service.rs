@@ -1,8 +1,9 @@
-use std::{collections::BTreeSet, path::Path, path::PathBuf};
+use std::{collections::{BTreeMap, BTreeSet}, path::Path, path::PathBuf};
 
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
-use crate::mcp_manager::model::{McpServerDef, McpTarget, McpTargetStatus, McpManagerError, Result};
+use crate::mcp_manager::model::{McpProjection, McpServerDef, McpTarget, McpTargetStatus, McpManagerError, Result};
 use crate::mcp_manager::store::McpStore;
 use crate::prompts::targets::{atomic_write, detect_home};
 
@@ -65,11 +66,15 @@ impl McpManagerService {
         Ok(def)
     }
 
-    /// 删除:先从两个目标文件按名移除,再删库;定义不存在时幂等成功。
+    /// 删除:只移除本应用已投影、且未被外部改写的目标条目。
     pub fn delete(&self, id: &str) -> Result<()> {
         let Some(def) = self.store.get(id)? else { return Ok(()) };
-        for target in McpTarget::ALL {
-            self.remove_from_target_file(target, &def.name)?;
+        let projections = self.store.projections_for_server(&def.id)?;
+        for projection in &projections {
+            self.ensure_projection_matches(projection)?;
+        }
+        for projection in &projections {
+            self.remove_projection_from_target_file(projection)?;
         }
         self.store.delete(id)
     }
@@ -190,13 +195,22 @@ impl McpManagerService {
                 )))
             }
         };
-        for def in defs {
-            servers.insert(def.name.clone(), claude_entry(def));
+        let current = servers
+            .iter()
+            .filter_map(|(name, value)| raw_server_from_json(name, value).map(|server| (name.clone(), server)))
+            .collect();
+        let reconciliation = self.reconcile_target(McpTarget::Claude, defs, &current)?;
+        for name in &reconciliation.remove {
+            servers.remove(name);
+        }
+        for (name, raw) in &reconciliation.upsert {
+            servers.insert(name.clone(), claude_entry_raw(raw));
         }
         object.insert("mcpServers".to_owned(), Value::Object(servers));
         let serialized =
             serde_json::to_string_pretty(&root).map_err(|error| McpManagerError::Io(error.to_string()))?;
-        atomic_write(&path, serialized.as_bytes()).map_err(|error| McpManagerError::Io(error.to_string()))
+        atomic_write(&path, serialized.as_bytes()).map_err(|error| McpManagerError::Io(error.to_string()))?;
+        self.store.replace_projections_for_target(McpTarget::Claude, &reconciliation.projections)
     }
 
     fn sync_codex(&self, home: &Path, defs: &[McpServerDef]) -> Result<()> {
@@ -218,18 +232,101 @@ impl McpManagerService {
                 )))
             }
         };
-        for def in defs {
-            servers.insert(def.name.clone(), toml::Value::Table(codex_entry(def)));
+        let current = servers
+            .iter()
+            .filter_map(|(name, value)| raw_server_from_toml(name, value).map(|server| (name.clone(), server)))
+            .collect();
+        let reconciliation = self.reconcile_target(McpTarget::Codex, defs, &current)?;
+        for name in &reconciliation.remove {
+            servers.remove(name);
+        }
+        for (name, raw) in &reconciliation.upsert {
+            servers.insert(name.clone(), toml::Value::Table(codex_entry_raw(raw)));
         }
         root.insert("mcp_servers".to_owned(), toml::Value::Table(servers));
         let serialized = toml::to_string_pretty(&root).map_err(|error| McpManagerError::Io(error.to_string()))?;
-        atomic_write(&path, serialized.as_bytes()).map_err(|error| McpManagerError::Io(error.to_string()))
+        atomic_write(&path, serialized.as_bytes()).map_err(|error| McpManagerError::Io(error.to_string()))?;
+        self.store.replace_projections_for_target(McpTarget::Codex, &reconciliation.projections)
     }
 
-    /// 从目标文件的 mcpServers/mcp_servers 里按名移除一条(文件不存在则无事可做)。
-    fn remove_from_target_file(&self, target: McpTarget, name: &str) -> Result<()> {
+    fn reconcile_target(
+        &self,
+        target: McpTarget,
+        defs: &[McpServerDef],
+        current: &BTreeMap<String, RawServer>,
+    ) -> Result<Reconciliation> {
+        let old = self.store.projections_for_target(target)?;
+        let desired_by_id: BTreeMap<&str, &McpServerDef> = defs.iter().map(|def| (def.id.as_str(), def)).collect();
+        let mut remove = BTreeSet::new();
+        let mut upsert = BTreeMap::new();
+
+        for projection in &old {
+            let current_fingerprint = current.get(&projection.name).map(raw_fingerprint);
+            if current_fingerprint.as_ref().is_some_and(|fingerprint| fingerprint != &projection.fingerprint) {
+                return Err(McpManagerError::ExternalChange { target, name: projection.name.clone() });
+            }
+            let still_desired = desired_by_id
+                .get(projection.server_id.as_str())
+                .is_some_and(|def| def.name == projection.name);
+            if !still_desired && current_fingerprint.is_some() {
+                remove.insert(projection.name.clone());
+            }
+        }
+
+        for def in defs {
+            let raw = raw_server_from_def(def);
+            let desired_fingerprint = raw_fingerprint(&raw);
+            match current.get(&def.name) {
+                None => {
+                    upsert.insert(def.name.clone(), raw);
+                }
+                Some(existing) if raw_fingerprint(existing) == desired_fingerprint => {}
+                Some(existing) => {
+                    let owned = old.iter().any(|projection| {
+                        projection.server_id == def.id
+                            && projection.name == def.name
+                            && projection.fingerprint == raw_fingerprint(existing)
+                    });
+                    if owned {
+                        upsert.insert(def.name.clone(), raw);
+                    } else {
+                        return Err(McpManagerError::ExternalChange { target, name: def.name.clone() });
+                    }
+                }
+            }
+        }
+
+        let projections = defs
+            .iter()
+            .map(|def| McpProjection {
+                server_id: def.id.clone(),
+                target,
+                name: def.name.clone(),
+                fingerprint: raw_fingerprint(&raw_server_from_def(def)),
+            })
+            .collect();
+        Ok(Reconciliation { remove, upsert, projections })
+    }
+
+    fn ensure_projection_matches(&self, projection: &McpProjection) -> Result<()> {
         let Some(home) = &self.home else { return Ok(()) };
-        match target {
+        let current = match projection.target {
+            McpTarget::Claude => read_claude_observed(home, &projection.name)?,
+            McpTarget::Codex => read_codex_observed(home, &projection.name)?,
+        };
+        match current {
+            ObservedServer::Missing => Ok(()),
+            ObservedServer::Supported(server) if raw_fingerprint(&server) == projection.fingerprint => Ok(()),
+            ObservedServer::Supported(_) | ObservedServer::Unsupported => {
+                Err(McpManagerError::ExternalChange { target: projection.target, name: projection.name.clone() })
+            }
+        }
+    }
+
+    /// 从目标文件的 mcpServers/mcp_servers 里移除已校验归属的投影。
+    fn remove_projection_from_target_file(&self, projection: &McpProjection) -> Result<()> {
+        let Some(home) = &self.home else { return Ok(()) };
+        match projection.target {
             McpTarget::Claude => {
                 let path = claude_settings_path(home);
                 if !path.exists() {
@@ -239,7 +336,7 @@ impl McpManagerService {
                 let mut root: Value = serde_json::from_str(&text)
                     .map_err(|error| McpManagerError::Io(format!("解析 {} 失败: {error}", path.display())))?;
                 if let Some(servers) = root.get_mut("mcpServers").and_then(|value| value.as_object_mut()) {
-                    servers.remove(name);
+                    servers.remove(&projection.name);
                     let serialized = serde_json::to_string_pretty(&root)
                         .map_err(|error| McpManagerError::Io(error.to_string()))?;
                     atomic_write(&path, serialized.as_bytes())
@@ -257,7 +354,7 @@ impl McpManagerService {
                     .parse::<toml::Table>()
                     .map_err(|error| McpManagerError::Io(format!("解析 {} 失败: {error}", path.display())))?;
                 if let Some(toml::Value::Table(servers)) = root.get_mut("mcp_servers") {
-                    servers.remove(name);
+                    servers.remove(&projection.name);
                     let serialized =
                         toml::to_string_pretty(&root).map_err(|error| McpManagerError::Io(error.to_string()))?;
                     atomic_write(&path, serialized.as_bytes())
@@ -286,23 +383,23 @@ fn codex_config_path(home: &Path) -> PathBuf {
     codex_dir(home).join("config.toml")
 }
 
-fn claude_entry(def: &McpServerDef) -> Value {
+fn claude_entry_raw(raw: &RawServer) -> Value {
     serde_json::json!({
-        "command": def.command,
-        "args": def.args,
-        "env": def.env,
+        "command": raw.command,
+        "args": raw.args,
+        "env": raw.env,
     })
 }
 
-fn codex_entry(def: &McpServerDef) -> toml::Table {
+fn codex_entry_raw(raw: &RawServer) -> toml::Table {
     let mut table = toml::Table::new();
-    table.insert("command".to_owned(), toml::Value::String(def.command.clone()));
+    table.insert("command".to_owned(), toml::Value::String(raw.command.clone()));
     table.insert(
         "args".to_owned(),
-        toml::Value::Array(def.args.iter().map(|arg| toml::Value::String(arg.clone())).collect()),
+        toml::Value::Array(raw.args.iter().map(|arg| toml::Value::String(arg.clone())).collect()),
     );
     let mut env = toml::Table::new();
-    for (key, value) in &def.env {
+    for (key, value) in &raw.env {
         env.insert(key.clone(), toml::Value::String(value.clone()));
     }
     table.insert("env".to_owned(), toml::Value::Table(env));
@@ -313,7 +410,60 @@ struct RawServer {
     name: String,
     command: String,
     args: Vec<String>,
-    env: std::collections::BTreeMap<String, String>,
+    env: BTreeMap<String, String>,
+}
+
+struct Reconciliation {
+    remove: BTreeSet<String>,
+    upsert: BTreeMap<String, RawServer>,
+    projections: Vec<McpProjection>,
+}
+
+enum ObservedServer {
+    Missing,
+    Supported(RawServer),
+    Unsupported,
+}
+
+fn raw_server_from_def(def: &McpServerDef) -> RawServer {
+    RawServer { name: def.name.clone(), command: def.command.clone(), args: def.args.clone(), env: def.env.clone() }
+}
+
+fn raw_fingerprint(raw: &RawServer) -> String {
+    let canonical = serde_json::json!({ "command": raw.command, "args": raw.args, "env": raw.env });
+    let bytes = serde_json::to_vec(&canonical).expect("RawServer serialization cannot fail");
+    hex::encode(Sha256::digest(bytes))
+}
+
+fn read_claude_observed(home: &Path, name: &str) -> Result<ObservedServer> {
+    let path = claude_settings_path(home);
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(ObservedServer::Missing),
+        Err(error) => return Err(McpManagerError::Io(error.to_string())),
+    };
+    let root: Value = serde_json::from_str(&text)
+        .map_err(|error| McpManagerError::Io(format!("解析 {} 失败: {error}", path.display())))?;
+    let Some(value) = root.get("mcpServers").and_then(Value::as_object).and_then(|servers| servers.get(name)) else {
+        return Ok(ObservedServer::Missing);
+    };
+    Ok(raw_server_from_json(name, value).map_or(ObservedServer::Unsupported, ObservedServer::Supported))
+}
+
+fn read_codex_observed(home: &Path, name: &str) -> Result<ObservedServer> {
+    let path = codex_config_path(home);
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(ObservedServer::Missing),
+        Err(error) => return Err(McpManagerError::Io(error.to_string())),
+    };
+    let root: toml::Table = text
+        .parse()
+        .map_err(|error| McpManagerError::Io(format!("解析 {} 失败: {error}", path.display())))?;
+    let Some(value) = root.get("mcp_servers").and_then(toml::Value::as_table).and_then(|servers| servers.get(name)) else {
+        return Ok(ObservedServer::Missing);
+    };
+    Ok(raw_server_from_toml(name, value).map_or(ObservedServer::Unsupported, ObservedServer::Supported))
 }
 
 /// 只导入带 string command 的本地(stdio)服务器;远程(http/sse)条目跳过,MVP 不做转换。
@@ -356,24 +506,30 @@ fn parse_codex_servers(text: &str) -> std::result::Result<Vec<RawServer>, String
     };
     let mut parsed = Vec::new();
     for (name, entry) in servers {
-        let Some(table) = entry.as_table() else { continue };
-        let Some(command) = table.get("command").and_then(|value| value.as_str()) else { continue };
-        let args = table
-            .get("args")
-            .and_then(|value| value.as_array())
-            .map(|items| items.iter().filter_map(|item| item.as_str().map(str::to_owned)).collect())
-            .unwrap_or_default();
-        let mut env = std::collections::BTreeMap::new();
-        if let Some(pairs) = table.get("env").and_then(|value| value.as_table()) {
-            for (key, value) in pairs {
-                if let Some(text) = value.as_str() {
-                    env.insert(key.clone(), text.to_owned());
-                }
-            }
+        if let Some(raw) = raw_server_from_toml(name, entry) {
+            parsed.push(raw);
         }
-        parsed.push(RawServer { name: name.clone(), command: command.to_owned(), args, env });
     }
     Ok(parsed)
+}
+
+fn raw_server_from_toml(name: &str, entry: &toml::Value) -> Option<RawServer> {
+    let table = entry.as_table()?;
+    let command = table.get("command")?.as_str()?.to_owned();
+    let args = table
+        .get("args")
+        .and_then(|value| value.as_array())
+        .map(|items| items.iter().filter_map(|item| item.as_str().map(str::to_owned)).collect())
+        .unwrap_or_default();
+    let mut env = BTreeMap::new();
+    if let Some(pairs) = table.get("env").and_then(|value| value.as_table()) {
+        for (key, value) in pairs {
+            if let Some(text) = value.as_str() {
+                env.insert(key.clone(), text.to_owned());
+            }
+        }
+    }
+    Some(RawServer { name: name.to_owned(), command, args, env })
 }
 
 #[cfg(test)]
@@ -540,21 +696,58 @@ mod tests {
     }
 
     #[test]
-    fn delete_removes_from_store_and_both_target_files() {
+    fn delete_removes_only_owned_target_projection() {
         let env = env();
         let service = service(&env);
         let created = service.upsert(def("fetch", "npx", &["claude"])).unwrap();
         service.sync_target(McpTarget::Claude).unwrap();
-        // codex 文件里手工放一份同名条目,验证删除同时清两处
+        // Codex 文件里手工放一份同名条目:它从未被本应用投影,删除不得触碰。
         std::fs::write(env.home.join(".codex/config.toml"), "[mcp_servers.fetch]\ncommand = \"npx\"\n").unwrap();
         service.delete(&created.id).unwrap();
         assert!(service.list().unwrap().is_empty());
         assert!(read_claude_json(&env)["mcpServers"].get("fetch").is_none());
         let codex = read_codex_toml(&env);
-        let codex_servers = codex.get("mcp_servers").and_then(|value| value.as_table());
-        assert!(codex_servers.map(|table| table.is_empty()).unwrap_or(true), "同名条目须从 codex 移除");
+        assert_eq!(codex["mcp_servers"]["fetch"]["command"], toml::Value::from("npx"));
         // 幂等:重复删除不报错
         service.delete(&created.id).unwrap();
+    }
+
+    #[test]
+    fn sync_removes_deselected_owned_projection() {
+        let env = env();
+        let service = service(&env);
+        let created = service.upsert(def("fetch", "npx", &["claude", "codex"])).unwrap();
+        service.sync_target(McpTarget::Claude).unwrap();
+        service.sync_target(McpTarget::Codex).unwrap();
+        let mut updated = created;
+        updated.targets.remove("codex");
+        service.upsert(updated).unwrap();
+        service.sync_target(McpTarget::Codex).unwrap();
+        assert!(read_codex_toml(&env)
+            .get("mcp_servers")
+            .and_then(toml::Value::as_table)
+            .is_none_or(|servers| !servers.contains_key("fetch")));
+    }
+
+    #[test]
+    fn sync_preserves_externally_changed_owned_projection() {
+        let env = env();
+        let service = service(&env);
+        let created = service.upsert(def("fetch", "npx", &["claude"])).unwrap();
+        service.sync_target(McpTarget::Claude).unwrap();
+        std::fs::write(
+            env.home.join(".claude.json"),
+            r#"{"mcpServers":{"fetch":{"command":"external-node","args":[],"env":{}}}}"#,
+        )
+        .unwrap();
+        let mut updated = created;
+        updated.targets.clear();
+        service.upsert(updated).unwrap();
+        assert!(matches!(
+            service.sync_target(McpTarget::Claude),
+            Err(McpManagerError::ExternalChange { target: McpTarget::Claude, name }) if name == "fetch"
+        ));
+        assert_eq!(read_claude_json(&env)["mcpServers"]["fetch"]["command"], "external-node");
     }
 
     #[test]

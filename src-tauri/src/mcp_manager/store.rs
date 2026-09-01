@@ -2,7 +2,7 @@ use std::{path::Path, sync::Mutex};
 
 use rusqlite::{Connection, OpenFlags};
 
-use crate::mcp_manager::model::{McpServerDef, McpManagerError, Result};
+use crate::mcp_manager::model::{McpProjection, McpServerDef, McpTarget, McpManagerError, Result};
 
 const CREATE_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS mcp_servers (
@@ -15,6 +15,14 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
     updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_mcp_servers_name ON mcp_servers (name);
+CREATE TABLE IF NOT EXISTS mcp_projections (
+    server_id TEXT NOT NULL,
+    target TEXT NOT NULL,
+    name TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    PRIMARY KEY (server_id, target)
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_projections_target_name ON mcp_projections (target, name);
 ";
 
 /// 单表无版本迁移:直接 CREATE TABLE IF NOT EXISTS,保持与 MVP 规模相称的简单。
@@ -51,9 +59,9 @@ impl McpStore {
         Ok(Self { connection: Mutex::new(connection) })
     }
 
-    fn with_lock<T>(&self, operation: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
-        let guard = self.connection.lock().map_err(|_| McpManagerError::Store("存储锁中毒".into()))?;
-        operation(&guard)
+    fn with_lock<T>(&self, operation: impl FnOnce(&mut Connection) -> Result<T>) -> Result<T> {
+        let mut guard = self.connection.lock().map_err(|_| McpManagerError::Store("存储锁中毒".into()))?;
+        operation(&mut guard)
     }
 
     pub fn upsert(&self, def: &McpServerDef, updated_at: i64) -> Result<()> {
@@ -137,9 +145,59 @@ impl McpStore {
 
     pub fn delete(&self, id: &str) -> Result<()> {
         self.with_lock(|connection| {
-            connection
+            let transaction = connection.transaction().map_err(|error| McpManagerError::Store(error.to_string()))?;
+            transaction
+                .execute("DELETE FROM mcp_projections WHERE server_id = ?1", [id])
+                .map_err(|error| McpManagerError::Store(error.to_string()))?;
+            transaction
                 .execute("DELETE FROM mcp_servers WHERE id = ?1", [id])
                 .map_err(|error| McpManagerError::Store(error.to_string()))?;
+            transaction.commit().map_err(|error| McpManagerError::Store(error.to_string()))?;
+            Ok(())
+        })
+    }
+
+    pub fn projections_for_target(&self, target: McpTarget) -> Result<Vec<McpProjection>> {
+        self.with_lock(|connection| {
+            let mut statement = connection
+                .prepare("SELECT server_id, target, name, fingerprint FROM mcp_projections WHERE target = ?1 ORDER BY name ASC")
+                .map_err(|error| McpManagerError::Store(error.to_string()))?;
+            let rows = statement
+                .query_map([target.as_str()], row_to_projection)
+                .map_err(|error| McpManagerError::Store(error.to_string()))?;
+            rows.collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|error| McpManagerError::Store(error.to_string()))
+        })
+    }
+
+    pub fn projections_for_server(&self, server_id: &str) -> Result<Vec<McpProjection>> {
+        self.with_lock(|connection| {
+            let mut statement = connection
+                .prepare("SELECT server_id, target, name, fingerprint FROM mcp_projections WHERE server_id = ?1 ORDER BY target ASC")
+                .map_err(|error| McpManagerError::Store(error.to_string()))?;
+            let rows = statement
+                .query_map([server_id], row_to_projection)
+                .map_err(|error| McpManagerError::Store(error.to_string()))?;
+            rows.collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|error| McpManagerError::Store(error.to_string()))
+        })
+    }
+
+    pub fn replace_projections_for_target(&self, target: McpTarget, projections: &[McpProjection]) -> Result<()> {
+        self.with_lock(|connection| {
+            let transaction = connection.transaction().map_err(|error| McpManagerError::Store(error.to_string()))?;
+            transaction
+                .execute("DELETE FROM mcp_projections WHERE target = ?1", [target.as_str()])
+                .map_err(|error| McpManagerError::Store(error.to_string()))?;
+            for projection in projections {
+                transaction
+                    .execute(
+                        "INSERT INTO mcp_projections (server_id, target, name, fingerprint) VALUES (?1, ?2, ?3, ?4)",
+                        rusqlite::params![projection.server_id, projection.target.as_str(), projection.name, projection.fingerprint],
+                    )
+                    .map_err(|error| McpManagerError::Store(error.to_string()))?;
+            }
+            transaction.commit().map_err(|error| McpManagerError::Store(error.to_string()))?;
             Ok(())
         })
     }
@@ -162,6 +220,19 @@ fn row_to_def(row: &rusqlite::Row<'_>) -> std::result::Result<McpServerDef, rusq
         targets: serde_json::from_str(&targets_json).map_err(|error| {
             rusqlite::Error::FromSqlConversionFailure(5, rusqlite::types::Type::Text, error.to_string().into())
         })?,
+    })
+}
+
+fn row_to_projection(row: &rusqlite::Row<'_>) -> std::result::Result<McpProjection, rusqlite::Error> {
+    let target: String = row.get(1)?;
+    let target = McpTarget::parse(&target).ok_or_else(|| {
+        rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, "未知 MCP 目标".into())
+    })?;
+    Ok(McpProjection {
+        server_id: row.get(0)?,
+        target,
+        name: row.get(2)?,
+        fingerprint: row.get(3)?,
     })
 }
 

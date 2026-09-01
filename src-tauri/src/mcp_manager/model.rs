@@ -60,6 +60,18 @@ pub struct McpTargetStatus {
     pub installed: bool,
 }
 
+/// 已成功写入某个目标配置的受管投影。
+///
+/// `fingerprint` 是命令、参数和环境变量的规范化摘要。只有目标文件中的当前值仍与
+/// 该摘要匹配，后续同步或删除才允许移除/替换该条目。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct McpProjection {
+    pub server_id: String,
+    pub target: McpTarget,
+    pub name: String,
+    pub fingerprint: String,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum McpManagerError {
     #[error("mcp_store_error: {0}")]
@@ -70,6 +82,8 @@ pub enum McpManagerError {
     InvalidInput(String),
     #[error("mcp_io_error: {0}")]
     Io(String),
+    #[error("mcp_external_change: {target}/{name}")]
+    ExternalChange { target: McpTarget, name: String },
 }
 
 pub type Result<T> = std::result::Result<T, McpManagerError>;
