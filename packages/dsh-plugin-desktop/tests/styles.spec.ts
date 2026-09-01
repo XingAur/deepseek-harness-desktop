@@ -61,4 +61,34 @@ describe('advanced styles', () => {
 
     dispose()
   })
+
+  it('keeps plugin surfaces on real theme tokens with light-neutral fallbacks', () => {
+    const dispose = installAdvancedStyles()
+    const css = document.getElementById('dsh-desktop-advanced-styles')?.textContent ?? ''
+
+    // 官方主题不存在这些变量名；引用它们会让深色回退恒生效（弹窗恒深色）。
+    expect(css).not.toContain('--dsw-alias-surface-primary')
+    expect(css).not.toContain('--dsw-alias-surface-secondary')
+    expect(css).not.toContain('--dsw-alias-border-primary')
+    expect(css).not.toContain('--dsw-alias-border-strong')
+    expect(css).not.toContain('--dsw-alias-border-l2')
+
+    // 导入现有提示词弹窗必须走与其它弹窗一致的官方表层变量。
+    expect(css).toMatch(/\.dshPromptsDialog \{[^}]*background: var\(--dsw-alias-bg-layer-1, #ffffff\)/)
+    expect(css).toMatch(/\.dshPromptsModeSwitch button\[aria-pressed='true'\] \{[^}]*var\(--dsw-alias-interactive-bg-hover/)
+    expect(css).toMatch(/\.dshPromptsListItem\.is-active \{[^}]*var\(--dsw-alias-interactive-bg-hover/)
+
+    // 回退值一律浅色/中性，杜绝变量缺失时浅色主题渲染成深色面板。
+    expect(css).not.toMatch(/var\(--[\w-]+, #(1c1c1f|1d1d20|29292e|2c2c2f|151517|141416|101013)\)/)
+    expect(css).not.toMatch(/var\(--dsw-alias-label-\w+, #(b7b7bf|85858d|ececf0|f4f4f5|e8edf2|f0f0f3)\)/)
+    expect(css).toMatch(/\.dshPluginJobLog \{[^}]*background: var\(--dsw-alias-bg-base, #ffffff\)/)
+    expect(css).toMatch(/\.dshAgentLog \{[^}]*background: var\(--dsw-alias-bg-base, #ffffff\)/)
+
+    // 浅色主题下压暗仅按深色设计的高亮硬编码文字。
+    expect(css).toContain('body[data-dsh-desktop-theme="light"] .dshPluginMarketCategories button.is-active')
+    expect(css).toContain('body[data-dsh-desktop-theme="light"] .dshAgentStep[data-state="active"] .dshAgentStepMark')
+    expect(css).toContain('body[data-dsh-desktop-theme="light"] .dshAgentWorkbenchDiff pre')
+
+    dispose()
+  })
 })
