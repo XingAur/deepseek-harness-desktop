@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type Dispatch, type SetStateAction } from 'react'
 import type { DesktopBridgeLike } from '../desktop-bridge'
 import { AgentHome } from '../AgentHome'
 import { DiagnosticsPanel } from './DiagnosticsPanel'
@@ -7,6 +7,7 @@ import type { ExtensionReviewItem } from '../extensions/ExtensionReviewDialog'
 import { SkillCenter } from './SkillCenter'
 import { deriveProviderState, messageOf, type ProviderMetadata } from './state'
 import { normalizeConnectionProfile, type ConnectionProfile } from './connection-model'
+import { isHarnessEntryEnabled, setHarnessEntryEnabled, subscribeHarnessEntry } from '../harness/harness-entry-state'
 
 type CenterTab = 'runners' | 'skills' | 'connections' | 'diagnostics'
 interface Capability { id: string; displayName: string; mutating: boolean; approvalRequired: boolean }
@@ -14,6 +15,7 @@ interface Capability { id: string; displayName: string; mutating: boolean; appro
 export interface ModelAgentCenterProps { bridge: DesktopBridgeLike; workspaceId?: string }
 
 export function ModelAgentCenter({ bridge, workspaceId }: ModelAgentCenterProps) {
+  const harnessEntryEnabled = useSyncExternalStore(subscribeHarnessEntry, isHarnessEntryEnabled)
   const [tab, setTab] = useState<CenterTab>('runners')
   const [capabilities, setCapabilities] = useState<Capability[]>([])
   const [extensions, setExtensions] = useState<ExtensionReviewItem[]>([])
@@ -61,6 +63,20 @@ export function ModelAgentCenter({ bridge, workspaceId }: ModelAgentCenterProps)
   return (
     <section className="dshModelAgentCenter" aria-busy={busy || undefined}>
       <header className="dshModelAgentCenterHeader"><div><h2>智能体能力</h2><p>模型由“模型”管理，角色提示由“Agent 预设”管理；这里管理执行器、技能、MCP 和外部连接。</p></div><button type="button" disabled={busy} onClick={() => void load()}>刷新</button></header>
+      <div className="dshModelAgentHarnessEntry">
+        <div>
+          <strong>启用 Harness 任务入口</strong>
+          <span>在工作台对话页顶部显示 Harness 任务入口</span>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          className="dshModelAgentHarnessEntryToggle"
+          aria-checked={harnessEntryEnabled}
+          aria-label="启用 Harness 任务入口"
+          onClick={() => setHarnessEntryEnabled(!harnessEntryEnabled)}
+        />
+      </div>
       {bridge.mode === 'preview' && <div className="dshPluginMarketPreview" role="note">本地只读预览使用样例能力，不读取或修改正式应用配置。</div>}
       <nav className="dshModelAgentTabs" role="tablist" aria-label="智能体能力页签">
         {tabs.map(([value, label]) => <button type="button" role="tab" aria-selected={tab === value} key={value} onClick={() => setTab(value)}>{label}</button>)}

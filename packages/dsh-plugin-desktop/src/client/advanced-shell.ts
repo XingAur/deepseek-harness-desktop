@@ -7,10 +7,9 @@ import { DesktopThemePresenter } from './theme-presenter'
 import { createDesktopBridge } from './desktop-bridge'
 import type { DesktopBridgeLike } from './desktop-bridge'
 import { ProfileSettingsSection } from './ProfileSettingsSection'
-import { LocalProjectsFooterAction } from './LocalProjectsFooterAction'
 import { LocalProjectsState } from './local-projects-state'
 import { ExtensionCenterState } from './extension-center-state'
-import { ExtensionCenterFooterAction } from './ExtensionCenterFooterAction'
+import { SidebarFooterActions } from './SidebarFooterActions'
 import { ModelAgentCenter } from './model-agent/ModelAgentCenter'
 import { installNewSessionTransition } from './new-session-transition'
 import { listPreviewCatalog } from './extensions/preview-catalog'
@@ -64,16 +63,10 @@ export function applyAdvancedShell(
   }, ModelAgentCenter))
   ctx.slots.inject?.('sidebar.footer.action', () => ctx.slots.register({
     name: 'sidebar.footer.action',
-    id: 'dsh-desktop-local-projects',
+    id: 'dsh-desktop-footer-actions',
     order: 10,
-    inject: () => ({ state: localProjects }),
-  }, LocalProjectsFooterAction))
-  ctx.slots.inject?.('sidebar.footer.action', () => ctx.slots.register({
-    name: 'sidebar.footer.action',
-    id: 'dsh-desktop-extension-center',
-    order: 20,
-    inject: () => ({ state: extensionCenter }),
-  }, ExtensionCenterFooterAction))
+    inject: () => ({ localProjects, extensionCenter }),
+  }, SidebarFooterActions))
   ctx.effect(() => {
     const disposeService = provideDesktopLayout(ctx, layout)
     const disposeRegistration = ctx.slots.register({

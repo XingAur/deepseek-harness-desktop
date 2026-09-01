@@ -19,6 +19,10 @@ export function installAdvancedStyles(): () => void {
     .dshDesktopFooterAction.is-active { background: var(--dsw-specific-sidebar-nav-item-active, var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.1))); }
     .dshDesktopFooterAction.is-rail { width: 36px; height: 36px; justify-content: center; gap: 0; margin: 8px 0 10px; padding: 0; border-radius: 50%; }
     .dshDesktopFooterAction:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, #7d9cf0); outline-offset: 2px; }
+    .dshDesktopFooterActions { display: grid; gap: 4px; width: 100%; }
+    .dshDesktopFooterActions .dshDesktopFooterAction { width: 100%; justify-content: flex-start; }
+    .dshDesktopFooterActions.is-rail { display: flex; justify-content: center; gap: 8px; }
+    .dshDesktopFooterActions.is-rail .dshDesktopFooterAction { width: 36px; justify-content: center; }
     .dshDesktopConversationSurface { background: var(--dsw-alias-bg-base, #141416); }
     .dshDesktopDetailsSurface { background: var(--dsw-alias-bg-layer-1, #1c1c1f); border-left: 1px solid var(--dsh-desktop-divider); }
     .dshDesktopOverlay { position: absolute; inset: 0; pointer-events: none; z-index: 30; }
@@ -52,6 +56,15 @@ export function installAdvancedStyles(): () => void {
     .dshModelAgentCenterHeader > div > p:last-child { margin: 7px 0 0; color: var(--dsw-alias-label-tertiary, #85858d); font-size: 13px; }
     .dshModelAgentCenterHeader > button, .dshModelAgentActions button, .dshModelAgentDialog footer button { min-height: 34px; padding: 0 12px; border: 1px solid var(--dsh-desktop-divider); border-radius: 8px; color: inherit; background: var(--dsw-alias-bg-layer-2, #29292e); cursor: pointer; }
     .dshModelAgentCenter button:disabled { cursor: default; opacity: .48; }
+    .dshModelAgentHarnessEntry { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 13px 15px; border: 1px solid var(--dsh-desktop-divider); border-radius: 12px; background: var(--dsw-alias-bg-layer-1, #1d1d20); }
+    .dshModelAgentHarnessEntry > div { display: grid; gap: 3px; min-width: 0; }
+    .dshModelAgentHarnessEntry strong { font-size: 13px; }
+    .dshModelAgentHarnessEntry span { color: var(--dsw-alias-label-tertiary, #85858d); font-size: 12px; }
+    .dshModelAgentHarnessEntryToggle { position: relative; width: 40px; height: 22px; flex: 0 0 auto; padding: 0; border: 0; border-radius: 999px; background: var(--dsw-alias-bg-layer-2, #29292e); cursor: pointer; transition: background-color .15s ease; }
+    .dshModelAgentHarnessEntryToggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #b9c0cd; transition: transform .15s ease; }
+    .dshModelAgentHarnessEntryToggle[aria-checked="true"] { background: #5877cf; }
+    .dshModelAgentHarnessEntryToggle[aria-checked="true"]::after { transform: translateX(18px); background: white; }
+    .dshModelAgentHarnessEntryToggle:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, #7d9cf0); outline-offset: 2px; }
     .dshModelAgentTabs { display: flex; gap: 6px; padding-bottom: 8px; border-bottom: 1px solid var(--dsh-desktop-divider); }
     .dshModelAgentTabs button { min-height: 32px; padding: 0 12px; border: 0; border-radius: 8px; color: var(--dsw-alias-label-tertiary, #85858d); background: transparent; cursor: pointer; }
     .dshModelAgentTabs button[aria-selected="true"] { color: var(--dsw-alias-label-primary, #ececf0); background: color-mix(in srgb, #7196ff 15%, transparent); }

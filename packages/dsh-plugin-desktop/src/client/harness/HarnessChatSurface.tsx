@@ -1,6 +1,7 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { DesktopBridgeLike } from '../desktop-bridge'
 import { messageOf } from '../model-agent/state'
+import { isHarnessEntryEnabled, subscribeHarnessEntry } from './harness-entry-state'
 
 type CapabilityId = 'yunxiao' | 'gitlab' | 'database'
 type ConnectionProfile = {
@@ -35,6 +36,7 @@ export interface HarnessChatSurfaceProps {
 }
 
 export function HarnessChatSurface({ bridge, workspaceId, renderConversation }: HarnessChatSurfaceProps) {
+  const harnessEntryEnabled = useSyncExternalStore(subscribeHarnessEntry, isHarnessEntryEnabled)
   const [open, setOpen] = useState(false)
   const [prompt, setPrompt] = useState('')
   const [archiveRoot, setArchiveRoot] = useState<string | undefined>()
@@ -185,13 +187,15 @@ export function HarnessChatSurface({ bridge, workspaceId, renderConversation }: 
       <div className="dshHarnessConversationToolbar">
         <div>
           <strong>当前对话</strong>
-          <span>普通聊天和 Harness 任务都从这里开始</span>
+          {harnessEntryEnabled && <span>普通聊天和 Harness 任务都从这里开始</span>}
         </div>
-        <button type="button" onClick={() => { setOpen((current) => !current); setError(null) }}>
-          {open ? '返回普通聊天' : '开始 Harness 任务'}
-        </button>
+        {harnessEntryEnabled && (
+          <button type="button" onClick={() => { setOpen((current) => !current); setError(null) }}>
+            {open ? '返回普通聊天' : '开始 Harness 任务'}
+          </button>
+        )}
       </div>
-      {open && <section className="dshHarnessChatComposer" aria-label="Harness 任务">
+      {open && harnessEntryEnabled && <section className="dshHarnessChatComposer" aria-label="Harness 任务">
         <header>
           <div><p className="dshModelAgentEyebrow">GOVERNED TASK</p><h2>告诉 Harness 你要完成什么</h2><p>使用当前对话模型完成需求理解、规划、代码修改和验证；Harness 会自动整理能读取到的证据。</p></div>
           <span className="dshHarnessCurrentModel">使用当前对话模型</span>

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HarnessChatSurface } from '../src/client/harness/HarnessChatSurface'
+import { setHarnessEntryEnabled } from '../src/client/harness/harness-entry-state'
 import type { DesktopBridgeLike } from '../src/client/desktop-bridge'
 
 function bridgeFixture(): DesktopBridgeLike {
@@ -19,6 +20,11 @@ function bridgeFixture(): DesktopBridgeLike {
 }
 
 describe('HarnessChatSurface', () => {
+  beforeEach(() => {
+    // 任务入口默认隐藏；这些用例验证入口开启后的完整任务流。
+    setHarnessEntryEnabled(true)
+  })
+
   it('keeps the Harness task entry in the main conversation surface', async () => {
     const bridge = bridgeFixture()
     render(<HarnessChatSurface bridge={bridge} workspaceId="w-1" renderConversation={() => <div data-testid="official-conversation" />} />)

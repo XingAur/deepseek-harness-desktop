@@ -1,9 +1,8 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { AdvancedFrame } from '../src/client/AdvancedFrame'
-import { ExtensionCenterFooterAction } from '../src/client/ExtensionCenterFooterAction'
-import { LocalProjectsFooterAction } from '../src/client/LocalProjectsFooterAction'
+import { SidebarFooterActions } from '../src/client/SidebarFooterActions'
 import { bridgeFixture, renderFrame, sessionFixture, workspaceFixture } from './fixtures'
 import { DesktopLayoutState } from '../src/client/layout-state'
 import { ExtensionCenterState } from '../src/client/extension-center-state'
@@ -32,21 +31,34 @@ describe('advanced frame', () => {
     expect(screen.queryByText('社区插件')).not.toBeInTheDocument()
   })
 
-  it('matches official footer geometry in wide and rail states', () => {
-    const state = new LocalProjectsState()
-    const { rerender } = render(<LocalProjectsFooterAction wide state={state} />)
-    let entry = screen.getByRole('button', { name: '本地项目' })
-    expect(entry).toBeVisible()
-    expect(entry.querySelector('svg')).toBeInTheDocument()
-    expect(entry).toHaveClass('dshDesktopFooterAction')
-    expect(screen.getByText('本地项目')).toHaveClass('dshDesktopFooterActionLabel')
+  it('侧边栏 footer 功能按钮合并为单列组并匹配官方几何', () => {
+    const localProjects = new LocalProjectsState()
+    const extensionCenter = new ExtensionCenterState()
+    const { rerender } = render(
+      <SidebarFooterActions wide localProjects={localProjects} extensionCenter={extensionCenter} />,
+    )
+    let group = screen.getByRole('group', { name: '桌面功能' })
+    expect(group).toHaveClass('dshDesktopFooterActions')
+    const buttonLabels = within(group).getAllByRole('button').map((button) => button.getAttribute('aria-label'))
+    expect(buttonLabels).toEqual(['本地项目', '扩展中心'])
+    for (const label of ['本地项目', '扩展中心']) {
+      const entry = within(group).getByRole('button', { name: label })
+      expect(entry.querySelector('svg')).toBeInTheDocument()
+      expect(within(entry).getByText(label)).toHaveClass('dshDesktopFooterActionLabel')
+    }
 
-    rerender(<LocalProjectsFooterAction wide={false} state={state} />)
-    entry = screen.getByRole('button', { name: '本地项目' })
-    expect(entry).toHaveClass('dshDesktopFooterAction', 'is-rail')
-    expect(screen.queryByText('本地项目')).not.toBeInTheDocument()
-    fireEvent.click(entry)
-    expect(state.getSnapshot()).toBe(true)
+    rerender(<SidebarFooterActions wide={false} localProjects={localProjects} extensionCenter={extensionCenter} />)
+    group = screen.getByRole('group', { name: '桌面功能' })
+    expect(group).toHaveClass('dshDesktopFooterActions', 'is-rail')
+    for (const label of ['本地项目', '扩展中心']) {
+      const entry = within(group).getByRole('button', { name: label })
+      expect(entry).toHaveClass('dshDesktopFooterAction', 'is-rail')
+      expect(screen.queryByText(label)).not.toBeInTheDocument()
+    }
+    fireEvent.click(within(group).getByRole('button', { name: '本地项目' }))
+    expect(localProjects.getSnapshot()).toBe(true)
+    fireEvent.click(within(group).getByRole('button', { name: '扩展中心' }))
+    expect(extensionCenter.getSnapshot()).toBe(true)
   })
 
   it('侧边栏不再渲染被替换的插件入口按钮', () => {
@@ -101,30 +113,15 @@ describe('advanced frame', () => {
     expect(screen.getByRole('region', { name: '本地项目' })).toBeInTheDocument()
   })
 
-  it('footer 顺序为 本地项目 → 扩展中心(设置由官方渲染在其后)', () => {
+  it('footer 的本地项目与扩展中心都渲染在单列组容器内', () => {
     renderFrame()
-    const labels = Array.from(document.querySelectorAll('.dshDesktopFooterActionLabel'))
+    const group = document.querySelector('.dshDesktopFooterActions')
+    expect(group).not.toBeNull()
+    const labels = Array.from(group?.querySelectorAll('.dshDesktopFooterActionLabel') ?? [])
       .map((node) => node.textContent)
     expect(labels).toContain('本地项目')
     expect(labels).toContain('扩展中心')
-    expect(labels.indexOf('本地项目')).toBeLessThan(labels.indexOf('扩展中心'))
-  })
-
-  it('matches the extension center footer geometry in wide and rail states', () => {
-    const state = new ExtensionCenterState()
-    const { rerender } = render(<ExtensionCenterFooterAction wide state={state} />)
-    let entry = screen.getByRole('button', { name: '扩展中心' })
-    expect(entry).toBeVisible()
-    expect(entry.querySelector('svg')).toBeInTheDocument()
-    expect(entry).toHaveClass('dshDesktopFooterAction')
-    expect(screen.getByText('扩展中心')).toHaveClass('dshDesktopFooterActionLabel')
-
-    rerender(<ExtensionCenterFooterAction wide={false} state={state} />)
-    entry = screen.getByRole('button', { name: '扩展中心' })
-    expect(entry).toHaveClass('dshDesktopFooterAction', 'is-rail')
-    expect(screen.queryByText('扩展中心')).not.toBeInTheDocument()
-    fireEvent.click(entry)
-    expect(state.getSnapshot()).toBe(true)
+    expect(document.querySelectorAll('.dshDesktopFooterAction')).toHaveLength(2)
   })
 
   for (const platform of ['win32', 'darwin'] as const) {

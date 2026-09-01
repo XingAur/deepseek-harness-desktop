@@ -10,8 +10,7 @@ import type { DesktopBridgeAction, DesktopBridgeLike } from '../src/client/deskt
 import { DesktopLayoutState } from '../src/client/layout-state'
 import { LocalProjectsState } from '../src/client/local-projects-state'
 import { ExtensionCenterState } from '../src/client/extension-center-state'
-import { LocalProjectsFooterAction } from '../src/client/LocalProjectsFooterAction'
-import { ExtensionCenterFooterAction } from '../src/client/ExtensionCenterFooterAction'
+import { SidebarFooterActions } from '../src/client/SidebarFooterActions'
 
 export function workspaceFixture(items: WorkspaceView[] = []) {
   let snapshot: WorkspaceListState = {
@@ -132,8 +131,11 @@ export function renderFrame(overrides: Partial<AdvancedFrameProps> = {}) {
     renderSlot: (name, slotProps) => name === 'sidebar'
       ? createElement('div', {},
           createElement('div', { 'data-testid': `${name}-slot` }),
-          createElement(LocalProjectsFooterAction, { wide: slotProps.collapsed !== true, state: localProjects }),
-          createElement(ExtensionCenterFooterAction, { wide: slotProps.collapsed !== true, state: extensionCenter }),
+          createElement(SidebarFooterActions, {
+            wide: slotProps.collapsed !== true,
+            localProjects,
+            extensionCenter,
+          }),
         )
       : createElement('div', { 'data-testid': `${name}-slot` }),
     useSessions: (selector) => selector({ byId: {} }),

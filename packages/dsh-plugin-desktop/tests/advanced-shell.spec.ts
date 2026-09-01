@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { applyAdvancedShell } from '../src/client/advanced-shell'
+import { SidebarFooterActions } from '../src/client/SidebarFooterActions'
 import type { ClientContextLike } from '../src/client/contracts'
 import { sessionFixture, workspaceFixture } from './fixtures'
 
@@ -110,37 +111,7 @@ describe('advanced shell', () => {
     expect(registeredRoot?.inject()).not.toHaveProperty('modelId')
   })
 
-  it('registers local projects in the official sidebar footer action slot', () => {
-    const registrations: Array<{ definition: any; component: unknown }> = []
-    const callbacks: Array<{ name: string; setup: () => void | (() => void) }> = []
-    const context = {
-      effect: (setup: () => void | (() => void)) => { setup() },
-      reflect: { provide: vi.fn(() => () => undefined) },
-      slots: {
-        register: vi.fn((definition, component) => {
-          registrations.push({ definition, component })
-          return () => undefined
-        }),
-        inject: vi.fn((name: string, setup: () => void | (() => void)) => {
-          callbacks.push({ name, setup })
-          return () => undefined
-        }),
-      },
-      workspaces: { list: {} },
-      sessions: { list: {} },
-    } as unknown as ClientContextLike
-
-    applyAdvancedShell(context, 'win32')
-    const footer = callbacks.find((callback) => callback.name === 'sidebar.footer.action')
-    expect(footer).toBeDefined()
-    footer?.setup()
-    const action = registrations.find(({ definition }) => definition.name === 'sidebar.footer.action')
-    const root = registrations.find(({ definition }) => definition.name === 'root')
-    expect(action?.definition).toMatchObject({ id: 'dsh-desktop-local-projects', order: 10 })
-    expect(action?.definition.inject().state).toBe(root?.definition.inject().localProjects)
-  })
-
-  it('orders the sidebar footer actions as 本地项目 → 扩展中心 (settings renders after them)', () => {
+  it('registers a single merged footer action in the official sidebar footer slot', () => {
     const registrations: Array<{ definition: any; component: unknown }> = []
     const callbacks: Array<{ name: string; setup: () => void | (() => void) }> = []
     const context = {
@@ -163,17 +134,17 @@ describe('advanced shell', () => {
     applyAdvancedShell(context, 'win32')
     callbacks.filter((callback) => callback.name === 'sidebar.footer.action')
       .forEach((callback) => callback.setup())
-    const actions = registrations
-      .filter(({ definition }) => definition.name === 'sidebar.footer.action')
-      .sort((left, right) => left.definition.order - right.definition.order)
+    const actions = registrations.filter(({ definition }) => definition.name === 'sidebar.footer.action')
+    expect(actions).toHaveLength(1)
 
-    expect(actions.map(({ definition }) => definition.id)).toEqual([
-      'dsh-desktop-local-projects',
-      'dsh-desktop-extension-center',
-    ])
-    expect(actions.map(({ definition }) => definition.order)).toEqual([10, 20])
-    expect(actions[1]?.definition.inject().state)
-      .toBe(registrations.find(({ definition }) => definition.name === 'root')?.definition.inject().extensionCenter)
+    const footer = actions[0]
+    expect(footer.component).toBe(SidebarFooterActions)
+    expect(footer.definition).toMatchObject({ id: 'dsh-desktop-footer-actions', order: 10 })
+
+    const root = registrations.find(({ definition }) => definition.name === 'root')
+    const injected = footer.definition.inject()
+    expect(injected.localProjects).toBe(root?.definition.inject().localProjects)
+    expect(injected.extensionCenter).toBe(root?.definition.inject().extensionCenter)
   })
 
   it('does not assign undeclared services onto the host context', () => {
