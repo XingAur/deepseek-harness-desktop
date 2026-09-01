@@ -24,6 +24,11 @@ const STATUS = [
   { target: 'codex', installed: false },
 ]
 
+const BOTH_INSTALLED = [
+  { target: 'claude', installed: true },
+  { target: 'codex', installed: true },
+] as const
+
 const SERVER: McpServerDef = {
   id: 'srv-1',
   name: 'fetch',
@@ -114,6 +119,27 @@ describe('McpPanel', () => {
     const second = render(<McpPanel bridge={codexOnly} />)
     const secondSync = await within(second.container).findByRole('button', { name: '同步到目标' })
     expect(secondSync).toBeDisabled()
+  })
+
+  it('同步会协调所有已安装目标，以清理编辑后取消勾选的投影', async () => {
+    const bothTargets = { ...SERVER, targets: ['claude', 'codex'] as const }
+    const edited = { ...SERVER, targets: ['codex'] as const }
+    const bridge = bridgeWith({
+      'mcp.list': vi.fn().mockResolvedValueOnce([bothTargets]).mockResolvedValue([edited]),
+      'mcp.status': () => BOTH_INSTALLED,
+      'mcp.upsert': () => edited,
+      'mcp.sync': () => undefined,
+    })
+    render(<McpPanel bridge={bridge} />)
+    fireEvent.click(await screen.findByRole('button', { name: '编辑' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Claude' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await screen.findByText('fetch')
+    fireEvent.click(screen.getByRole('button', { name: '同步到目标' }))
+    await waitFor(() => {
+      expect(bridge.requestV2).toHaveBeenCalledWith('mcp.sync', undefined, { target: 'claude' })
+      expect(bridge.requestV2).toHaveBeenCalledWith('mcp.sync', undefined, { target: 'codex' })
+    })
   })
 
   it('删除走 mcp.delete,导入走 mcp.import', async () => {

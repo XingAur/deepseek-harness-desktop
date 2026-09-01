@@ -63,11 +63,11 @@ export function McpPanel({ bridge }: { bridge: DesktopBridgeLike }) {
     } catch (cause: unknown) { setError(messageOf(cause)) }
   }
 
-  /** 同步到目标:对该行勾选且已安装的目标逐个触发(同步按目标整批投影)。 */
+  /** 同步按目标整批投影，须覆盖已安装目标以清理本行取消勾选后的旧投影。 */
   const syncRow = async (server: McpServerDef) => {
     setBusy(true)
     try {
-      for (const target of server.targets.filter(installedOf)) await syncTarget(bridge, target)
+      for (const target of MCP_TARGETS.filter(installedOf)) await syncTarget(bridge, target)
       await refreshAll()
     } catch (cause: unknown) { setError(messageOf(cause)) } finally { setBusy(false) }
   }
@@ -146,7 +146,7 @@ export function McpPanel({ bridge }: { bridge: DesktopBridgeLike }) {
                 <button
                   type="button"
                   disabled={!syncable || busy}
-                  title={syncable ? `同步到 ${targetSummary(server.targets)}` : '目标未安装,无法同步'}
+                  title={syncable ? `同步并协调所有已安装目标(当前选择: ${targetSummary(server.targets)})` : '目标未安装,无法同步'}
                   onClick={() => void syncRow(server)}
                 >
                   同步到目标
