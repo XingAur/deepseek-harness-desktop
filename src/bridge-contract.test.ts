@@ -370,3 +370,67 @@ describe('prompts v2 actions', () => {
     expect(bridgeCommandByActionV2['prompts.import']).toBe('prompts_import')
   })
 })
+
+describe('mcp v2 actions', () => {
+  const DEF = {
+    name: 'fetch',
+    command: 'npx',
+    args: ['-y'],
+    env: { NO_PROXY: '127.0.0.1' },
+    targets: ['claude', 'codex'],
+  }
+
+  it('accepts mcp.upsert definitions with bounded fields', () => {
+    expect(isVersionedBridgePayload('mcp.upsert', DEF)).toBe(true)
+    expect(isVersionedBridgePayload('mcp.upsert', { ...DEF, id: 'srv-1' })).toBe(true)
+    expect(isVersionedBridgePayload('mcp.upsert', { ...DEF, args: undefined, env: undefined })).toBe(true)
+    expect(isVersionedBridgePayload('mcp.upsert', { ...DEF, targets: [] })).toBe(false)
+    expect(isVersionedBridgePayload('mcp.upsert', { ...DEF, targets: ['claude', 'dsh'] })).toBe(false)
+    expect(isVersionedBridgePayload('mcp.upsert', { ...DEF, targets: ['claude', 'claude'] })).toBe(false)
+    expect(isVersionedBridgePayload('mcp.upsert', { ...DEF, name: '   ' })).toBe(false)
+    expect(isVersionedBridgePayload('mcp.upsert', { ...DEF, name: 'x'.repeat(201) })).toBe(false)
+    expect(isVersionedBridgePayload('mcp.upsert', { ...DEF, command: '' })).toBe(false)
+    expect(isVersionedBridgePayload('mcp.upsert', { ...DEF, command: 'npx\r-del' })).toBe(false)
+    expect(isVersionedBridgePayload('mcp.upsert', { ...DEF, env: { 'BAD KEY': '1' } })).toBe(false)
+    const tooManyEnv = Object.fromEntries(Array.from({ length: 33 }, (_, index) => [`K${index}`, 'v']))
+    expect(isVersionedBridgePayload('mcp.upsert', { ...DEF, env: tooManyEnv })).toBe(false)
+    expect(isVersionedBridgePayload('mcp.upsert', { ...DEF, extra: 1 })).toBe(false)
+  })
+
+  it('accepts mcp.sync/import with known targets and delete with an id', () => {
+    expect(isVersionedBridgePayload('mcp.sync', { target: 'claude' })).toBe(true)
+    expect(isVersionedBridgePayload('mcp.sync', { target: 'codex' })).toBe(true)
+    expect(isVersionedBridgePayload('mcp.sync', { target: 'dsh' })).toBe(false, 'MCP MVP 不含 DSH 目标')
+    expect(isVersionedBridgePayload('mcp.sync', {})).toBe(false)
+    expect(isVersionedBridgePayload('mcp.import', { target: 'codex' })).toBe(true)
+    expect(isVersionedBridgePayload('mcp.delete', { id: 'srv-1' })).toBe(true)
+    expect(isVersionedBridgePayload('mcp.delete', {})).toBe(false)
+    expect(isVersionedBridgePayload('mcp.list', {})).toBe(true)
+    expect(isVersionedBridgePayload('mcp.status', {})).toBe(true)
+    expect(isVersionedBridgeRequest({ ...request, action: 'mcp.list', payload: {} })).toBe(true)
+    expect(isVersionedBridgeRequest({ ...request, action: 'mcp.sync', payload: { target: 'claude' } })).toBe(true)
+  })
+
+  it('maps mcp actions to tauri commands', () => {
+    expect(bridgeCommandByActionV2['mcp.list']).toBe('mcp_manager_list')
+    expect(bridgeCommandByActionV2['mcp.upsert']).toBe('mcp_manager_upsert')
+    expect(bridgeCommandByActionV2['mcp.delete']).toBe('mcp_manager_delete')
+    expect(bridgeCommandByActionV2['mcp.sync']).toBe('mcp_manager_sync')
+    expect(bridgeCommandByActionV2['mcp.import']).toBe('mcp_manager_import')
+    expect(bridgeCommandByActionV2['mcp.status']).toBe('mcp_manager_status')
+  })
+
+  it('lets MCP definition results carry user-authored env but still rejects other secrets', () => {
+    const response = {
+      channel: DESKTOP_BRIDGE_V2_CHANNEL,
+      requestId: 'request-1',
+      generationId: 'generation-1',
+      sessionId: 'session-1',
+      ok: true,
+    }
+    const mcpResult = { ...response, result: [{ id: 'srv-1', name: 'fetch', command: 'npx', env: { API_KEY: 'user-entered' } }] }
+    expect(isVersionedBridgeResponse(mcpResult, { allowSecretShapedResult: true })).toBe(true)
+    expect(isVersionedBridgeResponse(mcpResult)).toBe(false)
+    expect(isVersionedBridgeResponse({ ...response, result: { secret: 'must-not-cross' } }, { allowSecretShapedResult: true })).toBe(false)
+  })
+})

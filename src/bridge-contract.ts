@@ -76,6 +76,12 @@ export type VersionedBridgeAction =
   | 'prompts.deactivate'
   | 'prompts.status'
   | 'prompts.import'
+  | 'mcp.list'
+  | 'mcp.upsert'
+  | 'mcp.delete'
+  | 'mcp.sync'
+  | 'mcp.import'
+  | 'mcp.status'
   | 'extension.inventory'
   | 'extension.install'
   | 'extension.enable'
@@ -169,6 +175,12 @@ export const bridgeCommandByActionV2 = {
   'prompts.deactivate': 'prompts_deactivate',
   'prompts.status': 'prompts_status',
   'prompts.import': 'prompts_import',
+  'mcp.list': 'mcp_manager_list',
+  'mcp.upsert': 'mcp_manager_upsert',
+  'mcp.delete': 'mcp_manager_delete',
+  'mcp.sync': 'mcp_manager_sync',
+  'mcp.import': 'mcp_manager_import',
+  'mcp.status': 'mcp_manager_status',
   'extension.inventory': 'agent_extension_inventory',
   'extension.install': 'agent_extension_install',
   'extension.enable': 'agent_extension_enable',
@@ -286,6 +298,23 @@ export function isVersionedBridgePayload(action: VersionedBridgeAction, value: u
       && value.targets.length >= 1
       && value.targets.length <= 3
       && value.targets.every((entry) => isPromptTarget(entry))
+      && new Set(value.targets.map(String)).size === value.targets.length
+  }
+  if (action === 'mcp.sync' || action === 'mcp.import') return isMcpTarget(value.target)
+  if (action === 'mcp.delete') return Object.hasOwn(value, 'id') && validRequestId(value.id)
+  if (action === 'mcp.upsert') {
+    return (value.id === undefined || validRequestId(value.id))
+      && typeof value.name === 'string'
+      && value.name.trim().length > 0
+      && value.name.length <= 200
+      && isBoundedCommand(value.command)
+      && value.command.trim().length > 0
+      && (value.args === undefined || isBoundedStringList(value.args, 32, 512))
+      && (value.env === undefined || isMcpEnv(value.env))
+      && Array.isArray(value.targets)
+      && value.targets.length >= 1
+      && value.targets.length <= 2
+      && value.targets.every((entry) => isMcpTarget(entry))
       && new Set(value.targets.map(String)).size === value.targets.length
   }
   if (action === 'harness.status' || action === 'harness.cancel' || action === 'harness.pick-archive-root' || action === 'harness.pick-evidence-files') return Object.keys(value).length === 0
@@ -480,7 +509,17 @@ function isModelId(value: unknown): value is string {
     && !/[\u0000-\u001f\u007f]/.test(value)
 }
 
-export function isVersionedBridgeResponse(value: unknown): value is VersionedBridgeResponse {
+export interface VersionedResponseOptions {
+  /** MCP 服务器定义(列表/保存/导入)的 result 携带用户自录的 env 配置,不是凭证库机密。 */
+  allowSecretShapedResult?: boolean
+}
+
+/** 这些动作的 result 是用户在同一扩展中心界面录入的 MCP 服务器定义(含 env),豁免 secret 形状拦截。 */
+export function allowsSecretShapedResult(action: VersionedBridgeAction): boolean {
+  return action === 'mcp.list' || action === 'mcp.upsert' || action === 'mcp.import'
+}
+
+export function isVersionedBridgeResponse(value: unknown, options: VersionedResponseOptions = {}): value is VersionedBridgeResponse {
   if (!isRecord(value)) return false
   const hasResult = Object.hasOwn(value, 'result')
   const hasError = Object.hasOwn(value, 'error')
@@ -499,17 +538,19 @@ export function isVersionedBridgeResponse(value: unknown): value is VersionedBri
     || (hasResult && hasError)
     || (value.ok && !hasResult)
     || (!value.ok && !hasError)
-    || (hasResult && containsSecretShape(value.result))) return false
+    || (hasResult && containsSecretShape(value.result, { exemptEnv: options.allowSecretShapedResult }))) return false
   if (hasError && !isBridgeError(value.error)) return false
   return jsonSize(value) <= DESKTOP_BRIDGE_MAX_BYTES
 }
 
-export function containsSecretShape(value: unknown): boolean {
-  if (Array.isArray(value)) return value.some(containsSecretShape)
+export function containsSecretShape(value: unknown, options: { exemptEnv?: boolean } = {}): boolean {
+  if (Array.isArray(value)) return value.some((item) => containsSecretShape(item, options))
   if (!isRecord(value)) return false
   return Object.entries(value).some(([key, nested]) => {
     if (/^(api[_-]?key|access[_-]?token|refresh[_-]?token|token|oauth|authorization|cookie|set-cookie|secret|password|private[_-]?key)$/i.test(key)) return true
-    return containsSecretShape(nested)
+    // MCP 服务器定义豁免:env 子树是用户自录的普通配置(如 API_KEY),不视作凭证库机密外泄。
+    if (options.exemptEnv && key === 'env') return false
+    return containsSecretShape(nested, options)
   })
 }
 
@@ -519,6 +560,22 @@ function validPluginId(value: string): boolean {
 
 function isPromptTarget(value: unknown): value is 'claude' | 'codex' | 'dsh' {
   return value === 'claude' || value === 'codex' || value === 'dsh'
+}
+
+/** MCP 同步目标(MVP 仅 Claude 与 Codex,不含 DSH)。 */
+function isMcpTarget(value: unknown): value is 'claude' | 'codex' {
+  return value === 'claude' || value === 'codex'
+}
+
+/** MCP 服务器环境变量:键为合法环境变量名,值为不含换行的有界字符串。 */
+function isMcpEnv(value: unknown): value is Record<string, string> {
+  if (!isRecord(value)) return false
+  const entries = Object.entries(value)
+  if (entries.length > 32) return false
+  return entries.every(([key, val]) => /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(key)
+    && typeof val === 'string'
+    && val.length <= 4096
+    && !/[\u0000\r\n]/.test(val))
 }
 
 export function validRequestId(value: unknown): value is string {
@@ -593,6 +650,12 @@ const versionedPayloadKeys: Record<VersionedBridgeAction, string[]> = {
   'prompts.deactivate': ['target'],
   'prompts.status': [],
   'prompts.import': ['targets'],
+  'mcp.list': [],
+  'mcp.upsert': ['id', 'name', 'command', 'args', 'env', 'targets'],
+  'mcp.delete': ['id'],
+  'mcp.sync': ['target'],
+  'mcp.import': ['target'],
+  'mcp.status': [],
   'extension.inventory': [],
   'extension.install': ['extensionId'],
   'extension.enable': ['extensionId'],

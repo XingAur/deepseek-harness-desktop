@@ -3906,6 +3906,88 @@ pub async fn prompts_import(
     service.import(&parsed).map_err(|error| error.to_string())
 }
 
+fn parse_mcp_target(value: &str) -> Result<crate::mcp_manager::model::McpTarget, String> {
+    crate::mcp_manager::model::McpTarget::parse(value).ok_or_else(|| format!("未知 MCP 同步目标: {value}"))
+}
+
+#[tauri::command]
+pub async fn mcp_manager_list(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    service: State<'_, Arc<crate::mcp_manager::service::McpManagerService>>,
+    generation_id: String,
+    session_id: String,
+) -> Result<Vec<crate::mcp_manager::model::McpServerDef>, String> {
+    coordinator.validate_generation(&generation_id).await.map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    service.list().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn mcp_manager_upsert(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    service: State<'_, Arc<crate::mcp_manager::service::McpManagerService>>,
+    generation_id: String,
+    session_id: String,
+    def: crate::mcp_manager::model::McpServerDef,
+) -> Result<crate::mcp_manager::model::McpServerDef, String> {
+    coordinator.validate_generation(&generation_id).await.map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    service.upsert(def).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn mcp_manager_delete(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    service: State<'_, Arc<crate::mcp_manager::service::McpManagerService>>,
+    generation_id: String,
+    session_id: String,
+    id: String,
+) -> Result<(), String> {
+    coordinator.validate_generation(&generation_id).await.map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    service.delete(&id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn mcp_manager_sync(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    service: State<'_, Arc<crate::mcp_manager::service::McpManagerService>>,
+    generation_id: String,
+    session_id: String,
+    target: String,
+) -> Result<(), String> {
+    coordinator.validate_generation(&generation_id).await.map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    let target = parse_mcp_target(&target)?;
+    service.sync_target(target).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn mcp_manager_import(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    service: State<'_, Arc<crate::mcp_manager::service::McpManagerService>>,
+    generation_id: String,
+    session_id: String,
+    target: String,
+) -> Result<Vec<crate::mcp_manager::model::McpServerDef>, String> {
+    coordinator.validate_generation(&generation_id).await.map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    let target = parse_mcp_target(&target)?;
+    service.import_target(target).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn mcp_manager_status(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    service: State<'_, Arc<crate::mcp_manager::service::McpManagerService>>,
+    generation_id: String,
+    session_id: String,
+) -> Result<Vec<crate::mcp_manager::model::McpTargetStatus>, String> {
+    coordinator.validate_generation(&generation_id).await.map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    service.status().map_err(|error| error.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

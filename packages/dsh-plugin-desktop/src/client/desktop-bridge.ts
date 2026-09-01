@@ -1,5 +1,6 @@
 import {
   DESKTOP_BRIDGE_V2_CHANNEL,
+  allowsSecretShapedResult,
   isVersionedBridgeResponse,
   type VersionedBridgeAction,
 } from './bridge-contract'
@@ -73,6 +74,7 @@ export function createDesktopBridge(options: DesktopBridgeOptions = {}): Desktop
     reject(cause: Error): void
     timer: ReturnType<typeof setTimeout>
     channel: string
+    action?: VersionedBridgeAction
     generationId?: string
     sessionId?: string
   }>()
@@ -80,7 +82,13 @@ export function createDesktopBridge(options: DesktopBridgeOptions = {}): Desktop
 
   const onMessage = (event: MessageEvent) => {
     if (targetOrigin === null || event.source !== parent || event.origin !== targetOrigin) return
-    const responseV2 = isVersionedBridgeResponse(event.data) ? event.data : null
+    // 响应校验前先按请求 id 取出发起动作:MCP 服务器定义的 env 是用户自录配置,需豁免 secret 形状拦截。
+    const pendingAction = isRecord(event.data) && typeof event.data.requestId === 'string'
+      ? pending.get(event.data.requestId)?.action
+      : undefined
+    const responseV2 = isVersionedBridgeResponse(event.data, {
+      allowSecretShapedResult: pendingAction !== undefined && allowsSecretShapedResult(pendingAction),
+    }) ? event.data : null
     const responseV1 = responseV2 === null && isResponse(event.data) ? event.data : null
     if (responseV2 === null && responseV1 === null) return
     const requestId = responseV2?.requestId ?? responseV1?.requestId
@@ -146,6 +154,7 @@ export function createDesktopBridge(options: DesktopBridgeOptions = {}): Desktop
           reject,
           timer,
           channel: DESKTOP_BRIDGE_V2_CHANNEL,
+          action,
           generationId: context.generationId,
           sessionId: context.sessionId,
         })
@@ -184,6 +193,10 @@ function parentOrigin(referrer: string): string | null {
     // 桌面桥保持不可用，但宿主未提供 referrer 不应阻断插件加载。
   }
   return null
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function isResponse(value: unknown): value is DesktopBridgeResponse {

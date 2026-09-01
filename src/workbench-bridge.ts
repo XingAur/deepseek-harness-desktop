@@ -4,6 +4,7 @@ import {
   CONTENT_REFERENCE_MAX_BYTES,
   bridgeCommandByActionV2,
   containsSecretShape,
+  allowsSecretShapedResult,
   bridgeCommandByAction,
   isBridgeRequest,
   isVersionedBridgePayload,
@@ -90,6 +91,9 @@ async function forwardVersionedRequest(
   if (request.generationId !== active.generationId
     || (active.sessionId !== undefined && request.sessionId !== active.sessionId)) return
   const targetOrigin = new URL(active.origin).origin
+  // MCP 服务器定义的 env 是用户在同一扩展中心界面里录入的普通配置(随面板回显编辑),
+  // 不是凭证库机密;mcp.list/upsert/import 的返回豁免 secret 形状拦截,其余动作维持原判。
+  const allowSecretShapedResult = allowsSecretShapedResult(request.action)
   let response: Record<string, unknown>
   try {
     const payload = bridgePayloadV2(request.action, request.payload)
@@ -97,7 +101,7 @@ async function forwardVersionedRequest(
       ? { input: { ...payload, generationId: active.generationId, sessionId: request.sessionId } }
       : { ...payload, generationId: active.generationId, sessionId: request.sessionId }
     const result = await invoke(bridgeCommandByActionV2[request.action], invokeArgs)
-    if (containsSecretShape(result)) throw new Error('bridge result contains a secret-shaped field')
+    if (containsSecretShape(result, { exemptEnv: allowSecretShapedResult })) throw new Error('bridge result contains a secret-shaped field')
     response = {
       channel: DESKTOP_BRIDGE_V2_CHANNEL,
       requestId: request.requestId,
@@ -116,7 +120,7 @@ async function forwardVersionedRequest(
       error: bridgeError(cause),
     }
   }
-  if (!isVersionedBridgeResponse(response)) {
+  if (!isVersionedBridgeResponse(response, { allowSecretShapedResult })) {
     response = {
       channel: DESKTOP_BRIDGE_V2_CHANNEL,
       requestId: request.requestId,
@@ -268,6 +272,22 @@ function bridgePayloadV2(
   }
   if (action === 'prompts.deactivate') return { target: payload.target }
   if (action === 'prompts.import') return { targets: payload.targets }
+  if (action === 'mcp.list' || action === 'mcp.status') return {}
+  if (action === 'mcp.sync' || action === 'mcp.import') return { target: payload.target }
+  if (action === 'mcp.delete') {
+    requireId(payload.id, 'MCP 服务器 ID')
+    return { id: payload.id }
+  }
+  if (action === 'mcp.upsert') {
+    return {
+      ...(payload.id === undefined ? {} : { id: payload.id }),
+      name: payload.name,
+      command: payload.command,
+      args: payload.args ?? [],
+      env: payload.env ?? {},
+      targets: payload.targets,
+    }
+  }
   if (action === 'harness.status' || action === 'harness.cancel' || action === 'harness.pick-archive-root' || action === 'harness.pick-evidence-files') return {}
   if (action === 'harness.chat.start') {
     return {

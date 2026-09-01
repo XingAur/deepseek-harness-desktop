@@ -68,7 +68,11 @@ describe('advanced frame', () => {
 
   it('扩展中心按钮开合对话面', async () => {
     const state = new ExtensionCenterState()
-    const { container } = renderFrame({ extensionCenter: state })
+    // MCP 页签已落地为同步面板:桥接夹具需提供列表/状态应答,避免面板渲染崩溃。
+    const bridge = bridgeFixture()
+    ;(bridge.requestV2 as ReturnType<typeof vi.fn>).mockImplementation((action: string) =>
+      action === 'mcp.list' ? [] : action === 'mcp.status' ? [] : undefined)
+    const { container } = renderFrame({ extensionCenter: state, bridge })
     expect(screen.queryByRole('complementary', { name: '扩展中心' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '扩展中心' }))
@@ -88,7 +92,8 @@ describe('advanced frame', () => {
     expect(container.querySelector('.dshExtErrorCard')).toBeNull()
 
     fireEvent.click(screen.getByRole('tab', { name: 'MCP' }))
-    expect(screen.getByText('即将推出')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '添加服务器' })).toBeInTheDocument()
+    expect(container.querySelector('.dshExtErrorCard')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: '扩展中心' }))
     expect(state.getSnapshot()).toBe(false)

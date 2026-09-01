@@ -344,6 +344,93 @@ describe('workbench bridge', () => {
     }), 'http://127.0.0.1:39000')
   })
 
+  it('forwards MCP management actions to mcp_manager commands', async () => {
+    const invoke = vi.fn().mockResolvedValue([])
+    const postMessage = vi.fn()
+    const contentWindow = { postMessage } as unknown as Window
+    const bridge = createWorkbenchBridge({
+      frame: () => ({ contentWindow }) as HTMLIFrameElement,
+      active: () => ({ generationId: 'generation-1', sessionId: 'session-1', origin: 'http://127.0.0.1:39000' }),
+      invoke,
+    })
+    const send = (requestId: string, action: string, payload: unknown) => bridge.onMessage({
+      source: contentWindow,
+      origin: 'http://127.0.0.1:39000',
+      data: {
+        channel: DESKTOP_BRIDGE_V2_CHANNEL,
+        requestId,
+        generationId: 'generation-1',
+        sessionId: 'session-1',
+        action,
+        payload,
+      },
+    } as MessageEvent)
+
+    await send('request-mcp-list', 'mcp.list', {})
+    await send('request-mcp-upsert', 'mcp.upsert', { id: 'srv-1', name: 'fetch', command: 'npx', args: ['-y'], env: { NO_PROXY: '127.0.0.1' }, targets: ['claude'] })
+    await send('request-mcp-upsert-new', 'mcp.upsert', { name: 'fetch', command: 'npx', targets: ['codex'] })
+    await send('request-mcp-delete', 'mcp.delete', { id: 'srv-1' })
+    await send('request-mcp-sync', 'mcp.sync', { target: 'claude' })
+    await send('request-mcp-import', 'mcp.import', { target: 'codex' })
+    await send('request-mcp-status', 'mcp.status', {})
+
+    expect(invoke).toHaveBeenNthCalledWith(1, 'mcp_manager_list', { generationId: 'generation-1', sessionId: 'session-1' })
+    expect(invoke).toHaveBeenNthCalledWith(2, 'mcp_manager_upsert', {
+      generationId: 'generation-1',
+      sessionId: 'session-1',
+      id: 'srv-1',
+      name: 'fetch',
+      command: 'npx',
+      args: ['-y'],
+      env: { NO_PROXY: '127.0.0.1' },
+      targets: ['claude'],
+    })
+    expect(invoke).toHaveBeenNthCalledWith(3, 'mcp_manager_upsert', {
+      generationId: 'generation-1',
+      sessionId: 'session-1',
+      name: 'fetch',
+      command: 'npx',
+      args: [],
+      env: {},
+      targets: ['codex'],
+    })
+    expect(invoke).toHaveBeenNthCalledWith(4, 'mcp_manager_delete', { generationId: 'generation-1', sessionId: 'session-1', id: 'srv-1' })
+    expect(invoke).toHaveBeenNthCalledWith(5, 'mcp_manager_sync', { generationId: 'generation-1', sessionId: 'session-1', target: 'claude' })
+    expect(invoke).toHaveBeenNthCalledWith(6, 'mcp_manager_import', { generationId: 'generation-1', sessionId: 'session-1', target: 'codex' })
+    expect(invoke).toHaveBeenNthCalledWith(7, 'mcp_manager_status', { generationId: 'generation-1', sessionId: 'session-1' })
+    expect(postMessage).toHaveBeenCalledTimes(7)
+  })
+
+  it('lets MCP definition results with user-authored env values reach the panel', async () => {
+    const invoke = vi.fn().mockResolvedValue([
+      { id: 'srv-1', name: 'fetch', command: 'npx', args: [], env: { API_KEY: 'user-entered' }, targets: ['claude'] },
+    ])
+    const postMessage = vi.fn()
+    const contentWindow = { postMessage } as unknown as Window
+    const bridge = createWorkbenchBridge({
+      frame: () => ({ contentWindow }) as HTMLIFrameElement,
+      active: () => ({ generationId: 'generation-1', sessionId: 'session-1', origin: 'http://127.0.0.1:39000' }),
+      invoke,
+    })
+    await bridge.onMessage({
+      source: contentWindow,
+      origin: 'http://127.0.0.1:39000',
+      data: {
+        channel: DESKTOP_BRIDGE_V2_CHANNEL,
+        requestId: 'request-mcp-list',
+        generationId: 'generation-1',
+        sessionId: 'session-1',
+        action: 'mcp.list',
+        payload: {},
+      },
+    } as MessageEvent)
+    const response = postMessage.mock.calls[0]?.[0] as { ok?: boolean; result?: unknown }
+    expect(response.ok).toBe(true)
+    expect(response.result).toEqual([
+      { id: 'srv-1', name: 'fetch', command: 'npx', args: [], env: { API_KEY: 'user-entered' }, targets: ['claude'] },
+    ])
+  })
+
   it('forwards Harness connection maintenance actions with provider ownership', async () => {
     const invoke = vi.fn().mockResolvedValue({ profileId: 'yunxiao-readonly' })
     const contentWindow = { postMessage: vi.fn() } as unknown as Window

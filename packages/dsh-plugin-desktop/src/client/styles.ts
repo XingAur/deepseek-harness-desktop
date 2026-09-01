@@ -418,6 +418,36 @@ export function installAdvancedStyles(): () => void {
     .dshPromptsActivateGroup { display: flex; gap: 12px; border: 0; padding: 0; }
     .dshPromptsActivateGroup legend { color: var(--dsw-alias-label-secondary, #687081); font-size: 12px; }
     .dshPromptsListItem.is-active { border-color: var(--dsw-alias-border-secondary, rgba(127,127,127,.4)); background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.1)); }
+    .dshMcp { display: grid; gap: 14px; }
+    .dshMcpToolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .dshMcpToolbar button { border: 1px solid var(--dsw-alias-border-secondary, rgba(127,127,127,.4)); border-radius: 8px; padding: 5px 12px; background: transparent; color: inherit; cursor: pointer; }
+    .dshMcpToolbar button:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.1)); }
+    .dshMcpToolbar button:disabled { opacity: .45; cursor: not-allowed; }
+    .dshMcpSpacer { flex: 1; }
+    .dshMcpStatusRow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .dshMcpTargetChip { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--dsw-alias-border-secondary, rgba(127,127,127,.35)); border-radius: 999px; padding: 4px 12px; background: transparent; color: inherit; }
+    .dshMcpTargetChip[data-installed="false"] { opacity: .45; }
+    .dshMcpTargetState { color: var(--dsw-alias-label-secondary, #687081); font-size: 12px; }
+    .dshMcpList { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; align-content: start; }
+    .dshMcpListItem { display: flex; align-items: center; gap: 10px; border: 1px solid var(--dsw-alias-border-secondary, rgba(127,127,127,.25)); border-radius: 10px; padding: 8px 10px; }
+    .dshMcpItemMain { display: grid; gap: 2px; min-width: 0; flex: 1; }
+    .dshMcpMuted { color: var(--dsw-alias-label-secondary, #687081); font-size: 12px; overflow-wrap: anywhere; }
+    .dshMcpTargetBadges { display: inline-flex; gap: 6px; flex: 0 0 auto; }
+    .dshMcpTargetBadge { border: 1px solid var(--dsw-alias-border-secondary, rgba(127,127,127,.35)); border-radius: 999px; padding: 1px 8px; font-size: 11px; color: var(--dsw-alias-label-secondary, #687081); }
+    .dshMcpItemActions { display: flex; gap: 8px; flex: 0 0 auto; }
+    .dshMcpItemActions button { border: 1px solid var(--dsw-alias-border-secondary, rgba(127,127,127,.4)); border-radius: 8px; padding: 4px 10px; background: transparent; color: inherit; cursor: pointer; }
+    .dshMcpItemActions button:disabled { opacity: .45; cursor: not-allowed; }
+    .dshMcpDialogBackdrop { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: grid; place-items: center; z-index: 40; }
+    .dshMcpDialog { background: var(--dsw-alias-bg-layer-1, #ffffff); color: inherit; border-radius: 14px; padding: 18px 20px; width: min(520px, 90vw); display: grid; gap: 12px; }
+    .dshMcpDialog h3 { margin: 0; }
+    .dshMcpField { display: grid; gap: 4px; }
+    .dshMcpField > span { color: var(--dsw-alias-label-secondary, #687081); font-size: 12px; }
+    .dshMcpField input { box-sizing: border-box; min-height: 32px; padding: 0 10px; border: 1px solid var(--dsw-alias-border-secondary, rgba(127,127,127,.35)); border-radius: 8px; background: transparent; color: inherit; }
+    .dshMcpField textarea { min-height: 64px; resize: vertical; border: 1px solid var(--dsw-alias-border-secondary, rgba(127,127,127,.35)); border-radius: 8px; background: transparent; color: inherit; padding: 8px 10px; font: 13px/1.6 ui-monospace, monospace; }
+    .dshMcpTargetGroup { display: flex; gap: 12px; border: 0; padding: 0; margin: 0; }
+    .dshMcpTargetGroup legend { color: var(--dsw-alias-label-secondary, #687081); font-size: 12px; float: left; }
+    .dshMcpDialogActions { display: flex; justify-content: flex-end; gap: 10px; }
+    .dshMcpDialogActions button { border: 1px solid var(--dsw-alias-border-secondary, rgba(127,127,127,.4)); border-radius: 8px; padding: 5px 12px; background: transparent; color: inherit; cursor: pointer; }
     .dshHarnessConversationSurface { display: flex; flex-direction: column; min-width: 0; min-height: 100%; overflow: auto; }
     .dshHarnessConversationToolbar { box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 12px; width: min(920px, calc(100% - 40px)); margin: 14px auto 0; padding: 9px 12px; border: 1px solid var(--dsh-desktop-divider); border-radius: 12px; color: var(--dsw-alias-label-secondary, #687081); background: color-mix(in srgb, var(--dsw-alias-bg-layer-1, #ffffff) 88%, transparent); }
     .dshHarnessConversationToolbar > div { display: grid; gap: 2px; min-width: 0; }

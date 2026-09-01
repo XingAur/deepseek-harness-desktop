@@ -11,8 +11,9 @@ mod desktop;
 mod extensions;
 mod generation;
 mod harness;
-mod migration;
 mod mcp;
+mod mcp_manager;
+mod migration;
 mod navigation;
 mod platform;
 mod plugin_market;
@@ -65,6 +66,12 @@ macro_rules! renderer_commands {
             commands::prompts_deactivate,
             commands::prompts_status,
             commands::prompts_import,
+            commands::mcp_manager_list,
+            commands::mcp_manager_upsert,
+            commands::mcp_manager_delete,
+            commands::mcp_manager_sync,
+            commands::mcp_manager_import,
+            commands::mcp_manager_status,
             commands::list_project_metadata,
             commands::patch_project_metadata,
             commands::remove_project_metadata,
@@ -207,6 +214,26 @@ mod renderer_command_tests {
             "commands::prompts_deactivate",
             "commands::prompts_status",
             "commands::prompts_import",
+        ] {
+            assert!(
+                super::RENDERER_COMMAND_NAMES.iter().any(|registered| normalize(registered) == name),
+                "缺少 {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn mcp_manager_commands_are_registered() {
+        // stringify! 经 renderer_commands! 转发的路径会带空格(commands :: mcp_manager_list),
+        // 统一归一化后再比对。
+        let normalize = |name: &str| name.replace(" :: ", "::");
+        for name in [
+            "commands::mcp_manager_list",
+            "commands::mcp_manager_upsert",
+            "commands::mcp_manager_delete",
+            "commands::mcp_manager_sync",
+            "commands::mcp_manager_import",
+            "commands::mcp_manager_status",
         ] {
             assert!(
                 super::RENDERER_COMMAND_NAMES.iter().any(|registered| normalize(registered) == name),
@@ -501,6 +528,18 @@ fn run_desktop() {
                     })?,
             };
             app.manage(Arc::new(prompts_service));
+            // MCP 同步库打不开时同样内存兜底:辅助功能不应在 setup 阶段砖掉整个应用。
+            let mcp_manager_service =
+                match mcp_manager::service::McpManagerService::open(&foundation.paths) {
+                    Ok(service) => service,
+                    Err(cause) => mcp_manager::service::McpManagerService::open_ephemeral(&foundation.paths)
+                        .map_err(|fallback| {
+                            Box::<dyn std::error::Error>::from(format!(
+                                "mcp-manager 库打开失败 {cause}; 内存兜底也失败: {fallback}"
+                            ))
+                        })?,
+                };
+            app.manage(Arc::new(mcp_manager_service));
             app.manage(harness::HarnessService::new());
             let runtime_services = if foundation.runtime_allowed().is_ok() {
                 let runtime_paths = RuntimePaths::from_app_paths(&foundation.paths)
