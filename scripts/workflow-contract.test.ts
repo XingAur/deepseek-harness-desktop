@@ -228,8 +228,12 @@ describe('automated upstream release workflows', () => {
     expect(readFileSync('scripts/build-runtime.mjs', 'utf8')).toContain("'scripts/run-runtime-session-contract.mjs'")
     expect(workflow).toContain('gh release create "${RUNTIME_TAG}" --draft --prerelease')
     expect(workflow).toContain('gh release edit "${RUNTIME_TAG}" --draft=false --prerelease')
+    const runtimeAssemblyStart = workflow.indexOf('      - name: Assemble managed Runtime')
+    const pluginCurrency = workflow.indexOf('      - name: Verify runtime plugin currency')
+    expect(pluginCurrency).toBeGreaterThan(-1)
+    expect(pluginCurrency).toBeLessThan(runtimeAssemblyStart)
     const runtimeAssembly = workflow.slice(
-      workflow.indexOf('      - name: Assemble managed Runtime'),
+      runtimeAssemblyStart,
       workflow.indexOf('      - name: Sign and stage Runtime manifest'),
     )
     expect(runtimeAssembly).toContain('node scripts/runtime-release-state.mjs')
