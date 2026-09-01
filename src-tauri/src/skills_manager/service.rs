@@ -245,10 +245,12 @@ struct PendingInstall {
 }
 
 fn rollback_pending(item: &mut PendingInstall) {
-    if item.destination.exists() {
-        let _ = std::fs::remove_dir_all(&item.destination);
-    }
+    // 只有已将旧目录移入事务备份后，当前目标才属于本次安装操作。
+    // 例如预提交失败时 destination 仍是用户原有的 skill，绝不能删除它。
     if let Some(backup) = &item.backup {
+        if item.destination.exists() {
+            let _ = std::fs::remove_dir_all(&item.destination);
+        }
         if backup.exists() {
             let _ = std::fs::rename(backup, &item.destination);
         }
@@ -424,6 +426,13 @@ fn extract_zip(source: &Path, destination: &Path) -> Result<()> {
 }
 
 fn sanitize_entry_path(name: &str) -> Result<PathBuf> {
+    // ZIP 规范使用 `/`。在 Unix 上 `Path` 不会把 Windows 盘符和反斜杠
+    // 识别成危险组件，故先以格式无关的规则拒绝，保证跨平台一致。
+    let bytes = name.as_bytes();
+    let windows_drive_prefix = bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':';
+    if name.contains('\\') || name.starts_with('/') || windows_drive_prefix {
+        return Err(SkillsError::Zip(format!("ZIP 条目路径不安全: {name}")));
+    }
     let mut sanitized = PathBuf::new();
     for component in Path::new(name).components() {
         match component {
@@ -609,8 +618,9 @@ mod tests {
     fn install_zip_rejects_zip_slip_entry_paths() {
         let env = env();
         let outside = env._dir.path().join("escaped.md");
+        let manifest = b"---\nname: demo\n---\n# ok".as_slice();
         let slip = make_zip(&env, &[
-            (SKILL_MANIFEST, b"# ok".as_slice()),
+            (SKILL_MANIFEST, manifest),
             ("../evil.md", b"escape".as_slice()),
         ]);
         let error = service(&env).install_from_zip(&slip, &[SkillTarget::Claude]).unwrap_err();
@@ -618,14 +628,14 @@ mod tests {
         assert!(!outside.exists(), "不得逃逸出临时目录");
 
         let drive = make_zip(&env, &[
-            (SKILL_MANIFEST, b"# ok".as_slice()),
+            (SKILL_MANIFEST, manifest),
             ("C:/evil.md", b"escape".as_slice()),
         ]);
         let error = service(&env).install_from_zip(&drive, &[SkillTarget::Claude]).unwrap_err();
         assert!(matches!(error, SkillsError::Zip(_)), "盘符前缀须被拒绝: {error}");
 
         let absolute = make_zip(&env, &[
-            (SKILL_MANIFEST, b"# ok".as_slice()),
+            (SKILL_MANIFEST, manifest),
             ("/abs.md", b"escape".as_slice()),
         ]);
         let error = service(&env).install_from_zip(&absolute, &[SkillTarget::Claude]).unwrap_err();
