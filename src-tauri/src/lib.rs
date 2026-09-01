@@ -23,6 +23,7 @@ mod prompts;
 mod provisioning;
 mod runtime;
 mod safe_remove;
+mod skills_manager;
 mod storage;
 mod tray;
 pub mod updater_signature_verifier;
@@ -72,6 +73,10 @@ macro_rules! renderer_commands {
             commands::mcp_manager_sync,
             commands::mcp_manager_import,
             commands::mcp_manager_status,
+            commands::skills_list,
+            commands::skills_install_zip,
+            commands::skills_uninstall,
+            commands::skills_sync,
             commands::list_project_metadata,
             commands::patch_project_metadata,
             commands::remove_project_metadata,
@@ -234,6 +239,22 @@ mod renderer_command_tests {
             "commands::mcp_manager_sync",
             "commands::mcp_manager_import",
             "commands::mcp_manager_status",
+        ] {
+            assert!(
+                super::RENDERER_COMMAND_NAMES.iter().any(|registered| normalize(registered) == name),
+                "缺少 {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn skills_commands_are_registered() {
+        let normalize = |name: &str| name.replace(" :: ", "::");
+        for name in [
+            "commands::skills_list",
+            "commands::skills_install_zip",
+            "commands::skills_uninstall",
+            "commands::skills_sync",
         ] {
             assert!(
                 super::RENDERER_COMMAND_NAMES.iter().any(|registered| normalize(registered) == name),
@@ -540,6 +561,8 @@ fn run_desktop() {
                         })?,
                 };
             app.manage(Arc::new(mcp_manager_service));
+            // Skills 安装器无本地库,构造不会失败,直接挂载。
+            app.manage(Arc::new(skills_manager::service::SkillsManagerService::open()));
             app.manage(harness::HarnessService::new());
             let runtime_services = if foundation.runtime_allowed().is_ok() {
                 let runtime_paths = RuntimePaths::from_app_paths(&foundation.paths)

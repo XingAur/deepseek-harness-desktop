@@ -288,6 +288,12 @@ function bridgePayloadV2(
       targets: payload.targets,
     }
   }
+  if (action === 'skills.list') return { target: payload.target }
+  if (action === 'skills.install.zip') return { zipPath: payload.zipPath, targets: payload.targets }
+  if (action === 'skills.uninstall') return { target: payload.target, name: payload.name }
+  if (action === 'skills.sync') {
+    return { srcTarget: payload.srcTarget, dstTarget: payload.dstTarget, name: payload.name }
+  }
   if (action === 'harness.status' || action === 'harness.cancel' || action === 'harness.pick-archive-root' || action === 'harness.pick-evidence-files') return {}
   if (action === 'harness.chat.start') {
     return {

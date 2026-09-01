@@ -401,6 +401,74 @@ describe('workbench bridge', () => {
     expect(postMessage).toHaveBeenCalledTimes(7)
   })
 
+  it('forwards Skills management actions to skills commands', async () => {
+    const invoke = vi.fn().mockResolvedValue([])
+    const postMessage = vi.fn()
+    const contentWindow = { postMessage } as unknown as Window
+    const bridge = createWorkbenchBridge({
+      frame: () => ({ contentWindow }) as HTMLIFrameElement,
+      active: () => ({ generationId: 'generation-1', sessionId: 'session-1', origin: 'http://127.0.0.1:39000' }),
+      invoke,
+    })
+    const send = (requestId: string, action: string, payload: unknown) => bridge.onMessage({
+      source: contentWindow,
+      origin: 'http://127.0.0.1:39000',
+      data: {
+        channel: DESKTOP_BRIDGE_V2_CHANNEL,
+        requestId,
+        generationId: 'generation-1',
+        sessionId: 'session-1',
+        action,
+        payload,
+      },
+    } as MessageEvent)
+
+    await send('request-skills-list', 'skills.list', { target: 'claude' })
+    await send('request-skills-install', 'skills.install.zip', { zipPath: 'C:/downloads/pdf-tools.zip', targets: ['claude', 'codex'] })
+    await send('request-skills-uninstall', 'skills.uninstall', { target: 'claude', name: 'pdf-tools' })
+    await send('request-skills-sync', 'skills.sync', { srcTarget: 'claude', dstTarget: 'codex', name: 'pdf-tools' })
+
+    expect(invoke).toHaveBeenNthCalledWith(1, 'skills_list', { generationId: 'generation-1', sessionId: 'session-1', target: 'claude' })
+    expect(invoke).toHaveBeenNthCalledWith(2, 'skills_install_zip', {
+      generationId: 'generation-1',
+      sessionId: 'session-1',
+      zipPath: 'C:/downloads/pdf-tools.zip',
+      targets: ['claude', 'codex'],
+    })
+    expect(invoke).toHaveBeenNthCalledWith(3, 'skills_uninstall', { generationId: 'generation-1', sessionId: 'session-1', target: 'claude', name: 'pdf-tools' })
+    expect(invoke).toHaveBeenNthCalledWith(4, 'skills_sync', { generationId: 'generation-1', sessionId: 'session-1', srcTarget: 'claude', dstTarget: 'codex', name: 'pdf-tools' })
+    expect(postMessage).toHaveBeenCalledTimes(4)
+    for (const call of postMessage.mock.calls) {
+      expect((call[0] as { ok?: boolean }).ok).toBe(true)
+    }
+  })
+
+  it('rejects skills payloads that escape the whitelisted shape', async () => {
+    const invoke = vi.fn()
+    const postMessage = vi.fn()
+    const contentWindow = { postMessage } as unknown as Window
+    const bridge = createWorkbenchBridge({
+      frame: () => ({ contentWindow }) as HTMLIFrameElement,
+      active: () => ({ generationId: 'generation-1', sessionId: 'session-1', origin: 'http://127.0.0.1:39000' }),
+      invoke,
+    })
+    await bridge.onMessage({
+      source: contentWindow,
+      origin: 'http://127.0.0.1:39000',
+      data: {
+        channel: DESKTOP_BRIDGE_V2_CHANNEL,
+        requestId: 'request-skills-bad',
+        generationId: 'generation-1',
+        sessionId: 'session-1',
+        action: 'skills.install.zip',
+        payload: { zipPath: 'C:/downloads/tool.zip', targets: ['dsh'] },
+      },
+    } as MessageEvent)
+    // 非法载荷在入口 isVersionedBridgeRequest 处即被静默丢弃:不转发、也不回错误响应
+    expect(invoke).not.toHaveBeenCalled()
+    expect(postMessage).not.toHaveBeenCalled()
+  })
+
   it('lets MCP definition results with user-authored env values reach the panel', async () => {
     const invoke = vi.fn().mockResolvedValue([
       { id: 'srv-1', name: 'fetch', command: 'npx', args: [], env: { API_KEY: 'user-entered' }, targets: ['claude'] },

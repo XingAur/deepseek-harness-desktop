@@ -3988,6 +3988,80 @@ pub async fn mcp_manager_status(
     service.status().map_err(|error| error.to_string())
 }
 
+fn parse_skill_target(value: &str) -> Result<crate::skills_manager::model::SkillTarget, String> {
+    crate::skills_manager::model::SkillTarget::parse(value)
+        .ok_or_else(|| format!("未知 Skills 目标: {value}"))
+}
+
+#[tauri::command]
+pub async fn skills_list(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    service: State<'_, Arc<crate::skills_manager::service::SkillsManagerService>>,
+    generation_id: String,
+    session_id: String,
+    target: String,
+) -> Result<Vec<crate::skills_manager::model::InstalledSkill>, String> {
+    coordinator.validate_generation(&generation_id).await.map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    let target = parse_skill_target(&target)?;
+    service.list_target(target).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn skills_install_zip(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    service: State<'_, Arc<crate::skills_manager::service::SkillsManagerService>>,
+    generation_id: String,
+    session_id: String,
+    zip_path: String,
+    targets: Vec<String>,
+) -> Result<Vec<crate::skills_manager::model::InstalledSkill>, String> {
+    coordinator.validate_generation(&generation_id).await.map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    if zip_path.is_empty() || zip_path.len() > 4096 {
+        return Err("ZIP 路径无效(须为 1-4096 字符)".to_owned());
+    }
+    let parsed = targets
+        .iter()
+        .map(|value| parse_skill_target(value))
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    service
+        .install_from_zip(Path::new(&zip_path), &parsed)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn skills_uninstall(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    service: State<'_, Arc<crate::skills_manager::service::SkillsManagerService>>,
+    generation_id: String,
+    session_id: String,
+    target: String,
+    name: String,
+) -> Result<(), String> {
+    coordinator.validate_generation(&generation_id).await.map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    let target = parse_skill_target(&target)?;
+    service.uninstall(target, &name).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn skills_sync(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    service: State<'_, Arc<crate::skills_manager::service::SkillsManagerService>>,
+    generation_id: String,
+    session_id: String,
+    src_target: String,
+    dst_target: String,
+    name: String,
+) -> Result<crate::skills_manager::model::InstalledSkill, String> {
+    coordinator.validate_generation(&generation_id).await.map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    let src_target = parse_skill_target(&src_target)?;
+    let dst_target = parse_skill_target(&dst_target)?;
+    service.sync(src_target, dst_target, &name).map_err(|error| error.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

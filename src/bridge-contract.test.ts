@@ -400,7 +400,7 @@ describe('mcp v2 actions', () => {
   it('accepts mcp.sync/import with known targets and delete with an id', () => {
     expect(isVersionedBridgePayload('mcp.sync', { target: 'claude' })).toBe(true)
     expect(isVersionedBridgePayload('mcp.sync', { target: 'codex' })).toBe(true)
-    expect(isVersionedBridgePayload('mcp.sync', { target: 'dsh' })).toBe(false, 'MCP MVP 不含 DSH 目标')
+    expect(isVersionedBridgePayload('mcp.sync', { target: 'dsh' })).toBe(false) // MCP MVP 不含 DSH 目标
     expect(isVersionedBridgePayload('mcp.sync', {})).toBe(false)
     expect(isVersionedBridgePayload('mcp.import', { target: 'codex' })).toBe(true)
     expect(isVersionedBridgePayload('mcp.delete', { id: 'srv-1' })).toBe(true)
@@ -432,5 +432,45 @@ describe('mcp v2 actions', () => {
     expect(isVersionedBridgeResponse(mcpResult, { allowSecretShapedResult: true })).toBe(true)
     expect(isVersionedBridgeResponse(mcpResult)).toBe(false)
     expect(isVersionedBridgeResponse({ ...response, result: { secret: 'must-not-cross' } }, { allowSecretShapedResult: true })).toBe(false)
+  })
+})
+
+describe('skills v2 actions', () => {
+  it('accepts skills.list with a known target only', () => {
+    expect(isVersionedBridgePayload('skills.list', { target: 'claude' })).toBe(true)
+    expect(isVersionedBridgePayload('skills.list', { target: 'dsh' })).toBe(false) // Skills MVP 不含 DSH 目标
+    expect(isVersionedBridgePayload('skills.list', {})).toBe(false)
+    expect(isVersionedBridgePayload('skills.list', { target: 'claude', extra: 1 })).toBe(false)
+    expect(isVersionedBridgeRequest({ ...request, action: 'skills.list', payload: { target: 'codex' } })).toBe(true)
+  })
+
+  it('accepts skills.install.zip with a bounded path and 1-2 whitelisted targets', () => {
+    const valid = { zipPath: 'C:/downloads/pdf-tools.zip', targets: ['claude', 'codex'] }
+    expect(isVersionedBridgePayload('skills.install.zip', valid)).toBe(true)
+    expect(isVersionedBridgePayload('skills.install.zip', { ...valid, targets: ['claude'] })).toBe(true)
+    expect(isVersionedBridgePayload('skills.install.zip', { ...valid, zipPath: '' })).toBe(false)
+    expect(isVersionedBridgePayload('skills.install.zip', { ...valid, zipPath: 'x'.repeat(4097) })).toBe(false)
+    expect(isVersionedBridgePayload('skills.install.zip', { ...valid, targets: [] })).toBe(false)
+    expect(isVersionedBridgePayload('skills.install.zip', { ...valid, targets: ['claude', 'dsh'] })).toBe(false)
+    expect(isVersionedBridgePayload('skills.install.zip', { ...valid, targets: ['claude', 'claude'] })).toBe(false)
+    expect(isVersionedBridgePayload('skills.install.zip', { zipPath: 'C:/x.zip', targets: ['claude'], extra: 1 })).toBe(false)
+    expect(bridgeCommandByActionV2['skills.install.zip']).toBe('skills_install_zip')
+  })
+
+  it('accepts skills.uninstall and skills.sync with safe skill names', () => {
+    expect(isVersionedBridgePayload('skills.uninstall', { target: 'claude', name: 'pdf-tools' })).toBe(true)
+    expect(isVersionedBridgePayload('skills.uninstall', { target: 'dsh', name: 'pdf-tools' })).toBe(false)
+    expect(isVersionedBridgePayload('skills.uninstall', { target: 'claude', name: '../escape' })).toBe(false)
+    expect(isVersionedBridgePayload('skills.uninstall', { target: 'claude', name: 'a\\b' })).toBe(false)
+    expect(isVersionedBridgePayload('skills.uninstall', { target: 'claude', name: '' })).toBe(false)
+    expect(isVersionedBridgePayload('skills.uninstall', { target: 'claude' })).toBe(false)
+
+    expect(isVersionedBridgePayload('skills.sync', { srcTarget: 'claude', dstTarget: 'codex', name: 'pdf-tools' })).toBe(true)
+    expect(isVersionedBridgePayload('skills.sync', { srcTarget: 'claude', dstTarget: 'codex', name: '.' })).toBe(false)
+    expect(isVersionedBridgePayload('skills.sync', { srcTarget: 'claude', dstTarget: 'dsh', name: 'pdf-tools' })).toBe(false)
+    expect(isVersionedBridgePayload('skills.sync', { srcTarget: 'claude', name: 'pdf-tools' })).toBe(false)
+    expect(bridgeCommandByActionV2['skills.list']).toBe('skills_list')
+    expect(bridgeCommandByActionV2['skills.uninstall']).toBe('skills_uninstall')
+    expect(bridgeCommandByActionV2['skills.sync']).toBe('skills_sync')
   })
 })

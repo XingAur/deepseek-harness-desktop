@@ -4,6 +4,7 @@ import { ExtensionErrorBoundary } from './ExtensionErrorBoundary'
 import { McpPanel } from './McpPanel'
 import { PluginsPanel } from './PluginsPanel'
 import { PromptsPanel } from './PromptsPanel'
+import { SkillsPanel } from './SkillsPanel'
 
 type CenterTab = 'prompts' | 'plugins' | 'mcp' | 'skills' | 'usage'
 
@@ -34,7 +35,7 @@ export function ExtensionCenterPanel(props: { bridge: DesktopBridgeLike }) {
       {tab === 'prompts' && <ExtensionErrorBoundary label="提示词"><PromptsPanel bridge={props.bridge} /></ExtensionErrorBoundary>}
       {tab === 'plugins' && <ExtensionErrorBoundary label="插件"><PluginsPanel bridge={props.bridge} /></ExtensionErrorBoundary>}
       {tab === 'mcp' && <ExtensionErrorBoundary label="MCP"><McpPanel bridge={props.bridge} /></ExtensionErrorBoundary>}
-      {tab === 'skills' && <p className="dshExtCenterPlaceholder">即将推出</p>}
+      {tab === 'skills' && <ExtensionErrorBoundary label="Skills"><SkillsPanel bridge={props.bridge} /></ExtensionErrorBoundary>}
       {tab === 'usage' && <p className="dshExtCenterPlaceholder">即将推出</p>}
     </section>
   )

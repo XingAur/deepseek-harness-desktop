@@ -82,6 +82,10 @@ export type VersionedBridgeAction =
   | 'mcp.sync'
   | 'mcp.import'
   | 'mcp.status'
+  | 'skills.list'
+  | 'skills.install.zip'
+  | 'skills.uninstall'
+  | 'skills.sync'
   | 'extension.inventory'
   | 'extension.install'
   | 'extension.enable'
@@ -181,6 +185,10 @@ export const bridgeCommandByActionV2 = {
   'mcp.sync': 'mcp_manager_sync',
   'mcp.import': 'mcp_manager_import',
   'mcp.status': 'mcp_manager_status',
+  'skills.list': 'skills_list',
+  'skills.install.zip': 'skills_install_zip',
+  'skills.uninstall': 'skills_uninstall',
+  'skills.sync': 'skills_sync',
   'extension.inventory': 'agent_extension_inventory',
   'extension.install': 'agent_extension_install',
   'extension.enable': 'agent_extension_enable',
@@ -301,6 +309,23 @@ export function isVersionedBridgePayload(action: VersionedBridgeAction, value: u
       && new Set(value.targets.map(String)).size === value.targets.length
   }
   if (action === 'mcp.sync' || action === 'mcp.import') return isMcpTarget(value.target)
+  if (action === 'skills.list') return isSkillTarget(value.target)
+  if (action === 'skills.install.zip') {
+    return typeof value.zipPath === 'string'
+      && value.zipPath.length >= 1
+      && value.zipPath.length <= 4096
+      && Array.isArray(value.targets)
+      && value.targets.length >= 1
+      && value.targets.length <= 2
+      && value.targets.every((entry) => isSkillTarget(entry))
+      && new Set(value.targets.map(String)).size === value.targets.length
+  }
+  if (action === 'skills.uninstall') return isSkillTarget(value.target) && isSkillName(value.name)
+  if (action === 'skills.sync') {
+    return isSkillTarget(value.srcTarget)
+      && isSkillTarget(value.dstTarget)
+      && isSkillName(value.name)
+  }
   if (action === 'mcp.delete') return Object.hasOwn(value, 'id') && validRequestId(value.id)
   if (action === 'mcp.upsert') {
     return (value.id === undefined || validRequestId(value.id))
@@ -567,6 +592,22 @@ function isMcpTarget(value: unknown): value is 'claude' | 'codex' {
   return value === 'claude' || value === 'codex'
 }
 
+/** Skills 安装目标(MVP 仅 Claude 与 Codex,不含 DSH)。 */
+function isSkillTarget(value: unknown): value is 'claude' | 'codex' {
+  return value === 'claude' || value === 'codex'
+}
+
+/** skill 名称:目标 skills 目录下单个安全目录名,禁分隔符与点号。 */
+function isSkillName(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.length >= 1
+    && value.length <= 128
+    && value === value.trim()
+    && value !== '.'
+    && value !== '..'
+    && !/[/\\\u0000]/.test(value)
+}
+
 /** MCP 服务器环境变量:键为合法环境变量名,值为不含换行的有界字符串。 */
 function isMcpEnv(value: unknown): value is Record<string, string> {
   if (!isRecord(value)) return false
@@ -656,6 +697,10 @@ const versionedPayloadKeys: Record<VersionedBridgeAction, string[]> = {
   'mcp.sync': ['target'],
   'mcp.import': ['target'],
   'mcp.status': [],
+  'skills.list': ['target'],
+  'skills.install.zip': ['zipPath', 'targets'],
+  'skills.uninstall': ['target', 'name'],
+  'skills.sync': ['srcTarget', 'dstTarget', 'name'],
   'extension.inventory': [],
   'extension.install': ['extensionId'],
   'extension.enable': ['extensionId'],
