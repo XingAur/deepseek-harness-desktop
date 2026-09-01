@@ -4072,7 +4072,10 @@ pub async fn usage_summary(
 ) -> Result<crate::usage_stats::model::UsageSummary, String> {
     coordinator.validate_generation(&generation_id).await.map_err(|error| error.to_string())?;
     validate_agent_identifier(&session_id, "Session ID")?;
-    Ok(service.summary())
+    let service = Arc::clone(service.inner());
+    tokio::task::spawn_blocking(move || service.summary())
+        .await
+        .map_err(|error| format!("用量统计任务异常结束: {error}"))
 }
 
 #[cfg(test)]

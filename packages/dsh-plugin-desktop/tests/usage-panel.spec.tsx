@@ -75,13 +75,13 @@ describe('UsagePanel', () => {
   })
 
   it('failures 非空时显示警告条,空数据时显示空态', async () => {
-    const failing: UsageSummary = { ...SUMMARY, failures: ['broken.jsonl：拒绝访问', 'huge.jsonl：读取失败', 'x.jsonl：IO'] }
+    const failing: UsageSummary = { ...SUMMARY, failures: ['会话文件读取失败', '会话文件超过读取上限', '会话目录无法读取'] }
     const bridge = bridgeWith({ 'usage.summary': () => failing })
     render(<UsagePanel bridge={bridge} />)
     const alerts = await screen.findAllByRole('alert')
     expect(alerts).toHaveLength(1)
     expect(alerts[0]).toHaveTextContent('部分3个文件无法统计')
-    expect(alerts[0]).toHaveTextContent('broken.jsonl：拒绝访问')
+    expect(alerts[0]).toHaveTextContent('会话文件读取失败')
 
     const emptyBridge = bridgeWith({ 'usage.summary': () => ({ ...SUMMARY, entries: [], totals: { ...SUMMARY.totals, requests: 0, inputTokens: 0, outputTokens: 0 } }) })
     render(<UsagePanel bridge={emptyBridge} />)

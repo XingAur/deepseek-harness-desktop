@@ -19,8 +19,16 @@ const MAX_FILES_PER_ROOT: usize = 500;
 const MAX_TOTAL_FILES: usize = 2000;
 /// 递归下探深度上限(会话文件正常在浅层目录,超深嵌套按失控处理)。
 const MAX_SCAN_DEPTH: usize = 32;
-/// 单文件只读前 8MB;超出部分的截断行丢弃。
-const MAX_FILE_BYTES: usize = 8 * 1024 * 1024;
+/// 全部数据根合计最多读取 128MB，避免一次刷新耗尽内存和磁盘带宽。
+const MAX_TOTAL_BYTES: usize = 128 * 1024 * 1024;
+/// 单文件只读前 2MB;超出部分的截断行丢弃。
+const MAX_FILE_BYTES: usize = 2 * 1024 * 1024;
+/// 单条 JSONL 记录的最大字节数，异常长行直接跳过。
+const MAX_LINE_BYTES: usize = 128 * 1024;
+/// 聚合键数量上限，避免不可信 model 值制造无界 map。
+const MAX_AGGREGATE_ENTRIES: usize = 1024;
+/// model 标识长度上限。
+const MAX_MODEL_BYTES: usize = 200;
 /// 读取缓冲块大小。
 const READ_CHUNK: usize = 64 * 1024;
 /// 无 timestamp 或解析失败时的兜底日期。
@@ -55,6 +63,8 @@ impl UsageStatsService {
         let mut summary = UsageSummary::default();
         let mut aggregated = BTreeMap::<(String, String), UsageEntry>::new();
         let mut total_files = 0usize;
+        let mut total_bytes = 0usize;
+        let mut aggregate_capped = false;
         for root in roots {
             if !root.is_dir() {
                 continue;
@@ -62,10 +72,7 @@ impl UsageStatsService {
             let mut collector = Collector::default();
             collect_jsonl_files(&root, 0, &mut collector, &mut failures);
             if collector.capped {
-                failures.push(format!(
-                    "{}：会话文件数超过上限 {MAX_FILES_PER_ROOT},已忽略更多文件",
-                    root.display()
-                ));
+                failures.push(format!("会话文件数超过上限 {MAX_FILES_PER_ROOT},已忽略更多文件"));
             }
             for file in collector.files {
                 if total_files >= MAX_TOTAL_FILES {
@@ -74,22 +81,35 @@ impl UsageStatsService {
                     ));
                     break;
                 }
+                if total_bytes >= MAX_TOTAL_BYTES {
+                    failures.push(format!("会话数据读取总量超过上限 {MAX_TOTAL_BYTES},已停止扫描更多文件"));
+                    break;
+                }
                 total_files += 1;
                 summary.files_scanned += 1;
-                match scan_file(&file) {
-                    Ok(lines) => {
+                match scan_file(&file, MAX_TOTAL_BYTES - total_bytes) {
+                    Ok((lines, bytes_read)) => {
+                        total_bytes += bytes_read;
                         // 有至少一条可统计行的文件才算「扫描到的会话」。
                         if !lines.is_empty() {
                             summary.sessions_scanned += 1;
                         }
                         for line in lines {
+                            let key = (line.day.clone(), line.model.clone());
+                            if !aggregated.contains_key(&key) && aggregated.len() >= MAX_AGGREGATE_ENTRIES {
+                                if !aggregate_capped {
+                                    failures.push(format!("用量聚合条目超过上限 {MAX_AGGREGATE_ENTRIES},已忽略更多模型"));
+                                    aggregate_capped = true;
+                                }
+                                continue;
+                            }
                             aggregated
-                                .entry((line.day.clone(), line.model.clone()))
+                                .entry(key)
                                 .or_default()
                                 .add(&line);
                         }
                     }
-                    Err(error) => failures.push(format!("{}：{error}", file.display())),
+                    Err(_) => failures.push("会话文件读取失败".into()),
                 }
             }
         }
@@ -126,7 +146,8 @@ impl UsageStatsService {
             // 无 profiles 文件 = 尚无任何 Profile,返回空汇总而非报错。
             Ok(None) => Vec::new(),
             Err(error) => {
-                failures.push(format!("读取 {} 失败：{}", profiles_path.display(), error.message));
+                let _ = error;
+                failures.push("用量配置读取失败".into());
                 Vec::new()
             }
         }
@@ -156,13 +177,13 @@ fn collect_jsonl_files(root: &Path, depth: usize, collector: &mut Collector, fai
         return;
     }
     if depth > MAX_SCAN_DEPTH {
-        failures.push(format!("{}：目录嵌套超过深度上限 {MAX_SCAN_DEPTH}", root.display()));
+        failures.push(format!("会话目录嵌套超过深度上限 {MAX_SCAN_DEPTH}"));
         return;
     }
     let entries = match std::fs::read_dir(root) {
         Ok(entries) => entries,
-        Err(error) => {
-            failures.push(format!("{}：{error}", root.display()));
+        Err(_) => {
+            failures.push("会话目录无法读取".into());
             return;
         }
     };
@@ -188,10 +209,11 @@ fn collect_jsonl_files(root: &Path, depth: usize, collector: &mut Collector, fai
     }
 }
 
-/// 读取单个会话文件(最多 8MB)并解析出带 `message.usage` 的行。
-fn scan_file(path: &Path) -> Result<Vec<UsageLine>, String> {
+/// 读取单个会话文件(受全局和单文件共同限制)并解析出带 `message.usage` 的行。
+fn scan_file(path: &Path, remaining_budget: usize) -> Result<(Vec<UsageLine>, usize), String> {
     let mut file = File::open(path).map_err(|error| error.to_string())?;
-    let (bytes, truncated) = read_capped(&mut file)?;
+    let (bytes, truncated) = read_capped(&mut file, MAX_FILE_BYTES.min(remaining_budget))?;
+    let bytes_read = bytes.len();
     let text = String::from_utf8_lossy(&bytes);
     // 截断文件的最后一行不完整:只处理到最后一个换行为止。
     let usable: &str = if truncated {
@@ -205,18 +227,18 @@ fn scan_file(path: &Path) -> Result<Vec<UsageLine>, String> {
     let mut lines = Vec::new();
     for raw in usable.split('\n') {
         let line = raw.strip_suffix('\r').unwrap_or(raw).trim();
-        if line.is_empty() {
+        if line.is_empty() || line.len() > MAX_LINE_BYTES {
             continue;
         }
         if let Some(entry) = parse_usage_line(line) {
             lines.push(entry);
         }
     }
-    Ok(lines)
+    Ok((lines, bytes_read))
 }
 
-/// 最多读 MAX_FILE_BYTES 字节;返回 (内容, 是否发生截断)。
-fn read_capped(file: &mut File) -> Result<(Vec<u8>, bool), String> {
+/// 最多读 `limit` 字节;返回 (内容, 是否发生截断)。
+fn read_capped(file: &mut File, limit: usize) -> Result<(Vec<u8>, bool), String> {
     let mut buffer = Vec::new();
     let mut chunk = [0u8; READ_CHUNK];
     loop {
@@ -224,8 +246,8 @@ fn read_capped(file: &mut File) -> Result<(Vec<u8>, bool), String> {
         if read == 0 {
             return Ok((buffer, false));
         }
-        if buffer.len() + read > MAX_FILE_BYTES {
-            let remaining = MAX_FILE_BYTES - buffer.len();
+        if buffer.len() + read > limit {
+            let remaining = limit - buffer.len();
             buffer.extend_from_slice(&chunk[..remaining]);
             return Ok((buffer, true));
         }
@@ -239,9 +261,10 @@ fn parse_usage_line(line: &str) -> Option<UsageLine> {
     let message = value.get("message")?;
     let usage = message.get("usage")?.as_object()?;
     let token = |key: &str| usage.get(key).and_then(Value::as_u64).unwrap_or(0);
+    let model = message.get("model").and_then(Value::as_str).unwrap_or("unknown");
     Some(UsageLine {
         day: timestamp_day(value.get("timestamp")),
-        model: message.get("model").and_then(Value::as_str).unwrap_or("unknown").to_owned(),
+        model: if model.len() <= MAX_MODEL_BYTES { model.to_owned() } else { "unknown".to_owned() },
         input_tokens: token("input_tokens"),
         output_tokens: token("output_tokens"),
         cache_creation_tokens: token("cache_creation_input_tokens"),
@@ -412,6 +435,13 @@ mod tests {
     }
 
     #[test]
+    fn overlong_model_identifier_is_normalized_before_aggregation() {
+        let line = usage_line("2026-08-30", &"m".repeat(MAX_MODEL_BYTES + 1), 1, 2);
+        let parsed = parse_usage_line(&line).unwrap();
+        assert_eq!(parsed.model, "unknown");
+    }
+
+    #[test]
     fn file_cap_records_a_failure_and_stops_collecting() {
         let env = env();
         let data_root = env._dir.path().join("profiles-data/main");
@@ -480,7 +510,8 @@ mod tests {
         assert_eq!(summary.files_scanned, 2, "读失败的文件也计入 files_scanned");
         assert_eq!(summary.sessions_scanned, 1, "读失败的文件不计入会话");
         assert_eq!(summary.failures.len(), 1);
-        assert!(summary.failures[0].contains("locked.jsonl"), "{:?}", summary.failures);
+        assert_eq!(summary.failures[0], "会话文件读取失败");
+        assert!(summary.failures.iter().all(|failure| !failure.contains(&data_root.display().to_string())));
         assert_eq!(summary.totals.requests, 1);
     }
 
@@ -500,7 +531,8 @@ mod tests {
         assert_eq!(summary.files_scanned, 2, "读失败的文件也计入 files_scanned");
         assert_eq!(summary.sessions_scanned, 1, "读失败的文件不计入会话");
         assert_eq!(summary.failures.len(), 1);
-        assert!(summary.failures[0].contains("locked.jsonl"), "{:?}", summary.failures);
+        assert_eq!(summary.failures[0], "会话文件读取失败");
+        assert!(summary.failures.iter().all(|failure| !failure.contains(&data_root.display().to_string())));
         assert_eq!(summary.totals.requests, 1);
     }
 }
