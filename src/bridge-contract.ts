@@ -86,6 +86,7 @@ export type VersionedBridgeAction =
   | 'skills.install.zip'
   | 'skills.uninstall'
   | 'skills.sync'
+  | 'usage.summary'
   | 'extension.inventory'
   | 'extension.install'
   | 'extension.enable'
@@ -189,6 +190,7 @@ export const bridgeCommandByActionV2 = {
   'skills.install.zip': 'skills_install_zip',
   'skills.uninstall': 'skills_uninstall',
   'skills.sync': 'skills_sync',
+  'usage.summary': 'usage_summary',
   'extension.inventory': 'agent_extension_inventory',
   'extension.install': 'agent_extension_install',
   'extension.enable': 'agent_extension_enable',
@@ -326,6 +328,7 @@ export function isVersionedBridgePayload(action: VersionedBridgeAction, value: u
       && isSkillTarget(value.dstTarget)
       && isSkillName(value.name)
   }
+  if (action === 'usage.summary') return Object.keys(value).length === 0
   if (action === 'mcp.delete') return Object.hasOwn(value, 'id') && validRequestId(value.id)
   if (action === 'mcp.upsert') {
     return (value.id === undefined || validRequestId(value.id))
@@ -701,6 +704,7 @@ const versionedPayloadKeys: Record<VersionedBridgeAction, string[]> = {
   'skills.install.zip': ['zipPath', 'targets'],
   'skills.uninstall': ['target', 'name'],
   'skills.sync': ['srcTarget', 'dstTarget', 'name'],
+  'usage.summary': [],
   'extension.inventory': [],
   'extension.install': ['extensionId'],
   'extension.enable': ['extensionId'],

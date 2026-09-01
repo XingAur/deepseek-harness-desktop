@@ -474,3 +474,13 @@ describe('skills v2 actions', () => {
     expect(bridgeCommandByActionV2['skills.sync']).toBe('skills_sync')
   })
 })
+
+describe('usage v2 actions', () => {
+  it('accepts usage.summary with an empty payload only and maps it to the usage command', () => {
+    expect(isVersionedBridgePayload('usage.summary', {})).toBe(true)
+    expect(isVersionedBridgePayload('usage.summary', { day: '2026-08-31' })).toBe(false)
+    expect(isVersionedBridgePayload('usage.summary', { extra: 1 })).toBe(false)
+    expect(isVersionedBridgeRequest({ ...request, action: 'usage.summary', payload: {} })).toBe(true)
+    expect(bridgeCommandByActionV2['usage.summary']).toBe('usage_summary')
+  })
+})

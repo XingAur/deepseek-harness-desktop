@@ -4062,6 +4062,19 @@ pub async fn skills_sync(
     service.sync(src_target, dst_target, &name).map_err(|error| error.to_string())
 }
 
+/// 用量统计汇总:MVP 每次全量扫描各 Profile 数据根下的会话 JSONL,无持久化。
+#[tauri::command]
+pub async fn usage_summary(
+    coordinator: State<'_, Arc<DesktopCoordinator>>,
+    service: State<'_, Arc<crate::usage_stats::service::UsageStatsService>>,
+    generation_id: String,
+    session_id: String,
+) -> Result<crate::usage_stats::model::UsageSummary, String> {
+    coordinator.validate_generation(&generation_id).await.map_err(|error| error.to_string())?;
+    validate_agent_identifier(&session_id, "Session ID")?;
+    Ok(service.summary())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

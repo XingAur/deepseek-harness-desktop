@@ -27,6 +27,7 @@ mod skills_manager;
 mod storage;
 mod tray;
 pub mod updater_signature_verifier;
+mod usage_stats;
 mod window;
 
 use std::sync::{Arc, atomic::AtomicBool};
@@ -77,6 +78,7 @@ macro_rules! renderer_commands {
             commands::skills_install_zip,
             commands::skills_uninstall,
             commands::skills_sync,
+            commands::usage_summary,
             commands::list_project_metadata,
             commands::patch_project_metadata,
             commands::remove_project_metadata,
@@ -261,6 +263,15 @@ mod renderer_command_tests {
                 "缺少 {name}"
             );
         }
+    }
+
+    #[test]
+    fn usage_stats_commands_are_registered() {
+        let normalize = |name: &str| name.replace(" :: ", "::");
+        assert!(
+            super::RENDERER_COMMAND_NAMES.iter().any(|registered| normalize(registered) == "commands::usage_summary"),
+            "缺少 commands::usage_summary"
+        );
     }
 }
 
@@ -563,6 +574,10 @@ fn run_desktop() {
             app.manage(Arc::new(mcp_manager_service));
             // Skills 安装器无本地库,构造不会失败,直接挂载。
             app.manage(Arc::new(skills_manager::service::SkillsManagerService::open()));
+            // 用量统计只读扫描,构造不会失败,直接挂载(每次调用全量扫描,无本地库)。
+            app.manage(Arc::new(usage_stats::service::UsageStatsService::open(
+                foundation.paths.profiles.clone(),
+            )));
             app.manage(harness::HarnessService::new());
             let runtime_services = if foundation.runtime_allowed().is_ok() {
                 let runtime_paths = RuntimePaths::from_app_paths(&foundation.paths)

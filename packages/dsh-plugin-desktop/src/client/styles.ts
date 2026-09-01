@@ -477,6 +477,30 @@ export function installAdvancedStyles(): () => void {
     .dshSkillsTargetGroup legend { color: var(--dsw-alias-label-secondary, #687081); font-size: 12px; float: left; }
     .dshSkillsDialogActions { display: flex; justify-content: flex-end; gap: 10px; }
     .dshSkillsDialogActions button { border: 1px solid var(--dsw-alias-border-secondary, rgba(127,127,127,.4)); border-radius: 8px; padding: 5px 12px; background: transparent; color: inherit; cursor: pointer; }
+    .dshUsage { display: grid; gap: 14px; }
+    .dshUsageToolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .dshUsageToolbar button { border: 1px solid var(--dsw-alias-border-secondary, rgba(127,127,127,.4)); border-radius: 8px; padding: 5px 12px; background: transparent; color: inherit; cursor: pointer; }
+    .dshUsageToolbar button:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.1)); }
+    .dshUsageToolbar button:disabled { opacity: .45; cursor: not-allowed; }
+    .dshUsageSpacer { flex: 1; }
+    .dshUsageMuted { margin: 0; color: var(--dsw-alias-label-secondary, #687081); font-size: 12px; }
+    .dshUsageWarning { padding: 9px 12px; border: 1px solid rgba(191,144,0,.45); border-radius: 10px; color: var(--dsw-alias-label-secondary, #687081); background: color-mix(in srgb, #b2890a 8%, var(--dsw-alias-bg-layer-1, #ffffff)); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+    .dshUsageCards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+    .dshUsageCard { display: grid; gap: 4px; padding: 12px 14px; border: 1px solid var(--dsw-alias-border-secondary, rgba(127,127,127,.25)); border-radius: 12px; background: var(--dsw-alias-bg-layer-1, #ffffff); }
+    .dshUsageCardLabel { color: var(--dsw-alias-label-tertiary, #8a92a1); font-size: 12px; }
+    .dshUsageCardValue { color: var(--dsw-alias-label-primary, #202126); font-size: 20px; font-weight: 600; }
+    .dshUsageSection { display: grid; gap: 8px; }
+    .dshUsageSection h3 { margin: 0; font-size: 14px; }
+    .dshUsageDays { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+    .dshUsageDay { display: grid; grid-template-columns: 88px 1fr auto; align-items: center; gap: 10px; }
+    .dshUsageDayLabel { color: var(--dsw-alias-label-secondary, #687081); font: 12px/1.6 ui-monospace, monospace; }
+    .dshUsageDayTrack { height: 10px; overflow: hidden; border-radius: 999px; background: var(--dsw-alias-bg-layer-2, #f0f2f7); }
+    .dshUsageDayBar { display: block; height: 100%; min-width: 2px; border-radius: 999px; background: color-mix(in srgb, #7196ff 62%, var(--dsw-alias-bg-layer-2, #f0f2f7)); }
+    .dshUsageDayValue { color: var(--dsw-alias-label-primary, #202126); font: 12px/1.6 ui-monospace, monospace; }
+    .dshUsageTable { width: 100%; border-collapse: collapse; }
+    .dshUsageTable th, .dshUsageTable td { padding: 6px 10px; border-bottom: 1px solid var(--dsw-alias-border-secondary, rgba(127,127,127,.18)); font-size: 13px; text-align: left; }
+    .dshUsageTable th { color: var(--dsw-alias-label-tertiary, #8a92a1); font-weight: 500; }
+    .dshUsageTable td { color: var(--dsw-alias-label-primary, #202126); overflow-wrap: anywhere; }
     .dshHarnessConversationSurface { display: flex; flex-direction: column; min-width: 0; min-height: 100%; overflow: auto; }
     .dshHarnessConversationToolbar { box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 12px; width: min(920px, calc(100% - 40px)); margin: 14px auto 0; padding: 9px 12px; border: 1px solid var(--dsh-desktop-divider); border-radius: 12px; color: var(--dsw-alias-label-secondary, #687081); background: color-mix(in srgb, var(--dsw-alias-bg-layer-1, #ffffff) 88%, transparent); }
     .dshHarnessConversationToolbar > div { display: grid; gap: 2px; min-width: 0; }

@@ -443,6 +443,35 @@ describe('workbench bridge', () => {
     }
   })
 
+  it('forwards the empty usage.summary payload to usage_summary untouched', async () => {
+    const invoke = vi.fn().mockResolvedValue({ entries: [], totals: {}, sessionsScanned: 0, filesScanned: 0, failures: [] })
+    const postMessage = vi.fn()
+    const contentWindow = { postMessage } as unknown as Window
+    const bridge = createWorkbenchBridge({
+      frame: () => ({ contentWindow }) as HTMLIFrameElement,
+      active: () => ({ generationId: 'generation-1', sessionId: 'session-1', origin: 'http://127.0.0.1:39000' }),
+      invoke,
+    })
+    const send = (requestId: string, action: string, payload: unknown) => bridge.onMessage({
+      source: contentWindow,
+      origin: 'http://127.0.0.1:39000',
+      data: {
+        channel: DESKTOP_BRIDGE_V2_CHANNEL,
+        requestId,
+        generationId: 'generation-1',
+        sessionId: 'session-1',
+        action,
+        payload,
+      },
+    } as MessageEvent)
+
+    await send('request-usage-summary', 'usage.summary', {})
+
+    expect(invoke).toHaveBeenCalledWith('usage_summary', { generationId: 'generation-1', sessionId: 'session-1' })
+    expect(postMessage).toHaveBeenCalledTimes(1)
+    expect(postMessage.mock.calls[0][0]).toMatchObject({ channel: DESKTOP_BRIDGE_V2_CHANNEL, requestId: 'request-usage-summary', ok: true })
+  })
+
   it('rejects skills payloads that escape the whitelisted shape', async () => {
     const invoke = vi.fn()
     const postMessage = vi.fn()

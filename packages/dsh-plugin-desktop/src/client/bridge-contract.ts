@@ -52,6 +52,7 @@ export type VersionedBridgeAction =
   | 'skills.install.zip'
   | 'skills.uninstall'
   | 'skills.sync'
+  | 'usage.summary'
   | 'harness.status'
   | 'harness.start'
   | 'harness.chat.start'
