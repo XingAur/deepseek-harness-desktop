@@ -17,6 +17,8 @@ const SKILL_MANIFEST: &str = "SKILL.md";
 /// - 安装 = 把 ZIP 中 SKILL.md 所在目录整体拷入目标(覆盖前备份到 `.trash-<timestamp>/`)。
 pub struct SkillsManagerService {
     home: Option<PathBuf>,
+    #[cfg(test)]
+    fail_before_commit: std::sync::Mutex<Option<usize>>,
 }
 
 impl SkillsManagerService {
@@ -29,7 +31,23 @@ impl SkillsManagerService {
     pub fn with_home(home: &Path) -> Self {
         Self {
             home: if home.as_os_str().is_empty() { None } else { Some(home.to_path_buf()) },
+            #[cfg(test)]
+            fail_before_commit: std::sync::Mutex::new(None),
         }
+    }
+
+    #[cfg(test)]
+    fn fail_before_commit(&self, commit_index: usize) {
+        *self.fail_before_commit.lock().unwrap() = Some(commit_index);
+    }
+
+    fn check_commit_failpoint(&self, commit_index: usize) -> Result<()> {
+        #[cfg(test)]
+        if self.fail_before_commit.lock().unwrap().is_some_and(|expected| expected == commit_index) {
+            return Err(SkillsError::Io("injected commit failure".into()));
+        }
+        let _ = commit_index;
+        Ok(())
     }
 
     fn skills_root(&self, target: SkillTarget) -> Option<PathBuf> {
@@ -74,8 +92,8 @@ impl SkillsManagerService {
 
     /// 从 ZIP 安装 skill 到每个目标:
     /// - ZIP 内定位所有 SKILL.md 所在目录(根布局或子目录布局,多个则分别安装);
-    /// - 先校验全部目标已安装(fail-fast,不产生部分安装),再逐个目标拷贝;
-    /// - 同名已存在时先整体备份到目标 skills 目录下 `.trash-<timestamp>/<name>/`。
+    /// - 先校验全部目标已安装并在目标目录内完成 staging;
+    /// - 每个目标均提交成功，或对已提交目标执行补偿回滚。
     pub fn install_from_zip(&self, zip_path: &Path, targets: &[SkillTarget]) -> Result<Vec<InstalledSkill>> {
         let mut unique = targets.to_vec();
         unique.sort();
@@ -95,23 +113,87 @@ impl SkillsManagerService {
             return Err(SkillsError::InvalidInput(format!("ZIP 中未找到 {SKILL_MANIFEST}")));
         }
 
-        let timestamp = chrono::Utc::now().timestamp_millis();
-        let mut installed = Vec::new();
-        for (target, root) in roots {
-            for source in &skill_dirs {
-                let name = resolve_skill_name(source, staging.path())?;
-                backup_existing(&root, &name, timestamp)?;
-                let destination = root.join(&name);
-                copy_dir_into(source, &destination, 0)?;
-                let manifest = destination.join(SKILL_MANIFEST);
-                installed.push(InstalledSkill {
-                    name,
-                    target,
-                    path: destination.to_string_lossy().to_string(),
-                    skill_md_sha256: sha256_file(&manifest)?,
-                });
+        let mut sources = Vec::new();
+        let mut names = std::collections::BTreeSet::new();
+        for source in &skill_dirs {
+            let name = resolve_skill_name(source, staging.path())?;
+            if !names.insert(name.clone()) {
+                return Err(SkillsError::InvalidInput(format!("ZIP 中包含重复 skill 名称: {name}")));
             }
+            sources.push((name, source));
         }
+
+        let operation_id = uuid::Uuid::new_v4();
+        let mut pending = Vec::new();
+        let mut operation_roots = Vec::new();
+        let prepared = (|| -> Result<()> {
+            for (target, root) in &roots {
+                let install_root = root.join(format!(".install-{operation_id}"));
+                let transaction_root = root.join(format!(".transaction-{operation_id}"));
+                std::fs::create_dir_all(&install_root)?;
+                operation_roots.push((install_root.clone(), transaction_root.clone()));
+                for (name, source) in &sources {
+                    let staged = install_root.join(name);
+                    copy_dir_into(source, &staged, 0)?;
+                    pending.push(PendingInstall {
+                        target: *target,
+                        name: name.clone(),
+                        staged,
+                        destination: root.join(name),
+                        transaction_root: transaction_root.clone(),
+                        backup: None,
+                    });
+                }
+            }
+            Ok(())
+        })();
+        if let Err(error) = prepared {
+            cleanup_operation_roots(&operation_roots);
+            return Err(error);
+        }
+
+        let mut committed = Vec::new();
+        for (index, mut item) in pending.into_iter().enumerate() {
+            if let Err(error) = self.check_commit_failpoint(index) {
+                rollback_pending(&mut item);
+                rollback_committed(&mut committed);
+                cleanup_operation_roots(&operation_roots);
+                return Err(error);
+            }
+            if item.destination.exists() {
+                let backup = item.transaction_root.join("backup").join(item.target.as_str()).join(&item.name);
+                if let Some(parent) = backup.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                if let Err(error) = std::fs::rename(&item.destination, &backup) {
+                    rollback_committed(&mut committed);
+                    cleanup_operation_roots(&operation_roots);
+                    return Err(error.into());
+                }
+                item.backup = Some(backup);
+            }
+            if let Err(error) = std::fs::rename(&item.staged, &item.destination) {
+                rollback_pending(&mut item);
+                rollback_committed(&mut committed);
+                cleanup_operation_roots(&operation_roots);
+                return Err(error.into());
+            }
+            committed.push(item);
+        }
+
+        let installed = committed
+            .iter()
+            .map(|item| {
+                let manifest = item.destination.join(SKILL_MANIFEST);
+                Ok(InstalledSkill {
+                    name: item.name.clone(),
+                    target: item.target,
+                    path: item.destination.to_string_lossy().to_string(),
+                    skill_md_sha256: sha256_file(&manifest)?,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        cleanup_operation_roots(&operation_roots);
         Ok(installed)
     }
 
@@ -153,6 +235,39 @@ impl SkillsManagerService {
     }
 }
 
+struct PendingInstall {
+    target: SkillTarget,
+    name: String,
+    staged: PathBuf,
+    destination: PathBuf,
+    transaction_root: PathBuf,
+    backup: Option<PathBuf>,
+}
+
+fn rollback_pending(item: &mut PendingInstall) {
+    if item.destination.exists() {
+        let _ = std::fs::remove_dir_all(&item.destination);
+    }
+    if let Some(backup) = &item.backup {
+        if backup.exists() {
+            let _ = std::fs::rename(backup, &item.destination);
+        }
+    }
+}
+
+fn rollback_committed(committed: &mut [PendingInstall]) {
+    for item in committed.iter_mut().rev() {
+        rollback_pending(item);
+    }
+}
+
+fn cleanup_operation_roots(operation_roots: &[(PathBuf, PathBuf)]) {
+    for (install_root, transaction_root) in operation_roots {
+        let _ = std::fs::remove_dir_all(install_root);
+        let _ = std::fs::remove_dir_all(transaction_root);
+    }
+}
+
 /// 安装名:子目录布局取 SKILL.md 所在目录名;根布局(SKILL.md 在解包根)目录名是
 /// 随机临时名,只能取 SKILL.md frontmatter 的 `name:` 字段。
 fn resolve_skill_name(source: &Path, staging_root: &Path) -> Result<String> {
@@ -172,7 +287,7 @@ fn resolve_skill_name(source: &Path, staging_root: &Path) -> Result<String> {
     Ok(raw)
 }
 
-/// skill 目录名:单个安全的路径组件(禁分隔符/点号/空字节),长度有界。
+/// skill 目录名:单个安全的路径组件(禁分隔符/点号/控制字符),长度有界。
 fn validate_skill_name(name: &str) -> Result<()> {
     let invalid =
         |reason: &str| SkillsError::InvalidInput(format!("skill 名称无效({reason}): {name:?}"));
@@ -182,7 +297,7 @@ fn validate_skill_name(name: &str) -> Result<()> {
     if name == "." || name == ".." {
         return Err(invalid("不得为点号"));
     }
-    if name.contains('/') || name.contains('\\') || name.contains('\0') {
+    if name.contains('/') || name.contains('\\') || name.contains('\0') || name.chars().any(char::is_control) {
         return Err(invalid("不得含路径分隔符"));
     }
     Ok(())
@@ -518,7 +633,7 @@ mod tests {
     }
 
     #[test]
-    fn install_over_existing_backs_up_previous_version() {
+    fn install_over_existing_replaces_atomically_without_transaction_leftovers() {
         let env = env();
         let root = env.home.join(".claude/skills");
         write_skill(&root, "demo", "# old version");
@@ -532,15 +647,32 @@ mod tests {
             "覆盖安装生效"
         );
 
-        let trash = std::fs::read_dir(&root).unwrap()
-            .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
-            .find(|name| name.starts_with(".trash-"))
-            .expect("覆盖前须留备份目录");
-        assert_eq!(
-            std::fs::read_to_string(root.join(trash).join("demo/SKILL.md")).unwrap(),
-            "# old version",
-            "旧版本进入 .trash-<timestamp>/"
-        );
+        assert!(std::fs::read_dir(&root).unwrap().all(|entry| {
+            let name = entry.unwrap().file_name().to_string_lossy().to_string();
+            !name.starts_with(".install-") && !name.starts_with(".transaction-")
+        }));
+    }
+
+    #[test]
+    fn install_rolls_back_all_targets_when_a_later_commit_fails() {
+        let env = env();
+        let claude = env.home.join(".claude/skills");
+        let codex = env.home.join(".codex/skills");
+        write_skill(&claude, "demo", "# old claude");
+        write_skill(&codex, "demo", "# old codex");
+        let zip = make_zip(&env, &[("demo/SKILL.md", b"# new version".as_slice())]);
+        let manager = service(&env);
+        manager.fail_before_commit(1);
+        let error = manager.install_from_zip(&zip, &[SkillTarget::Claude, SkillTarget::Codex]).unwrap_err();
+        assert!(matches!(error, SkillsError::Io(message) if message == "injected commit failure"));
+        assert_eq!(std::fs::read_to_string(claude.join("demo/SKILL.md")).unwrap(), "# old claude");
+        assert_eq!(std::fs::read_to_string(codex.join("demo/SKILL.md")).unwrap(), "# old codex");
+        for root in [claude, codex] {
+            assert!(std::fs::read_dir(root).unwrap().all(|entry| {
+                let name = entry.unwrap().file_name().to_string_lossy().to_string();
+                !name.starts_with(".install-") && !name.starts_with(".transaction-")
+            }));
+        }
     }
 
     #[test]
@@ -654,7 +786,7 @@ mod tests {
     fn skill_names_with_path_separators_are_rejected() {
         let env = env();
         let manager = service(&env);
-        for name in ["../escape", "a/b", "a\\b", ".", "..", ""] {
+        for name in ["../escape", "a/b", "a\\b", ".", "..", "", "bad\nname"] {
             assert!(
                 manager.uninstall(SkillTarget::Claude, name).is_err(),
                 "非法名称须被拒绝: {name:?}"
