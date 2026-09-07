@@ -1,0 +1,45 @@
+name: Sync upstream
+
+# 每天自动从 anywhere-labs/dsh-desktop 的 master 拉取最新代码并合并到本仓库 master。
+# 合并冲突时本任务会失败并通过邮件通知，此时需要手动解决冲突后重跑。
+
+on:
+  schedule:
+    # GitHub 使用 UTC 时间：UTC 20:17 ≈ 北京时间凌晨 4:17（刻意错开整点高峰）
+    - cron: '17 20 * * *'
+  workflow_dispatch: {} # 允许在 Actions 页面手动触发
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork master
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "upstream-sync-bot"
+          git config user.email "actions@users.noreply.github.com"
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/anywhere-labs/dsh-desktop.git
+          git fetch upstream master
+
+      - name: Merge upstream master
+        run: |
+          # 上游没有新提交时，merge 输出 "Already up to date." 并正常通过
+          git merge upstream/master --no-edit
+
+      - name: Push to fork
+        run: git push origin master
