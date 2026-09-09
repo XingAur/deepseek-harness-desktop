@@ -1,6 +1,7 @@
 /** Desktop-owned MCP servers settings section editing the launcher's MCP rows. */
 
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { Globe, KeyRound, Plug, Plus, RefreshCw, Terminal, Trash2, X } from 'lucide-react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   DesktopMcpServerView,
@@ -261,7 +262,10 @@ function StoredKeyChip({ name, disabled, t, onRemove }: {
 }) {
   return (
     <span className="dshDesktopSettingsToggleRow">
-      <span className="dshDesktopSettingsToggleLabel">{name}</span>
+      <span className="dshDesktopSettingsToggleLabel">
+        <KeyRound width={13} height={13} aria-hidden="true" />
+        {name}
+      </span>
       <button
         type="button"
         className="dshDesktopSettingsButton dshDesktopSettingsButtonSecondary"
@@ -269,7 +273,7 @@ function StoredKeyChip({ name, disabled, t, onRemove }: {
         aria-label={`${t('removeValue')}: ${name}`}
         onClick={onRemove}
       >
-        ×
+        <X width={13} height={13} />
       </button>
     </span>
   )
@@ -332,7 +336,7 @@ function SecretFields({ label, hint, edits, disabled, t, onChange }: {
             aria-label={t('cancel')}
             onClick={() => { removePair(index) }}
           >
-            ×
+            <X width={13} height={13} />
           </button>
         </span>
       ))}
@@ -365,24 +369,33 @@ function ServerRow({ server, t, busy, pendingDelete, onToggle, onEdit, onDeleteR
     ? [server.command ?? '', ...server.args].filter(part => part.length > 0).join(' ')
     : server.url ?? ''
   return (
-    <div className="dshDesktopSettingsChoice" role="listitem">
-      <span className="dshDesktopSettingsChoiceCopy">
+    <div className="dshDesktopSettingsRow" role="listitem">
+      <span className="dshDesktopSettingsRowIcon" aria-hidden="true">
+        {server.transport === 'stdio' ? <Terminal /> : <Globe />}
+      </span>
+      <span className="dshDesktopSettingsRowCopy">
         <span className="dshDesktopSettingsChoiceTitle">
           {server.serverName}
           <span className="dshDesktopSettingsBadge">
             {t(server.transport === 'stdio' ? 'transportStdio' : 'transportHttp')}
           </span>
-          <span className="dshDesktopSettingsBadge">{t(server.disabled ? 'disabled' : 'enabled')}</span>
+          <span className="dshDesktopSettingsStatus" data-state={server.disabled ? 'off' : 'on'}>
+            {t(server.disabled ? 'disabled' : 'enabled')}
+          </span>
         </span>
-        {summary.length > 0 && <span className="dshDesktopSettingsChoiceBody">{summary}</span>}
-        {server.transport === 'stdio' && server.envKeys.length > 0 && (
-          <span className="dshDesktopSettingsChoiceBody">{t('env')}: {server.envKeys.join(', ')}</span>
+        {summary.length > 0 && <span className="dshDesktopSettingsRowMeta">{summary}</span>}
+        {(server.transport === 'stdio' && server.envKeys.length > 0) && (
+          <span className="dshDesktopSettingsChipRow">
+            {server.envKeys.map(key => <span key={key} className="dshDesktopSettingsChip">{key}</span>)}
+          </span>
         )}
-        {server.transport === 'streamable-http' && server.headerKeys.length > 0 && (
-          <span className="dshDesktopSettingsChoiceBody">{t('headers')}: {server.headerKeys.join(', ')}</span>
+        {(server.transport === 'streamable-http' && server.headerKeys.length > 0) && (
+          <span className="dshDesktopSettingsChipRow">
+            {server.headerKeys.map(key => <span key={key} className="dshDesktopSettingsChip">{key}</span>)}
+          </span>
         )}
       </span>
-      <span className="dshDesktopSettingsChoiceAside">
+      <span className="dshDesktopSettingsRowActions">
         {pendingDelete ? (
           <div className="dshDesktopSettingsDeleteConfirm" role="group" aria-label={t('deleteConfirm')}>
             <span className="dshDesktopSettingsDeleteWarning">{t('deleteConfirm')}</span>
@@ -393,6 +406,7 @@ function ServerRow({ server, t, busy, pendingDelete, onToggle, onEdit, onDeleteR
                 disabled={busy}
                 onClick={() => { onDelete(server) }}
               >
+                <Trash2 width={13} height={13} />
                 {t('delete')}
               </button>
               <button
@@ -427,9 +441,10 @@ function ServerRow({ server, t, busy, pendingDelete, onToggle, onEdit, onDeleteR
               type="button"
               className="dshDesktopSettingsButton dshDesktopSettingsButtonSecondary"
               disabled={busy}
+              aria-label={t('delete')}
               onClick={() => { onDeleteRequest(server.id) }}
             >
-              {t('delete')}
+              <Trash2 width={13} height={13} />
             </button>
           </>
         )}
@@ -573,23 +588,32 @@ export function DesktopMcpSection({ t, api }: DesktopMcpSectionProps): ReactNode
 
   return (
     <div className="dshDesktopSettings">
-      <header className="dshDesktopSettingsHeader">
-        <h2>{t('title')}</h2>
-        <p>{t('description')}</p>
+      <header className="dshDesktopSettingsHero">
+        <span className="dshDesktopSettingsHeroIcon" aria-hidden="true"><Plug /></span>
+        <span>
+          <h2>{t('title')}</h2>
+          <p>{t('description')}</p>
+        </span>
       </header>
 
-      {saved && <p className="dshDesktopSettingsSuccess" role="status">{t('restartRequired')}</p>}
+      {saved && (
+        <p className="dshDesktopSettingsCallout" data-tone="success" role="status">
+          <RefreshCw aria-hidden="true" />
+          <span>{t('restartRequired')}</span>
+        </p>
+      )}
       {saveFailed && <p className="dshDesktopSettingsError" role="alert">{t('saveFailed')}</p>}
 
-      <section className="dshDesktopSettingsGroup" aria-label={t('title')}>
+      <section className="dshDesktopSettingsCard" aria-label={t('title')}>
         {failed && view === undefined && (
           <div>
             <p className="dshDesktopSettingsError" role="alert">{t('unavailable')}</p>
             <button
               type="button"
-              className="dshDesktopSettingsButton"
+              className="dshDesktopSettingsPrimary"
               onClick={() => { setReloadKey(key => key + 1) }}
             >
+              <RefreshCw />
               {t('retry')}
             </button>
           </div>
@@ -597,8 +621,40 @@ export function DesktopMcpSection({ t, api }: DesktopMcpSectionProps): ReactNode
         {!failed && view === undefined && <p className="dshDesktopSettingsHint">{t('loading')}</p>}
         {view !== undefined && (
           <>
+            <div className="dshDesktopSettingsCardHead">
+              <h3>{t('title')}{view.servers.length > 0 ? ` · ${String(view.servers.length)}` : ''}</h3>
+              <span className="dshDesktopSettingsCardHeadActions">
+                {!importOpen && (
+                  <button
+                    type="button"
+                    className="dshDesktopSettingsButton dshDesktopSettingsButtonSecondary"
+                    disabled={busy}
+                    onClick={() => { setImportOpen(true); setImportStatus(undefined) }}
+                  >
+                    {t('import')}
+                  </button>
+                )}
+                {draft === undefined && (
+                  <button
+                    type="button"
+                    className="dshDesktopSettingsPrimary"
+                    disabled={busy}
+                    onClick={() => { setDraftError(undefined); setDraft(emptyDraft()) }}
+                  >
+                    <Plus />
+                    {t('addServer')}
+                  </button>
+                )}
+              </span>
+            </div>
             {view.servers.length === 0
-              ? <p className="dshDesktopSettingsNotice">{t('empty')}</p>
+              ? (
+                <div className="dshDesktopSettingsEmpty">
+                  <Plug aria-hidden="true" />
+                  <span className="dshDesktopSettingsEmptyStrong">{t('empty')}</span>
+                  <p className="dshDesktopSettingsEmptyBody">{t('description')}</p>
+                </div>
+              )
               : (
                 <div className="dshDesktopSettingsList" role="list" aria-label={t('title')}>
                   {view.servers.map(server => (
@@ -617,117 +673,108 @@ export function DesktopMcpSection({ t, api }: DesktopMcpSectionProps): ReactNode
                   ))}
                 </div>
               )}
-            {draft === undefined && (
-              <button
-                type="button"
-                className="dshDesktopSettingsButton"
-                disabled={busy}
-                onClick={() => { setDraftError(undefined); setDraft(emptyDraft()) }}
-              >
-                {t('addServer')}
-              </button>
-            )}
             {draft !== undefined && (
-              <form className="dshDesktopSettingsForm" onSubmit={submitDraft}>
-                <label className="dshDesktopSettingsField">
-                  {t('serverName')}
-                  <input
-                    className="dshDesktopSettingsInput"
-                    value={draft.serverName}
-                    maxLength={32}
-                    autoComplete="off"
-                    disabled={busy}
-                    onChange={event => { updateDraft({ serverName: event.currentTarget.value }) }}
-                  />
-                </label>
-                <label className="dshDesktopSettingsField">
-                  {t('transport')}
-                  <select
-                    className="dshDesktopSettingsSelect"
-                    value={draft.transport}
-                    disabled={busy}
-                    onChange={event => {
-                      updateDraft({
-                        transport: event.currentTarget.value === 'streamable-http' ? 'streamable-http' : 'stdio',
-                      })
-                    }}
-                  >
-                    <option value="stdio">{t('transportStdio')}</option>
-                    <option value="streamable-http">{t('transportHttp')}</option>
-                  </select>
-                </label>
-                {draft.transport === 'stdio' && (
-                  <>
-                    <label className="dshDesktopSettingsField">
-                      {t('command')}
-                      <input
-                        className="dshDesktopSettingsInput"
-                        value={draft.command}
-                        maxLength={MAX_MCP_TEXT_LENGTH}
-                        autoComplete="off"
-                        disabled={busy}
-                        onChange={event => { updateDraft({ command: event.currentTarget.value }) }}
-                      />
-                    </label>
-                    <label className="dshDesktopSettingsField">
-                      {t('args')}
-                      <textarea
-                        className="dshDesktopSettingsInput"
-                        value={draft.argsText}
-                        rows={3}
-                        autoComplete="off"
-                        disabled={busy}
-                        onChange={event => { updateDraft({ argsText: event.currentTarget.value }) }}
-                      />
-                      <span className="dshDesktopSettingsHint">{t('argsHint')}</span>
-                    </label>
-                    <label className="dshDesktopSettingsField">
-                      {t('cwd')}
-                      <input
-                        className="dshDesktopSettingsInput"
-                        value={draft.cwd}
-                        maxLength={MAX_MCP_TEXT_LENGTH}
-                        autoComplete="off"
-                        disabled={busy}
-                        onChange={event => { updateDraft({ cwd: event.currentTarget.value }) }}
-                      />
-                    </label>
-                    <SecretFields
-                      label={t('env')}
-                      hint={t('envHint')}
-                      edits={draft.env}
+              <form className="dshDesktopSettingsPanel" onSubmit={submitDraft}>
+                <div className="dshDesktopSettingsFormGrid">
+                  <label className="dshDesktopSettingsField">
+                    {t('serverName')}
+                    <input
+                      className="dshDesktopSettingsInput"
+                      value={draft.serverName}
+                      maxLength={32}
+                      autoComplete="off"
                       disabled={busy}
-                      t={t}
-                      onChange={updateEnv}
+                      onChange={event => { updateDraft({ serverName: event.currentTarget.value }) }}
                     />
-                  </>
-                )}
-                {draft.transport === 'streamable-http' && (
-                  <>
-                    <label className="dshDesktopSettingsField">
-                      {t('url')}
-                      <input
-                        className="dshDesktopSettingsInput"
-                        value={draft.url}
-                        maxLength={MAX_MCP_TEXT_LENGTH}
-                        autoComplete="off"
-                        disabled={busy}
-                        onChange={event => { updateDraft({ url: event.currentTarget.value }) }}
-                      />
-                    </label>
-                    <SecretFields
-                      label={t('headers')}
-                      hint={t('headersHint')}
-                      edits={draft.headers}
+                  </label>
+                  <label className="dshDesktopSettingsField">
+                    {t('transport')}
+                    <select
+                      className="dshDesktopSettingsSelect"
+                      value={draft.transport}
                       disabled={busy}
-                      t={t}
-                      onChange={updateHeaders}
-                    />
-                  </>
-                )}
+                      onChange={event => {
+                        updateDraft({
+                          transport: event.currentTarget.value === 'streamable-http' ? 'streamable-http' : 'stdio',
+                        })
+                      }}
+                    >
+                      <option value="stdio">{t('transportStdio')}</option>
+                      <option value="streamable-http">{t('transportHttp')}</option>
+                    </select>
+                  </label>
+                  {draft.transport === 'stdio' && (
+                    <>
+                      <label className="dshDesktopSettingsField">
+                        {t('command')}
+                        <input
+                          className="dshDesktopSettingsInput"
+                          value={draft.command}
+                          maxLength={MAX_MCP_TEXT_LENGTH}
+                          autoComplete="off"
+                          disabled={busy}
+                          onChange={event => { updateDraft({ command: event.currentTarget.value }) }}
+                        />
+                      </label>
+                      <label className="dshDesktopSettingsField">
+                        {t('cwd')}
+                        <input
+                          className="dshDesktopSettingsInput"
+                          value={draft.cwd}
+                          maxLength={MAX_MCP_TEXT_LENGTH}
+                          autoComplete="off"
+                          disabled={busy}
+                          onChange={event => { updateDraft({ cwd: event.currentTarget.value }) }}
+                        />
+                      </label>
+                      <label className="dshDesktopSettingsField">
+                        {t('args')}
+                        <textarea
+                          className="dshDesktopSettingsInput"
+                          value={draft.argsText}
+                          rows={3}
+                          autoComplete="off"
+                          disabled={busy}
+                          onChange={event => { updateDraft({ argsText: event.currentTarget.value }) }}
+                        />
+                        <span className="dshDesktopSettingsHint">{t('argsHint')}</span>
+                      </label>
+                      <SecretFields
+                        label={t('env')}
+                        hint={t('envHint')}
+                        edits={draft.env}
+                        disabled={busy}
+                        t={t}
+                        onChange={updateEnv}
+                      />
+                    </>
+                  )}
+                  {draft.transport === 'streamable-http' && (
+                    <>
+                      <label className="dshDesktopSettingsField">
+                        {t('url')}
+                        <input
+                          className="dshDesktopSettingsInput"
+                          value={draft.url}
+                          maxLength={MAX_MCP_TEXT_LENGTH}
+                          autoComplete="off"
+                          disabled={busy}
+                          onChange={event => { updateDraft({ url: event.currentTarget.value }) }}
+                        />
+                      </label>
+                      <SecretFields
+                        label={t('headers')}
+                        hint={t('headersHint')}
+                        edits={draft.headers}
+                        disabled={busy}
+                        t={t}
+                        onChange={updateHeaders}
+                      />
+                    </>
+                  )}
+                </div>
                 {draftError !== undefined && <p className="dshDesktopSettingsError" role="alert">{t(draftError)}</p>}
                 <div className="dshDesktopSettingsDeleteActions">
-                  <button type="submit" className="dshDesktopSettingsButton" disabled={busy}>{t('save')}</button>
                   <button
                     type="button"
                     className="dshDesktopSettingsButton dshDesktopSettingsButtonSecondary"
@@ -736,22 +783,13 @@ export function DesktopMcpSection({ t, api }: DesktopMcpSectionProps): ReactNode
                   >
                     {t('cancel')}
                   </button>
+                  <button type="submit" className="dshDesktopSettingsPrimary" disabled={busy}>{t('save')}</button>
                 </div>
               </form>
             )}
-            {!importOpen && (
-              <button
-                type="button"
-                className="dshDesktopSettingsButton dshDesktopSettingsButtonSecondary"
-                disabled={busy}
-                onClick={() => { setImportOpen(true); setImportStatus(undefined) }}
-              >
-                {t('import')}
-              </button>
-            )}
             {importOpen && (
               <form
-                className="dshDesktopSettingsForm"
+                className="dshDesktopSettingsPanel"
                 onSubmit={event => { event.preventDefault(); applyImport() }}
               >
                 <label className="dshDesktopSettingsField">
@@ -771,19 +809,19 @@ export function DesktopMcpSection({ t, api }: DesktopMcpSectionProps): ReactNode
                 {importStatus === 'duplicate' && <p className="dshDesktopSettingsNotice" role="status">{t('importDuplicate')}</p>}
                 <div className="dshDesktopSettingsDeleteActions">
                   <button
-                    type="submit"
-                    className="dshDesktopSettingsButton"
-                    disabled={busy || importText.trim().length === 0}
-                  >
-                    {t('importApply')}
-                  </button>
-                  <button
                     type="button"
                     className="dshDesktopSettingsButton dshDesktopSettingsButtonSecondary"
                     disabled={busy}
                     onClick={() => { setImportOpen(false); setImportStatus(undefined); setImportText('') }}
                   >
                     {t('cancel')}
+                  </button>
+                  <button
+                    type="submit"
+                    className="dshDesktopSettingsPrimary"
+                    disabled={busy || importText.trim().length === 0}
+                  >
+                    {t('importApply')}
                   </button>
                 </div>
               </form>

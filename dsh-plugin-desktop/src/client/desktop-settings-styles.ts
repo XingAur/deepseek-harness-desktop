@@ -361,10 +361,186 @@ const CSS = `
 .dshDesktopSettingsDialog h3 { margin: 0; color: var(--dsw-alias-state-error-primary); font-size: 16px; }
 .dshDesktopSettingsDialog p { margin: 12px 0 0; color: var(--dsw-alias-label-secondary); font-size: 13px; line-height: 1.65; }
 .dshDesktopSettingsDialogActions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+.dshDesktopSettingsHero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.dshDesktopSettingsHeroIcon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, var(--dsw-alias-bg-layer-2));
+  color: var(--dsw-alias-brand-primary);
+}
+.dshDesktopSettingsHeroIcon svg { width: 22px; height: 22px; stroke-width: 1.8; }
+.dshDesktopSettingsHero h2 { margin: 0; font-size: 20px; }
+.dshDesktopSettingsHero p {
+  margin: 4px 0 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.dshDesktopSettingsCard {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 16px;
+  background: var(--dsw-alias-bg-layer-1);
+  box-shadow: 0 1px 2px color-mix(in srgb, #000 6%, transparent);
+}
+.dshDesktopSettingsCardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.dshDesktopSettingsCardHead h3 { margin: 0; font-size: 15px; }
+.dshDesktopSettingsCardHeadActions { display: flex; flex: 0 0 auto; gap: 8px; }
+.dshDesktopSettingsPrimary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 14px;
+  border: none;
+  border-radius: 10px;
+  background: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-label-primary-foreground);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.dshDesktopSettingsPrimary svg { width: 14px; height: 14px; stroke-width: 2; }
+.dshDesktopSettingsPrimary:hover:not(:disabled) { filter: brightness(1.08); }
+.dshDesktopSettingsPrimary:disabled { cursor: default; opacity: .55; }
+.dshDesktopSettingsPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-2);
+}
+.dshDesktopSettingsFormGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.dshDesktopSettingsFormGrid .dshDesktopSettingsField:has(textarea) { grid-column: 1 / -1; }
+.dshDesktopSettingsFormGrid .dshDesktopSettingsField:has(.dshDesktopSettingsToggleRow) { grid-column: 1 / -1; }
+.dshDesktopSettingsRow {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-width: 0;
+  padding: 13px 14px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-2);
+  transition: border-color var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+.dshDesktopSettingsRow:hover { border-color: var(--dsw-alias-border-l2); }
+.dshDesktopSettingsRowIcon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, var(--dsw-alias-bg-layer-1));
+  color: var(--dsw-alias-brand-primary);
+}
+.dshDesktopSettingsRowIcon svg { width: 17px; height: 17px; stroke-width: 1.8; }
+.dshDesktopSettingsRowCopy { flex: 1; min-width: 0; }
+.dshDesktopSettingsRowActions { display: flex; flex: 0 0 auto; gap: 6px; }
+.dshDesktopSettingsRowMeta {
+  display: block;
+  overflow: hidden;
+  margin-top: 4px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.dshDesktopSettingsStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+}
+.dshDesktopSettingsStatus::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--dsw-alias-border-l2);
+}
+.dshDesktopSettingsStatus[data-state="on"]::before {
+  background: var(--dsw-alias-state-success-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-state-success-primary) 18%, transparent);
+}
+.dshDesktopSettingsCallout {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 11px 13px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.dshDesktopSettingsCallout svg { width: 15px; height: 15px; flex: 0 0 auto; margin-top: 1px; stroke-width: 1.9; }
+.dshDesktopSettingsCallout[data-tone="success"] {
+  color: var(--dsw-alias-state-success-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 10%, transparent);
+}
+.dshDesktopSettingsCallout[data-tone="info"] {
+  color: var(--dsw-alias-label-primary);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 9%, transparent);
+}
+.dshDesktopSettingsEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 26px 16px;
+  border: 1px dashed var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  text-align: center;
+}
+.dshDesktopSettingsEmpty svg { width: 20px; height: 20px; color: var(--dsw-alias-label-secondary); stroke-width: 1.6; }
+.dshDesktopSettingsEmptyStrong { font-size: 13px; font-weight: 500; }
+.dshDesktopSettingsEmptyBody {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.dshDesktopSettingsChipRow { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.dshDesktopSettingsChip {
+  padding: 2px 8px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+}
 @media (max-width: 720px) {
   .dshDesktopSettingsChoice,
   .dshDesktopSettingsToggleRow { align-items: flex-start; }
   .dshDesktopSettingsForm { align-items: stretch; flex-direction: column; }
+  .dshDesktopSettingsFormGrid { grid-template-columns: minmax(0, 1fr); }
 }
 `
 
