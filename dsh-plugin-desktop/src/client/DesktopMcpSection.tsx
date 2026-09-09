@@ -1,8 +1,16 @@
 /** Desktop-owned MCP servers settings section editing the launcher's MCP rows. */
 
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { Globe, KeyRound, Plug, Plus, RefreshCw, Terminal, Trash2, X } from 'lucide-react'
+import { Brain, Cloud, Database, Folder, GitBranch, Globe, KeyRound, Plug, Plus, RefreshCw, Terminal, Trash2, X } from 'lucide-react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import {
+  MCP_TEMPLATES,
+  templateById,
+  templateInitialValues,
+  templateRequirementsMet,
+  templateText,
+  type McpTemplate,
+} from './desktop-mcp-templates.ts'
 import type {
   DesktopMcpServerView,
   DesktopMcpTransport,
@@ -88,6 +96,51 @@ function emptyDraft(): ServerDraft {
     disabled: false,
     env: EMPTY_SECRETS,
     headers: EMPTY_SECRETS,
+  }
+}
+
+const TEMPLATE_ICONS = { database: Database, git: GitBranch, cloud: Cloud, globe: Globe, folder: Folder, brain: Brain } as const
+
+function secretsFromEntries(entries: Readonly<Record<string, string>>): SecretEdits {
+  return {
+    storedKeys: [],
+    pairs: Object.entries(entries).map(([key, value]) => ({ key, value })),
+    removed: [],
+  }
+}
+
+/** Assemble a full draft from a template and its friendly field values. */
+function templateToDraft(
+  template: McpTemplate,
+  values: Readonly<Record<string, string>>,
+  base: Pick<ServerDraft, 'id' | 'serverName' | 'disabled'>,
+): ServerDraft {
+  const built = template.build(values)
+  if (built.transport === 'stdio') {
+    return {
+      id: base.id,
+      serverName: base.serverName,
+      transport: 'stdio',
+      command: built.command,
+      argsText: built.args.join('\n'),
+      cwd: '',
+      url: '',
+      disabled: base.disabled,
+      env: secretsFromEntries(built.env),
+      headers: EMPTY_SECRETS,
+    }
+  }
+  return {
+    id: base.id,
+    serverName: base.serverName,
+    transport: 'streamable-http',
+    command: '',
+    argsText: '',
+    cwd: '',
+    url: built.url,
+    disabled: base.disabled,
+    env: EMPTY_SECRETS,
+    headers: secretsFromEntries(built.headers),
   }
 }
 
@@ -467,6 +520,9 @@ export function DesktopMcpSection({ t, api }: DesktopMcpSectionProps): ReactNode
   const [importOpen, setImportOpen] = useState(false)
   const [importText, setImportText] = useState('')
   const [importStatus, setImportStatus] = useState<'invalid' | 'duplicate'>()
+  const [chooserOpen, setChooserOpen] = useState(false)
+  const [templateId, setTemplateId] = useState<string>()
+  const [templateValues, setTemplateValues] = useState<Record<string, string>>({})
 
   const load = useCallback(async () => {
     setFailed(false)
@@ -514,7 +570,44 @@ export function DesktopMcpSection({ t, api }: DesktopMcpSectionProps): ReactNode
   const startEdit = (server: DesktopMcpServerView): void => {
     setPendingDeleteId(undefined)
     setDraftError(undefined)
+    setTemplateId(undefined)
+    setTemplateValues({})
     setDraft(draftFromServer(server))
+  }
+
+  const activeTemplate = templateId !== undefined ? templateById(templateId) : undefined
+
+  const chooseTemplate = (template: McpTemplate): void => {
+    const values = templateInitialValues(template)
+    setTemplateId(template.id)
+    setTemplateValues(values)
+    setChooserOpen(false)
+    setDraftError(undefined)
+    setDraft(templateToDraft(template, values, { id: '', serverName: template.serverName, disabled: false }))
+  }
+
+  const startBlankDraft = (): void => {
+    setTemplateId(undefined)
+    setTemplateValues({})
+    setChooserOpen(false)
+    setDraftError(undefined)
+    setDraft(emptyDraft())
+  }
+
+  const updateTemplateValue = (key: string, value: string): void => {
+    if (templateId === undefined || draft === undefined) return
+    const template = templateById(templateId)
+    if (template === undefined) return
+    const values = { ...templateValues, [key]: value }
+    setTemplateValues(values)
+    setDraft(templateToDraft(template, values, { id: draft.id, serverName: draft.serverName, disabled: draft.disabled }))
+  }
+
+  const closeDraft = (): void => {
+    setDraft(undefined)
+    setDraftError(undefined)
+    setTemplateId(undefined)
+    setTemplateValues({})
   }
 
   const submitDraft = (event: FormEvent): void => {
@@ -639,7 +732,7 @@ export function DesktopMcpSection({ t, api }: DesktopMcpSectionProps): ReactNode
                     type="button"
                     className="dshDesktopSettingsPrimary"
                     disabled={busy}
-                    onClick={() => { setDraftError(undefined); setDraft(emptyDraft()) }}
+                    onClick={() => { setChooserOpen(true); setDraftError(undefined) }}
                   >
                     <Plus />
                     {t('addServer')}
@@ -673,7 +766,105 @@ export function DesktopMcpSection({ t, api }: DesktopMcpSectionProps): ReactNode
                   ))}
                 </div>
               )}
-            {draft !== undefined && (
+            {chooserOpen && draft === undefined && (
+              <div>
+                <p className="dshDesktopSettingsGroupIntro">{t('templateTitle')}</p>
+                <div className="dshDesktopTemplateGrid" role="list" aria-label={t('templateTitle')}>
+                  {MCP_TEMPLATES.map(template => {
+                    const Icon = TEMPLATE_ICONS[template.icon]
+                    return (
+                      <button
+                        key={template.id}
+                        type="button"
+                        className="dshDesktopTemplateCard"
+                        onClick={() => { chooseTemplate(template) }}
+                      >
+                        <Icon aria-hidden="true" />
+                        <span className="dshDesktopTemplateCardStrong">{templateText(template.name)}</span>
+                        <span className="dshDesktopTemplateCardBody">{templateText(template.description)}</span>
+                      </button>
+                    )
+                  })}
+                  <button type="button" className="dshDesktopTemplateCard" onClick={startBlankDraft}>
+                    <Terminal aria-hidden="true" />
+                    <span className="dshDesktopTemplateCardStrong">{t('templateBlank')}</span>
+                    <span className="dshDesktopTemplateCardBody">{t('templateAdvancedNote')}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+            {draft !== undefined && activeTemplate !== undefined && (
+              <form className="dshDesktopSettingsPanel" onSubmit={submitDraft}>
+                <p className="dshDesktopSettingsHint">{t('templateAdvancedNote')}</p>
+                <div className="dshDesktopSettingsFormGrid">
+                  <label className="dshDesktopSettingsField">
+                    {t('serverName')}
+                    <input
+                      className="dshDesktopSettingsInput"
+                      value={draft.serverName}
+                      maxLength={32}
+                      autoComplete="off"
+                      disabled={busy}
+                      onChange={event => { updateDraft({ serverName: event.currentTarget.value }) }}
+                    />
+                  </label>
+                  {activeTemplate.fields.map(field => (
+                    <label key={field.key} className="dshDesktopSettingsField">
+                      {templateText(field.label)}{field.required === true ? ' *' : ''}
+                      {field.options !== undefined ? (
+                        <select
+                          className="dshDesktopSettingsSelect"
+                          value={templateValues[field.key] ?? ''}
+                          disabled={busy}
+                          onChange={event => { updateTemplateValue(field.key, event.currentTarget.value) }}
+                        >
+                          {field.options.map(option => (
+                            <option key={option.value} value={option.value}>{templateText(option.label)}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          className="dshDesktopSettingsInput"
+                          type={field.secret === true ? 'password' : 'text'}
+                          value={templateValues[field.key] ?? ''}
+                          placeholder={field.placeholder !== undefined ? templateText(field.placeholder) : undefined}
+                          autoComplete="off"
+                          disabled={busy}
+                          onChange={event => { updateTemplateValue(field.key, event.currentTarget.value) }}
+                        />
+                      )}
+                    </label>
+                  ))}
+                </div>
+                {draftError !== undefined && <p className="dshDesktopSettingsError" role="alert">{t(draftError)}</p>}
+                <div className="dshDesktopSettingsDeleteActions">
+                  <button
+                    type="button"
+                    className="dshDesktopSettingsButton dshDesktopSettingsButtonSecondary"
+                    disabled={busy}
+                    onClick={() => { closeDraft(); setChooserOpen(true) }}
+                  >
+                    {t('templateTitle')}
+                  </button>
+                  <button
+                    type="button"
+                    className="dshDesktopSettingsButton dshDesktopSettingsButtonSecondary"
+                    disabled={busy}
+                    onClick={closeDraft}
+                  >
+                    {t('cancel')}
+                  </button>
+                  <button
+                    type="submit"
+                    className="dshDesktopSettingsPrimary"
+                    disabled={busy || !templateRequirementsMet(activeTemplate, templateValues)}
+                  >
+                    {t('save')}
+                  </button>
+                </div>
+              </form>
+            )}
+            {draft !== undefined && activeTemplate === undefined && (
               <form className="dshDesktopSettingsPanel" onSubmit={submitDraft}>
                 <div className="dshDesktopSettingsFormGrid">
                   <label className="dshDesktopSettingsField">

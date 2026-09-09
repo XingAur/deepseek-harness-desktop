@@ -532,6 +532,42 @@ const CSS = `
   line-height: 1.55;
 }
 .dshDesktopSettingsChipRow { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.dshDesktopTemplateGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 10px;
+}
+.dshDesktopTemplateCard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: start;
+  transition: border-color var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+.dshDesktopTemplateCard:hover {
+  border-color: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+.dshDesktopTemplateCard:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+.dshDesktopTemplateCard svg { width: 16px; height: 16px; color: var(--dsw-alias-brand-primary); }
+.dshDesktopTemplateCardStrong { font-size: 13px; font-weight: 500; }
+.dshDesktopTemplateCardBody {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
 .dshDesktopSettingsChip {
   padding: 2px 8px;
   border: 1px solid var(--dsw-alias-border-l1);

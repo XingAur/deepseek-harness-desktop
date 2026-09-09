@@ -41,6 +41,9 @@ export type DesktopMcpLocaleKey =
   | 'importApply'
   | 'importInvalid'
   | 'importDuplicate'
+  | 'templateTitle'
+  | 'templateBlank'
+  | 'templateAdvancedNote'
   | 'nameRequired'
   | 'commandRequired'
   | 'urlRequired'
@@ -87,6 +90,9 @@ export const en: Record<DesktopMcpLocaleKey, string> = {
   importApply: 'Import',
   importInvalid: 'The pasted JSON is not a valid MCP server list.',
   importDuplicate: 'Servers with existing names were skipped.',
+  templateTitle: 'Add from a template',
+  templateBlank: 'Blank (advanced)',
+  templateAdvancedNote: 'Connection details are assembled automatically; switch to a blank server to edit raw command and args.',
   nameRequired: 'Server name is required.',
   commandRequired: 'A command is required for stdio servers.',
   urlRequired: 'A URL is required for Streamable HTTP servers.',
@@ -134,6 +140,9 @@ export const zh: Record<DesktopMcpLocaleKey, string> = {
   importApply: '导入',
   importInvalid: '粘贴的 JSON 不是有效的 MCP 服务器列表。',
   importDuplicate: '与现有服务器同名的条目已跳过。',
+  templateTitle: '从模板添加',
+  templateBlank: '空白自定义（高级）',
+  templateAdvancedNote: '连接参数会自动拼装；如需直接编辑命令和参数，请用空白自定义。',
   nameRequired: '请填写服务器名称。',
   commandRequired: 'Stdio 服务器需要填写命令。',
   urlRequired: 'Streamable HTTP 服务器需要填写 URL。',
