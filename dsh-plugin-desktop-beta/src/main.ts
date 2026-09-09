@@ -79,6 +79,7 @@ import {
   selectDesktopProfile,
 } from './profile-manager.ts'
 import { DesktopProfileService } from './profile-service.ts'
+import type {} from '@deepseek-ai/dsh-agent-presets/types'
 import { DesktopActionsService } from './desktop-actions.ts'
 import { clearDesktopProfilePluginState, DesktopPluginsService } from './desktop-plugins.ts'
 import {
@@ -1563,7 +1564,14 @@ async function start(): Promise<void> {
           readSkills: async () => {
             const registry = hostCtx.get('skills')
             if (registry === undefined) return { available: false, skills: [] }
-            const summaries = await registry.list()
+            // The filesystem skill provider registers into the standing preset's
+            // scoped layer, and project roots need a cwd — a bare list() sees
+            // neither, which used to render an empty catalog.
+            const presets = hostCtx.get('agentPresets')
+            const scope = presets === undefined
+              ? undefined
+              : await presets.standingKeyFor().catch(() => undefined)
+            const summaries = await registry.list({ scope, cwd: process.cwd() })
             return {
               available: true,
               skills: summaries.map(skill => ({
