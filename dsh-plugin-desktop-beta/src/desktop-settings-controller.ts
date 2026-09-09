@@ -18,6 +18,7 @@ import type {
   DesktopRendererReloadResponse,
   DesktopSettingsMarketView,
   DesktopSettingsProfileView,
+  DesktopSkillsListResponse,
   DesktopSettingsResponse,
   DesktopSettingsWebView,
   DesktopTerminalOpenResponse,
@@ -48,6 +49,8 @@ export interface DesktopSettingsControllerBootstrap {
   toggleDeveloperTools(): void
   /** Export diagnostics through the launcher-owned privacy flow. */
   exportDiagnostics(): void | Promise<void>
+  /** Read the Host composition's skill catalog; absent when no registry is mounted. */
+  readSkills?(): Promise<DesktopSkillsListResponse>
 }
 
 /** A persisted response plus work that must run only after `res.end()`. */
@@ -171,6 +174,18 @@ export class DesktopSettingsController {
   openTerminal(): DesktopTerminalOpenResponse {
     this.bootstrap.openTerminal()
     return Object.freeze({ accepted: true })
+  }
+
+  /** Read the Host skill catalog, or an unavailable projection when no registry is mounted. */
+  async listSkills(): Promise<DesktopSkillsListResponse> {
+    if (this.bootstrap.readSkills === undefined) {
+      return Object.freeze({ available: false, skills: Object.freeze([]) })
+    }
+    const value = await this.bootstrap.readSkills()
+    return Object.freeze({
+      available: value.available,
+      skills: Object.freeze([...value.skills].map(skill => Object.freeze({ ...skill }))),
+    })
   }
 
   /** Acknowledge the renderer before queueing an orderly Desktop relaunch. */

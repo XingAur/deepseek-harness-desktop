@@ -4,14 +4,19 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { DesktopSettingsSection, type DesktopNotificationSettings, type DesktopShellSettings } from './DesktopSettingsSection.tsx'
+import { DesktopSkillsSection } from './DesktopSkillsSection.tsx'
 import { DesktopTerminalSettingsAction } from './DesktopTerminalSettingsAction.tsx'
 import { createDesktopSettingsApi } from './desktop-settings-api.ts'
 import { en, zh, type DesktopSettingsLocaleKey } from './desktop-settings-locales.ts'
+import { en as skillsEn, zh as skillsZh, type DesktopSkillsLocaleKey } from './desktop-skills-locales.ts'
 import { installDesktopSettingsStyles } from './desktop-settings-styles.ts'
 import type { DesktopClientEnvironment } from './environment.ts'
 
 /** Locale namespace owned by the Desktop settings page. */
 export const DESKTOP_SETTINGS_LOCALE_NAMESPACE = 'desktop.settings'
+
+/** Locale namespace owned by the Desktop Skills settings page. */
+export const DESKTOP_SKILLS_LOCALE_NAMESPACE = 'desktop.skills'
 
 /** Host settings namespaces bound through the standard client settings service. */
 export const DESKTOP_SHELL_SETTINGS_NAMESPACE = 'dsh-desktop'
@@ -50,6 +55,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     /** Desktop-only settings page copy. */
     'desktop.settings': DesktopSettingsLocaleKey
+    /** Desktop-only Skills settings page copy. */
+    'desktop.skills': DesktopSkillsLocaleKey
   }
 }
 
@@ -66,6 +73,7 @@ export function applyDesktopSettings(
   })
   const api = createDesktopSettingsApi()
   const t = ctx.locale.bind(DESKTOP_SETTINGS_LOCALE_NAMESPACE)
+  const skillsT = ctx.locale.bind(DESKTOP_SKILLS_LOCALE_NAMESPACE)
   const setMode = async (mode: DesktopShellSettings['mode']): Promise<void> => {
     await persistDesktopModeSelection(desktopSettings, mode)
   }
@@ -75,9 +83,21 @@ export function applyDesktopSettings(
     'dsh-plugin-desktop: settings dictionaries',
   )
   ctx.effect(
+    () => ctx.locale.register(DESKTOP_SKILLS_LOCALE_NAMESPACE, { zh: skillsZh, en: skillsEn }),
+    'dsh-plugin-desktop: skills settings dictionaries',
+  )
+  ctx.effect(
     () => installDesktopSettingsStyles(),
     'dsh-plugin-desktop: settings styles',
   )
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: 'skills',
+    order: 90,
+    label: () => skillsT('nav'),
+    locale: DESKTOP_SKILLS_LOCALE_NAMESPACE,
+    inject: () => ({ api }),
+  }, DesktopSkillsSection))
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
     id: 'desktop',

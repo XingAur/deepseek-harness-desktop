@@ -36,6 +36,7 @@ import {
   DESKTOP_RENDERER_RELOAD_PATH,
   DESKTOP_RESTART_PATH,
   DESKTOP_SETTINGS_PATH,
+  DESKTOP_SKILLS_LIST_PATH,
   DESKTOP_TERMINAL_OPEN_PATH,
 } from '../src/desktop-settings-contract.ts'
 import type { DesktopRuntime, DesktopShellSpec } from '../src/runtime.ts'
@@ -417,6 +418,7 @@ describe('desktop Host plugin', () => {
     apply(harness.ctx, config)
     const expectedPaths = [
       DESKTOP_SETTINGS_PATH,
+      DESKTOP_SKILLS_LIST_PATH,
       DESKTOP_PROFILE_CREATE_PATH,
       DESKTOP_PROFILE_DELETE_PATH,
       DESKTOP_PROFILE_SELECT_PATH,

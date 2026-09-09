@@ -13,6 +13,21 @@ import type {
 import type { UpdateCheckResult } from '../src/update-checker.ts'
 import { apply, Config, inject, type Config as UpdateConfig } from '../src/updates.ts'
 
+// The suite exercises the stock update service behavior; the fork's shipped
+// `disabled` switch would short-circuit `apply` before any registration.
+vi.mock('../src/fork-update-source.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/fork-update-source.ts')>()
+  const FORK_UPDATE_SOURCE = { kind: 'inherit' } as const
+  return {
+    ...actual,
+    FORK_UPDATE_SOURCE,
+    resolveForkUpdateEndpoints: (
+      upstreamVersionEndpoint: string,
+      upstreamDownloadEndpoints: Readonly<Record<'darwin' | 'win32', string>>,
+    ) => ({ versionEndpoint: upstreamVersionEndpoint, downloadEndpoints: upstreamDownloadEndpoints }),
+  }
+})
+
 const testConfig: UpdateConfig = {
   enabled: true,
   initialDelayMs: 10,
@@ -93,7 +108,7 @@ async function createHarness(options: {
         return () => {}
       },
     },
-    logger: { warn: (...args: unknown[]) => { warnings.push(args) } },
+    logger: { info: () => undefined, warn: (...args: unknown[]) => { warnings.push(args) } },
     effect: (register: () => (() => void | Promise<void>)) => {
       disposer = register()
       return disposer
@@ -531,5 +546,61 @@ describe('desktop update Host plugin', () => {
     expect(harness.notifications).toEqual([])
     expect(harness.warnings).toEqual([])
     expect(harness.tray.label()).toBe('Check for Updates…')
+  })
+})
+
+describe('desktop update Host plugin with a disabled fork update source', () => {
+  it('registers no tray command, route, or lifecycle when updates are disabled', async () => {
+    vi.resetModules()
+    vi.doMock('../src/fork-update-source.ts', () => ({
+      FORK_UPDATE_SOURCE: { kind: 'disabled' } as const,
+      resolveForkUpdateEndpoints: () => undefined,
+    }))
+    try {
+      const { apply: disabledApply } = await import('../src/updates.ts')
+      const tray: unknown[] = []
+      const routes: unknown[] = []
+      let effects = 0
+      const ctx = {
+        desktopRuntime: {
+          locale: 'en',
+          updates: {
+            isPackaged: true,
+            currentVersion: '2.0.0',
+            statePath: '/tmp/dsh-updates-disabled/state.json',
+            canDownload: true,
+            request: async () => Response.json({ version: '2.0.0' }),
+            confirmDownload: async () => false,
+            showManualCheckResult: async () => {},
+            downloadAndOpen: async () => {},
+            notify: () => {},
+          },
+          registerTrayItem: (item: unknown) => {
+            tray.push(item)
+            return { refresh: () => undefined, dispose: () => undefined }
+          },
+        },
+        webServer: {
+          port: 43120,
+          register: (registered: unknown) => {
+            routes.push(registered)
+            return () => {}
+          },
+        },
+        connection: { requestRejection: () => undefined },
+        logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
+        effect: (register: () => (() => void | Promise<void>)) => {
+          effects += 1
+          return register()
+        },
+      } as unknown as Context
+      disabledApply(ctx, { ...testConfig })
+      expect(tray).toEqual([])
+      expect(routes).toEqual([])
+      expect(effects).toBe(0)
+    } finally {
+      vi.doUnmock('../src/fork-update-source.ts')
+      vi.resetModules()
+    }
   })
 })

@@ -209,6 +209,26 @@ export async function handleDesktopSettingsRequest(
   }
 }
 
+/** Read the Host composition's skill catalog for the settings Skills page. */
+export async function handleDesktopSkillsListRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  expectedOrigin: string,
+  controller: DesktopSettingsController,
+  reportError: (operation: string, cause: unknown) => void = () => {},
+): Promise<void> {
+  if (req.method !== 'GET') return finishJson(res, 405, error('method not allowed'), 'GET')
+  if (!isSameOriginLoopbackRequest(req, expectedOrigin, false)) {
+    return finishJson(res, 403, error('forbidden'))
+  }
+  try {
+    finishJson(res, 200, await controller.listSkills())
+  } catch (cause) {
+    reportError('read skills', cause)
+    finishJson(res, 500, error('skill catalog unavailable'))
+  }
+}
+
 /** Create one safe Web profile without changing the active generation. */
 export async function handleDesktopProfileCreateRequest(
   req: IncomingMessage,

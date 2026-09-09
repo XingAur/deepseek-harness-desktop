@@ -13,7 +13,11 @@ const RENDERER_RELOAD_PATH = '/api/desktop/developer/reload'
 const DEVELOPER_TOOLS_TOGGLE_PATH = '/api/desktop/developer/devtools'
 const UPDATE_CHECK_PATH = '/api/desktop/updates/check'
 const DIAGNOSTICS_EXPORT_PATH = '/api/desktop/diagnostics/export'
+const SKILLS_LIST_PATH = '/api/desktop/skills'
 const MAX_PROFILES = 256
+const MAX_SKILLS = 1024
+const MAX_SKILL_TEXT_LENGTH = 2048
+const SKILL_SOURCE_PATTERN = /^[a-z][a-z0-9-]*$/u
 const MAX_PROFILE_NAME_LENGTH = 255
 const MAX_LAN_URLS = 32
 const MAX_LAN_ERROR_LENGTH = 128
@@ -69,6 +73,22 @@ export interface DesktopRestartAcceptance {
   readonly restartRequired: boolean
 }
 
+/** Renderer-safe projection of one discovered skill. */
+export interface DesktopSkillView {
+  readonly name: string
+  readonly description: string
+  readonly whenToUse: string | null
+  readonly modelInvocable: boolean
+  readonly userInvocable: boolean
+  readonly source: string
+}
+
+/** Skill catalog read from the running Host composition. */
+export interface DesktopSkillsView {
+  readonly available: boolean
+  readonly skills: readonly DesktopSkillView[]
+}
+
 /** Browser operations consumed by the Desktop settings section. */
 export interface DesktopSettingsApi {
   read(): Promise<DesktopSettingsView>
@@ -84,6 +104,7 @@ export interface DesktopSettingsApi {
   toggleDeveloperTools(): Promise<void>
   checkForUpdates(): Promise<void>
   exportDiagnostics(): Promise<void>
+  listSkills(): Promise<DesktopSkillsView>
 }
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
@@ -272,6 +293,52 @@ export function parseDesktopRestartAcceptance(value: unknown): DesktopRestartAcc
   return Object.freeze({ accepted: true, restartRequired: value.restartRequired })
 }
 
+function parseSkill(value: unknown): DesktopSkillView {
+  if (!isObject(value)
+    || typeof value.name !== 'string'
+    || value.name.length === 0
+    || value.name.length > 128
+    || typeof value.description !== 'string'
+    || value.description.length > MAX_SKILL_TEXT_LENGTH
+    || (value.whenToUse !== null && (typeof value.whenToUse !== 'string' || value.whenToUse.length > MAX_SKILL_TEXT_LENGTH))
+    || typeof value.modelInvocable !== 'boolean'
+    || typeof value.userInvocable !== 'boolean'
+    || typeof value.source !== 'string'
+    || value.source.length === 0
+    || value.source.length > 64
+    || !SKILL_SOURCE_PATTERN.test(value.source)
+    || !hasExactKeys(value, ['name', 'description', 'whenToUse', 'modelInvocable', 'userInvocable', 'source'])) {
+    throw new Error('dsh-plugin-desktop: invalid skill entry in skill catalog response')
+  }
+  return Object.freeze({
+    name: value.name,
+    description: value.description,
+    whenToUse: value.whenToUse,
+    modelInvocable: value.modelInvocable,
+    userInvocable: value.userInvocable,
+    source: value.source,
+  })
+}
+
+/** Validate the bounded skill catalog before it reaches React state. */
+export function parseDesktopSkillsView(value: unknown): DesktopSkillsView {
+  if (!isObject(value)
+    || typeof value.available !== 'boolean'
+    || !Array.isArray(value.skills)
+    || value.skills.length > MAX_SKILLS
+    || !hasExactKeys(value, ['available', 'skills'])) {
+    throw new Error('dsh-plugin-desktop: invalid Desktop skill catalog response')
+  }
+  const skills = value.skills.map(parseSkill)
+  if (new Set(skills.map(skill => skill.name)).size !== skills.length) {
+    throw new Error('dsh-plugin-desktop: duplicate skill in skill catalog response')
+  }
+  return Object.freeze({
+    available: value.available,
+    skills: Object.freeze(skills),
+  })
+}
+
 /** Validate the exact acknowledgement returned by a Desktop side effect. */
 export function parseDesktopActionAcceptance(value: unknown): void {
   if (!isObject(value)
@@ -354,6 +421,16 @@ export function createDesktopSettingsApi(fetcher: FetchLike = globalThis.fetch.b
     async exportDiagnostics() {
       parseDesktopActionAcceptance(await readResponse(await post(fetcher, DIAGNOSTICS_EXPORT_PATH, {})))
     },
+    async listSkills() {
+      const response = await fetcher(SKILLS_LIST_PATH, {
+        method: 'GET',
+        credentials: 'same-origin',
+        redirect: 'error',
+        cache: 'no-store',
+        headers: { 'Accept': 'application/json' },
+      })
+      return parseDesktopSkillsView(await readResponse(response))
+    },
   })
 }
 
@@ -370,4 +447,5 @@ export const desktopSettingsPaths = Object.freeze({
   developerToolsToggle: DEVELOPER_TOOLS_TOGGLE_PATH,
   updateCheck: UPDATE_CHECK_PATH,
   diagnosticsExport: DIAGNOSTICS_EXPORT_PATH,
+  skillsList: SKILLS_LIST_PATH,
 })

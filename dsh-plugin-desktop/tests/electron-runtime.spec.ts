@@ -61,6 +61,10 @@ vi.mock('../src/diagnostic-export.ts', () => ({
 
 
 vi.mock('../src/update-download.ts', () => ({
+  DESKTOP_DOWNLOAD_URLS: {
+    darwin: 'https://www.dshdesktop.cn/api/downloads/mac',
+    win32: 'https://www.dshdesktop.cn/api/downloads/windows',
+  },
   desktopUpdateFilename: updater.filename,
   downloadDesktopUpdate: updater.download,
   pendingDesktopUpdateArtifact: updater.pending,

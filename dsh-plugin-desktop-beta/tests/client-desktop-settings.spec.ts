@@ -22,6 +22,7 @@ import {
   resolveDesktopLanConfirmation,
 } from '../src/client/DesktopSettingsSection.tsx'
 import { DesktopTerminalSettingsAction } from '../src/client/DesktopTerminalSettingsAction.tsx'
+import { DesktopSkillsSection } from '../src/client/DesktopSkillsSection.tsx'
 import {
   createDesktopSettingsApi,
   desktopSettingsPaths,
@@ -35,6 +36,7 @@ import {
   DESKTOP_NOTIFICATIONS_SETTINGS_NAMESPACE,
   DESKTOP_SETTINGS_LOCALE_NAMESPACE,
   DESKTOP_SHELL_SETTINGS_NAMESPACE,
+  DESKTOP_SKILLS_LOCALE_NAMESPACE,
   persistDesktopModeSelection,
 } from '../src/client/desktop-settings.ts'
 import { en, zh, type DesktopSettingsLocaleKey } from '../src/client/desktop-settings-locales.ts'
@@ -624,7 +626,21 @@ describe('Desktop settings Slot registration', () => {
     expect(bind).toHaveBeenNthCalledWith(2, { namespace: DESKTOP_NOTIFICATIONS_SETTINGS_NAMESPACE })
     expect(inject).toHaveBeenCalledWith('settings.section', expect.any(Function))
     expect(inject).toHaveBeenCalledWith('settings.action', expect.any(Function))
-    const [options, component] = register.mock.calls[0] as unknown as [
+    const [skillsOptions, skillsComponent] = register.mock.calls[0] as unknown as [
+      { id: string; order: number; locale: string; label: () => string; inject: () => Record<string, unknown> },
+      unknown,
+    ]
+    expect(skillsOptions).toMatchObject({
+      name: 'settings.section',
+      id: 'skills',
+      order: 90,
+      locale: DESKTOP_SKILLS_LOCALE_NAMESPACE,
+    })
+    expect(skillsOptions.label()).toBe(`${DESKTOP_SKILLS_LOCALE_NAMESPACE}:nav`)
+    expect(skillsOptions.inject()).toMatchObject({ api: expect.any(Object) })
+    expect(skillsComponent).toBe(DesktopSkillsSection)
+
+    const [options, component] = register.mock.calls[1] as unknown as [
       { id: string; order: number; locale: string; label: () => string; inject: () => Record<string, unknown> },
       unknown,
     ]
@@ -643,7 +659,7 @@ describe('Desktop settings Slot registration', () => {
     })
     expect(component).toBe(DesktopSettingsSection)
 
-    const [actionOptions, actionComponent] = register.mock.calls[1] as unknown as [
+    const [actionOptions, actionComponent] = register.mock.calls[2] as unknown as [
       { id: string; order: number; locale: string; inject: () => Record<string, unknown> },
       unknown,
     ]

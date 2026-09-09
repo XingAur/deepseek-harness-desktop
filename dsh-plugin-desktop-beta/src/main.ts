@@ -21,6 +21,7 @@ import {
 } from '@deepseek-ai/dsh-launch-environment'
 import type {} from '@deepseek-ai/dsh-web-app'
 import type {} from '@deepseek-ai/dsh-client-connection'
+import type {} from '@deepseek-ai/dsh-skill'
 import {
   isDesktopBackgroundNodeRequest,
   isDesktopInstallerQuitRequest,
@@ -1535,6 +1536,22 @@ async function start(): Promise<void> {
         hostCtx.provide('desktopSettingsController', new DesktopSettingsController({
           profiles: hostCtx.desktopProfiles,
           readMarket,
+          readSkills: async () => {
+            const registry = hostCtx.get('skills')
+            if (registry === undefined) return { available: false, skills: [] }
+            const summaries = await registry.list()
+            return {
+              available: true,
+              skills: summaries.map(skill => ({
+                name: skill.name,
+                description: skill.description,
+                whenToUse: skill.whenToUse ?? null,
+                modelInvocable: skill.invocation.modelInvocable,
+                userInvocable: skill.invocation.userInvocable,
+                source: skill.source,
+              })),
+            }
+          },
           readAa: () => ({ requested: currentProfilePreferences.aaEnabled === true, effective: prepared.aaEnabled }),
           selectAa: async enabled => {
             await enqueueProfilePreferencesWrite(current => desktopProfilePreferencesFromSettings(

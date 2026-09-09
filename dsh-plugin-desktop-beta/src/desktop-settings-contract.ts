@@ -40,6 +40,9 @@ export const DESKTOP_UPDATE_CHECK_PATH = '/api/desktop/updates/check'
 /** Export one local diagnostic archive through the launcher-owned flow. */
 export const DESKTOP_DIAGNOSTICS_EXPORT_PATH = '/api/desktop/diagnostics/export'
 
+/** Read the skill catalog visible to the running Host composition. */
+export const DESKTOP_SKILLS_LIST_PATH = '/api/desktop/skills'
+
 /** Renderer-safe projection of one discovered profile. */
 export interface DesktopSettingsProfileView {
   /** Profile name accepted by the launcher. */
@@ -183,6 +186,31 @@ export type DesktopDiagnosticsExportRequest = Readonly<Record<string, never>>
 /** Successful handoff to the launcher-owned diagnostic export flow. */
 export interface DesktopDiagnosticsExportResponse {
   readonly accepted: true
+}
+
+/** Exact empty body accepted by the skill-catalog endpoint. */
+export type DesktopSkillsListRequest = Readonly<Record<string, never>>
+
+/** Renderer-safe projection of one discovered skill. */
+export interface DesktopSkillsListItem {
+  /** Kebab-case skill name from the skill frontmatter. */
+  readonly name: string
+  /** Short routing description shown by discovery consumers. */
+  readonly description: string
+  /** Optional extra routing guidance from the skill frontmatter. */
+  readonly whenToUse: string | null
+  /** Whether model-facing catalogs include this skill. */
+  readonly modelInvocable: boolean
+  /** Whether human-facing catalogs include this skill. */
+  readonly userInvocable: boolean
+  /** Discovery root that produced this skill, e.g. `user-agents`. */
+  readonly source: string
+}
+
+/** Successful skill-catalog read; `available` is false when the Host composition mounts no skill registry. */
+export interface DesktopSkillsListResponse {
+  readonly available: boolean
+  readonly skills: readonly DesktopSkillsListItem[]
 }
 
 /** Stable API failure shape that never contains native paths or raw causes. */
