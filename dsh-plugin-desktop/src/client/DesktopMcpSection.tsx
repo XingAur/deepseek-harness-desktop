@@ -16,6 +16,7 @@ import type {
   DesktopMcpTransport,
   DesktopMcpServerWrite,
   DesktopMcpStateView,
+  DesktopMcpTestView,
   DesktopSettingsApi,
 } from './desktop-settings-api.ts'
 import type { DesktopMcpLocaleKey } from './desktop-mcp-locales.ts'
@@ -407,16 +408,19 @@ function SecretFields({ label, hint, edits, disabled, t, onChange }: {
 }
 
 /** One server card: name, transport badge, enable toggle, edit, and delete. */
-function ServerRow({ server, t, busy, pendingDelete, onToggle, onEdit, onDeleteRequest, onDelete, onCancelDelete }: {
+function ServerRow({ server, t, busy, pendingDelete, testing, testLine, onToggle, onEdit, onDeleteRequest, onDelete, onCancelDelete, onTest }: {
   server: DesktopMcpServerView
   t: Translate
   busy: boolean
   pendingDelete: boolean
+  testing: boolean
+  testLine: ReactNode
   onToggle: (server: DesktopMcpServerView) => void
   onEdit: (server: DesktopMcpServerView) => void
   onDeleteRequest: (id: string) => void
   onDelete: (server: DesktopMcpServerView) => void
   onCancelDelete: () => void
+  onTest: (server: DesktopMcpServerView) => void
 }) {
   const summary = server.transport === 'stdio'
     ? [server.command ?? '', ...server.args].filter(part => part.length > 0).join(' ')
@@ -437,6 +441,7 @@ function ServerRow({ server, t, busy, pendingDelete, onToggle, onEdit, onDeleteR
           </span>
         </span>
         {summary.length > 0 && <span className="dshDesktopSettingsRowMeta">{summary}</span>}
+        {testLine}
         {(server.transport === 'stdio' && server.envKeys.length > 0) && (
           <span className="dshDesktopSettingsChipRow">
             {server.envKeys.map(key => <span key={key} className="dshDesktopSettingsChip">{key}</span>)}
@@ -474,6 +479,14 @@ function ServerRow({ server, t, busy, pendingDelete, onToggle, onEdit, onDeleteR
           </div>
         ) : (
           <>
+            <button
+              type="button"
+              className="dshDesktopSettingsButton dshDesktopSettingsButtonSecondary"
+              disabled={busy}
+              onClick={() => { onTest(server) }}
+            >
+              {testing === true ? t('testing') : t('test')}
+            </button>
             <button
               type="button"
               className="dshDesktopSettingsButton dshDesktopSettingsButtonSecondary"
@@ -523,6 +536,8 @@ export function DesktopMcpSection({ t, api }: DesktopMcpSectionProps): ReactNode
   const [chooserOpen, setChooserOpen] = useState(false)
   const [templateId, setTemplateId] = useState<string>()
   const [templateValues, setTemplateValues] = useState<Record<string, string>>({})
+  const [testingId, setTestingId] = useState<string>()
+  const [testResult, setTestResult] = useState<{ readonly key: string; readonly view: DesktopMcpTestView }>()
 
   const load = useCallback(async () => {
     setFailed(false)
@@ -610,10 +625,53 @@ export function DesktopMcpSection({ t, api }: DesktopMcpSectionProps): ReactNode
     setTemplateValues({})
   }
 
+  const runTest = (row: DesktopMcpServerWrite, id?: string): void => {
+    const key = id ?? 'draft'
+    setTestingId(key)
+    setTestResult(undefined)
+    void api.testMcp(row, id).then(view => {
+      setTestResult({ key, view })
+    }).catch(() => {
+      setTestResult({ key, view: { ok: false, error: 'protocol', detail: 'probe unavailable' } })
+    }).finally(() => {
+      setTestingId(undefined)
+    })
+  }
+
+  const testResultLine = (key: string): ReactNode => {
+    if (testingId === key) return <span className="dshDesktopSettingsHint">{t('testing')}</span>
+    if (testResult === undefined || testResult.key !== key) return undefined
+    const { view } = testResult
+    if (view.ok) {
+      return (
+        <span className="dshDesktopSettingsCallout" data-tone="success" role="status">
+          <RefreshCw aria-hidden="true" />
+          <span>
+            {t('testOk')}
+            {view.toolCount !== undefined ? ` · ${String(view.toolCount)} ${t('testToolsUnit')}` : ''}
+            {view.serverInfoName !== undefined ? ` · ${view.serverInfoName}` : ''}
+          </span>
+        </span>
+      )
+    }
+    return (
+      <span className="dshDesktopSettingsCallout" data-tone="info" role="status">
+        <X aria-hidden="true" />
+        <span>
+          {`${t('testFailed')}${view.detail !== undefined ? `: ${view.detail}` : ''}`}
+        </span>
+      </span>
+    )
+  }
+
   const submitDraft = (event: FormEvent): void => {
     event.preventDefault()
     if (draft === undefined || busy) return
-    const name = draft.serverName.trim()
+    const name = draft.serverName.trim().length > 0
+      ? draft.serverName.trim()
+      : activeTemplate !== undefined
+        ? activeTemplate.serverName
+        : ''
     if (name.length === 0 || !MCP_SERVER_NAME_PATTERN.test(name)) {
       setDraftError('nameRequired')
       return
@@ -757,11 +815,14 @@ export function DesktopMcpSection({ t, api }: DesktopMcpSectionProps): ReactNode
                       t={t}
                       busy={busy}
                       pendingDelete={pendingDeleteId === server.id}
+                      testing={testingId === server.id}
+                      testLine={testResultLine(server.id)}
                       onToggle={toggleServer}
                       onEdit={startEdit}
                       onDeleteRequest={setPendingDeleteId}
                       onDelete={deleteServer}
                       onCancelDelete={() => { setPendingDeleteId(undefined) }}
+                      onTest={candidate => { runTest(rowFromServer(candidate), candidate.id) }}
                     />
                   ))}
                 </div>
@@ -807,6 +868,7 @@ export function DesktopMcpSection({ t, api }: DesktopMcpSectionProps): ReactNode
                       disabled={busy}
                       onChange={event => { updateDraft({ serverName: event.currentTarget.value }) }}
                     />
+                    <span className="dshDesktopSettingsHint">{t('nameOptionalHint')}</span>
                   </label>
                   {activeTemplate.fields.map(field => (
                     <label key={field.key} className="dshDesktopSettingsField">
@@ -837,6 +899,7 @@ export function DesktopMcpSection({ t, api }: DesktopMcpSectionProps): ReactNode
                   ))}
                 </div>
                 {draftError !== undefined && <p className="dshDesktopSettingsError" role="alert">{t(draftError)}</p>}
+                {testResultLine(draft.id === '' ? 'draft' : draft.id)}
                 <div className="dshDesktopSettingsDeleteActions">
                   <button
                     type="button"
@@ -845,6 +908,14 @@ export function DesktopMcpSection({ t, api }: DesktopMcpSectionProps): ReactNode
                     onClick={() => { closeDraft(); setChooserOpen(true) }}
                   >
                     {t('templateTitle')}
+                  </button>
+                  <button
+                    type="button"
+                    className="dshDesktopSettingsButton dshDesktopSettingsButtonSecondary"
+                    disabled={busy || testingId === (draft.id === '' ? 'draft' : draft.id)}
+                    onClick={() => { runTest(rowFromDraft(draft), draft.id === '' ? undefined : draft.id) }}
+                  >
+                    {testingId === (draft.id === '' ? 'draft' : draft.id) ? t('testing') : t('test')}
                   </button>
                   <button
                     type="button"
@@ -965,6 +1036,7 @@ export function DesktopMcpSection({ t, api }: DesktopMcpSectionProps): ReactNode
                   )}
                 </div>
                 {draftError !== undefined && <p className="dshDesktopSettingsError" role="alert">{t(draftError)}</p>}
+                {testResultLine(draft.id === '' ? 'draft' : draft.id)}
                 <div className="dshDesktopSettingsDeleteActions">
                   <button
                     type="button"
@@ -973,6 +1045,14 @@ export function DesktopMcpSection({ t, api }: DesktopMcpSectionProps): ReactNode
                     onClick={() => { setDraft(undefined); setDraftError(undefined) }}
                   >
                     {t('cancel')}
+                  </button>
+                  <button
+                    type="button"
+                    className="dshDesktopSettingsButton dshDesktopSettingsButtonSecondary"
+                    disabled={busy || testingId === (draft.id === '' ? 'draft' : draft.id)}
+                    onClick={() => { runTest(rowFromDraft(draft), draft.id === '' ? undefined : draft.id) }}
+                  >
+                    {testingId === (draft.id === '' ? 'draft' : draft.id) ? t('testing') : t('test')}
                   </button>
                   <button type="submit" className="dshDesktopSettingsPrimary" disabled={busy}>{t('save')}</button>
                 </div>

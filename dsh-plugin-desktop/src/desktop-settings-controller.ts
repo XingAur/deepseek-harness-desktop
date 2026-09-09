@@ -18,6 +18,8 @@ import type {
   DesktopRendererReloadResponse,
   DesktopMcpStateRequest,
   DesktopMcpStateResponse,
+  DesktopMcpTestRequest,
+  DesktopMcpTestResponse,
   DesktopMcpWriteResponse,
   DesktopSettingsMarketView,
   DesktopSettingsProfileView,
@@ -64,6 +66,8 @@ export interface DesktopSettingsControllerBootstrap {
   readMcp?(): readonly DesktopMcpServerState[]
   /** Persist the desktop-private MCP server state after validation. */
   writeMcp?(servers: readonly DesktopMcpServerState[]): Promise<void>
+  /** Probe one MCP row with a real handshake; absent when MCP is not mounted. */
+  probeMcp?(input: DesktopMcpTestRequest): Promise<DesktopMcpTestResponse>
 }
 
 /** A persisted response plus work that must run only after `res.end()`. */
@@ -241,6 +245,17 @@ export class DesktopSettingsController {
       }),
       afterResponse: () => { this.bootstrap.scheduleRestart() },
     })
+  }
+
+  /**
+   * Probe one MCP row without persisting anything. When the request carries
+   * the id of a stored row, its stored secret values join the probe.
+   */
+  async testMcp(request: DesktopMcpTestRequest): Promise<DesktopMcpTestResponse> {
+    if (this.bootstrap.probeMcp === undefined) {
+      throw new Error('desktop MCP state is not mounted')
+    }
+    return this.bootstrap.probeMcp(request)
   }
 
   /** Acknowledge the renderer before queueing an orderly Desktop relaunch. */

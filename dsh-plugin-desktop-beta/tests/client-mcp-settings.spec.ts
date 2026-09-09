@@ -103,6 +103,103 @@ function baseBootstrap(): DesktopSettingsControllerBootstrap {
   }
 }
 
+
+describe('desktop mcp test route', () => {
+  const postRequest = (body: string, origin = ORIGIN): IncomingMessage => ({
+    method: 'POST',
+    headers: { origin, host: '127.0.0.1:43120', 'content-type': 'application/json' },
+    socket: { remoteAddress: '127.0.0.1' },
+    async * [Symbol.asyncIterator]() { yield Buffer.from(body) },
+  } as unknown as IncomingMessage)
+
+  it('probes a row and returns the handshake outcome', async () => {
+    const { handleDesktopMcpTestRequest } = await import('../src/desktop-settings-route.ts')
+    const controller = new DesktopSettingsController({
+      ...baseBootstrap(),
+      probeMcp: async () => ({ ok: true, toolCount: 3, serverInfoName: 'fake' }),
+    })
+    const row = { id: 'desktop-mcp-fs', serverName: 'fs', transport: 'stdio', command: 'npx', args: ['-y', 'x'] }
+    const req = postRequest(JSON.stringify({ id: row.id, row }))
+    const res = response()
+    await handleDesktopMcpTestRequest(req, res, ORIGIN, controller)
+    expect(res.statusCode).toBe(200)
+    const parsed = JSON.parse(res.body) as { ok: boolean; toolCount?: number }
+    expect(parsed.ok).toBe(true)
+    expect(parsed.toolCount).toBe(3)
+  })
+
+  it('rejects invalid bodies and wrong methods', async () => {
+    const { handleDesktopMcpTestRequest } = await import('../src/desktop-settings-route.ts')
+    const controller = new DesktopSettingsController(baseBootstrap())
+    const bad = response()
+    await handleDesktopMcpTestRequest(postRequest(JSON.stringify({ row: { transport: 'stdio' } })), bad, ORIGIN, controller)
+    expect(bad.statusCode).toBe(400)
+    const wrongMethod = { ...postRequest('{}'), method: 'GET' } as unknown as IncomingMessage
+    const res2 = response()
+    await handleDesktopMcpTestRequest(wrongMethod, res2, ORIGIN, controller)
+    expect(res2.statusCode).toBe(405)
+  })
+
+  it('answers 500 when the launcher mounts no probe', async () => {
+    const { handleDesktopMcpTestRequest } = await import('../src/desktop-settings-route.ts')
+    const controller = new DesktopSettingsController(baseBootstrap())
+    const res = response()
+    const row = { id: 'desktop-mcp-fs', serverName: 'fs', transport: 'stdio', command: 'npx', args: ['-y', 'x'] }
+    await handleDesktopMcpTestRequest(postRequest(JSON.stringify({ row })), res, ORIGIN, controller)
+    expect(res.statusCode).toBe(500)
+  })
+})
+
+describe('desktop mcp templates', () => {
+  it('builds a postgres connection string from friendly fields', async () => {
+    const { templateById } = await import('../src/client/desktop-mcp-templates.ts')
+    const database = templateById('database')
+    expect(database).toBeDefined()
+    const built = database?.build({
+      dbtype: 'postgresql', host: '192.168.1.10', port: '', user: 'his_ro', password: 'pw', database: 'hisdb',
+    })
+    expect(built).toMatchObject({ transport: 'stdio', command: 'npx' })
+    if (built?.transport !== 'stdio') throw new Error('expected stdio build')
+    expect(built.args[2]).toBe('postgresql://his_ro:pw@192.168.1.10:5432/hisdb')
+  })
+
+  it('builds an oracle uvx command with a service dsn and default port', async () => {
+    const { templateById } = await import('../src/client/desktop-mcp-templates.ts')
+    const built = templateById('database')?.build({
+      dbtype: 'oracle', host: '192.168.1.8', port: '', user: 'scott', password: 'tiger', database: 'hisprd',
+    })
+    if (built?.transport !== 'stdio') throw new Error('expected stdio build')
+    expect(built.command).toBe('uvx')
+    expect(built.args).toContain('--dsn')
+    expect(built.args).toContain('192.168.1.8:1521/hisprd')
+  })
+
+  it('maps mysql fields into env credentials', async () => {
+    const { templateById } = await import('../src/client/desktop-mcp-templates.ts')
+    const built = templateById('database')?.build({
+      dbtype: 'mysql', host: 'db.corp', port: '3307', user: 'root', password: 'pw', database: 'ygt',
+    })
+    if (built?.transport !== 'stdio') throw new Error('expected stdio build')
+    expect(built.env).toMatchObject({ MYSQL_HOST: 'db.corp', MYSQL_PORT: '3307', MYSQL_DB: 'ygt' })
+  })
+
+  it('sends the yunxiao bearer header against the official endpoint', async () => {
+    const { templateById } = await import('../src/client/desktop-mcp-templates.ts')
+    const built = templateById('yunxiao')?.build({ token: 'tok-1' })
+    if (built?.transport !== 'streamable-http') throw new Error('expected http build')
+    expect(built.url).toContain('openapi-rdc.aliyuncs.com/ai/mcp')
+    expect(built.headers.Authorization).toBe('Bearer tok-1')
+  })
+
+  it('maps gitlab host and token into env', async () => {
+    const { templateById } = await import('../src/client/desktop-mcp-templates.ts')
+    const built = templateById('gitlab')?.build({ host: 'https://git.example.com/', token: 'gl-tk' })
+    if (built?.transport !== 'stdio') throw new Error('expected stdio build')
+    expect(built.env.GITLAB_API_URL).toBe('https://git.example.com/api/v4')
+    expect(built.env.GITLAB_PERSONAL_ACCESS_TOKEN).toBe('gl-tk')
+  })
+})
+
 describe('desktop mcp controller', () => {
   it('returns an empty list when the launcher mounts no MCP state', () => {
     const controller = new DesktopSettingsController(baseBootstrap())

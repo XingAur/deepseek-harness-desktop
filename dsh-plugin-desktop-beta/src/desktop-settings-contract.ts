@@ -276,6 +276,34 @@ export interface DesktopMcpWriteResponse {
   readonly restartScheduled: true
 }
 
+/** Stable API path for probing one MCP server row without saving it. */
+export const DESKTOP_MCP_TEST_PATH = '/api/desktop/mcp/test'
+
+/** Exact body accepted by the MCP test endpoint. */
+export interface DesktopMcpTestRequest {
+  /**
+   * When present and matching a stored row, its stored secret values join
+   * the probe; the provided row fields override the stored ones.
+   */
+  readonly id?: string
+  readonly row: DesktopMcpStateRequest['servers'][number]
+}
+
+/** Probe outcome for one MCP row; details never echo secrets or stderr. */
+export interface DesktopMcpTestResponse {
+  readonly ok: boolean
+  /** Tools the server advertised, when it answered in time. */
+  readonly toolCount?: number
+  /** Server-reported name from the MCP initialize result. */
+  readonly serverInfoName?: string
+  /** Server-reported version from the MCP initialize result. */
+  readonly serverInfoVersion?: string
+  /** Stable failure category. */
+  readonly error?: 'timeout' | 'spawn' | 'connect' | 'protocol' | 'http-status'
+  /** Short human-readable hint safe to show in the settings page. */
+  readonly detail?: string
+}
+
 /** Stable API failure shape that never contains native paths or raw causes. */
 export interface DesktopSettingsErrorResponse {
   readonly error: string

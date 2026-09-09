@@ -15,6 +15,7 @@ const UPDATE_CHECK_PATH = '/api/desktop/updates/check'
 const DIAGNOSTICS_EXPORT_PATH = '/api/desktop/diagnostics/export'
 const SKILLS_LIST_PATH = '/api/desktop/skills'
 const MCP_STATE_PATH = '/api/desktop/mcp'
+const MCP_TEST_PATH = '/api/desktop/mcp/test'
 const MAX_PROFILES = 256
 const MAX_SKILLS = 1024
 const MAX_SKILL_TEXT_LENGTH = 2048
@@ -144,6 +145,16 @@ export interface DesktopMcpWriteView {
   readonly restartScheduled: boolean
 }
 
+/** Renderer-facing MCP probe outcome. */
+export interface DesktopMcpTestView {
+  readonly ok: boolean
+  readonly toolCount?: number
+  readonly serverInfoName?: string
+  readonly serverInfoVersion?: string
+  readonly error?: string
+  readonly detail?: string
+}
+
 /** Browser operations consumed by the Desktop settings section. */
 export interface DesktopSettingsApi {
   read(): Promise<DesktopSettingsView>
@@ -162,6 +173,7 @@ export interface DesktopSettingsApi {
   listSkills(): Promise<DesktopSkillsView>
   getMcp(): Promise<DesktopMcpStateView>
   putMcp(servers: readonly DesktopMcpServerWrite[]): Promise<DesktopMcpWriteView>
+  testMcp(row: DesktopMcpServerWrite, id?: string): Promise<DesktopMcpTestView>
 }
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
@@ -508,6 +520,24 @@ function parseMcpWriteView(value: unknown): DesktopMcpWriteView {
   })
 }
 
+function parseMcpTestView(value: unknown): DesktopMcpTestView {
+  if (!isObject(value)) throw new Error('dsh-plugin-desktop: invalid MCP test response')
+  if (typeof value.ok !== 'boolean') throw new Error('dsh-plugin-desktop: invalid MCP test response')
+  return {
+    ok: value.ok,
+    ...(typeof value.toolCount === 'number' && Number.isInteger(value.toolCount) && value.toolCount >= 0
+      && value.toolCount <= 9_999 ? { toolCount: value.toolCount } : {}),
+    ...(typeof value.serverInfoName === 'string' && value.serverInfoName.length > 0
+      && value.serverInfoName.length <= 120 ? { serverInfoName: value.serverInfoName } : {}),
+    ...(typeof value.serverInfoVersion === 'string' && value.serverInfoVersion.length > 0
+      && value.serverInfoVersion.length <= 60 ? { serverInfoVersion: value.serverInfoVersion } : {}),
+    ...(typeof value.error === 'string' && ['timeout', 'spawn', 'connect', 'protocol', 'http-status'].includes(value.error)
+      ? { error: value.error } : {}),
+    ...(typeof value.detail === 'string' && value.detail.length > 0 && value.detail.length <= 200
+      ? { detail: value.detail } : {}),
+  }
+}
+
 /** Validate the exact acknowledgement returned by a Desktop side effect. */
 export function parseDesktopActionAcceptance(value: unknown): void {
   if (!isObject(value)
@@ -626,6 +656,12 @@ export function createDesktopSettingsApi(fetcher: FetchLike = globalThis.fetch.b
     async putMcp(servers: readonly DesktopMcpServerWrite[]) {
       return parseMcpWriteView(await readResponse(await put(fetcher, MCP_STATE_PATH, { servers })))
     },
+    async testMcp(row: DesktopMcpServerWrite, id?: string) {
+      return parseMcpTestView(await readResponse(await post(fetcher, MCP_TEST_PATH, {
+        ...(id !== undefined && id.length > 0 ? { id } : {}),
+        row,
+      })))
+    },
   })
 }
 
@@ -644,4 +680,5 @@ export const desktopSettingsPaths = Object.freeze({
   diagnosticsExport: DIAGNOSTICS_EXPORT_PATH,
   skillsList: SKILLS_LIST_PATH,
   mcpState: MCP_STATE_PATH,
+  mcpTest: MCP_TEST_PATH,
 })

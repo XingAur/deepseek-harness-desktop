@@ -42,6 +42,12 @@ export type DesktopMcpLocaleKey =
   | 'importInvalid'
   | 'importDuplicate'
   | 'templateTitle'
+  | 'test'
+  | 'testing'
+  | 'testOk'
+  | 'testToolsUnit'
+  | 'testFailed'
+  | 'nameOptionalHint'
   | 'templateBlank'
   | 'templateAdvancedNote'
   | 'nameRequired'
@@ -91,6 +97,12 @@ export const en: Record<DesktopMcpLocaleKey, string> = {
   importInvalid: 'The pasted JSON is not a valid MCP server list.',
   importDuplicate: 'Servers with existing names were skipped.',
   templateTitle: 'Add from a template',
+  test: 'Test connection',
+  testing: 'Testing…',
+  testOk: 'Connected',
+  testToolsUnit: 'tools',
+  testFailed: 'Connection failed',
+  nameOptionalHint: 'Leave empty to auto-name.',
   templateBlank: 'Blank (advanced)',
   templateAdvancedNote: 'Connection details are assembled automatically; switch to a blank server to edit raw command and args.',
   nameRequired: 'Server name is required.',
@@ -141,6 +153,12 @@ export const zh: Record<DesktopMcpLocaleKey, string> = {
   importInvalid: '粘贴的 JSON 不是有效的 MCP 服务器列表。',
   importDuplicate: '与现有服务器同名的条目已跳过。',
   templateTitle: '从模板添加',
+  test: '测试连接',
+  testing: '测试中…',
+  testOk: '连接成功',
+  testToolsUnit: '个工具',
+  testFailed: '连接失败',
+  nameOptionalHint: '留空自动命名。',
   templateBlank: '空白自定义（高级）',
   templateAdvancedNote: '连接参数会自动拼装；如需直接编辑命令和参数，请用空白自定义。',
   nameRequired: '请填写服务器名称。',

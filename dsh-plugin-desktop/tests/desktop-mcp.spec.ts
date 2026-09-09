@@ -163,3 +163,54 @@ describe('desktop MCP projection and secret merge', () => {
     expect(cleared.env).toBeUndefined()
   })
 })
+
+describe('probeDesktopMcpServer', () => {
+  const FAKE_SERVER_SCRIPT = String.raw`
+    let buf = '';
+    process.stdin.on('data', chunk => {
+      buf += chunk.toString('utf8');
+      let index;
+      while ((index = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, index).trim();
+        buf = buf.slice(index + 1);
+        if (line.length === 0) continue;
+        try {
+          const message = JSON.parse(line);
+          if (message.id === 1) {
+            process.stdout.write(JSON.stringify({
+              jsonrpc: '2.0', id: 1,
+              result: { protocolVersion: '2024-11-05', serverInfo: { name: 'fake-mcp', version: '1.2.3' }, capabilities: {} },
+            }) + '\n');
+          }
+          if (message.id === 2) {
+            process.stdout.write(JSON.stringify({
+              jsonrpc: '2.0', id: 2, result: { tools: [{ name: 'a' }, { name: 'b' }] },
+            }) + '\n');
+          }
+        } catch { /* ignore */ }
+      }
+    });
+  `
+
+  it('completes a stdio handshake and counts advertised tools', async () => {
+    const { probeDesktopMcpServer } = await import('../src/desktop-mcp.ts')
+    const result = await probeDesktopMcpServer(
+      { transport: 'stdio', command: process.execPath, args: ['-e', FAKE_SERVER_SCRIPT] },
+      { timeoutMs: 8_000 },
+    )
+    expect(result.ok, JSON.stringify(result)).toBe(true)
+    expect(result.toolCount).toBe(2)
+    expect(result.serverInfoName).toBe('fake-mcp')
+    expect(result.serverInfoVersion).toBe('1.2.3')
+  }, 15_000)
+
+  it('reports a stable timeout when the server never answers', async () => {
+    const { probeDesktopMcpServer } = await import('../src/desktop-mcp.ts')
+    const result = await probeDesktopMcpServer(
+      { transport: 'stdio', command: process.execPath, args: ['-e', 'setInterval(() => {}, 1000)'] },
+      { timeoutMs: 600 },
+    )
+    expect(result.ok).toBe(false)
+    expect(result.error).toBe('timeout')
+  }, 10_000)
+})

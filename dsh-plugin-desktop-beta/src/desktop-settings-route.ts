@@ -6,6 +6,7 @@ import type { DesktopMarketProvider } from './desktop-market.ts'
 import type DesktopSettingsController from './desktop-settings-controller.ts'
 import type { DesktopSettingsPostResponse } from './desktop-settings-controller.ts'
 import type {
+  DesktopMcpTestRequest,
   DesktopMarketSelectRequest,
   DesktopMcpStateRequest,
   DesktopProfileCreateRequest,
@@ -304,6 +305,41 @@ export async function handleDesktopMcpStateRequest(
   } catch (cause) {
     reportError('write mcp state', cause)
     finishJson(res, 500, error('mcp state unavailable'))
+  }
+}
+
+/** Validate the MCP probe body; returns a refusal message. */
+function invalidMcpTestReason(value: unknown): string | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return 'request body must be an object'
+  const body = value as Record<string, unknown>
+  if (body.id !== undefined && (typeof body.id !== 'string' || body.id.length === 0)) return 'id is invalid'
+  return invalidMcpRowReason(body.row)
+}
+
+/**
+ * Probe one MCP server row with a real handshake and report the outcome
+ * without touching the stored state.
+ */
+export async function handleDesktopMcpTestRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  expectedOrigin: string,
+  controller: DesktopSettingsController,
+  reportError: (operation: string, cause: unknown) => void = () => {},
+): Promise<void> {
+  if (req.method !== 'POST') return finishJson(res, 405, error('method not allowed'), 'POST')
+  if (!isSameOriginLoopbackRequest(req, expectedOrigin, true)) {
+    return finishJson(res, 403, error('forbidden'))
+  }
+  const body = await parsePostBody(req, res)
+  if (body === INVALID_BODY) return
+  const reason = invalidMcpTestReason(body)
+  if (reason !== undefined) return finishJson(res, 400, error(reason))
+  try {
+    finishJson(res, 200, await controller.testMcp(body as DesktopMcpTestRequest))
+  } catch (cause) {
+    reportError('test mcp server', cause)
+    finishJson(res, 500, error('mcp probe unavailable'))
   }
 }
 

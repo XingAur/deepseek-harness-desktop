@@ -193,6 +193,248 @@ export async function writeDesktopMcpState(statePath: string, servers: readonly 
 }
 
 /** Cordis row package providing MCP client entries. */
+
+/** Transport-agnostic probe target assembled from one merged MCP row. */
+export interface DesktopMcpProbeTarget {
+  readonly transport: 'stdio' | 'streamable-http'
+  readonly command?: string
+  readonly args?: readonly string[]
+  readonly env?: Readonly<Record<string, string>>
+  readonly cwd?: string
+  readonly url?: string
+  readonly headers?: Readonly<Record<string, string>>
+}
+
+/** Outcome of one MCP probe; details never contain secrets or raw stderr. */
+export interface DesktopMcpProbeResult {
+  readonly ok: boolean
+  readonly toolCount?: number
+  readonly serverInfoName?: string
+  readonly serverInfoVersion?: string
+  readonly error?: 'timeout' | 'spawn' | 'connect' | 'protocol' | 'http-status'
+  readonly detail?: string
+}
+
+const PROBE_PROTOCOL_VERSION = '2024-11-05'
+const PROBE_CLIENT_INFO = { name: 'dsh-desktop-probe', version: '0.0.0' }
+
+interface JsonRpcLike {
+  readonly id?: unknown
+  readonly result?: unknown
+  readonly error?: unknown
+}
+
+function parseJsonLines(buffer: string): JsonRpcLike[] {
+  const messages: JsonRpcLike[] = []
+  for (const line of buffer.split('\n')) {
+    const candidate = line.trim()
+    if (candidate.length === 0 || !candidate.startsWith('{')) continue
+    try {
+      const parsed: unknown = JSON.parse(candidate)
+      if (typeof parsed === 'object' && parsed !== null) messages.push(parsed as JsonRpcLike)
+    } catch {
+      // Tolerate non-JSON stdout noise from misbehaving servers.
+    }
+  }
+  return messages
+}
+
+function extractSseData(raw: string): string {
+  return raw.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trim()).join('\n')
+}
+
+function parseRpcPayload(raw: string): JsonRpcLike | undefined {
+  const candidate = raw.trim()
+  if (candidate.length === 0 || !candidate.startsWith('{')) return undefined
+  try {
+    const parsed: unknown = JSON.parse(candidate)
+    return typeof parsed === 'object' && parsed !== null ? parsed as JsonRpcLike : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function rpcFailure(payload: JsonRpcLike | undefined): DesktopMcpProbeResult {
+  if (payload === undefined) return { ok: false, error: 'protocol', detail: 'server closed before answering' }
+  if (payload.error !== undefined) return { ok: false, error: 'protocol', detail: 'server rejected the MCP handshake' }
+  return { ok: false, error: 'protocol', detail: 'unrecognized MCP response' }
+}
+
+function serverInfoFields(result: unknown): { serverInfoName?: string; serverInfoVersion?: string } {
+  if (typeof result !== 'object' || result === null) return {}
+  const info = (result as { serverInfo?: unknown }).serverInfo
+  if (typeof info !== 'object' || info === null) return {}
+  const name = (info as { name?: unknown }).name
+  const version = (info as { version?: unknown }).version
+  return {
+    ...(typeof name === 'string' && name.length > 0 ? { serverInfoName: name.slice(0, 120) } : {}),
+    ...(typeof version === 'string' && version.length > 0 ? { serverInfoVersion: version.slice(0, 60) } : {}),
+  }
+}
+
+function toolCountFrom(result: unknown): number | undefined {
+  if (typeof result !== 'object' || result === null) return undefined
+  const tools = (result as { tools?: unknown }).tools
+  return Array.isArray(tools) ? tools.length : undefined
+}
+
+function rpcRequest(id: number, method: string, params?: Record<string, unknown>): string {
+  return `${JSON.stringify({
+    jsonrpc: '2.0',
+    id,
+    method,
+    ...(params === undefined ? {} : { params }),
+  })}\n`
+}
+
+async function probeStdioServer(target: DesktopMcpProbeTarget, timeoutMs: number): Promise<DesktopMcpProbeResult> {
+  const { spawn } = await import('node:child_process')
+  const command = target.command ?? ''
+  if (command.trim().length === 0) return { ok: false, error: 'spawn', detail: 'missing command' }
+  return new Promise<DesktopMcpProbeResult>(resolve => {
+    let child: ReturnType<typeof spawn>
+    try {
+      child = spawn(command, target.args ?? [], {
+        ...(target.cwd !== undefined && target.cwd.length > 0 ? { cwd: target.cwd } : {}),
+        env: { ...process.env, ...target.env },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+    } catch {
+      resolve({ ok: false, error: 'spawn', detail: 'command could not be started' })
+      return
+    }
+    let stdout = ''
+    let sawInitialize = false
+    let settled = false
+    const finish = (result: DesktopMcpProbeResult): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      clearTimeout(exitGrace)
+      child.stdout?.removeAllListeners()
+      child.removeAllListeners()
+      try { child.kill('SIGKILL') } catch { /* already gone */ }
+      resolve(result)
+    }
+    const timer = setTimeout(() => {
+      finish({ ok: false, error: 'timeout', detail: 'no MCP answer within the timeout' })
+    }, timeoutMs)
+    const evaluate = (): void => {
+      const messages = parseJsonLines(stdout)
+      const initialize = messages.find(message => message.id === 1)
+      if (initialize === undefined) return
+      if (initialize.result === undefined) { finish(rpcFailure(initialize)); return }
+      if (!sawInitialize) {
+        sawInitialize = true
+        try {
+          child.stdin?.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`)
+          child.stdin?.write(rpcRequest(2, 'tools/list'))
+        } catch { /* stdin may already be closed; initialize success still stands */ }
+        return
+      }
+      const tools = messages.find(message => message.id === 2)
+      if (tools === undefined) return
+      if (tools.result === undefined) { finish({ ok: true, ...serverInfoFields(initialize.result) }); return }
+      const toolCount = toolCountFrom(tools.result)
+      finish({
+        ok: true,
+        ...serverInfoFields(initialize.result),
+        ...(toolCount !== undefined ? { toolCount } : {}),
+      })
+    }
+    let exitGrace: ReturnType<typeof setTimeout> = undefined as unknown as ReturnType<typeof setTimeout>
+    child.on('error', () => { finish({ ok: false, error: 'spawn', detail: 'command could not be started' }) })
+    child.on('exit', () => {
+      // Final stdout chunks can land after 'exit'; re-scan before failing.
+      exitGrace = setTimeout(() => {
+        evaluate()
+        finish({ ok: false, error: 'protocol', detail: 'server exited before completing the handshake' })
+      }, 300)
+    })
+    child.stdout?.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8')
+      evaluate()
+    })
+    try {
+      child.stdin?.write(rpcRequest(1, 'initialize', {
+        protocolVersion: PROBE_PROTOCOL_VERSION,
+        capabilities: {},
+        clientInfo: PROBE_CLIENT_INFO,
+      }))
+    } catch {
+      finish({ ok: false, error: 'spawn', detail: 'command stdin closed immediately' })
+    }
+  })
+}
+
+async function probeHttpServer(target: DesktopMcpProbeTarget, timeoutMs: number): Promise<DesktopMcpProbeResult> {
+  const url = target.url ?? ''
+  if (url.trim().length === 0) return { ok: false, error: 'connect', detail: 'missing URL' }
+  const controller = new AbortController()
+  const timer = setTimeout(() => { controller.abort() }, timeoutMs)
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
+        ...target.headers,
+      },
+      body: rpcRequest(1, 'initialize', {
+        protocolVersion: PROBE_PROTOCOL_VERSION,
+        capabilities: {},
+        clientInfo: PROBE_CLIENT_INFO,
+      }).trim(),
+      signal: controller.signal,
+    })
+    if (!response.ok) {
+      return { ok: false, error: 'http-status', detail: `server answered HTTP ${String(response.status)}` }
+    }
+    const session = response.headers.get('mcp-session-id')
+    const text = await response.text()
+    const isEventStream = response.headers.get('content-type')?.includes('event-stream') === true
+    const payload = parseRpcPayload(isEventStream ? extractSseData(text) : text)
+    if (payload === undefined || payload.result === undefined) return rpcFailure(payload)
+    const info = serverInfoFields(payload.result)
+    const toolsResponse = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
+        ...(session !== null && session.length > 0 ? { 'mcp-session-id': session } : {}),
+        ...target.headers,
+      },
+      body: rpcRequest(2, 'tools/list').trim(),
+      signal: controller.signal,
+    })
+    if (!toolsResponse.ok) return { ok: true, ...info }
+    const toolsText = await toolsResponse.text()
+    const toolsIsEventStream = toolsResponse.headers.get('content-type')?.includes('event-stream') === true
+    const toolsPayload = parseRpcPayload(toolsIsEventStream ? extractSseData(toolsText) : toolsText)
+    if (toolsPayload === undefined || toolsPayload.result === undefined) return { ok: true, ...info }
+    const toolCount = toolCountFrom(toolsPayload.result)
+    return { ok: true, ...info, ...(toolCount !== undefined ? { toolCount } : {}) }
+  } catch {
+    if (controller.signal.aborted) return { ok: false, error: 'timeout', detail: 'no MCP answer within the timeout' }
+    return { ok: false, error: 'connect', detail: 'endpoint could not be reached' }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * Probe one merged MCP row with a real MCP handshake and report success,
+ * advertised tools, or a stable failure category. Never persists anything.
+ */
+export async function probeDesktopMcpServer(
+  target: DesktopMcpProbeTarget,
+  options?: { readonly timeoutMs?: number },
+): Promise<DesktopMcpProbeResult> {
+  const timeoutMs = options?.timeoutMs ?? 10_000
+  if (target.transport === 'streamable-http') return probeHttpServer(target, timeoutMs)
+  return probeStdioServer(target, timeoutMs)
+}
+
 export const DESKTOP_MCP_PACKAGE_NAME = '@deepseek-ai/dsh-mcp-client'
 
 /**

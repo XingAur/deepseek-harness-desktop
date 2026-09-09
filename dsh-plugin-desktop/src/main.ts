@@ -79,7 +79,14 @@ import {
 import { DesktopProfileService } from './profile-service.ts'
 import { DesktopActionsService } from './desktop-actions.ts'
 import { clearDesktopProfilePluginState, DesktopPluginsService } from './desktop-plugins.ts'
-import { desktopMcpInsertPatch, readDesktopMcpState, writeDesktopMcpState, type DesktopMcpServerState } from './desktop-mcp.ts'
+import {
+  desktopMcpInsertPatch,
+  mergeDesktopMcpServer,
+  probeDesktopMcpServer,
+  readDesktopMcpState,
+  writeDesktopMcpState,
+  type DesktopMcpServerState,
+} from './desktop-mcp.ts'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import {
   desktopMarketSnapshotWithEffective,
@@ -1557,6 +1564,27 @@ async function start(): Promise<void> {
           readMcp: () => readDesktopMcpState(desktopMcpStatePath).servers,
           writeMcp: async (servers: readonly DesktopMcpServerState[]) => {
             await writeDesktopMcpState(desktopMcpStatePath, servers)
+          },
+          probeMcp: async input => {
+            const stored = readDesktopMcpState(desktopMcpStatePath).servers
+            const existing = input.id === undefined
+              ? undefined
+              : stored.find(candidate => candidate.id === input.id)
+            const merged = mergeDesktopMcpServer(existing, input.row)
+            try {
+              return await probeDesktopMcpServer({
+                transport: merged.transport,
+                ...(merged.command !== undefined ? { command: merged.command } : {}),
+                ...(merged.args !== undefined && merged.args.length > 0 ? { args: [...merged.args] } : {}),
+                ...(merged.env !== undefined && Object.keys(merged.env).length > 0 ? { env: merged.env } : {}),
+                ...(merged.cwd !== undefined ? { cwd: merged.cwd } : {}),
+                ...(merged.url !== undefined ? { url: merged.url } : {}),
+                ...(merged.headers !== undefined && Object.keys(merged.headers).length > 0 ? { headers: merged.headers } : {}),
+              })
+            } catch (cause) {
+              electronLogger.error(`desktop MCP probe failed: ${cause instanceof Error ? cause.message : String(cause)}`)
+              return { ok: false, error: 'protocol', detail: 'probe could not run' }
+            }
           },
           readAa: () => ({ requested: currentProfilePreferences.aaEnabled === true, effective: prepared.aaEnabled }),
           selectAa: async enabled => {
