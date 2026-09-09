@@ -16,6 +16,9 @@ import type {
   DesktopRestartResponse,
   DesktopRecoveryRestartResponse,
   DesktopRendererReloadResponse,
+  DesktopMcpStateRequest,
+  DesktopMcpStateResponse,
+  DesktopMcpWriteResponse,
   DesktopSettingsMarketView,
   DesktopSettingsProfileView,
   DesktopSkillsListResponse,
@@ -23,6 +26,12 @@ import type {
   DesktopSettingsWebView,
   DesktopTerminalOpenResponse,
 } from './desktop-settings-contract.ts'
+import {
+  mergeDesktopMcpServer,
+  parseDesktopMcpState,
+  projectDesktopMcpServer,
+  type DesktopMcpServerState,
+} from './desktop-mcp.ts'
 
 /** Launcher capabilities used without exposing their filesystem roots. */
 export interface DesktopSettingsControllerBootstrap {
@@ -51,6 +60,10 @@ export interface DesktopSettingsControllerBootstrap {
   exportDiagnostics(): void | Promise<void>
   /** Read the Host composition's skill catalog; absent when no registry is mounted. */
   readSkills?(): Promise<DesktopSkillsListResponse>
+  /** Read the desktop-private MCP server state; absent when the launcher mounts no state path. */
+  readMcp?(): readonly DesktopMcpServerState[]
+  /** Persist the desktop-private MCP server state after validation. */
+  writeMcp?(servers: readonly DesktopMcpServerState[]): Promise<void>
 }
 
 /** A persisted response plus work that must run only after `res.end()`. */
@@ -185,6 +198,48 @@ export class DesktopSettingsController {
     return Object.freeze({
       available: value.available,
       skills: Object.freeze([...value.skills].map(skill => Object.freeze({ ...skill }))),
+    })
+  }
+
+  /** Project the desktop-managed MCP server rows without secret values. */
+  listMcp(): DesktopMcpStateResponse {
+    if (this.bootstrap.readMcp === undefined) {
+      return Object.freeze({ servers: Object.freeze([]), restartRequired: true })
+    }
+    const servers = this.bootstrap.readMcp()
+    return Object.freeze({
+      servers: Object.freeze(servers.map(projectDesktopMcpServer)),
+      restartRequired: true,
+    })
+  }
+
+  /**
+   * Validate, merge, and persist MCP rows; the launcher restart follows the
+   * HTTP acknowledgement because rows only load at composition time.
+   */
+  async writeMcp(request: DesktopMcpStateRequest): Promise<DesktopSettingsPostResponse<DesktopMcpWriteResponse>> {
+    if (this.bootstrap.writeMcp === undefined || this.bootstrap.readMcp === undefined) {
+      throw new Error('desktop MCP state is not mounted')
+    }
+    const seen = new Set<string>()
+    for (const row of request.servers) {
+      if (seen.has(row.id)) throw new Error('duplicate MCP server id')
+      seen.add(row.id)
+    }
+    const existing = this.bootstrap.readMcp()
+    const merged = request.servers.map(row => mergeDesktopMcpServer(
+      existing.find(candidate => candidate.id === row.id),
+      row,
+    ))
+    parseDesktopMcpState({ version: 1, servers: merged })
+    await this.bootstrap.writeMcp(merged)
+    return Object.freeze({
+      response: Object.freeze({
+        accepted: true,
+        servers: Object.freeze(merged.map(projectDesktopMcpServer)),
+        restartScheduled: true,
+      }),
+      afterResponse: () => { this.bootstrap.scheduleRestart() },
     })
   }
 

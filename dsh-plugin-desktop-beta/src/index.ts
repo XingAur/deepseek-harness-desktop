@@ -40,6 +40,7 @@ import {
   DESKTOP_RENDERER_RELOAD_PATH,
   DESKTOP_SETTINGS_PATH,
   DESKTOP_SKILLS_LIST_PATH,
+  DESKTOP_MCP_STATE_PATH,
   DESKTOP_TERMINAL_OPEN_PATH,
 } from './desktop-settings-contract.ts'
 import {
@@ -55,6 +56,7 @@ import {
   handleDesktopRendererReloadRequest,
   handleDesktopSettingsRequest,
   handleDesktopSkillsListRequest,
+  handleDesktopMcpStateRequest,
   handleDesktopTerminalOpenRequest,
 } from './desktop-settings-route.ts'
 import type {} from './desktop-settings-controller.ts'
@@ -306,6 +308,7 @@ export function apply(ctx: Context, config: Config): void {
     const settingsRoutes = [
       [DESKTOP_SETTINGS_PATH, handleDesktopSettingsRequest],
       [DESKTOP_SKILLS_LIST_PATH, handleDesktopSkillsListRequest],
+      [DESKTOP_MCP_STATE_PATH, handleDesktopMcpStateRequest],
       [DESKTOP_PROFILE_CREATE_PATH, handleDesktopProfileCreateRequest],
       [DESKTOP_PROFILE_DELETE_PATH, handleDesktopProfileDeleteRequest],
       [DESKTOP_PROFILE_SELECT_PATH, handleDesktopProfileSelectRequest],

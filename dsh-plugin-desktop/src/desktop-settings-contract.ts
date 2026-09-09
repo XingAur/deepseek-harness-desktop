@@ -43,6 +43,9 @@ export const DESKTOP_DIAGNOSTICS_EXPORT_PATH = '/api/desktop/diagnostics/export'
 /** Read the skill catalog visible to the running Host composition. */
 export const DESKTOP_SKILLS_LIST_PATH = '/api/desktop/skills'
 
+/** Read and replace the desktop-managed MCP server rows. */
+export const DESKTOP_MCP_STATE_PATH = '/api/desktop/mcp'
+
 /** Renderer-safe projection of one discovered profile. */
 export interface DesktopSettingsProfileView {
   /** Profile name accepted by the launcher. */
@@ -211,6 +214,66 @@ export interface DesktopSkillsListItem {
 export interface DesktopSkillsListResponse {
   readonly available: boolean
   readonly skills: readonly DesktopSkillsListItem[]
+}
+
+/** Transport accepted by the desktop MCP rows. */
+export type DesktopMcpTransport = 'stdio' | 'streamable-http'
+
+/** Exact body accepted by the MCP state endpoint. */
+export interface DesktopMcpStateRequest {
+  readonly servers: readonly {
+    readonly id: string
+    readonly serverName: string
+    readonly transport: DesktopMcpTransport
+    readonly command?: string
+    readonly args?: readonly string[]
+    /** `null` deletes a stored key; absent keys keep their stored value. */
+    readonly env?: Readonly<Record<string, string | null>>
+    readonly cwd?: string
+    readonly url?: string
+    /** `null` deletes a stored header; absent keys keep their stored value. */
+    readonly headers?: Readonly<Record<string, string | null>>
+    readonly disabled?: boolean
+  }[]
+}
+
+/** Renderer-safe projection of one desktop-managed MCP server row. */
+export interface DesktopMcpServerView {
+  /** Stable row identity. */
+  readonly id: string
+  /** Tool namespace segment shown to the user. */
+  readonly serverName: string
+  /** Transport selecting which config fields are meaningful. */
+  readonly transport: DesktopMcpTransport
+  /** stdio: executable to spawn. */
+  readonly command: string | null
+  /** stdio: argument vector. */
+  readonly args: readonly string[]
+  /** stdio: extra environment keys (values are never echoed). */
+  readonly envKeys: readonly string[]
+  /** stdio: working directory. */
+  readonly cwd: string | null
+  /** streamable-http: endpoint URL. */
+  readonly url: string | null
+  /** streamable-http: header names (values are never echoed). */
+  readonly headerKeys: readonly string[]
+  /** Disabled rows stay configured but are not injected into the profile. */
+  readonly disabled: boolean
+}
+
+/** Successful MCP state read; the write always requires a Host restart. */
+export interface DesktopMcpStateResponse {
+  readonly servers: readonly DesktopMcpServerView[]
+  /** Row changes apply after the launcher restarts the Host composition. */
+  readonly restartRequired: true
+}
+
+/** Successful MCP state write acceptance. */
+export interface DesktopMcpWriteResponse {
+  readonly accepted: true
+  readonly servers: readonly DesktopMcpServerView[]
+  /** The launcher schedules the profile restart after accepting the write. */
+  readonly restartScheduled: true
 }
 
 /** Stable API failure shape that never contains native paths or raw causes. */

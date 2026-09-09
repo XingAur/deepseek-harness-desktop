@@ -7,6 +7,7 @@ import type DesktopSettingsController from './desktop-settings-controller.ts'
 import type { DesktopSettingsPostResponse } from './desktop-settings-controller.ts'
 import type {
   DesktopMarketSelectRequest,
+  DesktopMcpStateRequest,
   DesktopProfileCreateRequest,
   DesktopProfileDeleteRequest,
   DesktopProfileSelectRequest,
@@ -226,6 +227,83 @@ export async function handleDesktopSkillsListRequest(
   } catch (cause) {
     reportError('read skills', cause)
     finishJson(res, 500, error('skill catalog unavailable'))
+  }
+}
+
+const MCP_TRANSPORTS = new Set(['stdio', 'streamable-http'])
+const MCP_NAME_PATTERN = /^[A-Za-z0-9_-]{1,32}$/
+const MCP_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
+
+/** Strict shape validation for one incoming MCP row; returns a refusal message. */
+function invalidMcpRowReason(value: unknown): string | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return 'server row must be an object'
+  const row = value as Record<string, unknown>
+  if (typeof row.id !== 'string' || !MCP_ID_PATTERN.test(row.id)) return 'server id is invalid'
+  if (typeof row.serverName !== 'string' || !MCP_NAME_PATTERN.test(row.serverName)) return 'serverName is invalid'
+  if (typeof row.transport !== 'string' || !MCP_TRANSPORTS.has(row.transport)) return 'transport is invalid'
+  if (row.command !== undefined && (typeof row.command !== 'string' || row.command.length === 0)) return 'command is invalid'
+  if (row.cwd !== undefined && (typeof row.cwd !== 'string' || row.cwd.length === 0)) return 'cwd is invalid'
+  if (row.url !== undefined && (typeof row.url !== 'string' || row.url.length === 0)) return 'url is invalid'
+  if (row.args !== undefined && (!Array.isArray(row.args) || row.args.some(entry => typeof entry !== 'string'))) {
+    return 'args is invalid'
+  }
+  for (const field of ['env', 'headers'] as const) {
+    const patch = row[field]
+    if (patch === undefined) continue
+    if (typeof patch !== 'object' || patch === null || Array.isArray(patch)) return `${field} is invalid`
+    for (const [key, entry] of Object.entries(patch)) {
+      if (typeof key !== 'string' || key.length === 0) return `${field} key is invalid`
+      if (entry !== null && typeof entry !== 'string') return `${field} value is invalid`
+    }
+  }
+  if (row.disabled !== undefined && typeof row.disabled !== 'boolean') return 'disabled is invalid'
+  return undefined
+}
+
+/** Parse and validate the MCP write body; returns a refusal message. */
+function invalidMcpWriteReason(value: unknown): string | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return 'request body must be an object'
+  const body = value as Record<string, unknown>
+  if (!Array.isArray(body.servers)) return 'servers must be an array'
+  for (const row of body.servers) {
+    const reason = invalidMcpRowReason(row)
+    if (reason !== undefined) return reason
+  }
+  return undefined
+}
+
+/** Read and replace the desktop-managed MCP server rows. */
+export async function handleDesktopMcpStateRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  expectedOrigin: string,
+  controller: DesktopSettingsController,
+  reportError: (operation: string, cause: unknown) => void = () => {},
+): Promise<void> {
+  if (req.method !== 'GET' && req.method !== 'PUT') {
+    return finishJson(res, 405, error('method not allowed'), 'GET')
+  }
+  if (!isSameOriginLoopbackRequest(req, expectedOrigin, false)) {
+    return finishJson(res, 403, error('forbidden'))
+  }
+  if (req.method === 'GET') {
+    try {
+      finishJson(res, 200, controller.listMcp())
+    } catch (cause) {
+      reportError('read mcp state', cause)
+      finishJson(res, 500, error('mcp state unavailable'))
+    }
+    return
+  }
+  const body = await parsePostBody(req, res)
+  if (body === INVALID_BODY) return
+  const reason = invalidMcpWriteReason(body)
+  if (reason !== undefined) return finishJson(res, 400, error(reason))
+  try {
+    finishPostResponse(res, 200, await controller.writeMcp(body as DesktopMcpStateRequest), 'write mcp state', reportError)
+  } catch (cause) {
+    reportError('write mcp state', cause)
+    finishJson(res, 500, error('mcp state unavailable'))
   }
 }
 

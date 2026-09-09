@@ -79,6 +79,8 @@ import {
 import { DesktopProfileService } from './profile-service.ts'
 import { DesktopActionsService } from './desktop-actions.ts'
 import { clearDesktopProfilePluginState, DesktopPluginsService } from './desktop-plugins.ts'
+import { desktopMcpInsertPatch, readDesktopMcpState, writeDesktopMcpState, type DesktopMcpServerState } from './desktop-mcp.ts'
+import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import {
   desktopMarketSnapshotWithEffective,
   readDesktopMarketStateForUserData,
@@ -691,6 +693,15 @@ async function start(): Promise<void> {
     warnWindowsVolumeConcerns(electronLogger, windowsVolumeConcerns)
     const selectionStatePath = join(profileUserDataDir, 'profile-selection', 'state.json')
     const pluginManagementStatePath = join(profileUserDataDir, 'plugin-management', 'state.json')
+    const desktopMcpStatePath = join(profileUserDataDir, 'mcp-servers', 'state.json')
+    // A corrupt MCP state must never block the launch: keep the session on the
+    // stock composition and let the settings page surface the failure on read.
+    let desktopMcpPatches: readonly PatchOptions[] = []
+    try {
+      desktopMcpPatches = [desktopMcpInsertPatch(readDesktopMcpState(desktopMcpStatePath).servers)]
+    } catch (cause) {
+      electronLogger.error(`${BIN_NAME}: desktop MCP state is unavailable: ${cause instanceof Error ? cause.message : String(cause)}`)
+    }
     const marketUserDataDir = profileUserDataDir
     const releaseUserDataLocations = desktopReleaseUserDataLocations(
       app.getPath('appData'),
@@ -1091,6 +1102,7 @@ async function start(): Promise<void> {
       pluginManagementStatePath,
       marketSelection,
       preparationHooks,
+      desktopMcpPatches,
     )
     if (safeModePaths !== undefined) {
       const safeModeDefaults = DESKTOP_SAFE_MODE_DEFAULTS
@@ -1115,6 +1127,7 @@ async function start(): Promise<void> {
         pluginManagementStatePath,
         marketSelection,
         preparationHooks,
+        desktopMcpPatches,
       )
     } else if (profilePreferences === undefined) {
       const browserAccessMigrated = await migrateDesktopBrowserAccessSettings(prepared.settingsDocument)
@@ -1138,6 +1151,7 @@ async function start(): Promise<void> {
           pluginManagementStatePath,
           marketSelection,
           preparationHooks,
+          desktopMcpPatches,
         )
       }
       const importedSettings = readDesktopSetupWizardSettings(prepared.settingsDocument)
@@ -1183,6 +1197,7 @@ async function start(): Promise<void> {
           pluginManagementStatePath,
           marketSelection,
           preparationHooks,
+          desktopMcpPatches,
         )
       }
     }
@@ -1224,7 +1239,7 @@ async function start(): Promise<void> {
           aaEnabled: false,
         })
         prepared = prepareDesktopProfile(process.env.DSH_TELEMETRY_DISABLED, homeDir, process.platform,
-          activeProfileName, pluginManagementStatePath, marketSelection, preparationHooks)
+          activeProfileName, pluginManagementStatePath, marketSelection, preparationHooks, desktopMcpPatches)
         await completeOrSkipDesktopSetupWizard(
           marketUserDataDir,
           prepared.profile.dir,
@@ -1260,6 +1275,7 @@ async function start(): Promise<void> {
           pluginManagementStatePath,
           marketSelection,
           preparationHooks,
+          desktopMcpPatches,
         )
         await completeOrSkipDesktopSetupWizard(
           marketUserDataDir,
@@ -1324,6 +1340,7 @@ async function start(): Promise<void> {
           pluginManagementStatePath,
           marketSelection,
           preparationHooks,
+          desktopMcpPatches,
         )
         if (prepared.requiresDependencyMigration) {
           throw new Error(`${BIN_NAME}: packaged pnpm did not produce compatible Profile dependency metadata`)
@@ -1536,6 +1553,10 @@ async function start(): Promise<void> {
                 source: skill.source,
               })),
             }
+          },
+          readMcp: () => readDesktopMcpState(desktopMcpStatePath).servers,
+          writeMcp: async (servers: readonly DesktopMcpServerState[]) => {
+            await writeDesktopMcpState(desktopMcpStatePath, servers)
           },
           readAa: () => ({ requested: currentProfilePreferences.aaEnabled === true, effective: prepared.aaEnabled }),
           selectAa: async enabled => {

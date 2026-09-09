@@ -3,12 +3,14 @@
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
+import { DesktopMcpSection } from './DesktopMcpSection.tsx'
 import { DesktopSettingsSection, type DesktopNotificationSettings, type DesktopShellSettings } from './DesktopSettingsSection.tsx'
 import { DesktopSkillsSection } from './DesktopSkillsSection.tsx'
 import { DesktopTerminalSettingsAction } from './DesktopTerminalSettingsAction.tsx'
 import { createDesktopSettingsApi } from './desktop-settings-api.ts'
 import { en, zh, type DesktopSettingsLocaleKey } from './desktop-settings-locales.ts'
 import { en as skillsEn, zh as skillsZh, type DesktopSkillsLocaleKey } from './desktop-skills-locales.ts'
+import { en as mcpEn, zh as mcpZh, type DesktopMcpLocaleKey } from './desktop-mcp-locales.ts'
 import { installDesktopSettingsStyles } from './desktop-settings-styles.ts'
 import type { DesktopClientEnvironment } from './environment.ts'
 
@@ -17,6 +19,9 @@ export const DESKTOP_SETTINGS_LOCALE_NAMESPACE = 'desktop.settings'
 
 /** Locale namespace owned by the Desktop Skills settings page. */
 export const DESKTOP_SKILLS_LOCALE_NAMESPACE = 'desktop.skills'
+
+/** Locale namespace owned by the Desktop MCP settings page. */
+export const DESKTOP_MCP_LOCALE_NAMESPACE = 'desktop.mcp'
 
 /** Host settings namespaces bound through the standard client settings service. */
 export const DESKTOP_SHELL_SETTINGS_NAMESPACE = 'dsh-desktop'
@@ -57,6 +62,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'desktop.settings': DesktopSettingsLocaleKey
     /** Desktop-only Skills settings page copy. */
     'desktop.skills': DesktopSkillsLocaleKey
+    /** Desktop-only MCP settings page copy. */
+    'desktop.mcp': DesktopMcpLocaleKey
   }
 }
 
@@ -74,6 +81,7 @@ export function applyDesktopSettings(
   const api = createDesktopSettingsApi()
   const t = ctx.locale.bind(DESKTOP_SETTINGS_LOCALE_NAMESPACE)
   const skillsT = ctx.locale.bind(DESKTOP_SKILLS_LOCALE_NAMESPACE)
+  const mcpT = ctx.locale.bind(DESKTOP_MCP_LOCALE_NAMESPACE)
   const setMode = async (mode: DesktopShellSettings['mode']): Promise<void> => {
     await persistDesktopModeSelection(desktopSettings, mode)
   }
@@ -87,6 +95,10 @@ export function applyDesktopSettings(
     'dsh-plugin-desktop: skills settings dictionaries',
   )
   ctx.effect(
+    () => ctx.locale.register(DESKTOP_MCP_LOCALE_NAMESPACE, { zh: mcpZh, en: mcpEn }),
+    'dsh-plugin-desktop: mcp settings dictionaries',
+  )
+  ctx.effect(
     () => installDesktopSettingsStyles(),
     'dsh-plugin-desktop: settings styles',
   )
@@ -98,6 +110,14 @@ export function applyDesktopSettings(
     locale: DESKTOP_SKILLS_LOCALE_NAMESPACE,
     inject: () => ({ api }),
   }, DesktopSkillsSection))
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: 'mcp',
+    order: 95,
+    label: () => mcpT('nav'),
+    locale: DESKTOP_MCP_LOCALE_NAMESPACE,
+    inject: () => ({ api }),
+  }, DesktopMcpSection))
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
     id: 'desktop',

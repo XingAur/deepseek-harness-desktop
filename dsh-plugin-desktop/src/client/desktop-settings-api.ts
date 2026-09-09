@@ -14,10 +14,15 @@ const DEVELOPER_TOOLS_TOGGLE_PATH = '/api/desktop/developer/devtools'
 const UPDATE_CHECK_PATH = '/api/desktop/updates/check'
 const DIAGNOSTICS_EXPORT_PATH = '/api/desktop/diagnostics/export'
 const SKILLS_LIST_PATH = '/api/desktop/skills'
+const MCP_STATE_PATH = '/api/desktop/mcp'
 const MAX_PROFILES = 256
 const MAX_SKILLS = 1024
 const MAX_SKILL_TEXT_LENGTH = 2048
 const SKILL_SOURCE_PATTERN = /^[a-z][a-z0-9-]*$/u
+const MAX_MCP_SERVERS = 64
+const MAX_MCP_LIST_ENTRIES = 64
+const MCP_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/u
+const MCP_SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,32}$/u
 const MAX_PROFILE_NAME_LENGTH = 255
 const MAX_LAN_URLS = 32
 const MAX_LAN_ERROR_LENGTH = 128
@@ -89,6 +94,56 @@ export interface DesktopSkillsView {
   readonly skills: readonly DesktopSkillView[]
 }
 
+/** Transport accepted by the desktop-managed MCP server rows. */
+export type DesktopMcpTransport = 'stdio' | 'streamable-http'
+
+/** Renderer-safe projection of one desktop-managed MCP server row. */
+export interface DesktopMcpServerView {
+  readonly id: string
+  readonly serverName: string
+  readonly transport: DesktopMcpTransport
+  readonly command: string | null
+  readonly args: readonly string[]
+  /** Stored environment key names; values never cross the API boundary. */
+  readonly envKeys: readonly string[]
+  readonly cwd: string | null
+  readonly url: string | null
+  /** Stored header names; values never cross the API boundary. */
+  readonly headerKeys: readonly string[]
+  readonly disabled: boolean
+}
+
+/** MCP server rows read from the running Host composition. */
+export interface DesktopMcpStateView {
+  readonly servers: readonly DesktopMcpServerView[]
+  readonly restartRequired: boolean
+}
+
+/**
+ * One MCP row sent by the renderer. `env`/`headers` patches follow the
+ * three-state write contract: a string sets the stored value, `null` deletes
+ * the stored key, and absent keys keep their stored values.
+ */
+export interface DesktopMcpServerWrite {
+  readonly id: string
+  readonly serverName: string
+  readonly transport: DesktopMcpTransport
+  readonly command?: string
+  readonly args?: readonly string[]
+  readonly env?: Readonly<Record<string, string | null>>
+  readonly cwd?: string
+  readonly url?: string
+  readonly headers?: Readonly<Record<string, string | null>>
+  readonly disabled?: boolean
+}
+
+/** Successful MCP state write acceptance. */
+export interface DesktopMcpWriteView {
+  readonly accepted: boolean
+  readonly servers: readonly DesktopMcpServerView[]
+  readonly restartScheduled: boolean
+}
+
 /** Browser operations consumed by the Desktop settings section. */
 export interface DesktopSettingsApi {
   read(): Promise<DesktopSettingsView>
@@ -105,6 +160,8 @@ export interface DesktopSettingsApi {
   checkForUpdates(): Promise<void>
   exportDiagnostics(): Promise<void>
   listSkills(): Promise<DesktopSkillsView>
+  getMcp(): Promise<DesktopMcpStateView>
+  putMcp(servers: readonly DesktopMcpServerWrite[]): Promise<DesktopMcpWriteView>
 }
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
@@ -339,6 +396,118 @@ export function parseDesktopSkillsView(value: unknown): DesktopSkillsView {
   })
 }
 
+function isMcpTransport(value: unknown): value is DesktopMcpTransport {
+  return value === 'stdio' || value === 'streamable-http'
+}
+
+function isBoundedMcpText(value: unknown): boolean {
+  return typeof value === 'string' && value.length <= MAX_SKILL_TEXT_LENGTH
+}
+
+function isBoundedMcpKey(value: unknown): boolean {
+  return typeof value === 'string' && value.length > 0 && value.length <= MAX_SKILL_TEXT_LENGTH
+}
+
+function isBoundedMcpTextList(value: unknown): value is readonly string[] {
+  return Array.isArray(value) && value.length <= MAX_MCP_LIST_ENTRIES && value.every(isBoundedMcpText)
+}
+
+function isBoundedMcpKeyList(value: unknown): value is readonly string[] {
+  return Array.isArray(value) && value.length <= MAX_MCP_LIST_ENTRIES && value.every(isBoundedMcpKey)
+}
+
+const MCP_SERVER_VIEW_KEYS: readonly string[] = [
+  'id',
+  'serverName',
+  'transport',
+  'command',
+  'args',
+  'envKeys',
+  'cwd',
+  'url',
+  'headerKeys',
+]
+
+function hasMcpServerViewKeys(value: Record<string, unknown>): boolean {
+  return Object.keys(value).every(key => key === 'disabled' || MCP_SERVER_VIEW_KEYS.includes(key))
+    && MCP_SERVER_VIEW_KEYS.every(key => Object.prototype.hasOwnProperty.call(value, key))
+}
+
+function parseMcpServerRow(value: unknown): DesktopMcpServerView {
+  if (!isObject(value)
+    || !hasMcpServerViewKeys(value)
+    || typeof value.id !== 'string'
+    || !MCP_ID_PATTERN.test(value.id)
+    || typeof value.serverName !== 'string'
+    || !MCP_SERVER_NAME_PATTERN.test(value.serverName)
+    || !isMcpTransport(value.transport)
+    || (value.command !== null && (typeof value.command !== 'string' || value.command.length === 0 || value.command.length > MAX_SKILL_TEXT_LENGTH))
+    || (value.cwd !== null && (typeof value.cwd !== 'string' || value.cwd.length === 0 || value.cwd.length > MAX_SKILL_TEXT_LENGTH))
+    || (value.url !== null && (typeof value.url !== 'string' || value.url.length === 0 || value.url.length > MAX_SKILL_TEXT_LENGTH))
+    || !isBoundedMcpTextList(value.args)
+    || !isBoundedMcpKeyList(value.envKeys)
+    || !isBoundedMcpKeyList(value.headerKeys)
+    || (value.disabled !== undefined && typeof value.disabled !== 'boolean')) {
+    throw new Error('dsh-plugin-desktop: invalid MCP server row in MCP state response')
+  }
+  return Object.freeze({
+    id: value.id,
+    serverName: value.serverName,
+    transport: value.transport,
+    command: value.command,
+    args: Object.freeze([...value.args]),
+    envKeys: Object.freeze([...value.envKeys]),
+    cwd: value.cwd,
+    url: value.url,
+    headerKeys: Object.freeze([...value.headerKeys]),
+    disabled: value.disabled === true,
+  })
+}
+
+function assertUniqueMcpServers(servers: readonly DesktopMcpServerView[]): void {
+  if (new Set(servers.map(server => server.id)).size !== servers.length) {
+    throw new Error('dsh-plugin-desktop: duplicate MCP server id in MCP state response')
+  }
+  if (new Set(servers.map(server => server.serverName)).size !== servers.length) {
+    throw new Error('dsh-plugin-desktop: duplicate MCP server name in MCP state response')
+  }
+}
+
+/** Validate the bounded MCP projection before it reaches React state. */
+export function parseDesktopMcpStateView(value: unknown): DesktopMcpStateView {
+  if (!isObject(value)
+    || !hasExactKeys(value, ['servers', 'restartRequired'])
+    || typeof value.restartRequired !== 'boolean'
+    || !Array.isArray(value.servers)
+    || value.servers.length > MAX_MCP_SERVERS) {
+    throw new Error('dsh-plugin-desktop: invalid Desktop MCP state response')
+  }
+  const servers = value.servers.map(parseMcpServerRow)
+  assertUniqueMcpServers(servers)
+  return Object.freeze({
+    servers: Object.freeze(servers),
+    restartRequired: value.restartRequired,
+  })
+}
+
+function parseMcpWriteView(value: unknown): DesktopMcpWriteView {
+  if (!isObject(value)
+    || !hasExactKeys(value, ['accepted', 'servers', 'restartScheduled'])
+    || value.accepted !== true
+    || typeof value.restartScheduled !== 'boolean'
+    || !Array.isArray(value.servers)
+    || value.servers.length > MAX_MCP_SERVERS) {
+    throw new Error('dsh-plugin-desktop: invalid Desktop MCP write response')
+  }
+  const servers = value.servers.map(parseMcpServerRow)
+  assertUniqueMcpServers(servers)
+  return Object.freeze({
+    accepted: true,
+    servers: Object.freeze(servers),
+    restartScheduled: value.restartScheduled,
+  })
+}
+
 /** Validate the exact acknowledgement returned by a Desktop side effect. */
 export function parseDesktopActionAcceptance(value: unknown): void {
   if (!isObject(value)
@@ -362,6 +531,19 @@ async function readResponse(response: Response): Promise<unknown> {
 function post(fetcher: FetchLike, path: string, body: object): Promise<Response> {
   return fetcher(path, {
     method: 'POST',
+    credentials: 'same-origin',
+    redirect: 'error',
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+}
+
+function put(fetcher: FetchLike, path: string, body: object): Promise<Response> {
+  return fetcher(path, {
+    method: 'PUT',
     credentials: 'same-origin',
     redirect: 'error',
     headers: {
@@ -431,6 +613,19 @@ export function createDesktopSettingsApi(fetcher: FetchLike = globalThis.fetch.b
       })
       return parseDesktopSkillsView(await readResponse(response))
     },
+    async getMcp() {
+      const response = await fetcher(MCP_STATE_PATH, {
+        method: 'GET',
+        credentials: 'same-origin',
+        redirect: 'error',
+        cache: 'no-store',
+        headers: { 'Accept': 'application/json' },
+      })
+      return parseDesktopMcpStateView(await readResponse(response))
+    },
+    async putMcp(servers: readonly DesktopMcpServerWrite[]) {
+      return parseMcpWriteView(await readResponse(await put(fetcher, MCP_STATE_PATH, { servers })))
+    },
   })
 }
 
@@ -448,4 +643,5 @@ export const desktopSettingsPaths = Object.freeze({
   updateCheck: UPDATE_CHECK_PATH,
   diagnosticsExport: DIAGNOSTICS_EXPORT_PATH,
   skillsList: SKILLS_LIST_PATH,
+  mcpState: MCP_STATE_PATH,
 })

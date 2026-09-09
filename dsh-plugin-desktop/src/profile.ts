@@ -856,6 +856,9 @@ function loadDesktopMachinePatches(home: string): PatchOptions[] {
  * @param profileName - existing or lazily available Web profile to compose.
  * @param pluginStatePath - optional Desktop-private disabled-bundle state.
  * @param marketSelection - machine-level provider request fixed for this generation.
+ * @param hooks - preparation observation and selection hooks.
+ * @param mcpPatches - Desktop-managed MCP server patch layer injected after
+ *   the user-owned layers; composed from the desktop-private MCP state.
  * @returns root config, profile metadata, and ordered patches.
  */
 export function prepareDesktopProfile(
@@ -866,6 +869,7 @@ export function prepareDesktopProfile(
   pluginStatePath?: string,
   marketSelection: DesktopMarketSnapshot = DEFAULT_DESKTOP_MARKET_SNAPSHOT,
   hooks: DesktopProfilePreparationHooks = {},
+  mcpPatches: readonly PatchOptions[] = [],
 ): PreparedDesktopProfile {
   const lanAddresses = preparedLanAddresses(hooks.lanAddresses)
   const profileDir = profileName === DESKTOP_PROFILE_NAME
@@ -969,6 +973,7 @@ export function prepareDesktopProfile(
     ...providerPatches,
     ...filteredProfile.patches,
     ...filteredHome.patches,
+    ...mcpPatches,
   ], isAaEntry)
   const aaPatches: PatchOptions[] = []
   let aaFailure = loadedProfile.aaFailure
