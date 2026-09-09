@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Blocks, RefreshCw, Sparkles } from 'lucide-react'
+import { Blocks, Lock, RefreshCw, Sparkles } from 'lucide-react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { DesktopSettingsApi, DesktopSkillView, DesktopSkillsView } from './desktop-settings-api.ts'
 import type { DesktopSkillsLocaleKey } from './desktop-skills-locales.ts'
@@ -36,7 +36,12 @@ function sourceLabelKey(source: string): DesktopSkillsLocaleKey {
     : 'sourceCustom'
 }
 
+function isPrivateSource(source: string): boolean {
+  return source === 'user-agents' || source === 'user-dsh' || source === 'custom'
+}
+
 function SkillRow({ skill, t }: { skill: DesktopSkillView; t: Translate }): ReactNode {
+  const priv = isPrivateSource(skill.source)
   return (
     <div className="dshDesktopSettingsRow" role="listitem">
       <span className="dshDesktopSettingsRowIcon" aria-hidden="true"><Sparkles /></span>
@@ -53,7 +58,10 @@ function SkillRow({ skill, t }: { skill: DesktopSkillView; t: Translate }): Reac
           <span className="dshDesktopSettingsChoiceBody">{t('whenToUseLabel')}: {skill.whenToUse}</span>
         )}
       </span>
-      <span className="dshDesktopSettingsBadge">{t(sourceLabelKey(skill.source))}</span>
+      <span className="dshDesktopSettingsBadge" data-private={priv ? 'true' : 'false'}>
+        {priv && <Lock aria-hidden="true" />}
+        {t(sourceLabelKey(skill.source))}
+      </span>
     </div>
   )
 }

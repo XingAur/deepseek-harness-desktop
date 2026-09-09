@@ -110,6 +110,11 @@ const CSS = `
   font-size: 11px;
   font-weight: 400;
 }
+.dshDesktopSettingsBadge svg { width: 11px; height: 11px; }
+.dshDesktopSettingsBadge[data-private="true"] {
+  color: var(--dsw-alias-state-warning-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary) 12%, transparent);
+}
 .dshDesktopSettingsForm {
   display: flex;
   align-items: flex-end;
