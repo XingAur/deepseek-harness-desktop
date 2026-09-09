@@ -5,8 +5,11 @@ import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { DESKTOP_UPDATE_CHECK_PATH } from './desktop-settings-contract.ts'
 import { handleDesktopUpdateCheckRequest } from './desktop-settings-route.ts'
+import { resolveForkUpdateEndpoints } from './fork-update-source.ts'
 import type {} from './runtime.ts'
+import { DESKTOP_DOWNLOAD_URLS } from './update-download.ts'
 import { startDesktopUpdateLifecycle } from './update-lifecycle.ts'
+import { DESKTOP_VERSION_ENDPOINT } from './update-checker.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'desktop-updates'
@@ -42,12 +45,20 @@ export const Config: z<Config> = z.object({
  * @param config - validated polling and timeout values.
  */
 export function apply(ctx: Context, config: Config): void {
+  const endpoints = resolveForkUpdateEndpoints(DESKTOP_VERSION_ENDPOINT, DESKTOP_DOWNLOAD_URLS)
+  if (endpoints === undefined) {
+    // The fork disabled upstream update services: no polling, no tray command,
+    // no manual-check route, and no installer download offers exist at all.
+    ctx.logger.info('dsh-plugin-desktop: fork update source is disabled; update checks stay off')
+    return
+  }
   ctx.effect(() => {
     const lifecycle = startDesktopUpdateLifecycle({
       adapter: ctx.desktopRuntime.updates,
       policy: config,
       locale: () => ctx.desktopRuntime.locale,
       registerTrayItem: item => ctx.desktopRuntime.registerTrayItem(item),
+      endpoints,
     })
     const rendererOrigin = `http://127.0.0.1:${String(ctx.webServer.port)}`
     const unregister = ctx.webServer.register({

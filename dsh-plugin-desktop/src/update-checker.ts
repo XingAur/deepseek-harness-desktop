@@ -56,6 +56,8 @@ export interface UpdateCheckOptions {
   readonly request?: UpdateRequest
   /** Installation UUID attached only to the fixed version-check endpoint. */
   readonly installationId?: DesktopInstallationId
+  /** Version endpoint override; defaults to the upstream fixed endpoint. */
+  readonly endpoint?: string
 }
 
 /** Successful comparison returned by the stable version service. */
@@ -139,7 +141,7 @@ export async function checkForDesktopUpdate(
 
   let response: Response
   try {
-    response = await request(DESKTOP_VERSION_ENDPOINT, init)
+    response = await request(options.endpoint ?? DESKTOP_VERSION_ENDPOINT, init)
   } catch {
     return null
   }

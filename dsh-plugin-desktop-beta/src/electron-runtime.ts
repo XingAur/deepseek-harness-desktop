@@ -55,6 +55,9 @@ import {
   type DesktopUpdateArtifact,
 } from './update-download.ts'
 import type { UpdateCheckResult } from './update-checker.ts'
+import { resolveForkUpdateEndpoints } from './fork-update-source.ts'
+import { DESKTOP_VERSION_ENDPOINT } from './update-checker.ts'
+import { DESKTOP_DOWNLOAD_URLS } from './update-download.ts'
 import type { DesktopInstallationId } from './desktop-installation-id.ts'
 import { DESKTOP_RELEASE_CHANNEL } from './product-identity.ts'
 import type { DesktopReleaseChannel } from './update-checker.ts'
@@ -679,11 +682,13 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
     const destinationPath = await this.chooseUpdateDestination(version, channel)
     if (destinationPath === undefined) return
     signal.throwIfAborted()
+    const forkEndpoints = resolveForkUpdateEndpoints(DESKTOP_VERSION_ENDPOINT, DESKTOP_DOWNLOAD_URLS)
     const artifactPath = await downloadDesktopUpdate({
       platform,
       version,
       ...(channel === 'stable' ? {} : { channel }),
       destinationPath,
+      ...(forkEndpoints === undefined ? {} : { endpoints: forkEndpoints.downloadEndpoints }),
       request: (url, init) => net.fetch(url, init),
       signal,
     })

@@ -6,6 +6,9 @@
 !.yarn/sdks
 !.yarn/versions
 node_modules/
+.corepack/
+.yarn-cache/
+.yarn-global/
 *.tsbuildinfo
 .build/
 

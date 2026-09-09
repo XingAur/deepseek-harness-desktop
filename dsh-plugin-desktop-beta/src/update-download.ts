@@ -51,6 +51,8 @@ export interface DownloadDesktopUpdateOptions {
   readonly destinationPath: string
   /** Request implementation, normally backed by Electron `net.fetch`. */
   readonly request: UpdateArtifactRequest
+  /** Download endpoint override; defaults to the upstream fixed endpoints. */
+  readonly endpoints?: Readonly<Record<DesktopDownloadPlatform, string>>
   /** Optional cancellation signal owned by the update coordinator. */
   readonly signal?: AbortSignal
 }
@@ -121,7 +123,7 @@ export async function downloadDesktopUpdate(options: DownloadDesktopUpdateOption
 
   let response: Response
   try {
-    response = await options.request(DESKTOP_DOWNLOAD_URLS[platform], {
+    response = await options.request((options.endpoints ?? DESKTOP_DOWNLOAD_URLS)[platform], {
       method: 'GET',
       headers: {
         [DESKTOP_RELEASE_CHANNEL_HEADER]: channel,

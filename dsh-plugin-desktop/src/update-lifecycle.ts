@@ -16,6 +16,7 @@ import {
   type DesktopReleaseChannel,
   type UpdateCheckResult,
 } from './update-checker.ts'
+import type { ResolvedForkUpdateEndpoints } from './fork-update-source.ts'
 
 const MAX_STATE_BYTES = 4 * 1024
 
@@ -33,6 +34,8 @@ export interface DesktopUpdateLifecycleOptions {
   readonly policy: DesktopUpdatePolicy
   readonly locale: () => DesktopLocale
   readonly registerTrayItem: (item: DesktopTrayItem) => DesktopTrayItemRegistration
+  /** Fork-resolved endpoints; undefined inherits the upstream fixed endpoints. */
+  readonly endpoints?: ResolvedForkUpdateEndpoints
 }
 
 /** Lifecycle handle for one generation's update operations. */
@@ -195,6 +198,9 @@ class DesktopUpdateLifecycleOwner implements DesktopUpdateLifecycle {
           ...(this.options.adapter.installationId === undefined
             ? {}
             : { installationId: this.options.adapter.installationId }),
+          ...(this.options.endpoints === undefined
+            ? {}
+            : { endpoint: this.options.endpoints.versionEndpoint }),
           signal: controller.signal,
           request: this.options.adapter.request,
         })
