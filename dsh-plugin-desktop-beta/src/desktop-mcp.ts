@@ -430,7 +430,7 @@ export async function probeDesktopMcpServer(
   target: DesktopMcpProbeTarget,
   options?: { readonly timeoutMs?: number },
 ): Promise<DesktopMcpProbeResult> {
-  const timeoutMs = options?.timeoutMs ?? 10_000
+  const timeoutMs = options?.timeoutMs ?? 30_000
   if (target.transport === 'streamable-http') return probeHttpServer(target, timeoutMs)
   return probeStdioServer(target, timeoutMs)
 }

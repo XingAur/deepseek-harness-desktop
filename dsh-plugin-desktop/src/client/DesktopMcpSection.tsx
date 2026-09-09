@@ -654,12 +654,13 @@ export function DesktopMcpSection({ t, api }: DesktopMcpSectionProps): ReactNode
         </span>
       )
     }
+    const detail = view.error === 'timeout'
+      ? t('testTimeoutHint')
+      : view.detail !== undefined ? `: ${view.detail}` : ''
     return (
       <span className="dshDesktopSettingsCallout" data-tone="info" role="status">
         <X aria-hidden="true" />
-        <span>
-          {`${t('testFailed')}${view.detail !== undefined ? `: ${view.detail}` : ''}`}
-        </span>
+        <span>{`${t('testFailed')}${detail}`}</span>
       </span>
     )
   }

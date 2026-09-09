@@ -47,6 +47,7 @@ export type DesktopMcpLocaleKey =
   | 'testOk'
   | 'testToolsUnit'
   | 'testFailed'
+  | 'testTimeoutHint'
   | 'nameOptionalHint'
   | 'templateBlank'
   | 'templateAdvancedNote'
@@ -102,6 +103,7 @@ export const en: Record<DesktopMcpLocaleKey, string> = {
   testOk: 'Connected',
   testToolsUnit: 'tools',
   testFailed: 'Connection failed',
+  testTimeoutHint: 'No MCP answer in time. If the command is npx, its first run downloads packages — run it once in a terminal to warm the cache (or set an npm mirror), then test again.',
   nameOptionalHint: 'Leave empty to auto-name.',
   templateBlank: 'Blank (advanced)',
   templateAdvancedNote: 'Connection details are assembled automatically; switch to a blank server to edit raw command and args.',
@@ -158,6 +160,7 @@ export const zh: Record<DesktopMcpLocaleKey, string> = {
   testOk: '连接成功',
   testToolsUnit: '个工具',
   testFailed: '连接失败',
+  testTimeoutHint: '在限时内没有应答。若命令是 npx，首次运行需要先下载包 —— 在终端手动跑一次该命令预热缓存（或配置 npm 镜像）后重试。',
   nameOptionalHint: '留空自动命名。',
   templateBlank: '空白自定义（高级）',
   templateAdvancedNote: '连接参数会自动拼装；如需直接编辑命令和参数，请用空白自定义。',
