@@ -138,6 +138,7 @@ function createHarness(
     notifyAttention: () => {},
     registerTrayItem: () => ({ refresh: () => {}, dispose: () => {} }),
     openTerminal: () => {},
+    openExternal: () => {},
     reloadRenderer: () => {},
     toggleDeveloperTools: () => {},
     exportDiagnostics: async () => {},

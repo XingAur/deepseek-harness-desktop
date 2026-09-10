@@ -209,6 +209,9 @@ export interface DesktopRuntime {
   /** Open a native terminal containing packaged DSH command shims. */
   openTerminal(): void
 
+  /** Open one URL in the user's default browser through the OS handler. */
+  openExternal(url: string): void
+
   /** Reload the mounted renderer without restarting the Host. */
   reloadRenderer(): void
 

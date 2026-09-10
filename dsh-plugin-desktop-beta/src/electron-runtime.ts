@@ -340,6 +340,13 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
   }
 
   /** @inheritdoc */
+  openExternal(url: string): void {
+    void shell.openExternal(url).catch((cause: unknown) => {
+      this.logError(`dsh-plugin-desktop: failed to open ${url}: ${cause instanceof Error ? cause.message : String(cause)}`)
+    })
+  }
+
+  /** @inheritdoc */
   openTerminal(): void {
     try {
       const spec = this.terminalSpec

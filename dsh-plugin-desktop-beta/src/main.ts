@@ -81,6 +81,8 @@ import {
 import { DesktopProfileService } from './profile-service.ts'
 import type {} from '@deepseek-ai/dsh-agent-presets/types'
 import { DesktopActionsService } from './desktop-actions.ts'
+import { DesktopModelSigninService } from './desktop-model-signin.ts'
+import { desktopModelSigninCopy } from './model-signin-locale.ts'
 import { clearDesktopProfilePluginState, DesktopPluginsService } from './desktop-plugins.ts'
 import {
   desktopMcpInsertPatch,
@@ -1492,6 +1494,23 @@ async function start(): Promise<void> {
         await hostCtx.plugin(DesktopActionsService, {
           openTerminal: () => { runtime.openTerminal() },
           requestRestart: () => runtime.requestRestart(),
+        })
+        await hostCtx.plugin(DesktopModelSigninService, {
+          openExternal: url => runtime.openExternal(url),
+          showDialog: async spec => (await showDesktopDialog(spec)).response,
+          locale: () => runtime.locale,
+        })
+        const modelSignin = hostCtx.desktopModelSignin
+        runtime.registerTrayItem({
+          group: 'tools',
+          order: 90,
+          label: () => desktopModelSigninCopy(runtime.locale).trayLabel,
+          enabled: () => modelSignin.flows().length > 0,
+          invoke: () => {},
+          submenu: () => modelSignin.flows().map(flow => ({
+            label: () => (flow.inFlight ? `${flow.label} …` : flow.label),
+            invoke: () => { void modelSignin.beginSignIn(flow) },
+          })),
         })
         if (prepared.market.effective === 'community-market') {
           await hostCtx.plugin(DesktopPluginsService, {
