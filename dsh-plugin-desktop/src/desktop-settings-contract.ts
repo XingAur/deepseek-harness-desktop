@@ -36,6 +36,8 @@ export const DESKTOP_DEVELOPER_TOOLS_TOGGLE_PATH = '/api/desktop/developer/devto
 
 /** Run the generation-owned manual update check. */
 export const DESKTOP_UPDATE_CHECK_PATH = '/api/desktop/updates/check'
+export const DESKTOP_UPDATE_STATE_PATH = '/api/desktop/updates/state'
+export const DESKTOP_UPDATE_DOWNLOAD_PATH = '/api/desktop/updates/download'
 
 /** Export one local diagnostic archive through the launcher-owned flow. */
 export const DESKTOP_DIAGNOSTICS_EXPORT_PATH = '/api/desktop/diagnostics/export'
@@ -305,6 +307,26 @@ export interface DesktopMcpTestResponse {
 }
 
 /** Stable API failure shape that never contains native paths or raw causes. */
+/** Renderer-safe projection of the update coordinator for the settings client. */
+export interface DesktopUpdateStateResponse {
+  readonly currentVersion: string
+  readonly channel: 'stable' | 'beta' | null
+  readonly canDownload: boolean
+  readonly availableVersion: string | null
+  readonly checking: boolean
+  readonly downloadingVersion: string | null
+}
+
+/** Confirmed-download request for one advertised version. */
+export interface DesktopUpdateDownloadRequest {
+  readonly version: string
+}
+
+/** Accepted marker for a background installer download. */
+export interface DesktopUpdateDownloadResponse {
+  readonly accepted: boolean
+}
+
 export interface DesktopSettingsErrorResponse {
   readonly error: string
 }

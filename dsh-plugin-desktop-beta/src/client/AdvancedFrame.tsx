@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { DesktopUpdateChip } from './DesktopUpdateChip.tsx'
 import type { PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from './contracts.ts'
@@ -14,6 +15,8 @@ export interface AdvancedFrameInjected {
   layout: DesktopLayoutState
   /** Host platform controlling native title-bar spacing. */
   platform: DesktopClientPlatform
+  /** Installed Desktop product version for the caption update chip. */
+  version: string
 }
 
 /** Full enhanced-mode root slot props. */
@@ -31,6 +34,7 @@ export function DesktopOwnedFrame({
   layout,
   mode,
   platform,
+  version,
   renderSlot,
   SessionProvider,
   useSessions,
@@ -121,7 +125,11 @@ export function DesktopOwnedFrame({
       data-dragging={dragging || undefined}
       style={{ gridTemplateColumns: `${columns.sidebar}px minmax(0, 1fr) ${columns.details}px` }}
     >
-      {mode === 'advanced' && platform === 'darwin' && <div className="dshDesktopMacCaptionRow" aria-hidden="true" />}
+      {mode === 'advanced' && platform === 'darwin' && (
+        <div className="dshDesktopMacCaptionRow">
+          <DesktopUpdateChip version={version} />
+        </div>
+      )}
       <aside className="dshDesktopSidebarSurface">
         <div className="dshDesktopUpstreamSidebar">
           {renderSlot('sidebar', { collapsed, width: sidebarOwnerWidth })}
@@ -132,7 +140,11 @@ export function DesktopOwnedFrame({
         <SessionProvider>{renderSlot('details', {})}</SessionProvider>
       </aside>
       {/* Electron resolves app regions in DOM order; Desktop overlays must remain later. */}
-      {mode === 'advanced' && platform === 'win32' && <div className="dshDesktopWindowsCaptionRow" aria-hidden="true" />}
+      {mode === 'advanced' && platform === 'win32' && (
+        <div className="dshDesktopWindowsCaptionRow">
+          <DesktopUpdateChip version={version} />
+        </div>
+      )}
       <div className="dshDesktopOverlay" data-shell-overlay>
         {renderSlot('shell.overlay', {})}
       </div>

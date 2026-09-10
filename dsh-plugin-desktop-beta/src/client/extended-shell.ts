@@ -47,7 +47,7 @@ function applyExtendedOwnedShell(ctx: ClientContext, environment: DesktopClientE
       'details': { kind: 'single', scope: 'session' },
       'shell.overlay': { kind: 'list', scope: 'root' },
     },
-    inject: () => ({ layout: desktopLayout, platform: environment.platform }),
+    inject: () => ({ layout: desktopLayout, platform: environment.platform, version: environment.version }),
   }, ExtendedFrame), 'desktop: extended root slot')
 
 }

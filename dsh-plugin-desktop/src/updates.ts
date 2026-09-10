@@ -3,8 +3,17 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import { DESKTOP_UPDATE_CHECK_PATH } from './desktop-settings-contract.ts'
-import { handleDesktopUpdateCheckRequest } from './desktop-settings-route.ts'
+import {
+  DESKTOP_UPDATE_CHECK_PATH,
+  DESKTOP_UPDATE_DOWNLOAD_PATH,
+  DESKTOP_UPDATE_STATE_PATH,
+  type DesktopUpdateStateResponse,
+} from './desktop-settings-contract.ts'
+import {
+  handleDesktopUpdateCheckRequest,
+  handleDesktopUpdateDownloadRequest,
+  handleDesktopUpdateStateRequest,
+} from './desktop-settings-route.ts'
 import { resolveForkUpdateEndpoints } from './fork-update-source.ts'
 import type {} from './runtime.ts'
 import { DESKTOP_DOWNLOAD_URLS } from './update-download.ts'
@@ -13,6 +22,24 @@ import { DESKTOP_VERSION_ENDPOINT } from './update-checker.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'desktop-updates'
+
+/** Context key carrying the renderer-facing update facade. */
+export const DESKTOP_UPDATE_FACADE = 'desktopUpdateFacade'
+
+/** Renderer-safe update status and confirmed-download entry point. */
+export interface DesktopUpdateFacade {
+  /** Point-in-time status for the running executable. */
+  status(): DesktopUpdateStateResponse
+  /** Begin the confirmed download flow; false when downloads cannot start. */
+  requestDownload(version: string): boolean
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** Present only when the fork update source is enabled. */
+    [DESKTOP_UPDATE_FACADE]?: DesktopUpdateFacade
+  }
+}
 
 /** Native adapter required for network, tray, confirmation, and installer access. */
 export const inject = ['desktopRuntime', 'webServer']
@@ -53,8 +80,9 @@ export function apply(ctx: Context, config: Config): void {
     return
   }
   ctx.effect(() => {
+    const adapter = ctx.desktopRuntime.updates
     const lifecycle = startDesktopUpdateLifecycle({
-      adapter: ctx.desktopRuntime.updates,
+      adapter,
       policy: config,
       locale: () => ctx.desktopRuntime.locale,
       registerTrayItem: item => ctx.desktopRuntime.registerTrayItem(item),
@@ -78,7 +106,58 @@ export function apply(ctx: Context, config: Config): void {
         )
       },
     })
+    const facade: DesktopUpdateFacade = {
+      status: () => {
+        const snapshot = lifecycle.snapshot()
+        return {
+          currentVersion: adapter.currentVersion,
+          channel: adapter.releaseChannel ?? null,
+          canDownload: adapter.canDownload,
+          availableVersion: snapshot.availableVersion ?? null,
+          checking: snapshot.checking,
+          downloadingVersion: snapshot.downloadingVersion ?? null,
+        }
+      },
+      requestDownload: version => lifecycle.requestDownload(version),
+    }
+    ctx.provide(DESKTOP_UPDATE_FACADE, facade)
+    const unregisterState = ctx.webServer.register({
+      kind: 'exact',
+      path: DESKTOP_UPDATE_STATE_PATH,
+      handler: (req, res) => {
+        return handleDesktopUpdateStateRequest(
+          req,
+          res,
+          rendererOrigin,
+          () => facade.status(),
+          (operation, cause) => {
+            ctx.logger.error(
+              `dsh-plugin-desktop: failed to ${operation}: ${cause instanceof Error ? cause.message : String(cause)}`,
+            )
+          },
+        )
+      },
+    })
+    const unregisterDownload = ctx.webServer.register({
+      kind: 'exact',
+      path: DESKTOP_UPDATE_DOWNLOAD_PATH,
+      handler: (req, res) => {
+        return handleDesktopUpdateDownloadRequest(
+          req,
+          res,
+          rendererOrigin,
+          facade.requestDownload,
+          (operation, cause) => {
+            ctx.logger.error(
+              `dsh-plugin-desktop: failed to ${operation}: ${cause instanceof Error ? cause.message : String(cause)}`,
+            )
+          },
+        )
+      },
+    })
     return async () => {
+      unregisterDownload()
+      unregisterState()
       unregister()
       await lifecycle.dispose()
     }

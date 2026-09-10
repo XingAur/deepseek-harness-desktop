@@ -39,9 +39,26 @@ export interface DesktopUpdateLifecycleOptions {
 }
 
 /** Lifecycle handle for one generation's update operations. */
+/** Renderer-safe point-in-time view of the update coordinator. */
+export interface DesktopUpdateSnapshot {
+  /** Advertised version awaiting a confirmed download, when one was observed. */
+  readonly availableVersion?: string
+  /** Whether a version request is in flight right now. */
+  readonly checking: boolean
+  /** Version whose installer is currently downloading. */
+  readonly downloadingVersion?: string
+}
+
 export interface DesktopUpdateLifecycle {
   /** Run the same interactive update flow exposed by the native tray. */
   checkNow(): Promise<void>
+  /** Point-in-time renderer-safe status without triggering work. */
+  snapshot(): DesktopUpdateSnapshot
+  /**
+   * Begin the confirmed download flow for one advertised version without
+   * holding a request open. Returns false when downloads cannot start.
+   */
+  requestDownload(version: string): boolean
   dispose(): Promise<void>
 }
 
@@ -122,6 +139,20 @@ class DesktopUpdateLifecycleOwner implements DesktopUpdateLifecycle {
 
   checkNow(): Promise<void> {
     return this.runManualCheck()
+  }
+
+  snapshot(): DesktopUpdateSnapshot {
+    return {
+      ...(this.availableVersion !== undefined ? { availableVersion: this.availableVersion } : {}),
+      checking: this.checking,
+      ...(this.downloadingVersion !== undefined ? { downloadingVersion: this.downloadingVersion } : {}),
+    }
+  }
+
+  requestDownload(version: string): boolean {
+    if (this.disposed || this.options.adapter.canDownload !== true) return false
+    this.startDownload(version).catch(() => undefined)
+    return true
   }
 
   private installStable(): Promise<void> {

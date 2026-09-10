@@ -48,6 +48,6 @@ export function applyAdvancedShell(ctx: ClientContext, environment: DesktopClien
       'details': { kind: 'single', scope: 'session' },
       'shell.overlay': { kind: 'list', scope: 'root' },
     },
-    inject: () => ({ layout: desktopLayout, platform: environment.platform }),
+    inject: () => ({ layout: desktopLayout, platform: environment.platform, version: environment.version }),
   }, AdvancedFrame), 'desktop: advanced root slot')
 }

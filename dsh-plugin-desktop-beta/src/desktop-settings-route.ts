@@ -6,6 +6,7 @@ import type { DesktopMarketProvider } from './desktop-market.ts'
 import type DesktopSettingsController from './desktop-settings-controller.ts'
 import type { DesktopSettingsPostResponse } from './desktop-settings-controller.ts'
 import type {
+  DesktopUpdateStateResponse,
   DesktopMcpTestRequest,
   DesktopMarketSelectRequest,
   DesktopMcpStateRequest,
@@ -605,6 +606,55 @@ export async function handleDesktopUpdateCheckRequest(
   } catch (cause) {
     reportError('check for updates', cause)
     finishJson(res, 500, error('updates could not be checked'))
+  }
+}
+
+/** Serve the renderer-safe update snapshot. */
+export async function handleDesktopUpdateStateRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  expectedOrigin: string,
+  status: () => DesktopUpdateStateResponse,
+  reportError: (operation: string, cause: unknown) => void = () => {},
+): Promise<void> {
+  if (req.method !== 'GET' && req.method !== 'PUT') {
+    return finishJson(res, 405, error('method not allowed'), 'GET')
+  }
+  if (!isSameOriginLoopbackRequest(req, expectedOrigin, false)) {
+    return finishJson(res, 403, error('forbidden'))
+  }
+  try {
+    finishJson(res, 200, status())
+  } catch (cause) {
+    reportError('read update state', cause)
+    finishJson(res, 500, error('update state unavailable'))
+  }
+}
+
+/** Start the confirmed installer download for one advertised version. */
+export async function handleDesktopUpdateDownloadRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  expectedOrigin: string,
+  requestDownload: (version: string) => boolean,
+  reportError: (operation: string, cause: unknown) => void = () => {},
+): Promise<void> {
+  if (req.method !== 'POST') return finishJson(res, 405, error('method not allowed'), 'POST')
+  if (!isSameOriginLoopbackRequest(req, expectedOrigin, true)) {
+    return finishJson(res, 403, error('forbidden'))
+  }
+  const value = await parsePostBody(req, res)
+  if (value === INVALID_BODY) return
+  const version = (value as Record<string, unknown>).version
+  if (typeof version !== 'string' || version.length === 0 || version.length > 32
+    || !/^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$/.test(version)) {
+    return finishJson(res, 400, error('invalid update download request'))
+  }
+  try {
+    finishJson(res, 200, { accepted: requestDownload(version) })
+  } catch (cause) {
+    reportError('download update', cause)
+    finishJson(res, 500, error('update download could not start'))
   }
 }
 

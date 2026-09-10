@@ -16,6 +16,18 @@ body:is([data-dsh-desktop-mode="extended"], [data-dsh-desktop-mode="advanced"]) 
 .dshDesktopSidebarSurface { --dsw-specific-sidebar-fill: transparent; position: relative; grid-column: 1; grid-row: 1; min-width: 0; overflow: hidden; background: transparent; border-right: 1px solid var(--dsw-alias-border-l1); }
 body:is([data-dsh-desktop-mode="extended"], [data-dsh-desktop-mode="advanced"])[data-dsh-desktop-material="off"] .dshDesktopSidebarSurface { --dsw-specific-sidebar-fill: var(--dsw-alias-bg-layer-1); background: var(--dsw-alias-bg-layer-1); }
 .dshDesktopUpstreamSidebar { box-sizing: border-box; width: 100%; height: 100%; }
+.dshDesktopUpdateChipRoot { position: absolute; z-index: 1; top: 50%; display: flex; flex-direction: column; align-items: flex-start; -webkit-app-region: no-drag; user-select: none; }
+.dshDesktopMacCaptionRow .dshDesktopUpdateChipRoot { left: 78px; transform: translateY(-50%); }
+.dshDesktopWindowsCaptionRow .dshDesktopUpdateChipRoot { left: 12px; transform: translateY(-50%); }
+.dshDesktopUpdateChip { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 999px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 16px; cursor: pointer; }
+.dshDesktopUpdateChip:hover { color: var(--dsw-alias-label-primary); }
+.dshDesktopUpdateChipBadge { width: 7px; height: 7px; border-radius: 999px; background: var(--dsw-alias-brand-primary); }
+.dshDesktopUpdatePanel { position: absolute; top: calc(100% + 6px); left: 0; display: flex; flex-direction: column; gap: 8px; min-width: 220px; padding: 12px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 10px; background: var(--dsw-alias-bg-layer-1); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16); }
+.dshDesktopUpdatePanelHead { margin: 0; font-size: 12px; font-weight: 600; color: var(--dsw-alias-label-primary); }
+.dshDesktopUpdatePanelRow { margin: 0; font-size: 12px; color: var(--dsw-alias-label-secondary); }
+.dshDesktopUpdatePanelRow[data-tone="available"] { color: var(--dsw-alias-label-primary); font-weight: 600; }
+.dshDesktopUpdatePanelRow[data-tone="busy"] { color: var(--dsw-alias-brand-primary); }
+.dshDesktopUpdatePanelActions { display: flex; gap: 8px; justify-content: flex-end; }
 body:is([data-dsh-desktop-mode="extended"], [data-dsh-desktop-mode="advanced"]) [data-slot="sidebar.footer.action"] { display: flex !important; flex-direction: column; gap: 6px; min-width: 0; width: 100%; max-height: min(40vh, 240px); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 body:is([data-dsh-desktop-mode="extended"], [data-dsh-desktop-mode="advanced"]) [data-slot="sidebar.footer.action"] > * { flex: none; min-width: 0; }
 .dshDesktopFrame[data-desktop-mode="advanced"][data-desktop-platform="darwin"] .dshDesktopUpstreamSidebar { padding-top: ${ADVANCED_MACOS_CONTENT_INSET}px; }

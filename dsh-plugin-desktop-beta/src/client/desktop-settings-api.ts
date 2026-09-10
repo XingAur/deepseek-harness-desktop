@@ -12,6 +12,8 @@ const RECOVERY_RESTART_PATH = '/api/desktop/restart/recovery'
 const RENDERER_RELOAD_PATH = '/api/desktop/developer/reload'
 const DEVELOPER_TOOLS_TOGGLE_PATH = '/api/desktop/developer/devtools'
 const UPDATE_CHECK_PATH = '/api/desktop/updates/check'
+const UPDATE_STATE_PATH = '/api/desktop/updates/state'
+const UPDATE_DOWNLOAD_PATH = '/api/desktop/updates/download'
 const DIAGNOSTICS_EXPORT_PATH = '/api/desktop/diagnostics/export'
 const SKILLS_LIST_PATH = '/api/desktop/skills'
 const MCP_STATE_PATH = '/api/desktop/mcp'
@@ -145,6 +147,16 @@ export interface DesktopMcpWriteView {
   readonly restartScheduled: boolean
 }
 
+/** Renderer-facing update status. */
+export interface DesktopUpdateStateView {
+  readonly currentVersion: string
+  readonly channel: 'stable' | 'beta' | null
+  readonly canDownload: boolean
+  readonly availableVersion: string | null
+  readonly checking: boolean
+  readonly downloadingVersion: string | null
+}
+
 /** Renderer-facing MCP probe outcome. */
 export interface DesktopMcpTestView {
   readonly ok: boolean
@@ -169,6 +181,8 @@ export interface DesktopSettingsApi {
   reloadRenderer(): Promise<void>
   toggleDeveloperTools(): Promise<void>
   checkForUpdates(): Promise<void>
+  getUpdateState(): Promise<DesktopUpdateStateView>
+  downloadUpdate(version: string): Promise<{ accepted: boolean }>
   exportDiagnostics(): Promise<void>
   listSkills(): Promise<DesktopSkillsView>
   getMcp(): Promise<DesktopMcpStateView>
@@ -520,6 +534,21 @@ function parseMcpWriteView(value: unknown): DesktopMcpWriteView {
   })
 }
 
+function parseUpdateStateView(value: unknown): DesktopUpdateStateView {
+  if (!isObject(value)) throw new Error('dsh-plugin-desktop: invalid update state response')
+  if (typeof value.currentVersion !== 'string' || value.currentVersion.length === 0) {
+    throw new Error('dsh-plugin-desktop: invalid update state response')
+  }
+  return {
+    currentVersion: value.currentVersion,
+    channel: value.channel === 'stable' || value.channel === 'beta' ? value.channel : null,
+    canDownload: value.canDownload === true,
+    availableVersion: typeof value.availableVersion === 'string' ? value.availableVersion : null,
+    checking: value.checking === true,
+    downloadingVersion: typeof value.downloadingVersion === 'string' ? value.downloadingVersion : null,
+  }
+}
+
 function parseMcpTestView(value: unknown): DesktopMcpTestView {
   if (!isObject(value)) throw new Error('dsh-plugin-desktop: invalid MCP test response')
   if (typeof value.ok !== 'boolean') throw new Error('dsh-plugin-desktop: invalid MCP test response')
@@ -630,6 +659,20 @@ export function createDesktopSettingsApi(fetcher: FetchLike = globalThis.fetch.b
     async checkForUpdates() {
       parseDesktopActionAcceptance(await readResponse(await post(fetcher, UPDATE_CHECK_PATH, {})))
     },
+    async getUpdateState() {
+      const response = await fetcher(UPDATE_STATE_PATH, {
+        method: 'GET',
+        credentials: 'same-origin',
+        redirect: 'error',
+        cache: 'no-store',
+        headers: { 'Accept': 'application/json' },
+      })
+      return parseUpdateStateView(await readResponse(response))
+    },
+    async downloadUpdate(version: string) {
+      const value = await readResponse(await post(fetcher, UPDATE_DOWNLOAD_PATH, { version })) as unknown
+      return { accepted: isObject(value) && value.accepted === true }
+    },
     async exportDiagnostics() {
       parseDesktopActionAcceptance(await readResponse(await post(fetcher, DIAGNOSTICS_EXPORT_PATH, {})))
     },
@@ -677,6 +720,8 @@ export const desktopSettingsPaths = Object.freeze({
   rendererReload: RENDERER_RELOAD_PATH,
   developerToolsToggle: DEVELOPER_TOOLS_TOGGLE_PATH,
   updateCheck: UPDATE_CHECK_PATH,
+  updateState: UPDATE_STATE_PATH,
+  updateDownload: UPDATE_DOWNLOAD_PATH,
   diagnosticsExport: DIAGNOSTICS_EXPORT_PATH,
   skillsList: SKILLS_LIST_PATH,
   mcpState: MCP_STATE_PATH,
