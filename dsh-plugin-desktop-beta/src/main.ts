@@ -83,7 +83,6 @@ import type {} from '@deepseek-ai/dsh-agent-presets/types'
 import { DesktopActionsService } from './desktop-actions.ts'
 import { DesktopModelSigninService } from './desktop-model-signin.ts'
 import { desktopModelSigninCopy } from './model-signin-locale.ts'
-import { installProxyFromEnvironment } from '@deepseek-ai/dsh-http-proxy'
 import { clearDesktopProfilePluginState, DesktopPluginsService } from './desktop-plugins.ts'
 import {
   desktopMcpInsertPatch,
@@ -718,11 +717,24 @@ async function start(): Promise<void> {
     process.env.DSH_HOME = homeDir
     const desktopLaunchEnvironment = withDesktopDshHome(environment, homeDir)
     // Node's fetch ignores proxy variables, and LLM requests plus provider
-    // sign-ins run in this process, so the launcher owns the global dispatcher.
-    disposeProxyPolicy = await installProxyFromEnvironment(
-      desktopLaunchEnvironment,
-      message => electronLogger.error(`${BIN_NAME}: ${message}`),
-    )
+    // sign-ins run in this process, so the launcher owns the global dispatcher
+    // when this channel's vendored runtime ships the proxy package. The
+    // specifier stays a variable on purpose: channels whose vendored runtime
+    // predates the proxy package keep direct transport instead of failing the
+    // launch, and their composition never declares the module.
+    const proxyModuleSpecifier = '@deepseek-ai/dsh-http-proxy'
+    const proxyModule = await import(proxyModuleSpecifier).catch(() => undefined) as
+      | {
+          installProxyFromEnvironment:
+          (env: typeof desktopLaunchEnvironment, report: (message: string) => void) => Promise<() => Promise<void>>
+        }
+      | undefined
+    if (proxyModule !== undefined) {
+      disposeProxyPolicy = await proxyModule.installProxyFromEnvironment(
+        desktopLaunchEnvironment,
+        message => electronLogger.error(`${BIN_NAME}: ${message}`),
+      )
+    }
     const projectionCacheRecovery = recoverOversizedSessionProjectionCache(homeDir)
     if (projectionCacheRecovery.status === 'quarantined') {
       sessionProjectionCacheRecovery = projectionCacheRecovery

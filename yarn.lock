@@ -13139,7 +13139,6 @@ __metadata:
     "@deepseek-ai/dsh-host-directory-picker-native": "npm:0.1.2-rc.1"
     "@deepseek-ai/dsh-host-plugin-inventory": "npm:0.1.2-rc.1"
     "@deepseek-ai/dsh-host-webserver": "npm:0.1.2-rc.1"
-    "@deepseek-ai/dsh-http-proxy": "npm:0.1.3-alpha.2"
     "@deepseek-ai/dsh-invariants": "npm:0.1.2-rc.1"
     "@deepseek-ai/dsh-jobs": "npm:0.1.2-rc.1"
     "@deepseek-ai/dsh-jobs-local": "npm:0.1.2-rc.1"
