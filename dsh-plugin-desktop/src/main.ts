@@ -81,6 +81,7 @@ import type {} from '@deepseek-ai/dsh-agent-presets/types'
 import { DesktopActionsService } from './desktop-actions.ts'
 import { DesktopModelSigninService } from './desktop-model-signin.ts'
 import { desktopModelSigninCopy } from './model-signin-locale.ts'
+import { installProxyFromEnvironment } from '@deepseek-ai/dsh-http-proxy'
 import { clearDesktopProfilePluginState, DesktopPluginsService } from './desktop-plugins.ts'
 import {
   desktopMcpInsertPatch,
@@ -408,6 +409,7 @@ async function start(): Promise<void> {
     | undefined
   let recoveryTerminalAvailable = false
   let startupStage: DesktopStartupFailureStage = 'electron-ready'
+  let disposeProxyPolicy: (() => Promise<void>) | undefined
   const desktopUserDataDir = app.getPath('userData')
   const appVersion = desktopProductVersion()
   const currentDshVersion = dshProductVersion()
@@ -687,6 +689,12 @@ async function start(): Promise<void> {
     }
     process.env.DSH_HOME = homeDir
     const desktopLaunchEnvironment = withDesktopDshHome(environment, homeDir)
+    // Node's fetch ignores proxy variables, and LLM requests plus provider
+    // sign-ins run in this process, so the launcher owns the global dispatcher.
+    disposeProxyPolicy = await installProxyFromEnvironment(
+      desktopLaunchEnvironment,
+      message => electronLogger.error(`${BIN_NAME}: ${message}`),
+    )
     const projectionCacheRecovery = recoverOversizedSessionProjectionCache(homeDir)
     if (projectionCacheRecovery.status === 'quarantined') {
       sessionProjectionCacheRecovery = projectionCacheRecovery
@@ -1470,6 +1478,10 @@ async function start(): Promise<void> {
         hostCtx.effect(
           () => releasePackageResolver,
           'dsh-plugin-desktop: profile package resolution',
+        )
+        hostCtx.effect(
+          () => async () => { await disposeProxyPolicy?.() },
+          'dsh-plugin-desktop: outbound proxy policy lifetime',
         )
         hostCtx.provide(DSH_LAUNCH_ENVIRONMENT_KEY, desktopLaunchEnvironment)
         hostCtx.provide('desktopBrowserAccess', browserAccess)

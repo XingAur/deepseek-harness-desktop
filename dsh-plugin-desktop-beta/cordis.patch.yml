@@ -5,6 +5,10 @@
       name: dsh-plugin-desktop-beta
       config:
         mode: compatibility
+    # The sign-in tray needs the authorization capability the base composition
+    # leaves unmounted; llm-pi-ai registers its login flows only when it is up.
+    - id: desktop-authorization
+      name: '@deepseek-ai/dsh-authorization'
     - id: desktop-terminal
       name: dsh-plugin-desktop-beta/terminal
       disabled: !!js process.platform === 'linux'
