@@ -850,7 +850,8 @@ function loadDesktopMachinePatches(home: string): PatchOptions[] {
 
 /**
  * Load and compose one desktop profile generation.
- * @param telemetryDisabled - inherited DSH telemetry opt-out value.
+ * @param _telemetryDisabled - inherited DSH telemetry opt-out value; unused
+ *   because this fork always strips the upstream telemetry row.
  * @param home - Harness home containing profiles and the machine-wide patch.
  * @param platform - native platform selecting launcher-owned safety overlays.
  * @param profileName - existing or lazily available Web profile to compose.
@@ -862,7 +863,7 @@ function loadDesktopMachinePatches(home: string): PatchOptions[] {
  * @returns root config, profile metadata, and ordered patches.
  */
 export function prepareDesktopProfile(
-  telemetryDisabled: string | undefined = process.env.DSH_TELEMETRY_DISABLED,
+  _telemetryDisabled: string | undefined = process.env.DSH_TELEMETRY_DISABLED,
   home: string = resolveDshHome(),
   platform: NodeJS.Platform = process.platform,
   profileName: string = DESKTOP_PROFILE_NAME,
@@ -1156,7 +1157,10 @@ export function prepareDesktopProfile(
       })
     }
   }
-  if ((telemetryDisabled ?? '') !== '' && rows.has('session-telemetry-otel')) {
+  // Fork policy: the vendored telemetry collector points at upstream
+  // infrastructure and fork users never opted into it, so the row is stripped
+  // unconditionally rather than only when the inherited opt-out is set.
+  if (rows.has('session-telemetry-otel')) {
     patches.push({ id: 'session-telemetry-otel', disabled: true })
   }
   const desktopShell = rows.get('desktop-shell')

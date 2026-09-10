@@ -138,6 +138,7 @@ jobs:
             ${{ matrix.workspace }}/dist/*.exe
             ${{ matrix.workspace }}/dist/*.zip
           if-no-files-found: error
+          retention-days: 1
 
   # macOS-only universal packaging smoke on a real macOS runner: the signed
   # release is built manually on a credentialed machine, so an unsigned DMG
@@ -145,7 +146,9 @@ jobs:
   # release. No signing secrets ever reach this job.
   desktop-macos:
     needs: changes
-    if: needs.changes.outputs.product == 'true'
+    # macOS packages are built locally: Actions macOS minutes bill at 10x, and
+    # the local arm64 host already produces the universal dmg smoke artifact.
+    if: false
     runs-on: macos-latest
     timeout-minutes: 60
     strategy:
