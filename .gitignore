@@ -19,3 +19,7 @@ dsh-community-market/lib/
 .env.yarn.electron-cache/
 .electron-builder-cache/
 .npm-cache/
+
+# Local iterative installer builds and E2E outputs
+dist-local*/
+dist-e2e/

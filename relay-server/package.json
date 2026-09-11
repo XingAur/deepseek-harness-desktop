@@ -1,0 +1,17 @@
+{
+  "name": "dsh-desktop-relay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloud relay for DSH Desktop remote control: terminates phone HTTP/WS and forwards it over an authenticated desktop WebSocket tunnel.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node main.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.21.0"
+  }
+}

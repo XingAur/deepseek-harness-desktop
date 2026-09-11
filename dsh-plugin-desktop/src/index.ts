@@ -95,6 +95,14 @@ export const inject = ['webServer', 'webRuntime', 'appExit', 'settings', 'connec
 
 /** Standard settings namespace shared by tray and configuration surfaces. */
 export { FORK_UPDATE_SOURCE, type ForkUpdateSource } from './fork-update-source.ts'
+import { applyRemoteRelay } from './remote-relay.ts'
+import { registerModelDiagnostics } from './model-diagnostics.ts'
+import { desktopTrayLabel } from './tray-locale.ts'
+export { applyRemoteRelay, canonicalRelayOrigin } from './remote-relay.ts'
+export type {
+  DesktopRemoteRelaySnapshot,
+  DesktopRemoteRelayState,
+} from './remote-relay.ts'
 
 export const DESKTOP_SETTINGS_NAMESPACE = settingsNamespace('dsh-desktop')
 
@@ -133,6 +141,8 @@ export interface DesktopSettings {
   openBrowser: boolean
   /** Whether the next generation listens only on loopback or on every LAN interface. */
   networkExposure: DesktopNetworkExposure
+  /** Public origin of the remote-control relay; empty keeps the tunnel disabled. */
+  remoteRelayOrigin: string
   /** Log verbosity threshold applied to the file logger. */
   logLevel: 'debug' | 'info' | 'warn' | 'error'
 }
@@ -145,6 +155,7 @@ export const DesktopSettingsSchema: z<DesktopSettings> = z.object({
   port: z.number().step(1).min(0).max(65_535).default(DESKTOP_DEFAULT_WEB_PORT),
   openBrowser: z.boolean().default(false),
   networkExposure: z.union(['loopback', 'lan'] as const).default('loopback'),
+  remoteRelayOrigin: z.string().default(''),
   logLevel: z.union(['debug', 'info', 'warn', 'error'] as const).default('info'),
 })
 
@@ -402,26 +413,27 @@ export function apply(ctx: Context, config: Config): void {
       'dsh-plugin-desktop: workspace directory validation route',
     )
   }
+  const remoteRelayAccess = { required: false }
+  const updateLiveWebAccess = (
+    browserEnabled: boolean,
+    exposure: DesktopNetworkExposure,
+  ): void => {
+    browserAccess.setOrdinaryBrowserEnabled(browserEnabled || remoteRelayAccess.required)
+    void lanHttps.setEnabled(browserEnabled && exposure === 'lan').then((snapshot) => {
+      if (snapshot.state === 'failed') {
+        ctx.logger.error(
+          `dsh-plugin-desktop: LAN HTTPS edge failed to start (${snapshot.errorCode ?? 'unknown'})`,
+        )
+      }
+    }).catch((cause: unknown) => {
+      ctx.logger.error(
+        `dsh-plugin-desktop: LAN HTTPS edge transition failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+      )
+    })
+  }
   ctx.effect(() => {
     let pending: ReturnType<typeof setImmediate> | undefined
-    const updateLiveWebAccess = (
-      browserEnabled: boolean,
-      exposure: DesktopNetworkExposure,
-    ): void => {
-      browserAccess.setOrdinaryBrowserEnabled(browserEnabled)
-      void lanHttps.setEnabled(browserEnabled && exposure === 'lan').then((snapshot) => {
-        if (snapshot.state === 'failed') {
-          ctx.logger.error(
-            `dsh-plugin-desktop: LAN HTTPS edge failed to start (${snapshot.errorCode ?? 'unknown'})`,
-          )
-        }
-      }).catch((cause: unknown) => {
-        ctx.logger.error(
-          `dsh-plugin-desktop: LAN HTTPS edge transition failed: ${cause instanceof Error ? cause.message : String(cause)}`,
-        )
-      })
-    }
-    updateLiveWebAccess(browserAccess.ordinaryBrowserEnabled, config.networkExposure)
+    updateLiveWebAccess(browserAccess.ordinaryBrowserEnabled && !remoteRelayAccess.required, config.networkExposure)
     const stopWatching = settings.watch((next) => {
       const nextBrowserAccess = desktopBrowserAccessEnabled(
         next.mode,
@@ -455,6 +467,29 @@ export function apply(ctx: Context, config: Config): void {
       void lanHttps.stop()
     }
   }, 'dsh-plugin-desktop: live browser access and restart-applied native settings')
+  const relaySettingsValue = settings.get()
+  applyRemoteRelay(ctx, {
+    access: remoteRelayAccess,
+    refreshAccess: () => {
+      const next = settings.get()
+      const browserEnabled = desktopBrowserAccessEnabled(next.mode, next.openBrowser, next.networkExposure)
+      updateLiveWebAccess(
+        browserEnabled,
+        desktopNetworkExposureForBrowserAccess(browserEnabled, next.networkExposure),
+      )
+    },
+    relayOrigin: relaySettingsValue.remoteRelayOrigin,
+  })
+  registerModelDiagnostics(ctx)
+  ctx.effect(() => {
+    const registration = ctx.desktopRuntime.registerTrayItem({
+      group: 'tools',
+      order: 40,
+      label: () => desktopTrayLabel(ctx.desktopRuntime.locale, 'modelDiagnostics'),
+      invoke: () => { ctx.desktopRuntime.openModelDiagnosticsWindow() },
+    })
+    return () => registration.dispose()
+  }, 'dsh-plugin-desktop: model diagnostics tray entry')
   if (runtime.platform !== 'linux') {
     ctx.on('settings/updated', (namespace, next) => {
       if (namespace !== UI_THEME_SETTINGS_NAMESPACE) return

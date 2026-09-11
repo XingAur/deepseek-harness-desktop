@@ -1,0 +1,18 @@
+diff --git a/lib/index.js b/lib/index.js
+index 4ea1bb2..ec10c3e 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -83,7 +83,12 @@ var PackageIdentityResolver = class {
+ 		let manifest;
+ 		if (packageName !== void 0) {
+ 			manifest = barePackageManifest(packageName, anchors);
+-			if (manifest === void 0) throw new Error(`plugin-package-inventory-deepseek: cannot resolve active package ${JSON.stringify(packageName)}`);
++			// DSH Desktop fork addition: sealed Desktop installs mount the
++			// shell package from the application root, which Node's package
++			// self-reference serves for imports but whose manifest the
++			// `resolve.paths` search walk never reaches. The inventory is
++			// advisory request metadata, so an unlocatable package is
++			// omitted from the field instead of failing the whole request.
+ 		} else if (!entry.options.name.startsWith("cordis:")) {
+ 			const moduleUrl = isAbsolute(entry.options.name) ? pathToFileURL(entry.options.name) : new URL(entry.options.name, treeBase);
+ 			if (moduleUrl.protocol === "file:") manifest = nearestManifest(fileURLToPath(moduleUrl));

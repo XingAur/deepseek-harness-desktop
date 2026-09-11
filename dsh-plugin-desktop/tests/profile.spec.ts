@@ -885,6 +885,7 @@ virtualStoreDirMaxLength: 60
       windowsMaterial: 'off',
       openBrowser: false,
       networkExposure: 'loopback',
+      remoteRelayOrigin: '',
     })
     expect(desktopStartupSettingsFromSettings({ 'dsh-desktop': { mode: 'advanced' } })).toEqual({
       mode: 'advanced',
@@ -893,6 +894,7 @@ virtualStoreDirMaxLength: 60
       windowsMaterial: 'off',
       openBrowser: false,
       networkExposure: 'loopback',
+      remoteRelayOrigin: '',
     })
     expect(desktopShellModeFromSettings({ unrelated: { enabled: true } })).toBe('compatibility')
   })

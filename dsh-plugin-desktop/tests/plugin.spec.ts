@@ -145,6 +145,8 @@ function createHarness(
     pickDirectory,
     validateDirectory,
     openProfileCreateWindow: () => {},
+    openRemotePairingWindow: () => {},
+    openModelDiagnosticsWindow: () => {},
     reportRendererBoot: rendererBoot,
     setLocalePreference,
     setThemeSource,
@@ -241,6 +243,7 @@ describe('desktop Host plugin', () => {
       port: 43_120,
       openBrowser: false,
       networkExposure: 'loopback',
+      remoteRelayOrigin: '',
       logLevel: 'info',
     })
     expect(() => DesktopSettingsSchema({ port: -1 } as DesktopSettings)).toThrow()
@@ -438,8 +441,18 @@ describe('desktop Host plugin', () => {
       RENDERER_BOOT_REPORT_PATH,
       DESKTOP_DIRECTORY_PICKER_PATH,
       DESKTOP_DIRECTORY_VALIDATOR_PATH,
+      '/api/desktop/mobile/cancel',
+      '/api/desktop/mobile/create',
+      '/api/desktop/mobile/prompt',
+      '/api/desktop/mobile/state',
+      '/api/desktop/mobile/transcript',
+      '/api/desktop/models/probe',
+      '/api/desktop/models/select',
+      '/api/desktop/models/state',
+      '/api/desktop/remote/pairing/open',
+      '/api/desktop/remote/state',
     ].sort()
-    const routes = harness.routes().filter(route => route.path !== DESKTOP_LAN_HTTPS_CA_PATH)
+    const routes = harness.routes().filter(route => route.path !== DESKTOP_LAN_HTTPS_CA_PATH && route.path !== '/mobile')
     expect(routes.map(route => route.path).sort()).toEqual(expectedPaths)
 
     for (const route of routes) {
@@ -530,15 +543,15 @@ describe('desktop Host plugin', () => {
     apply(harness.ctx, config)
 
     await harness.notify(
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', logLevel: 'info' },
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', logLevel: 'info' },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info' },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info' },
     )
     expect(harness.restart).not.toHaveBeenCalled()
 
     harness.restart.mockImplementation(() => new Promise<void>(() => {}))
     await harness.notify(
-      { mode: 'advanced', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', logLevel: 'info' },
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', logLevel: 'info' },
+      { mode: 'advanced', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info' },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info' },
     )
     await vi.runAllTimersAsync()
     expect(harness.restart).toHaveBeenCalledOnce()
@@ -551,8 +564,8 @@ describe('desktop Host plugin', () => {
     harness.restart.mockImplementation(() => new Promise<void>(() => {}))
 
     await harness.notify(
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'off', port: 43_120, openBrowser: true, networkExposure: 'lan', logLevel: 'info' },
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'off', port: 43_120, openBrowser: false, networkExposure: 'loopback', logLevel: 'info' },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'off', port: 43_120, openBrowser: true, networkExposure: 'lan', remoteRelayOrigin: '', logLevel: 'info' },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'off', port: 43_120, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info' },
     )
     await vi.runAllTimersAsync()
     expect(harness.restart).not.toHaveBeenCalled()
@@ -562,8 +575,8 @@ describe('desktop Host plugin', () => {
     const enabledHarness = createHarness('darwin', true)
     apply(enabledHarness.ctx, config)
     await enabledHarness.notify(
-      { mode: 'advanced', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 43_120, openBrowser: true, networkExposure: 'loopback', logLevel: 'info' },
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 43_120, openBrowser: true, networkExposure: 'loopback', logLevel: 'info' },
+      { mode: 'advanced', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 43_120, openBrowser: true, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info' },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 43_120, openBrowser: true, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info' },
     )
     await vi.runAllTimersAsync()
     expect(enabledHarness.restart).toHaveBeenCalledOnce()
@@ -577,15 +590,15 @@ describe('desktop Host plugin', () => {
     apply(harness.ctx, config)
 
     await harness.notify(
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', logLevel: 'debug' },
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', logLevel: 'info' },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'debug' },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info' },
     )
     expect(harness.restart).not.toHaveBeenCalled()
 
     harness.restart.mockImplementation(() => new Promise<void>(() => {}))
     await harness.notify(
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 43_189, openBrowser: false, networkExposure: 'loopback', logLevel: 'debug' },
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', logLevel: 'debug' },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 43_189, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'debug' },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'debug' },
     )
     await vi.runAllTimersAsync()
     expect(harness.restart).toHaveBeenCalledOnce()
@@ -598,8 +611,8 @@ describe('desktop Host plugin', () => {
 
     harness.restart.mockImplementation(() => new Promise<void>(() => {}))
     await harness.notify(
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'mica', port: 0, openBrowser: false, networkExposure: 'loopback', logLevel: 'info' },
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', logLevel: 'info' },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'mica', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info' },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info' },
     )
     await vi.runAllTimersAsync()
 
@@ -655,6 +668,7 @@ describe('desktop Host plugin', () => {
       port: 43_120,
       openBrowser: false,
       networkExposure: 'loopback',
+      remoteRelayOrigin: '',
       logLevel: 'info',
     }
     expect(() => options?.validate?.({ ...settings, mode: 'advanced' })).toThrow(
@@ -688,6 +702,7 @@ describe('desktop Host plugin', () => {
       port: 43_120,
       openBrowser: false,
       networkExposure: 'lan',
+      remoteRelayOrigin: '',
       logLevel: 'info',
     })).not.toThrow()
   })

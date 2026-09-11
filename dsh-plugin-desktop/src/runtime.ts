@@ -133,6 +133,18 @@ export interface DesktopTerminalSpec {
   homeDir: string
 }
 
+/** Live inputs the remote-control pairing window renders. */
+export interface RemotePairingWindowOptions {
+  /** Resolve the tray locale each time the window refreshes its copy. */
+  locale(): DesktopLocale
+  /** Current relay pairing state; the window polls while open. */
+  snapshot(): import('./remote-relay.ts').DesktopRemoteRelaySnapshot
+  /** Mint a fresh pairing, dropping the previous link. */
+  regenerate?(): void
+  /** Start the dormant relay session (opt-in per app run). */
+  enable?(): void
+}
+
 /** Values the desktop-shell plugin hands to the Electron adapter. */
 export interface DesktopShellSpec extends DesktopWindowConfig {
   /** Actual material after platform and Windows-build capability gating. */
@@ -225,6 +237,12 @@ export interface DesktopRuntime {
 
   /** Open the isolated native Profile creator, focusing an existing instance. */
   openProfileCreateWindow(options: Omit<ProfileCreateWindowOptions, 'locale'>): void
+
+  /** Open the native remote-control pairing window, focusing an existing instance. */
+  openRemotePairingWindow(options: RemotePairingWindowOptions): void
+
+  /** Open the native model diagnostics window, focusing an existing instance. */
+  openModelDiagnosticsWindow(): void
 
   /** Confirm that one renderer-selected workspace is safe to persist. */
   validateDirectory(path: string): Promise<boolean>

@@ -66,6 +66,9 @@ import {
 } from './windows-volume-diagnostics.ts'
 import { ElectronWorkspaceAdmission } from './workspace-admission.ts'
 import { ProfileCreateWindow, type ProfileCreateWindowOptions } from './profile-create-window.ts'
+import { RemotePairingWindow } from './remote-pairing-window.ts'
+import { ModelDiagnosticsWindow } from './model-diagnostics-window.ts'
+import type { RemotePairingWindowOptions } from './runtime.ts'
 import { windowsBuildNumber } from './window-material.ts'
 import { desktopNativeCopy } from './native-dialog-copy.ts'
 import {
@@ -116,6 +119,8 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
   private rendererHealthGate: DesktopRendererHealthGate | undefined
   private rendererBootHealthy = false
   private profileCreateWindow: ProfileCreateWindow | undefined
+  private remotePairingWindow: RemotePairingWindow | undefined
+  private modelDiagnosticsWindow: ModelDiagnosticsWindow | undefined
   private restartRequest: Promise<void> | undefined
 
   constructor(
@@ -210,6 +215,10 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
         try {
           this.profileCreateWindow?.close()
           this.profileCreateWindow = undefined
+          this.remotePairingWindow?.close()
+          this.remotePairingWindow = undefined
+          this.modelDiagnosticsWindow?.close()
+          this.modelDiagnosticsWindow = undefined
           await this.generation?.release()
         } finally {
           this.generation = undefined
@@ -289,6 +298,22 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
       })
     }
     this.profileCreateWindow.open()
+  }
+
+  /** @inheritdoc */
+  openRemotePairingWindow(options: RemotePairingWindowOptions): void {
+    if (this.remotePairingWindow === undefined) {
+      this.remotePairingWindow = new RemotePairingWindow(options)
+    }
+    this.remotePairingWindow.open()
+  }
+
+  /** @inheritdoc */
+  openModelDiagnosticsWindow(): void {
+    if (this.modelDiagnosticsWindow === undefined) {
+      this.modelDiagnosticsWindow = new ModelDiagnosticsWindow()
+    }
+    this.modelDiagnosticsWindow.open(this.locale)
   }
 
   /** @inheritdoc */

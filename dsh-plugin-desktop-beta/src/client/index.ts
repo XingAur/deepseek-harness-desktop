@@ -1,6 +1,5 @@
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -10,10 +9,11 @@ import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { applyAdvancedShell } from './advanced-shell.ts'
 import { startRendererBootReporter } from './boot-health.ts'
+import { applyDesktopRemoteEntry } from './DesktopRemoteEntry.tsx'
 import { applyDesktopSettings } from './desktop-settings.ts'
 import { installDesktopDirectoryPickerBridge } from './directory-picker.ts'
 import { parseDesktopClientEnvironment } from './environment.ts'
-import { applyExtendedShell } from './extended-shell.ts'
+import { applyExtendedShell, applyFramedShell } from './extended-shell.ts'
 import { desktopWindowService, provideDesktopWindow } from './window-service.ts'
 
 export { applyAdvancedShell } from './advanced-shell.ts'
@@ -88,6 +88,7 @@ export function apply(ctx: ClientContext): void {
     'dsh-plugin-desktop: native window geometry service',
   )
   const desktopSettings = applyDesktopSettings(ctx, environment)
+  applyDesktopRemoteEntry(ctx)
   ctx.effect(
     () => startRendererBootReporter(ctx.loader),
     'dsh-plugin-desktop: renderer boot health report',
@@ -100,4 +101,7 @@ export function apply(ctx: ClientContext): void {
   }
   if (environment.mode === 'advanced') applyAdvancedShell(ctx, environment)
   if (environment.mode === 'extended') applyExtendedShell(ctx, environment, desktopSettings)
+  if (environment.platform !== 'linux' && environment.mode === 'compatibility') {
+    applyFramedShell(ctx, environment, desktopSettings)
+  }
 }

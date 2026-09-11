@@ -43,6 +43,7 @@ import FileSettingsProvider, {
 import { parseAllDocuments, parseDocument } from 'yaml'
 import { COMPAT_PRESET_DIRNAME, materializeLegacyPresetAliases } from './agent-preset-compat.ts'
 import { findOverlayPackage, resolveOverlayPackage } from './package-overlay.ts'
+import { canonicalRelayOrigin } from './remote-relay-origin.ts'
 import { withAsarModuleResolver } from './asar-module-resolver-state.ts'
 import { DESKTOP_DEFAULT_WEB_PORT } from './desktop-port.ts'
 import {
@@ -160,6 +161,8 @@ export interface DesktopStartupSettings {
   /** Persisted compatibility key for ordinary-browser access permission. */
   openBrowser: boolean
   networkExposure: DesktopNetworkExposure
+  /** Configured remote-control relay origin; empty keeps the relay tunnel off. */
+  remoteRelayOrigin: string
 }
 
 const DEFAULT_DESKTOP_STARTUP_SETTINGS: DesktopStartupSettings = Object.freeze({
@@ -169,7 +172,23 @@ const DEFAULT_DESKTOP_STARTUP_SETTINGS: DesktopStartupSettings = Object.freeze({
   windowsMaterial: DEFAULT_WINDOWS_WINDOW_MATERIAL,
   openBrowser: false,
   networkExposure: 'loopback',
+  remoteRelayOrigin: '',
 })
+
+/** Validate the configured remote-control relay origin, failing loud on typos. */
+function parseDesktopRemoteRelayOrigin(value: unknown): string {
+  if (value === undefined) return ''
+  if (typeof value !== 'string') {
+    throw new Error(`${BIN_NAME}: remoteRelayOrigin must be a string`)
+  }
+  const trimmed = value.trim()
+  if (trimmed === '') return ''
+  const parsed = canonicalRelayOrigin(trimmed)
+  if (parsed === null) {
+    throw new Error(`${BIN_NAME}: remoteRelayOrigin must be an https:// origin (or loopback http://), without a path`)
+  }
+  return parsed.origin
+}
 
 /**
  * Read Desktop startup settings from one parsed settings document.
@@ -189,6 +208,7 @@ export function desktopStartupSettingsFromSettings(document: unknown): DesktopSt
   }
   const values = section as Record<string, unknown>
   const mode = parseDesktopShellMode(values.mode)
+  const remoteRelayOrigin = parseDesktopRemoteRelayOrigin(values.remoteRelayOrigin)
   const networkExposure = parseDesktopNetworkExposure(values.networkExposure)
   const openBrowser = desktopBrowserAccessEnabled(
     mode,
@@ -202,6 +222,7 @@ export function desktopStartupSettingsFromSettings(document: unknown): DesktopSt
     windowsMaterial: parseWindowsWindowMaterial(values.windowsMaterial),
     openBrowser,
     networkExposure: desktopNetworkExposureForBrowserAccess(openBrowser, networkExposure),
+    remoteRelayOrigin,
   }
 }
 
@@ -606,16 +627,19 @@ function preparedLanAddresses(addresses: readonly string[] | undefined): readonl
   return Object.freeze([...unique])
 }
 
-/** Merge launcher-derived LAN literals with a profile's explicit Web trust entries. */
+/** Merge launcher-derived LAN literals and relay authority with explicit Web trust entries. */
 function webRuntimeTrustedHosts(
   configured: unknown,
   lanAddresses: readonly string[],
+  relayAuthority: string | null,
 ): string[] {
-  if (configured === undefined) return [...lanAddresses]
+  if (configured === undefined) {
+    return [...lanAddresses, ...(relayAuthority === null ? [] : [relayAuthority])]
+  }
   if (!Array.isArray(configured) || configured.some(entry => typeof entry !== 'string')) {
     throw new Error(`${BIN_NAME}: web-runtime trustedHosts must be an array of strings`)
   }
-  return [...new Set([...configured, ...lanAddresses])]
+  return [...new Set([...configured, ...lanAddresses, ...(relayAuthority === null ? [] : [relayAuthority])])]
 }
 
 /** Resolve a Loader row's platform gate without mutating the host process. */
@@ -1017,6 +1041,7 @@ export function prepareDesktopProfile(
     windowsMaterial,
     openBrowser,
     networkExposure,
+    remoteRelayOrigin,
   } = readDesktopStartupSettings(settingsConfig)
   patches.push({
     id: 'settings',
@@ -1034,7 +1059,11 @@ export function prepareDesktopProfile(
       // Browser access is an advertised Desktop capability, never an
       // instruction to launch the operating system's default browser.
       openBrowser: false,
-      trustedHosts: webRuntimeTrustedHosts(webRuntimeConfig.trustedHosts, lanAddresses),
+      trustedHosts: webRuntimeTrustedHosts(
+        webRuntimeConfig.trustedHosts,
+        lanAddresses,
+        canonicalRelayOrigin(remoteRelayOrigin)?.host ?? null,
+      ),
     },
   })
   if (mode === 'advanced' || mode === 'extended') {

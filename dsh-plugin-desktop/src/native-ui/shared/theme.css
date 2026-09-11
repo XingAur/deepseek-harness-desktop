@@ -72,6 +72,12 @@
   html.dshDesktopDialogDocument body,
   html.dshDesktopDialogDocument #root { height: auto; min-height: 0; }
   body { @apply bg-background text-foreground font-sans; margin: 0; min-width: 320px; overflow: hidden; }
+  html.dshMobileDocument input,
+  html.dshMobileDocument textarea {
+    -webkit-user-select: text;
+    user-select: text;
+    font-size: 16px;
+  }
   .base-ui-disable-scrollbar,
   [data-slot="scroll-area-viewport"] { scrollbar-width: none; }
   .base-ui-disable-scrollbar::-webkit-scrollbar,

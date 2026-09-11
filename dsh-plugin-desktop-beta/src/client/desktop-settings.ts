@@ -4,6 +4,7 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { DesktopMcpSection } from './DesktopMcpSection.tsx'
+import { DesktopProviderCardExtras } from './DesktopProviderCardExtras.tsx'
 import { DesktopSettingsSection, type DesktopNotificationSettings, type DesktopShellSettings } from './DesktopSettingsSection.tsx'
 import { DesktopSkillsSection } from './DesktopSkillsSection.tsx'
 import { DesktopTerminalSettingsAction } from './DesktopTerminalSettingsAction.tsx'
@@ -11,6 +12,7 @@ import { createDesktopSettingsApi } from './desktop-settings-api.ts'
 import { en, zh, type DesktopSettingsLocaleKey } from './desktop-settings-locales.ts'
 import { en as skillsEn, zh as skillsZh, type DesktopSkillsLocaleKey } from './desktop-skills-locales.ts'
 import { en as mcpEn, zh as mcpZh, type DesktopMcpLocaleKey } from './desktop-mcp-locales.ts'
+import { en as modelEn, zh as modelZh, type DesktopModelLocaleKey } from './desktop-model-locales.ts'
 import { installDesktopSettingsStyles } from './desktop-settings-styles.ts'
 import type { DesktopClientEnvironment } from './environment.ts'
 
@@ -22,6 +24,9 @@ export const DESKTOP_SKILLS_LOCALE_NAMESPACE = 'desktop.skills'
 
 /** Locale namespace owned by the Desktop MCP settings page. */
 export const DESKTOP_MCP_LOCALE_NAMESPACE = 'desktop.mcp'
+
+/** Locale namespace owned by the Desktop Model settings page. */
+export const DESKTOP_MODEL_LOCALE_NAMESPACE = 'desktop.model'
 
 /** Host settings namespaces bound through the standard client settings service. */
 export const DESKTOP_SHELL_SETTINGS_NAMESPACE = 'dsh-desktop'
@@ -64,6 +69,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'desktop.skills': DesktopSkillsLocaleKey
     /** Desktop-only MCP settings page copy. */
     'desktop.mcp': DesktopMcpLocaleKey
+    /** Desktop-only Model settings page copy. */
+    'desktop.model': DesktopModelLocaleKey
   }
 }
 
@@ -82,6 +89,7 @@ export function applyDesktopSettings(
   const t = ctx.locale.bind(DESKTOP_SETTINGS_LOCALE_NAMESPACE)
   const skillsT = ctx.locale.bind(DESKTOP_SKILLS_LOCALE_NAMESPACE)
   const mcpT = ctx.locale.bind(DESKTOP_MCP_LOCALE_NAMESPACE)
+  const modelT = ctx.locale.bind(DESKTOP_MODEL_LOCALE_NAMESPACE)
   const setMode = async (mode: DesktopShellSettings['mode']): Promise<void> => {
     await persistDesktopModeSelection(desktopSettings, mode)
   }
@@ -97,6 +105,10 @@ export function applyDesktopSettings(
   ctx.effect(
     () => ctx.locale.register(DESKTOP_MCP_LOCALE_NAMESPACE, { zh: mcpZh, en: mcpEn }),
     'dsh-plugin-desktop: mcp settings dictionaries',
+  )
+  ctx.effect(
+    () => ctx.locale.register(DESKTOP_MODEL_LOCALE_NAMESPACE, { zh: modelZh, en: modelEn }),
+    'dsh-plugin-desktop: model settings dictionaries',
   )
   ctx.effect(
     () => installDesktopSettingsStyles(),
@@ -118,6 +130,19 @@ export function applyDesktopSettings(
     locale: DESKTOP_MCP_LOCALE_NAMESPACE,
     inject: () => ({ api }),
   }, DesktopMcpSection))
+  // One registration per keyed family: the direct DeepSeek adapter plus the
+  // OpenAI-compatible pi-ai routes, so every provider card gets the same
+  // test/fetch actions keyed to its own settings address.
+  ctx.slots.inject('settings.models.provider-card', () => ctx.slots.register({
+    name: 'settings.models.provider-card',
+    key: 'llm-deepseek',
+    inject: () => ({ t: modelT }) as never,
+  }, DesktopProviderCardExtras as never))
+  ctx.slots.inject('settings.models.provider-card', () => ctx.slots.register({
+    name: 'settings.models.provider-card',
+    key: 'llm-pi-ai',
+    inject: () => ({ t: modelT }) as never,
+  }, DesktopProviderCardExtras as never))
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
     id: 'desktop',

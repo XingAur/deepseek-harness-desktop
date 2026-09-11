@@ -5,6 +5,7 @@ the package names, versions, and licenses for transparency.
 | Package | Version | License |
 | --- | --- | --- |
 | @agentclientprotocol/sdk | 1.4.0 | Apache-2.0 |
+| @agents-anywhere/dsh-bridge-next | 0.1.0-dev.0.desktop.3 | MIT |
 | @anthropic-ai/sdk | 0.91.1 | MIT |
 | @aws-crypto/sha256-browser | 5.2.0 | Apache-2.0 |
 | @aws-crypto/sha256-js | 5.2.0 | Apache-2.0 |
@@ -264,13 +265,11 @@ the package names, versions, and licenses for transparency.
 | @google/genai | 1.52.0 | Apache-2.0 |
 | @hono/node-server | 2.1.0 | MIT |
 | @img/colour | 1.1.0 | MIT |
-| @img/sharp-darwin-arm64 | 0.35.3 | Apache-2.0 |
-| @img/sharp-darwin-x64 | 0.35.3 | Apache-2.0 |
-| @img/sharp-libvips-darwin-arm64 | 1.3.2 | LGPL-3.0-or-later |
-| @img/sharp-libvips-darwin-x64 | 1.3.2 | LGPL-3.0-or-later |
+| @img/sharp-win32-arm64 | 0.35.3 | Apache-2.0 AND LGPL-3.0-or-later |
+| @img/sharp-win32-x64 | 0.35.3 | Apache-2.0 AND LGPL-3.0-or-later |
 | @joplin/turndown-plugin-gfm | 1.0.67 | MIT |
-| @koromix/koffi-darwin-arm64 | 3.1.5 | MIT |
-| @koromix/koffi-darwin-x64 | 3.1.5 | MIT |
+| @koromix/koffi-win32-arm64 | 3.1.5 | MIT |
+| @koromix/koffi-win32-x64 | 3.1.5 | MIT |
 | @lexical/clipboard | 0.49.0 | MIT |
 | @lexical/dragon | 0.49.0 | MIT |
 | @lexical/extension | 0.49.0 | MIT |
@@ -355,8 +354,8 @@ the package names, versions, and licenses for transparency.
 | @types/unist | 3.0.3 | MIT |
 | @ungap/structured-clone | 1.3.3 | ISC |
 | @vscode/ripgrep | 1.18.0 | MIT |
-| @vscode/ripgrep-darwin-arm64 | 1.18.0 | MIT |
-| @vscode/ripgrep-darwin-x64 | 1.18.0 | MIT |
+| @vscode/ripgrep-win32-arm64 | 1.18.0 | MIT |
+| @vscode/ripgrep-win32-x64 | 1.18.0 | MIT |
 | @xterm/headless | 6.0.0 | MIT |
 | accepts | 2.0.0 | MIT |
 | adm-zip | 0.6.0 | MIT |
@@ -364,6 +363,8 @@ the package names, versions, and licenses for transparency.
 | ajv | 8.20.0 | MIT |
 | ajv-formats | 3.0.1 | MIT |
 | anser | 2.3.5 | MIT |
+| ansi-regex | 5.0.1 | MIT |
+| ansi-styles | 4.3.0 | MIT |
 | argparse | 2.0.1 | Python-2.0 |
 | asn1js | 3.0.10 | BSD-3-Clause |
 | async-function | 1.0.0 | MIT |
@@ -378,12 +379,16 @@ the package names, versions, and licenses for transparency.
 | bytestreamjs | 2.0.1 | BSD-3-Clause |
 | call-bind-apply-helpers | 1.0.2 | MIT |
 | call-bound | 1.0.4 | MIT |
+| camelcase | 5.3.1 | MIT |
 | ccount | 2.0.1 | MIT |
 | character-entities | 2.0.2 | MIT |
 | character-entities-html4 | 2.1.0 | MIT |
 | character-entities-legacy | 3.0.0 | MIT |
 | chokidar | 4.0.3 | MIT |
+| cliui | 6.0.0 | ISC |
 | clsx | 2.1.1 | MIT |
+| color-convert | 2.0.1 | MIT |
+| color-name | 1.1.4 | MIT |
 | comma-separated-tokens | 2.0.3 | MIT |
 | commander | 15.0.0 | MIT |
 | compressible | 2.0.18 | MIT |
@@ -396,6 +401,7 @@ the package names, versions, and licenses for transparency.
 | cross-spawn | 7.0.6 | MIT |
 | data-uri-to-buffer | 4.0.1 | MIT |
 | debug | 2.6.9 | MIT |
+| decamelize | 1.2.0 | MIT |
 | decode-named-character-reference | 1.3.0 | MIT |
 | default-browser | 5.5.1 | MIT |
 | default-browser-id | 5.0.1 | MIT |
@@ -405,11 +411,13 @@ the package names, versions, and licenses for transparency.
 | detect-libc | 2.1.2 | Apache-2.0 |
 | devlop | 1.1.0 | MIT |
 | diff | 9.0.0 | BSD-3-Clause |
+| dijkstrajs | 1.0.3 | MIT |
 | dsh-community-market | 0.1.0-dev.0 | MIT |
 | dshmarket | 1.38.1 | MIT |
 | dunder-proto | 1.0.1 | MIT |
 | ecdsa-sig-formatter | 1.0.11 | Apache-2.0 |
 | ee-first | 1.1.1 | MIT |
+| emoji-regex | 8.0.0 | MIT |
 | encodeurl | 2.0.0 | MIT |
 | es-define-property | 1.0.1 | MIT |
 | es-errors | 1.3.0 | MIT |
@@ -427,6 +435,7 @@ the package names, versions, and licenses for transparency.
 | fetch-blob | 3.2.0 | MIT |
 | fflate | 0.8.3 | MIT |
 | finalhandler | 2.1.1 | MIT |
+| find-up | 4.1.0 | MIT |
 | formdata-polyfill | 4.0.10 | MIT |
 | forwarded | 0.2.0 | MIT |
 | fresh | 2.0.0 | MIT |
@@ -434,6 +443,7 @@ the package names, versions, and licenses for transparency.
 | gaxios | 7.3.1 | Apache-2.0 |
 | gcp-metadata | 8.1.2 | Apache-2.0 |
 | generator-function | 2.0.1 | MIT |
+| get-caller-file | 2.0.5 | ISC |
 | get-intrinsic | 1.3.1 | MIT |
 | get-proto | 1.0.1 | MIT |
 | google-auth-library | 10.9.1 | Apache-2.0 |
@@ -454,6 +464,7 @@ the package names, versions, and licenses for transparency.
 | ip-address | 10.5.0 | MIT |
 | ipaddr.js | 2.5.0 | MIT |
 | is-docker | 3.0.0 | MIT |
+| is-fullwidth-code-point | 3.0.0 | MIT |
 | is-in-ssh | 1.0.0 | MIT |
 | is-inside-container | 1.0.0 | MIT |
 | is-promise | 4.0.0 | MIT |
@@ -471,9 +482,11 @@ the package names, versions, and licenses for transparency.
 | katex | 0.16.47 | MIT |
 | koffi | 3.1.5 | MIT |
 | lexical | 0.49.0 | MIT |
+| locate-path | 5.0.0 | MIT |
 | long | 5.3.2 | Apache-2.0 |
 | longest-streak | 3.1.0 | MIT |
 | loose-envify | 1.4.0 | MIT |
+| lucide-react | 1.41.0 | ISC |
 | markdown-table | 3.0.4 | MIT |
 | math-intrinsics | 1.1.0 | MIT |
 | mdast-util-find-and-replace | 3.0.2 | MIT |
@@ -527,8 +540,8 @@ the package names, versions, and licenses for transparency.
 | node-addon-api | 7.1.1 | MIT |
 | node-addon-native-custom-loader | 0.1.4 | MIT |
 | node-addon-require-builtin | 0.1.4 | MIT |
-| node-addon-require-builtin-darwin-arm64 | 0.1.4 | MIT |
-| node-addon-require-builtin-darwin-x64 | 0.1.4 | MIT |
+| node-addon-require-builtin-win32-arm64-msvc | 0.1.4 | MIT |
+| node-addon-require-builtin-win32-x64-msvc | 0.1.4 | MIT |
 | node-domexception | 1.0.0 | MIT |
 | node-fetch | 3.3.2 | MIT |
 | node-pty | 1.2.0-beta.15 | MIT |
@@ -541,15 +554,20 @@ the package names, versions, and licenses for transparency.
 | oniguruma-to-es | 4.3.6 | MIT |
 | open | 11.0.1 | MIT |
 | openai | 6.40.0 | Apache-2.0 |
+| p-limit | 2.3.0 | MIT |
+| p-locate | 4.1.0 | MIT |
 | p-retry | 4.6.2 | MIT |
+| p-try | 2.2.0 | MIT |
 | parseurl | 1.3.3 | MIT |
 | partial-json | 0.1.7 | MIT |
+| path-exists | 4.0.0 | MIT |
 | path-key | 3.1.1 | MIT |
 | path-to-regexp | 8.4.2 | MIT |
 | picocolors | 1.1.1 | ISC |
 | picomatch | 4.0.5 | MIT |
 | pkce-challenge | 5.0.1 | MIT |
 | pkijs | 3.4.0 | BSD-3-Clause |
+| pngjs | 5.0.0 | MIT |
 | pnpm | 11.8.0 | MIT |
 | powershell-utils | 0.2.0 | MIT |
 | property-information | 7.2.0 | MIT |
@@ -557,6 +575,7 @@ the package names, versions, and licenses for transparency.
 | proxy-addr | 2.0.7 | MIT |
 | pvtsutils | 1.3.6 | MIT |
 | pvutils | 1.2.0 | MIT |
+| qrcode | 1.5.4 | MIT |
 | qs | 6.15.3 | BSD-3-Clause |
 | range-parser | 1.3.0 | MIT |
 | raw-body | 3.0.2 | MIT |
@@ -567,7 +586,9 @@ the package names, versions, and licenses for transparency.
 | regex | 6.1.0 | MIT |
 | regex-recursion | 6.0.2 | MIT |
 | regex-utilities | 2.3.0 | MIT |
+| require-directory | 2.1.1 | MIT |
 | require-from-string | 2.0.2 | MIT |
+| require-main-filename | 2.0.0 | ISC |
 | resolve.exports | 2.0.3 | MIT |
 | retry | 0.13.1 | MIT |
 | router | 2.2.0 | MIT |
@@ -579,6 +600,7 @@ the package names, versions, and licenses for transparency.
 | semver | 7.8.5 | ISC |
 | send | 1.2.1 | MIT |
 | serve-static | 2.2.1 | MIT |
+| set-blocking | 2.0.0 | ISC |
 | setprototypeof | 1.2.0 | ISC |
 | sharp | 0.35.3 | Apache-2.0 |
 | shebang-command | 2.0.0 | MIT |
@@ -591,7 +613,9 @@ the package names, versions, and licenses for transparency.
 | sonner | 2.0.8 | MIT |
 | space-separated-tokens | 2.0.2 | MIT |
 | statuses | 2.0.2 | MIT |
+| string-width | 4.2.3 | MIT |
 | stringify-entities | 4.0.4 | MIT |
+| strip-ansi | 6.0.1 | MIT |
 | toidentifier | 1.0.1 | MIT |
 | trim-lines | 3.0.1 | MIT |
 | ts-algebra | 2.0.0 | MIT |
@@ -615,12 +639,17 @@ the package names, versions, and licenses for transparency.
 | vfile-message | 4.0.3 | MIT |
 | web-streams-polyfill | 3.3.3 | MIT |
 | which | 2.0.2 | ISC |
+| which-module | 2.0.1 | ISC |
+| wrap-ansi | 6.2.0 | MIT |
 | wrappy | 1.0.2 | ISC |
 | ws | 8.21.3 | MIT |
 | wsl-utils | 1.0.0 | MIT |
+| y18n | 4.0.3 | ISC |
 | yaml | 2.9.0 | ISC |
+| yargs | 15.4.1 | MIT |
+| yargs-parser | 18.1.3 | ISC |
 | zod | 4.4.3 | MIT |
 | zod-to-json-schema | 3.25.2 | ISC |
 | zustand | 4.4.7 | MIT |
 | zwitch | 2.0.4 | MIT |
-> Notice-required licenses in use: LGPL-3.0-or-later. Their license texts ship inside node_modules; see the package LICENSE files for the full terms.
+> Notice-required licenses in use: Apache-2.0 AND LGPL-3.0-or-later. Their license texts ship inside node_modules; see the package LICENSE files for the full terms.

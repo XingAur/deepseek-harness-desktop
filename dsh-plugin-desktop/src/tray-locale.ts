@@ -15,6 +15,8 @@ export type DesktopTrayLabelKey =
   | 'openTerminal'
   | 'profile'
   | 'quit'
+  | 'remoteControl'
+  | 'modelDiagnostics'
   | 'shellMode'
   | 'advanced'
   | 'compatibility'
@@ -35,6 +37,8 @@ const labels: Record<DesktopLocale, Record<DesktopTrayLabelKey, (value: string) 
     openDesktop: productName => `Open ${productName}`,
     openTerminal: () => 'Open DSH Terminal',
     profile: profileName => `Profile: ${profileName}`,
+    remoteControl: () => 'Remote Control…',
+    modelDiagnostics: () => 'Model Diagnostics…',
     quit: () => 'Quit',
     shellMode: mode => `Mode: ${mode}`,
     advanced: () => 'Enhanced Mode',
@@ -55,6 +59,8 @@ const labels: Record<DesktopLocale, Record<DesktopTrayLabelKey, (value: string) 
     openDesktop: productName => `打开 ${productName}`,
     openTerminal: () => '打开 DSH 终端',
     profile: profileName => `Profile：${profileName}`,
+    remoteControl: () => '远程控制…',
+    modelDiagnostics: () => '模型诊断…',
     quit: () => '退出',
     shellMode: mode => `模式：${mode}`,
     advanced: () => '增强模式',

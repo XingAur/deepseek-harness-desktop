@@ -24,6 +24,7 @@ import {
 import { DesktopTerminalSettingsAction } from '../src/client/DesktopTerminalSettingsAction.tsx'
 import { DesktopSkillsSection } from '../src/client/DesktopSkillsSection.tsx'
 import { DesktopMcpSection } from '../src/client/DesktopMcpSection.tsx'
+import { DesktopProviderCardExtras } from '../src/client/DesktopProviderCardExtras.tsx'
 import {
   createDesktopSettingsApi,
   desktopSettingsPaths,
@@ -628,6 +629,7 @@ describe('Desktop settings Slot registration', () => {
     expect(bind).toHaveBeenNthCalledWith(2, { namespace: DESKTOP_NOTIFICATIONS_SETTINGS_NAMESPACE })
     expect(inject).toHaveBeenCalledWith('settings.section', expect.any(Function))
     expect(inject).toHaveBeenCalledWith('settings.action', expect.any(Function))
+    expect(inject).toHaveBeenCalledWith('settings.models.provider-card', expect.any(Function))
     const [skillsOptions, skillsComponent] = register.mock.calls[0] as unknown as [
       { id: string; order: number; locale: string; label: () => string; inject: () => Record<string, unknown> },
       unknown,
@@ -656,7 +658,27 @@ describe('Desktop settings Slot registration', () => {
     expect(mcpOptions.inject()).toMatchObject({ api: expect.any(Object) })
     expect(mcpComponent).toBe(DesktopMcpSection)
 
-    const [options, component] = register.mock.calls[2] as unknown as [
+    const [providerCardOptions, providerCardComponent] = register.mock.calls[2] as unknown as [
+      { name: string; key: string },
+      unknown,
+    ]
+    expect(providerCardOptions).toMatchObject({
+      name: 'settings.models.provider-card',
+      key: 'llm-deepseek',
+    })
+    expect(providerCardComponent).toBe(DesktopProviderCardExtras)
+
+    const [piAiCardOptions, piAiCardComponent] = register.mock.calls[3] as unknown as [
+      { name: string; key: string },
+      unknown,
+    ]
+    expect(piAiCardOptions).toMatchObject({
+      name: 'settings.models.provider-card',
+      key: 'llm-pi-ai',
+    })
+    expect(piAiCardComponent).toBe(DesktopProviderCardExtras)
+
+    const [options, component] = register.mock.calls[4] as unknown as [
       { id: string; order: number; locale: string; label: () => string; inject: () => Record<string, unknown> },
       unknown,
     ]
@@ -675,7 +697,7 @@ describe('Desktop settings Slot registration', () => {
     })
     expect(component).toBe(DesktopSettingsSection)
 
-    const [actionOptions, actionComponent] = register.mock.calls[3] as unknown as [
+    const [actionOptions, actionComponent] = register.mock.calls[5] as unknown as [
       { id: string; order: number; locale: string; inject: () => Record<string, unknown> },
       unknown,
     ]

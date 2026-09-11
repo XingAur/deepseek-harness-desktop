@@ -583,6 +583,94 @@ const CSS = `
   .dshDesktopSettingsForm { align-items: stretch; flex-direction: column; }
   .dshDesktopSettingsFormGrid { grid-template-columns: minmax(0, 1fr); }
 }
+
+.dshDesktopProviderExtras {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px 2px 4px;
+}
+.dshDesktopProviderExtrasActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.dshDesktopProviderExtrasButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+  background: transparent;
+  border: .5px solid var(--dsw-alias-border-l3);
+  border-radius: 14px;
+  cursor: pointer;
+}
+.dshDesktopProviderExtrasButton:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
+.dshDesktopProviderExtrasButton:disabled { opacity: .4; cursor: default; }
+.dshDesktopProviderExtrasMeta {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+.dshDesktopProviderExtrasError {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+.dshDesktopProviderExtrasError svg { flex: none; margin-top: 2px; }
+.dshDesktopProviderExtrasSaved {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--dsw-alias-state-success-primary);
+  font-size: 12px;
+  line-height: 18px;
+}
+.dshDesktopProviderExtrasList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dshDesktopProviderExtrasRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border: .5px solid var(--dsw-alias-border-l4);
+  border-radius: 8px;
+}
+.dshDesktopProviderExtrasId {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  line-height: 18px;
+}
+.dshDesktopProviderExtrasBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding: 1px 6px;
+  border: .5px solid var(--dsw-alias-border-l3);
+  border-radius: 4px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 16px;
+}
 `
 
 /** Install one scoped stylesheet; tolerate headless Client boot. */

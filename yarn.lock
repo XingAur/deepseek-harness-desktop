@@ -2926,6 +2926,24 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@deepseek-ai/dsh-client-ui-settings-models@patch:@deepseek-ai/dsh-client-ui-settings-models@file%3Avendor/dsh-runtime/0.1.2-rc.1/deepseek-ai-dsh-client-ui-settings-models-0.1.2-rc.1.tgz#./patches/dsh-client-ui-settings-models@0.1.2-rc.1.patch::locator=deepseek-harness-desktop%40workspace%3A.":
+  version: 0.1.2-rc.1
+  resolution: "@deepseek-ai/dsh-client-ui-settings-models@patch:@deepseek-ai/dsh-client-ui-settings-models@file%3Avendor/dsh-runtime/0.1.2-rc.1/deepseek-ai-dsh-client-ui-settings-models-0.1.2-rc.1.tgz%23vendor/dsh-runtime/0.1.2-rc.1/deepseek-ai-dsh-client-ui-settings-models-0.1.2-rc.1.tgz%3A%3Ahash=868ed2&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-client-ui-settings-models@0.1.2-rc.1.patch::version=0.1.2-rc.1&hash=14d1a2&locator=deepseek-harness-desktop%40workspace%3A."
+  peerDependencies:
+    "@deepseek-ai/cordis": ^4.0.2
+  checksum: 10c0/eb78c23b05efa5eb3bf1db40fa1915e8947e8dde587a594a0712ab80d2d079f37b55fa5c93d956e7603a77c609bcfc06dd988b05889b9cade15eb70953b0290c
+  languageName: node
+  linkType: hard
+
+"@deepseek-ai/dsh-client-ui-settings-models@patch:@deepseek-ai/dsh-client-ui-settings-models@file%3Avendor/dsh-runtime/0.1.3-alpha.2/deepseek-ai-dsh-client-ui-settings-models-0.1.3-alpha.2.tgz#./patches/dsh-client-ui-settings-models@0.1.3-alpha.2.patch::locator=deepseek-harness-desktop%40workspace%3A.":
+  version: 0.1.3-alpha.2
+  resolution: "@deepseek-ai/dsh-client-ui-settings-models@patch:@deepseek-ai/dsh-client-ui-settings-models@file%3Avendor/dsh-runtime/0.1.3-alpha.2/deepseek-ai-dsh-client-ui-settings-models-0.1.3-alpha.2.tgz%23vendor/dsh-runtime/0.1.3-alpha.2/deepseek-ai-dsh-client-ui-settings-models-0.1.3-alpha.2.tgz%3A%3Ahash=a055fb&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-client-ui-settings-models@0.1.3-alpha.2.patch::version=0.1.3-alpha.2&hash=2edc2e&locator=deepseek-harness-desktop%40workspace%3A."
+  peerDependencies:
+    "@deepseek-ai/cordis": ^4.0.2
+  checksum: 10c0/e603fda5b494506a7353bd4cbecd60b0671708b71162025b17723ac1983279c94fbfdb841cb731b4d49758bdedfb8e86bda48253cab9d342fa1ec6a58f1399b2
+  languageName: node
+  linkType: hard
+
 "@deepseek-ai/dsh-client-ui-settings-plugin-inventory@file:vendor/dsh-runtime/0.1.2-rc.1/deepseek-ai-dsh-client-ui-settings-plugin-inventory-0.1.2-rc.1.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.2-rc.1
   resolution: "@deepseek-ai/dsh-client-ui-settings-plugin-inventory@file:vendor/dsh-runtime/0.1.2-rc.1/deepseek-ai-dsh-client-ui-settings-plugin-inventory-0.1.2-rc.1.tgz#vendor/dsh-runtime/0.1.2-rc.1/deepseek-ai-dsh-client-ui-settings-plugin-inventory-0.1.2-rc.1.tgz::hash=804b50&locator=deepseek-harness-desktop%40workspace%3A."
@@ -4762,6 +4780,46 @@ __metadata:
     "@deepseek-ai/dsh-agent-presets":
       optional: true
   checksum: 10c0/74d6e844623711896ed1d6bbb2d0d52d4fc8dd9fffb9beef02230963d9c6ea9333abe4fc7539aa88915eaaf287c4cbba3012df994e68eb9beb6d23b40f343e27
+  languageName: node
+  linkType: hard
+
+"@deepseek-ai/dsh-plugin-package-inventory-deepseek@patch:@deepseek-ai/dsh-plugin-package-inventory-deepseek@file%3Avendor/dsh-runtime/0.1.2-rc.1/deepseek-ai-dsh-plugin-package-inventory-deepseek-0.1.2-rc.1.tgz#./patches/dsh-plugin-package-inventory-deepseek@0.1.2-rc.1.patch::locator=deepseek-harness-desktop%40workspace%3A.":
+  version: 0.1.2-rc.1
+  resolution: "@deepseek-ai/dsh-plugin-package-inventory-deepseek@patch:@deepseek-ai/dsh-plugin-package-inventory-deepseek@file%3Avendor/dsh-runtime/0.1.2-rc.1/deepseek-ai-dsh-plugin-package-inventory-deepseek-0.1.2-rc.1.tgz%23vendor/dsh-runtime/0.1.2-rc.1/deepseek-ai-dsh-plugin-package-inventory-deepseek-0.1.2-rc.1.tgz%3A%3Ahash=8ab627&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-plugin-package-inventory-deepseek@0.1.2-rc.1.patch::version=0.1.2-rc.1&hash=c6d507&locator=deepseek-harness-desktop%40workspace%3A."
+  dependencies:
+    "@deepseek-ai/dsh-brand": "npm:^0.1.2-rc.1"
+    "@deepseek-ai/schemastery": "npm:^3.18.2"
+  peerDependencies:
+    "@deepseek-ai/cordis": ^4.0.2
+    "@deepseek-ai/cordis-plugin-loader": ^1.0.3
+    "@deepseek-ai/dsh-agent": ^0.1.2-rc.1
+    "@deepseek-ai/dsh-agent-presets": ^0.1.2-rc.1
+    "@deepseek-ai/dsh-deepseek-llm-api-extensions": ^0.1.2-rc.1
+    "@deepseek-ai/dsh-session": ^0.1.2-rc.1
+  peerDependenciesMeta:
+    "@deepseek-ai/dsh-agent-presets":
+      optional: true
+  checksum: 10c0/070f1317f9383662ca71ee6869992fd85b89d858bb8729b63f7fdbbff7784a63b36b730c2bf84e8c984d354fdf706cb642c1cddc1efadfe11f1194b160abc074
+  languageName: node
+  linkType: hard
+
+"@deepseek-ai/dsh-plugin-package-inventory-deepseek@patch:@deepseek-ai/dsh-plugin-package-inventory-deepseek@file%3Avendor/dsh-runtime/0.1.3-alpha.2/deepseek-ai-dsh-plugin-package-inventory-deepseek-0.1.3-alpha.2.tgz#./patches/dsh-plugin-package-inventory-deepseek@0.1.3-alpha.2.patch::locator=deepseek-harness-desktop%40workspace%3A.":
+  version: 0.1.3-alpha.2
+  resolution: "@deepseek-ai/dsh-plugin-package-inventory-deepseek@patch:@deepseek-ai/dsh-plugin-package-inventory-deepseek@file%3Avendor/dsh-runtime/0.1.3-alpha.2/deepseek-ai-dsh-plugin-package-inventory-deepseek-0.1.3-alpha.2.tgz%23vendor/dsh-runtime/0.1.3-alpha.2/deepseek-ai-dsh-plugin-package-inventory-deepseek-0.1.3-alpha.2.tgz%3A%3Ahash=a5eece&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-plugin-package-inventory-deepseek@0.1.3-alpha.2.patch::version=0.1.3-alpha.2&hash=c6d507&locator=deepseek-harness-desktop%40workspace%3A."
+  dependencies:
+    "@deepseek-ai/dsh-brand": "npm:^0.1.3-alpha.2"
+    "@deepseek-ai/schemastery": "npm:^3.18.2"
+  peerDependencies:
+    "@deepseek-ai/cordis": ^4.0.2
+    "@deepseek-ai/cordis-plugin-loader": ^1.0.3
+    "@deepseek-ai/dsh-agent": ^0.1.3-alpha.2
+    "@deepseek-ai/dsh-agent-presets": ^0.1.3-alpha.2
+    "@deepseek-ai/dsh-deepseek-llm-api-extensions": ^0.1.3-alpha.2
+    "@deepseek-ai/dsh-session": ^0.1.3-alpha.2
+  peerDependenciesMeta:
+    "@deepseek-ai/dsh-agent-presets":
+      optional: true
+  checksum: 10c0/824eba4942086e00f7798b9c841e5a7ab17e8ca5c5a77ccd2e6abdd09f5c4e682646a1ca08c3bb942c67fb1e222c83a12a782ba8b4256d6e4eb93a5930f177f5
   languageName: node
   linkType: hard
 
@@ -11034,6 +11092,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@types/qrcode@npm:^1.5.5":
+  version: 1.5.6
+  resolution: "@types/qrcode@npm:1.5.6"
+  dependencies:
+    "@types/node": "npm:*"
+  checksum: 10c0/84844ca63e5f32bc47d44dda0f8a6f7cdcc7ce44e7b24f10f19d50796f31d12c058f702a8f7d352c9e82a023a9abc36fa1ad01ddf0a209dd8ed4562ea76481fc
+  languageName: node
+  linkType: hard
+
 "@types/react-dom@npm:^18":
   version: 18.3.7
   resolution: "@types/react-dom@npm:18.3.7"
@@ -11094,6 +11161,15 @@ __metadata:
   version: 4.0.2
   resolution: "@types/validate-npm-package-name@npm:4.0.2"
   checksum: 10c0/5a109fe12570b7125740fdac8678970e3caf7de0cbd6e15cf93dad67a427a3a83e0759b5d4b64fd75bce6cdf43b0569275456a35183059046cba6c25d096b916
+  languageName: node
+  linkType: hard
+
+"@types/ws@npm:^8.18.1":
+  version: 8.18.1
+  resolution: "@types/ws@npm:8.18.1"
+  dependencies:
+    "@types/node": "npm:*"
+  checksum: 10c0/61aff1129143fcc4312f083bc9e9e168aa3026b7dd6e70796276dcfb2c8211c4292603f9c4864fae702f2ed86e4abd4d38aa421831c2fd7f856c931a481afbab
   languageName: node
   linkType: hard
 
@@ -13075,9 +13151,11 @@ __metadata:
     "@tailwindcss/vite": "npm:^4"
     "@types/js-yaml": "npm:^4.0.9"
     "@types/node": "npm:^22.20.0"
+    "@types/qrcode": "npm:^1.5.5"
     "@types/react": "npm:^18"
     "@types/react-dom": "npm:^18"
     "@types/semver": "npm:^7.7.1"
+    "@types/ws": "npm:^8.18.1"
     "@vitejs/plugin-react": "npm:^6"
     adm-zip: "npm:^0.6.0"
     builder-util: "npm:26.15.3"
@@ -13094,6 +13172,7 @@ __metadata:
     node-addon-require-builtin: "npm:^0.1.4"
     node-gyp: "npm:13.0.1"
     pnpm: "npm:11.8.0"
+    qrcode: "npm:1.5.4"
     react: "npm:18.3.1"
     react-dom: "npm:18.3.1"
     selfsigned: "npm:5.5.0"
@@ -13108,6 +13187,7 @@ __metadata:
     typescript: "npm:6.0.3"
     vite: "npm:8.2.1"
     vitest: "npm:4.1.8"
+    ws: "npm:^8.21.0"
     yaml: "npm:^2.9.0"
   peerDependencies:
     electron: 43.3.0
@@ -13266,9 +13346,11 @@ __metadata:
     "@tailwindcss/vite": "npm:^4"
     "@types/js-yaml": "npm:^4.0.9"
     "@types/node": "npm:^22.20.0"
+    "@types/qrcode": "npm:^1.5.5"
     "@types/react": "npm:^18"
     "@types/react-dom": "npm:^18"
     "@types/semver": "npm:^7.7.1"
+    "@types/ws": "npm:^8.18.1"
     "@vitejs/plugin-react": "npm:^6"
     adm-zip: "npm:^0.6.0"
     builder-util: "npm:26.15.3"
@@ -13283,6 +13365,7 @@ __metadata:
     lucide-react: "npm:^1.33.0"
     node-addon-require-builtin: "npm:^0.1.4"
     pnpm: "npm:11.8.0"
+    qrcode: "npm:1.5.4"
     react: "npm:18.3.1"
     react-dom: "npm:18.3.1"
     selfsigned: "npm:5.5.0"
@@ -13297,6 +13380,7 @@ __metadata:
     typescript: "npm:6.0.3"
     vite: "npm:8.2.1"
     vitest: "npm:4.1.8"
+    ws: "npm:^8.21.0"
     yaml: "npm:^2.9.0"
   peerDependencies:
     electron: 43.3.0

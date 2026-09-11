@@ -1,0 +1,97 @@
+diff --git a/lib/client.js b/lib/client.js
+index 841a62b..1ca2d45 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -1441,6 +1441,16 @@ window.__ModuleLoader__.load({
+ 		function ProviderEditor(props) {
+ 			const { namespace, schema, settingsPath, operations, t } = props;
+ 			const [draft, setDraft] = (0, react.useState)(() => draftAt(schema, namespace, settingsPath));
++			react.useEffect(() => {
++				const onFillModels = (event) => {
++					const detail = event && event.detail;
++					if (!detail || detail.provider !== props.provider || !Array.isArray(detail.models)) return;
++					if (JSON.stringify(detail.settingsPath ?? []) !== JSON.stringify(settingsPath)) return;
++					setDraft((current) => schema.setPath(current, ["models"], detail.models.map((id) => ({ id }))));
++				};
++				window.addEventListener("dsh-desktop-fill-models", onFillModels);
++				return () => { window.removeEventListener("dsh-desktop-fill-models", onFillModels); };
++			}, [props.provider, settingsPath, schema]);
+ 			const [keyDraft, setKeyDraft] = (0, react.useState)("");
+ 			const [keyState, setKeyState] = (0, react.useState)(void 0);
+ 			const [busy, setBusy] = (0, react.useState)(false);
+@@ -1691,7 +1701,8 @@ window.__ModuleLoader__.load({
+ 								probe,
+ 								probeBlocked: keyFailure,
+ 								operations
+-							})
++							}),
++							props.cardSlot
+ 						]
+ 					})]
+ 				})] });
+@@ -1972,12 +1983,13 @@ window.__ModuleLoader__.load({
+ 									readOnly: !state.writable,
+ 									onClose: (changed) => {
+ 										closeSetup(changed, target);
+-									}
+-								}), renderSlot("settings.models.provider-card", {
+-									provider: row.entry,
+-									configured: row.configured,
+-									keyConfigured: keyConfiguredOf(row)
+-								}, { entryKey: row.entry.settingsNs })]
++									},
++									cardSlot: renderSlot("settings.models.provider-card", {
++										provider: row.entry,
++										configured: row.configured,
++										keyConfigured: keyConfiguredOf(row)
++									}, { entryKey: row.entry.settingsNs })
++								})]
+ 							}, row.entry.provider);
+ 							const open = !adding && editing?.provider === row.entry.provider;
+ 							const credentialConfigured = row.credential?.configured === true;
+@@ -2037,11 +2049,6 @@ window.__ModuleLoader__.load({
+ 											}) : null]
+ 										})]
+ 									}),
+-									renderSlot("settings.models.provider-card", {
+-										provider: row.entry,
+-										configured: row.configured,
+-										keyConfigured: keyConfiguredOf(row)
+-									}, { entryKey: row.entry.settingsNs }),
+ 									open ? renderProviderEditor({
+ 										target,
+ 										namespace,
+@@ -2051,7 +2058,12 @@ window.__ModuleLoader__.load({
+ 										readOnly: !state.writable,
+ 										onClose: (changed) => {
+ 											closeEditor(changed, target);
+-										}
++										},
++											cardSlot: renderSlot("settings.models.provider-card", {
++												provider: row.entry,
++												configured: row.configured,
++												keyConfigured: keyConfiguredOf(row)
++											}, { entryKey: row.entry.settingsNs })
+ 									}) : null
+ 								]
+ 							}, row.entry.provider);
+@@ -2095,13 +2107,13 @@ window.__ModuleLoader__.load({
+ 									readOnly: !state.writable,
+ 									onClose: (changed) => {
+ 										closeEditor(changed, addTarget);
+-									}
++									},
++									cardSlot: addRow === void 0 ? void 0 : renderSlot("settings.models.provider-card", {
++										provider: addRow.entry,
++										configured: addRow.configured,
++										keyConfigured: keyConfiguredOf(addRow)
++									}, { entryKey: addRow.entry.settingsNs })
+ 								}, addTarget.provider),
+-								addRow === void 0 ? null : renderSlot("settings.models.provider-card", {
+-									provider: addRow.entry,
+-									configured: addRow.configured,
+-									keyConfigured: keyConfiguredOf(addRow)
+-								}, { entryKey: addRow.entry.settingsNs })
+ 							]
+ 						}) : declaring ? (0, react_jsx_runtime.jsx)("div", {
+ 							className: ModelsSection_module_css_default["addCard"],
