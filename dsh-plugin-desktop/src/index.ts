@@ -39,6 +39,7 @@ import {
   DESKTOP_RESTART_PATH,
   DESKTOP_RECOVERY_RESTART_PATH,
   DESKTOP_RENDERER_RELOAD_PATH,
+  DESKTOP_LAUNCH_AT_LOGIN_PATH,
   DESKTOP_SETTINGS_PATH,
   DESKTOP_SKILLS_LIST_PATH,
   DESKTOP_MCP_STATE_PATH,
@@ -61,6 +62,7 @@ import {
   handleDesktopMcpStateRequest,
   handleDesktopMcpTestRequest,
   handleDesktopTerminalOpenRequest,
+  handleDesktopLaunchAtLoginRequest,
 } from './desktop-settings-route.ts'
 import type {} from './desktop-settings-controller.ts'
 import { DESKTOP_LAN_HTTPS_CA_PATH } from './lan-https-runtime.ts'
@@ -372,6 +374,26 @@ export function apply(ctx: Context, config: Config): void {
       },
     }),
     'dsh-plugin-desktop: renderer boot report route',
+  )
+  ctx.effect(
+    () => ctx.webServer.register({
+      kind: 'exact',
+      path: DESKTOP_LAUNCH_AT_LOGIN_PATH,
+      handler: (req, res) => {
+        if (rejectDesktopRequest(ctx, req, res)) return
+        return handleDesktopLaunchAtLoginRequest(
+          req,
+          res,
+          rendererOrigin,
+          () => runtime.getLaunchAtLoginEnabled(),
+          enabled => { runtime.setLaunchAtLoginEnabled(enabled) },
+          (operation: string, cause: unknown) => {
+            ctx.logger.error(`dsh-plugin-desktop: launch-at-login failed (${operation}): ${cause instanceof Error ? cause.message : String(cause)}`)
+          },
+        )
+      },
+    }),
+    'dsh-plugin-desktop: launch-at-login route',
   )
   if (runtime.platform === 'win32') {
     ctx.effect(

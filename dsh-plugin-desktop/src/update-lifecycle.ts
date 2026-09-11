@@ -59,6 +59,8 @@ export interface DesktopUpdateLifecycle {
    * holding a request open. Returns false when downloads cannot start.
    */
   requestDownload(version: string): boolean
+  /** Arm or disarm scheduled background checks at runtime. */
+  setScheduledEnabled(enabled: boolean): void
   dispose(): Promise<void>
 }
 
@@ -118,6 +120,25 @@ class DesktopUpdateLifecycleOwner implements DesktopUpdateLifecycle {
       : undefined
     if (options.adapter.isPackaged && options.policy.enabled) {
       this.scheduleBackgroundCheck(options.policy.initialDelayMs)
+    }
+  }
+
+  /**
+   * Arm or disarm the background polling without tearing down the manual
+   * check, tray command, or renderer routes.
+   * @param enabled - whether scheduled background checks should run.
+   */
+  setScheduledEnabled(enabled: boolean): void {
+    if (this.disposed) return
+    if (!enabled) {
+      if (this.pollTimer !== undefined) {
+        clearTimeout(this.pollTimer)
+        this.pollTimer = undefined
+      }
+      return
+    }
+    if (this.pollTimer === undefined && this.options.adapter.isPackaged) {
+      this.scheduleBackgroundCheck(this.options.policy.initialDelayMs)
     }
   }
 

@@ -24,6 +24,7 @@ export interface DesktopShellSettings {
   readonly openBrowser: boolean
   readonly networkExposure: 'loopback' | 'lan'
   readonly logLevel: 'debug' | 'info' | 'warn' | 'error'
+  readonly autoUpdateCheck: boolean
 }
 
 /** Browser view of the Host `dsh-desktop-notifications` settings namespace. */
@@ -318,6 +319,10 @@ export function DesktopSettingsSection({
   const [operationFailed, setOperationFailed] = useState(false)
   const [aaStatus, setAaStatus] = useState<'idle' | 'saving' | 'failed' | 'saved'>('idle')
   const [restart, setRestart] = useState<RestartState>('none')
+  const [launchAtLogin, setLaunchAtLogin] = useState<boolean | undefined>()
+  const [updateChecking, setUpdateChecking] = useState(false)
+  const [updateNotice, setUpdateNotice] = useState<string>()
+  const [availableVersion, setAvailableVersion] = useState<string | null>()
   const [pendingProfileDelete, setPendingProfileDelete] = useState<string>()
   const [confirmLan, setConfirmLan] = useState(false)
   const lanPoll = useRef<AbortController>()
@@ -462,6 +467,40 @@ export function DesktopSettingsSection({
       }
       requestRestart()
     })
+  }
+
+  useEffect(() => {
+    let stopped = false
+    void api.getLaunchAtLogin().then(
+      value => { if (!stopped) setLaunchAtLogin(value.enabled) },
+      () => {},
+    )
+    void api.getUpdateState().then(
+      value => { if (!stopped) setAvailableVersion(value.availableVersion ?? null) },
+      () => {},
+    )
+    return () => { stopped = true }
+  }, [api])
+
+  const toggleLaunchAtLogin = (checked: boolean): void => {
+    setLaunchAtLogin(checked)
+    void api.setLaunchAtLogin(checked).then(
+      value => { setLaunchAtLogin(value.enabled) },
+      () => { setLaunchAtLogin(!checked) },
+    )
+  }
+
+  const checkForUpdatesNow = (): void => {
+    if (updateChecking) return
+    setUpdateChecking(true)
+    setUpdateNotice(undefined)
+    void api.checkForUpdates().then(async () => {
+      const state = await api.getUpdateState()
+      setAvailableVersion(state.availableVersion ?? null)
+      setUpdateNotice(state.availableVersion != null ? 'available' : 'latest')
+    }, () => {
+      setUpdateNotice('failed')
+    }).finally(() => { setUpdateChecking(false) })
   }
 
   const setNotification = (field: keyof DesktopNotificationSettings, checked: boolean): void => {
@@ -812,6 +851,45 @@ export function DesktopSettingsSection({
             disabled={!notificationValue.enabled || !notificationsWritable || busy !== undefined}
             onChange={checked => { setNotification('notifyOnJobFailure', checked) }}
           />
+        </div>
+      </section>
+
+      <section className="dshDesktopSettingsGroup" aria-labelledby="dsh-desktop-app-title">
+        <div>
+          <h3 id="dsh-desktop-app-title">{t('appTitle')}</h3>
+          <p className="dshDesktopSettingsGroupIntro">{t('appIntro')}</p>
+        </div>
+        <ToggleRow
+          label={t('launchAtLogin')}
+          checked={launchAtLogin === true}
+          disabled={launchAtLogin === undefined || busy !== undefined}
+          onChange={toggleLaunchAtLogin}
+        />
+        <ToggleRow
+          label={t('autoUpdateCheck')}
+          checked={desktop.value?.autoUpdateCheck !== false}
+          disabled={!settingsWritable || busy !== undefined}
+          onChange={checked => { void run('notification', async () => { await desktopSettings.set('autoUpdateCheck', checked) }) }}
+        />
+        <div className="dshDesktopSettingsDetails">
+          <div className="dshDesktopSettingsRow dshDesktopSettingsRowInline">
+            <span>
+              {updateNotice === 'available' && availableVersion != null
+                ? `${t('updateAvailable')} ${availableVersion}`
+                : updateNotice === 'latest' ? t('updateLatest')
+                : updateNotice === 'failed' ? t('updateFailed')
+                : availableVersion != null ? `${t('updateAvailable')} ${availableVersion}`
+                : t('updateIdle')}
+            </span>
+            <button
+              type="button"
+              className="dshDesktopSettingsButton"
+              disabled={updateChecking || busy !== undefined}
+              onClick={checkForUpdatesNow}
+            >
+              {updateChecking ? t('updateChecking') : t('updateCheckNow')}
+            </button>
+          </div>
         </div>
       </section>
       {confirmLan && (

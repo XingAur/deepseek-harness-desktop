@@ -160,6 +160,8 @@ export interface DesktopStartupSettings {
   networkExposure: DesktopNetworkExposure
   /** Configured remote-control relay origin; empty keeps the relay tunnel off. */
   remoteRelayOrigin: string
+  /** Whether scheduled background update checks run in packaged builds. */
+  autoUpdateCheck: boolean
 }
 
 const DEFAULT_DESKTOP_STARTUP_SETTINGS: DesktopStartupSettings = Object.freeze({
@@ -170,6 +172,7 @@ const DEFAULT_DESKTOP_STARTUP_SETTINGS: DesktopStartupSettings = Object.freeze({
   openBrowser: false,
   networkExposure: 'loopback',
   remoteRelayOrigin: '',
+  autoUpdateCheck: true,
 })
 
 /** Validate the configured remote-control relay origin, failing loud on typos. */
@@ -206,6 +209,7 @@ export function desktopStartupSettingsFromSettings(document: unknown): DesktopSt
   const values = section as Record<string, unknown>
   const mode = parseDesktopShellMode(values.mode)
   const remoteRelayOrigin = parseDesktopRemoteRelayOrigin(values.remoteRelayOrigin)
+  const autoUpdateCheck = values.autoUpdateCheck === undefined ? true : values.autoUpdateCheck === true
   const networkExposure = parseDesktopNetworkExposure(values.networkExposure)
   const openBrowser = desktopBrowserAccessEnabled(
     mode,
@@ -220,6 +224,7 @@ export function desktopStartupSettingsFromSettings(document: unknown): DesktopSt
     openBrowser,
     networkExposure: desktopNetworkExposureForBrowserAccess(openBrowser, networkExposure),
     remoteRelayOrigin,
+    autoUpdateCheck,
   }
 }
 

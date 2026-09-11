@@ -244,6 +244,12 @@ export interface DesktopRuntime {
   /** Open the native model diagnostics window, focusing an existing instance. */
   openModelDiagnosticsWindow(): void
 
+  /** Read this application's OS login-item state. */
+  getLaunchAtLoginEnabled(): boolean
+
+  /** Enable or disable launching this application at OS login. */
+  setLaunchAtLoginEnabled(enabled: boolean): void
+
   /** Confirm that one renderer-selected workspace is safe to persist. */
   validateDirectory(path: string): Promise<boolean>
 

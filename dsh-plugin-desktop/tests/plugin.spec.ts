@@ -27,6 +27,7 @@ import {
 import {
   DESKTOP_DEVELOPER_TOOLS_TOGGLE_PATH,
   DESKTOP_DIAGNOSTICS_EXPORT_PATH,
+  DESKTOP_LAUNCH_AT_LOGIN_PATH,
   DESKTOP_AA_SELECT_PATH,
   DESKTOP_MARKET_SELECT_PATH,
   DESKTOP_PROFILE_CREATE_PATH,
@@ -153,6 +154,8 @@ function createHarness(
     requestRestart: restart,
     requestRecoveryRestart: restart,
     prepareToQuit: () => {},
+    getLaunchAtLoginEnabled: () => false,
+    setLaunchAtLoginEnabled: () => {},
   }
   const settings = {
     get: vi.fn((namespace: unknown) => {
@@ -438,6 +441,7 @@ describe('desktop Host plugin', () => {
       DESKTOP_RENDERER_RELOAD_PATH,
       DESKTOP_DEVELOPER_TOOLS_TOGGLE_PATH,
       DESKTOP_DIAGNOSTICS_EXPORT_PATH,
+      DESKTOP_LAUNCH_AT_LOGIN_PATH,
       RENDERER_BOOT_REPORT_PATH,
       DESKTOP_DIRECTORY_PICKER_PATH,
       DESKTOP_DIRECTORY_VALIDATOR_PATH,

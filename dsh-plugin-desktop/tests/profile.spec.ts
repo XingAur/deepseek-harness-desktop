@@ -885,6 +885,7 @@ virtualStoreDirMaxLength: 60
       windowsMaterial: 'off',
       openBrowser: false,
       networkExposure: 'loopback',
+      autoUpdateCheck: true,
       remoteRelayOrigin: '',
     })
     expect(desktopStartupSettingsFromSettings({ 'dsh-desktop': { mode: 'advanced' } })).toEqual({
@@ -894,6 +895,7 @@ virtualStoreDirMaxLength: 60
       windowsMaterial: 'off',
       openBrowser: false,
       networkExposure: 'loopback',
+      autoUpdateCheck: true,
       remoteRelayOrigin: '',
     })
     expect(desktopShellModeFromSettings({ unrelated: { enabled: true } })).toBe('compatibility')
@@ -910,6 +912,7 @@ virtualStoreDirMaxLength: 60
       mode: 'advanced',
       openBrowser: false,
       networkExposure: 'loopback',
+      autoUpdateCheck: true,
     })
     expect(desktopStartupSettingsFromSettings({
       'dsh-desktop': {

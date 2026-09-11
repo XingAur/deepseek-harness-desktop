@@ -14,6 +14,7 @@ const DEVELOPER_TOOLS_TOGGLE_PATH = '/api/desktop/developer/devtools'
 const UPDATE_CHECK_PATH = '/api/desktop/updates/check'
 const UPDATE_STATE_PATH = '/api/desktop/updates/state'
 const UPDATE_DOWNLOAD_PATH = '/api/desktop/updates/download'
+const LAUNCH_AT_LOGIN_PATH = '/api/desktop/launch-at-login'
 const DIAGNOSTICS_EXPORT_PATH = '/api/desktop/diagnostics/export'
 const SKILLS_LIST_PATH = '/api/desktop/skills'
 const MCP_STATE_PATH = '/api/desktop/mcp'
@@ -182,6 +183,8 @@ export interface DesktopSettingsApi {
   toggleDeveloperTools(): Promise<void>
   checkForUpdates(): Promise<void>
   getUpdateState(): Promise<DesktopUpdateStateView>
+  getLaunchAtLogin(): Promise<{ enabled: boolean }>
+  setLaunchAtLogin(enabled: boolean): Promise<{ enabled: boolean }>
   downloadUpdate(version: string): Promise<{ accepted: boolean }>
   exportDiagnostics(): Promise<void>
   listSkills(): Promise<DesktopSkillsView>
@@ -669,7 +672,21 @@ export function createDesktopSettingsApi(fetcher: FetchLike = globalThis.fetch.b
       })
       return parseUpdateStateView(await readResponse(response))
     },
-    async downloadUpdate(version: string) {
+    async getLaunchAtLogin() {
+      const value = await readResponse(await fetcher(LAUNCH_AT_LOGIN_PATH, {
+        method: 'GET',
+        credentials: 'same-origin',
+        redirect: 'error',
+        cache: 'no-store',
+        headers: { 'Accept': 'application/json' },
+      })) as unknown
+      return { enabled: isObject(value) && value.enabled === true }
+    },
+    async setLaunchAtLogin(enabled: boolean) {
+      const value = await readResponse(await post(fetcher, LAUNCH_AT_LOGIN_PATH, { enabled })) as unknown
+      return { enabled: isObject(value) && value.enabled === true }
+    },
+        async downloadUpdate(version: string) {
       const value = await readResponse(await post(fetcher, UPDATE_DOWNLOAD_PATH, { version })) as unknown
       return { accepted: isObject(value) && value.accepted === true }
     },

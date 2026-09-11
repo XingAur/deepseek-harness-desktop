@@ -42,7 +42,7 @@ declare module '@deepseek-ai/cordis' {
 }
 
 /** Native adapter required for network, tray, confirmation, and installer access. */
-export const inject = ['desktopRuntime', 'webServer']
+export const inject = ['desktopRuntime', 'webServer', 'settings']
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647
 
@@ -81,12 +81,20 @@ export function apply(ctx: Context, config: Config): void {
   }
   ctx.effect(() => {
     const adapter = ctx.desktopRuntime.updates
+    // The scheduled-polling half follows the user's desktop setting live; the
+    // manual check, tray command, and renderer routes stay mounted either way.
+    const scheduledEnabled = (): boolean =>
+      (ctx.settings.get('dsh-desktop') as { autoUpdateCheck?: unknown } | undefined)?.autoUpdateCheck !== false
     const lifecycle = startDesktopUpdateLifecycle({
       adapter,
-      policy: config,
+      policy: { ...config, enabled: scheduledEnabled() },
       locale: () => ctx.desktopRuntime.locale,
       registerTrayItem: item => ctx.desktopRuntime.registerTrayItem(item),
       endpoints,
+    })
+    const offSettings = ctx.on('settings/updated', (namespace: string, next: unknown) => {
+      if (namespace !== 'dsh-desktop') return
+      lifecycle.setScheduledEnabled((next as { autoUpdateCheck?: unknown } | undefined)?.autoUpdateCheck !== false)
     })
     const rendererOrigin = `http://127.0.0.1:${String(ctx.webServer.port)}`
     const unregister = ctx.webServer.register({
@@ -156,6 +164,7 @@ export function apply(ctx: Context, config: Config): void {
       },
     })
     return async () => {
+      offSettings()
       unregisterDownload()
       unregisterState()
       unregister()
