@@ -10,7 +10,7 @@ import {
   createLaunchEnvironmentSnapshot,
   DSH_LAUNCH_ENVIRONMENT_KEY,
 } from '@deepseek-ai/dsh-launch-environment'
-import { DESKTOP_SETTINGS_NAMESPACE } from '../lib/index.js'
+import { DESKTOP_SETTINGS_NAMESPACE, FORK_UPDATE_SOURCE } from '../lib/index.js'
 import { installDesktopPnpmRuntime } from '../lib/desktop-runtime-environment.js'
 import { installProfilePackageResolver } from '../lib/module-resolution.js'
 import { prepareDesktopProfile } from '../lib/profile.js'
@@ -210,9 +210,16 @@ try {
   if (agentPresets === undefined) {
     throw new Error('assembled Windows profile is missing the agent preset roster')
   }
-  const presetIds = (await agentPresets.list()).map(preset => preset.id)
+  const roster = await agentPresets.list()
+  const presetIds = roster.map(preset => preset.id)
   if (!presetIds.includes('minimal') || !presetIds.includes('standard')) {
     throw new Error(`assembled Windows profile exposes unexpected presets: ${presetIds.join(', ')}`)
+  }
+  const brokenPresets = roster.filter(preset => preset.broken !== undefined)
+  if (brokenPresets.length > 0) {
+    throw new Error(
+      `assembled Windows profile reports broken agent presets: ${brokenPresets.map(preset => `${preset.id}: ${String(preset.broken)}`).join('; ')}`,
+    )
   }
   if (agentPresets.defaultId !== 'minimal') {
     throw new Error(`assembled Windows profile selected unexpected default ${agentPresets.defaultId}`)
@@ -258,8 +265,12 @@ try {
   if (desktopSettings?.mode !== 'advanced') {
     throw new Error('assembled Host settings are missing the advanced dsh-desktop mode')
   }
-  if (!trayItems.some(item => item.label() === 'Check for Updates…')) {
+  const updateTrayExpected = FORK_UPDATE_SOURCE.kind !== 'disabled'
+  if (updateTrayExpected && !trayItems.some(item => item.label() === 'Check for Updates…')) {
     throw new Error('assembled desktop profile is missing the update tray command')
+  }
+  if (!updateTrayExpected && trayItems.some(item => item.label() === 'Check for Updates…')) {
+    throw new Error('assembled desktop profile registered an update tray command despite the disabled fork update source')
   }
   if (process.platform !== 'linux'
     && !trayItems.some(item => item.label() === 'Open DSH Terminal')) {

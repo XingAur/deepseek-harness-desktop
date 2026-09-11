@@ -1,0 +1,84 @@
+diff --git a/lib/index.js b/lib/index.js
+index 5b13925..5a4405e 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -256,6 +256,28 @@ function packageInstalled(name, base) {
+ 	}
+ }
+ /**
++* DSH Desktop fork addition: sealed Desktop installations hold the complete
++* harness plugin set inside the packaged application's own node_modules,
++* where the upward walk from a user Profile directory never arrives. The
++* Desktop launcher publishes that install anchor as a file URL through the
++* DSH_HOST_PACKAGE_BASE environment variable before the Host boots, and
++* roster discovery then accepts a package resolved from either the
++* composition's own base or that anchor. Unset, empty, or non-file values
++* leave upstream resolution untouched for CLI deployments.
++*/
++function packageInstalledFromHostAnchor(name) {
++	const anchor = process.env.DSH_HOST_PACKAGE_BASE;
++	if (anchor === void 0 || anchor === "") return false;
++	let url;
++	try {
++		url = new URL(anchor);
++	} catch {
++		return false;
++	}
++	if (url.protocol !== "file:") return false;
++	return packageInstalled(name, url.href);
++}
++/**
+ * Whether one classified row names a module that exists, importing nothing.
+ *
+ * Each kind is checked by what actually answers it. A package name is looked
+@@ -286,7 +308,7 @@ function packageInstalled(name, base) {
+ */
+ async function rowResolves(row, presetBase, harnessBase) {
+ 	if (row.kind === "builtin") return true;
+-	if (row.kind === "package") return isBuiltin(row.specifier) || packageInstalled(row.specifier, harnessBase);
++	if (row.kind === "package") return isBuiltin(row.specifier) || packageInstalled(row.specifier, harnessBase) || packageInstalledFromHostAnchor(row.specifier);
+ 	return await isFile(fileURLToPath(row.kind === "file" ? new URL(row.specifier) : new URL(row.specifier, presetBase)));
+ }
+ /**
+diff --git a/lib/invariant.js b/lib/invariant.js
+index 0cf1c8c..ee2daa8 100644
+--- a/lib/invariant.js
++++ b/lib/invariant.js
+@@ -255,6 +255,28 @@ function packageInstalled(name, base) {
+ 	}
+ }
+ /**
++* DSH Desktop fork addition: sealed Desktop installations hold the complete
++* harness plugin set inside the packaged application's own node_modules,
++* where the upward walk from a user Profile directory never arrives. The
++* Desktop launcher publishes that install anchor as a file URL through the
++* DSH_HOST_PACKAGE_BASE environment variable before the Host boots, and
++* roster discovery then accepts a package resolved from either the
++* composition's own base or that anchor. Unset, empty, or non-file values
++* leave upstream resolution untouched for CLI deployments.
++*/
++function packageInstalledFromHostAnchor(name) {
++	const anchor = process.env.DSH_HOST_PACKAGE_BASE;
++	if (anchor === void 0 || anchor === "") return false;
++	let url;
++	try {
++		url = new URL(anchor);
++	} catch {
++		return false;
++	}
++	if (url.protocol !== "file:") return false;
++	return packageInstalled(name, url.href);
++}
++/**
+ * Whether one classified row names a module that exists, importing nothing.
+ *
+ * Each kind is checked by what actually answers it. A package name is looked
+@@ -285,7 +307,7 @@ function packageInstalled(name, base) {
+ */
+ async function rowResolves(row, presetBase, harnessBase) {
+ 	if (row.kind === "builtin") return true;
+-	if (row.kind === "package") return isBuiltin(row.specifier) || packageInstalled(row.specifier, harnessBase);
++	if (row.kind === "package") return isBuiltin(row.specifier) || packageInstalled(row.specifier, harnessBase) || packageInstalledFromHostAnchor(row.specifier);
+ 	return await isFile(fileURLToPath(row.kind === "file" ? new URL(row.specifier) : new URL(row.specifier, presetBase)));
+ }
+ /**

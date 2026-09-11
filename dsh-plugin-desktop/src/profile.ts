@@ -872,6 +872,12 @@ export function prepareDesktopProfile(
   hooks: DesktopProfilePreparationHooks = {},
   mcpPatches: readonly PatchOptions[] = [],
 ): PreparedDesktopProfile {
+  // Sealed installs keep the harness plugin set inside this package's own
+  // node_modules, which the vendored agent-preset roster's upward disk walk
+  // from a user Profile never reaches; publishing the install anchor lets its
+  // patched discovery accept packages resolved from the installation
+  // (patches/dsh-agent-presets@<version>.patch).
+  process.env.DSH_HOST_PACKAGE_BASE = `${pathToFileURL(dirname(INSTALL_ANCHOR)).href}/`
   const lanAddresses = preparedLanAddresses(hooks.lanAddresses)
   const profileDir = profileName === DESKTOP_PROFILE_NAME
     ? ensureDesktopProfile(home)
