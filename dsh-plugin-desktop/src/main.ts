@@ -15,7 +15,10 @@ import {
 } from '@deepseek-ai/dsh-app-boot'
 import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
 import { defaultDshHome, resolveDshHome } from '@deepseek-ai/dsh-home-paths'
-import { DSH_LAUNCH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh-launch-environment'
+import {
+  DSH_LAUNCH_ENVIRONMENT_KEY,
+  type LaunchEnvironmentSnapshot,
+} from '@deepseek-ai/dsh-launch-environment'
 import type {} from '@deepseek-ai/dsh-web-app'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-skill'
@@ -23,7 +26,6 @@ import {
   isDesktopBackgroundNodeRequest,
   isDesktopInstallerQuitRequest,
 } from './desktop-installer-quit.ts'
-import { withDesktopDshHome } from './launch-environment.ts'
 import { createDesktopBrowserAccess } from './desktop-browser-access.ts'
 import {
   installDesktopDshRuntime,
@@ -132,8 +134,10 @@ import {
   desktopInstallAnchor,
   healDesktopProfileModuleFallback,
   prepareDesktopProfile,
+  readDesktopStartupSettingsFromHome,
   type SkippedOptionalEntry,
 } from './profile.ts'
+import { installDesktopOutboundProxy } from './desktop-proxy.ts'
 import { DesktopProfileCheckpoint } from './profile-checkpoint.ts'
 import {
   completeOrSkipDesktopSetupWizard,
@@ -145,7 +149,6 @@ import {
   migrateDesktopBrowserAccessSettings,
   migrateDesktopWindowMaterialSettings,
   readDesktopSetupWizardSettings,
-  sameDesktopSetupWizardSettings,
   updateDesktopSetupWizardSettings,
   type DesktopSetupWizardSettings,
 } from './setup-wizard-settings.ts'
@@ -198,8 +201,9 @@ import {
 import {
   cleanupDesktopSafeModeEnvironment,
   DESKTOP_SAFE_MODE_DEFAULTS,
+  DESKTOP_SAFE_MODE_PROFILE_NAME,
   ensureDesktopSafeModeEnvironment,
-  prepareDesktopSafeModeEnvironment,
+  resetDesktopSafeModeEnvironment,
   desktopSafeModePaths,
   type DesktopSafeModePaths,
 } from './safe-mode.ts'
@@ -218,6 +222,21 @@ import { desktopRecoveryCopy } from './recovery-copy.ts'
 
 const BIN_NAME = DESKTOP_PACKAGE_NAME
 const PRODUCT_NAME = DESKTOP_PRODUCT_NAME
+
+function withDesktopDshHome(
+  environment: LaunchEnvironmentSnapshot,
+  homeDir: string,
+): LaunchEnvironmentSnapshot {
+  const entry = Object.freeze({ value: homeDir, source: 'process' as const })
+  return Object.freeze({
+    get: (name: string) => name.toUpperCase() === 'DSH_HOME' ? entry : environment.get(name),
+    getFrom: (name: string, sources: Parameters<LaunchEnvironmentSnapshot['getFrom']>[1]) => {
+      return name.toUpperCase() === 'DSH_HOME' && sources.includes('process')
+        ? entry
+        : environment.getFrom(name, sources)
+    },
+  })
+}
 
 /** Require OS-backed secret storage; Linux's plaintext fallback is not sufficient for a CA key. */
 function desktopLanHttpsPrivateKeyProtector(): DesktopLanHttpsPrivateKeyProtector {
@@ -362,16 +381,16 @@ function setupSettingsWithProfilePreferences(
   })
 }
 
-/** Mirror only the Profile-owned settings leaves and report a semantic change. */
+/** Mirror only the Profile-owned settings leaves into the exact prepared document. */
 async function mirrorDesktopProfilePreferences(
   settingsDocument: string,
   preferences: DesktopProfilePreferences,
-): Promise<boolean> {
+): Promise<void> {
   const current = readDesktopSetupWizardSettings(settingsDocument)
-  const next = setupSettingsWithProfilePreferences(current, preferences)
-  if (sameDesktopSetupWizardSettings(current, next)) return false
-  await updateDesktopSetupWizardSettings(settingsDocument, next)
-  return true
+  await updateDesktopSetupWizardSettings(
+    settingsDocument,
+    setupSettingsWithProfilePreferences(current, preferences),
+  )
 }
 
 /** Start one Electron process and leave lifetime to the mounted desktop plugin. */
@@ -642,7 +661,18 @@ async function start(): Promise<void> {
     const profileUserDataDir = safeModePaths?.userDataDir ?? desktopUserDataDir
     prepareSafeMode = safeModePaths === undefined
       ? () => {
-          prepareDesktopSafeModeEnvironment(desktopUserDataDir)
+          const paths = resetDesktopSafeModeEnvironment(desktopUserDataDir)
+          try {
+            createDesktopWebProfile(paths.homeDir, DESKTOP_SAFE_MODE_PROFILE_NAME)
+            selectDesktopProfile(
+              join(paths.userDataDir, 'profile-selection', 'state.json'),
+              paths.homeDir,
+              DESKTOP_SAFE_MODE_PROFILE_NAME,
+            )
+          } catch (cause) {
+            cleanupDesktopSafeModeEnvironment(desktopUserDataDir)
+            throw cause
+          }
         }
       : undefined
     const failLoudProcess: FailLoudProcess = {
@@ -688,25 +718,19 @@ async function start(): Promise<void> {
     }
     process.env.DSH_HOME = homeDir
     const desktopLaunchEnvironment = withDesktopDshHome(environment, homeDir)
-    // Node's fetch ignores proxy variables, and LLM requests plus provider
-    // sign-ins run in this process, so the launcher owns the global dispatcher
-    // when this channel's vendored runtime ships the proxy package. The
-    // specifier stays a variable on purpose: channels whose vendored runtime
-    // predates the proxy package keep direct transport instead of failing the
-    // launch, and their composition never declares the module.
-    const proxyModuleSpecifier = '@deepseek-ai/dsh-http-proxy'
-    const proxyModule = await import(proxyModuleSpecifier).catch(() => undefined) as
-      | {
-          installProxyFromEnvironment:
-          (env: typeof desktopLaunchEnvironment, report: (message: string) => void) => Promise<() => Promise<void>>
-        }
-      | undefined
-    if (proxyModule !== undefined) {
-      disposeProxyPolicy = await proxyModule.installProxyFromEnvironment(
-        desktopLaunchEnvironment,
-        message => electronLogger.error(`${BIN_NAME}: ${message}`),
-      )
-    }
+    // LLM requests and provider sign-ins run in this process. Model-scoped
+    // proxy covers overseas APIs; an empty model URL still inherits HTTP_PROXY
+    // for those hosts only. Process-wide proxyUrl remains the all-traffic override.
+    const startupSettings = readDesktopStartupSettingsFromHome(homeDir)
+    disposeProxyPolicy = await installDesktopOutboundProxy(
+      desktopLaunchEnvironment,
+      startupSettings.proxyUrl,
+      message => electronLogger.error(`${BIN_NAME}: ${message}`),
+      {
+        url: startupSettings.modelProxyUrl,
+        providers: startupSettings.modelProxyProviders,
+      },
+    )
     const projectionCacheRecovery = recoverOversizedSessionProjectionCache(homeDir)
     if (projectionCacheRecovery.status === 'quarantined') {
       sessionProjectionCacheRecovery = projectionCacheRecovery
@@ -1124,6 +1148,7 @@ async function start(): Promise<void> {
         }
       },
     }
+    await healDesktopProfileModuleFallback(homeDir)
     let prepared = prepareDesktopProfile(
       process.env.DSH_TELEMETRY_DISABLED,
       homeDir,
@@ -1197,13 +1222,9 @@ async function start(): Promise<void> {
     } else {
       // Existing Profile state is the source of truth. Mirror it only after the
       // first prepare has resolved this Profile's exact settings document.
-      const profileSettingsChanged = await mirrorDesktopProfilePreferences(
-        prepared.settingsDocument,
-        profilePreferences,
-      )
-      let windowMaterialMigrated = false
+      await mirrorDesktopProfilePreferences(prepared.settingsDocument, profilePreferences)
       try {
-        windowMaterialMigrated = await migrateDesktopWindowMaterialSettings(prepared.settingsDocument)
+        await migrateDesktopWindowMaterialSettings(prepared.settingsDocument)
       } catch (cause) {
         // Keep retrying the device-owned Acrylic cleanup on later launches,
         // even after this Profile has completed its one-time preference import.
@@ -1211,25 +1232,18 @@ async function start(): Promise<void> {
           `${BIN_NAME}: failed to persist removed Acrylic material migration: ${cause instanceof Error ? cause.message : String(cause)}`,
         )
       }
-      marketSelection = legacyMarketSelection.legacyDefaulted
-        || legacyMarketSelection.requested !== profilePreferences.market
-        ? await selectDesktopMarketProvider(marketUserDataDir, profilePreferences.market)
-        : legacyMarketSelection
-      // Reuse the first immutable preparation when both mirrors were semantic
-      // no-ops. This is the steady-state path and avoids reparsing every bundle,
-      // patch, manifest, and settings document on each cold start.
-      if (profileSettingsChanged || windowMaterialMigrated) {
-        prepared = prepareDesktopProfile(
-          process.env.DSH_TELEMETRY_DISABLED,
-          homeDir,
-          process.platform,
-          activeProfileName,
-          pluginManagementStatePath,
-          marketSelection,
-          preparationHooks,
-          desktopMcpPatches,
-        )
-      }
+      await selectDesktopMarketProvider(marketUserDataDir, profilePreferences.market)
+      marketSelection = readDesktopMarketStateForUserData(marketUserDataDir)
+      prepared = prepareDesktopProfile(
+        process.env.DSH_TELEMETRY_DISABLED,
+        homeDir,
+        process.platform,
+        activeProfileName,
+        pluginManagementStatePath,
+        marketSelection,
+        preparationHooks,
+        desktopMcpPatches,
+      )
     }
     // Safe Mode must reach the working surface with shipped defaults. Its
     // disposable Desktop state deliberately has no Setup marker, so reading
@@ -1243,6 +1257,7 @@ async function start(): Promise<void> {
       setupWizardWindow = new DesktopSetupWizardWindow({
         locale: desktopLocaleFromLanguageTag(app.getLocale()),
         input: {
+          appVersion,
           profileName: activeProfileName,
           platform: runtime.platform,
           micaSupported: process.platform === 'win32' && windowsSupportsMica(runtime.windowsBuild),
@@ -1427,10 +1442,6 @@ async function start(): Promise<void> {
       clearEnvironmentPath: pnpmRuntime.clearEnvironmentPath,
       dshBootstrapPath,
     }
-    // The upstream fallback healer resolves the complete installed dependency
-    // closure before projecting Profile-only packages. Run it once, after every
-    // settings/Market/migration re-prepare has selected the final Profile, so a
-    // cold start does not traverse the installation graph twice.
     await healDesktopProfileModuleFallback(homeDir, prepared.profile)
     if (profilePreferences === undefined) {
       throw new Error(`${BIN_NAME}: active Profile preferences were not initialized`)

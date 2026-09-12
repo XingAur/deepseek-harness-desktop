@@ -34,6 +34,36 @@ const CSS = `
   border-top: 1px solid var(--dsw-alias-border-l1);
 }
 .dshDesktopSettingsList { display: grid; gap: 8px; }
+.dshDesktopSettingsCheckRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-1);
+  cursor: pointer;
+}
+.dshDesktopSettingsCheckRow input {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  accent-color: var(--dsw-alias-brand-primary);
+}
+.dshDesktopSettingsAdvanced {
+  padding-top: 8px;
+}
+.dshDesktopSettingsAdvanced > summary {
+  cursor: pointer;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.dshDesktopSettingsAdvanced > summary + .dshDesktopSettingsGroup {
+  margin-top: 12px;
+  padding-top: 16px;
+}
 .dshDesktopSettingsChoice,
 .dshDesktopSettingsToggleRow {
   display: flex;
@@ -577,11 +607,39 @@ const CSS = `
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 11px;
 }
+.dshDesktopSettingsProxyForm { gap: 10px; }
+.dshDesktopSettingsProxyRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.dshDesktopSettingsProxyInput {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12.5px;
+}
+.dshDesktopSettingsProxyActions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.dshDesktopSettingsProxyActions .dshDesktopSettingsButton,
+.dshDesktopSettingsProxyActions .dshDesktopSettingsPrimary {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  min-height: 36px;
+  padding: 7px 16px;
+}
 @media (max-width: 720px) {
   .dshDesktopSettingsChoice,
   .dshDesktopSettingsToggleRow { align-items: flex-start; }
   .dshDesktopSettingsForm { align-items: stretch; flex-direction: column; }
   .dshDesktopSettingsFormGrid { grid-template-columns: minmax(0, 1fr); }
+  .dshDesktopSettingsProxyRow { align-items: stretch; flex-direction: column; }
+  .dshDesktopSettingsProxyActions { justify-content: stretch; }
+  .dshDesktopSettingsProxyActions .dshDesktopSettingsButton,
+  .dshDesktopSettingsProxyActions .dshDesktopSettingsPrimary { flex: 1 1 auto; }
 }
 
 .dshDesktopProviderExtras {

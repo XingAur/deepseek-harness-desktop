@@ -25,6 +25,7 @@ import { DesktopTerminalSettingsAction } from '../src/client/DesktopTerminalSett
 import { DesktopSkillsSection } from '../src/client/DesktopSkillsSection.tsx'
 import { DesktopMcpSection } from '../src/client/DesktopMcpSection.tsx'
 import { DesktopProviderCardExtras } from '../src/client/DesktopProviderCardExtras.tsx'
+import { DesktopProxySection } from '../src/client/DesktopProxySection.tsx'
 import {
   createDesktopSettingsApi,
   desktopSettingsPaths,
@@ -40,6 +41,7 @@ import {
   DESKTOP_SHELL_SETTINGS_NAMESPACE,
   DESKTOP_SKILLS_LOCALE_NAMESPACE,
   DESKTOP_MCP_LOCALE_NAMESPACE,
+  DESKTOP_PROXY_LOCALE_NAMESPACE,
   persistDesktopModeSelection,
 } from '../src/client/desktop-settings.ts'
 import { en, zh, type DesktopSettingsLocaleKey } from '../src/client/desktop-settings-locales.ts'
@@ -678,7 +680,21 @@ describe('Desktop settings Slot registration', () => {
     })
     expect(piAiCardComponent).toBe(DesktopProviderCardExtras)
 
-    const [options, component] = register.mock.calls[4] as unknown as [
+    const [proxyOptions, proxyComponent] = register.mock.calls[4] as unknown as [
+      { id: string; order: number; locale: string; label: () => string; inject: () => Record<string, unknown> },
+      unknown,
+    ]
+    expect(proxyOptions).toMatchObject({
+      name: 'settings.section',
+      id: 'proxy',
+      order: 98,
+      locale: DESKTOP_PROXY_LOCALE_NAMESPACE,
+    })
+    expect(proxyOptions.label()).toBe(`${DESKTOP_PROXY_LOCALE_NAMESPACE}:nav`)
+    expect(proxyOptions.inject()).toMatchObject({ api: expect.any(Object) })
+    expect(proxyComponent).toBe(DesktopProxySection)
+
+    const [options, component] = register.mock.calls[5] as unknown as [
       { id: string; order: number; locale: string; label: () => string; inject: () => Record<string, unknown> },
       unknown,
     ]
@@ -697,7 +713,7 @@ describe('Desktop settings Slot registration', () => {
     })
     expect(component).toBe(DesktopSettingsSection)
 
-    const [actionOptions, actionComponent] = register.mock.calls[5] as unknown as [
+    const [actionOptions, actionComponent] = register.mock.calls[6] as unknown as [
       { id: string; order: number; locale: string; inject: () => Record<string, unknown> },
       unknown,
     ]

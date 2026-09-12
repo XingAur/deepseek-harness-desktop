@@ -5,6 +5,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { DesktopMcpSection } from './DesktopMcpSection.tsx'
 import { DesktopProviderCardExtras } from './DesktopProviderCardExtras.tsx'
+import { DesktopProxySection } from './DesktopProxySection.tsx'
 import { DesktopSettingsSection, type DesktopNotificationSettings, type DesktopShellSettings } from './DesktopSettingsSection.tsx'
 import { DesktopSkillsSection } from './DesktopSkillsSection.tsx'
 import { DesktopTerminalSettingsAction } from './DesktopTerminalSettingsAction.tsx'
@@ -13,6 +14,7 @@ import { en, zh, type DesktopSettingsLocaleKey } from './desktop-settings-locale
 import { en as skillsEn, zh as skillsZh, type DesktopSkillsLocaleKey } from './desktop-skills-locales.ts'
 import { en as mcpEn, zh as mcpZh, type DesktopMcpLocaleKey } from './desktop-mcp-locales.ts'
 import { en as modelEn, zh as modelZh, type DesktopModelLocaleKey } from './desktop-model-locales.ts'
+import { en as proxyEn, zh as proxyZh, type DesktopProxyLocaleKey } from './desktop-proxy-locales.ts'
 import { installDesktopSettingsStyles } from './desktop-settings-styles.ts'
 import type { DesktopClientEnvironment } from './environment.ts'
 
@@ -27,6 +29,9 @@ export const DESKTOP_MCP_LOCALE_NAMESPACE = 'desktop.mcp'
 
 /** Locale namespace owned by the Desktop Model settings page. */
 export const DESKTOP_MODEL_LOCALE_NAMESPACE = 'desktop.model'
+
+/** Locale namespace owned by the Desktop proxy settings page. */
+export const DESKTOP_PROXY_LOCALE_NAMESPACE = 'desktop.proxy'
 
 /** Host settings namespaces bound through the standard client settings service. */
 export const DESKTOP_SHELL_SETTINGS_NAMESPACE = 'dsh-desktop'
@@ -71,6 +76,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'desktop.mcp': DesktopMcpLocaleKey
     /** Desktop-only Model settings page copy. */
     'desktop.model': DesktopModelLocaleKey
+    /** Desktop-only Proxy settings page copy. */
+    'desktop.proxy': DesktopProxyLocaleKey
   }
 }
 
@@ -90,6 +97,7 @@ export function applyDesktopSettings(
   const skillsT = ctx.locale.bind(DESKTOP_SKILLS_LOCALE_NAMESPACE)
   const mcpT = ctx.locale.bind(DESKTOP_MCP_LOCALE_NAMESPACE)
   const modelT = ctx.locale.bind(DESKTOP_MODEL_LOCALE_NAMESPACE)
+  const proxyT = ctx.locale.bind(DESKTOP_PROXY_LOCALE_NAMESPACE)
   const setMode = async (mode: DesktopShellSettings['mode']): Promise<void> => {
     await persistDesktopModeSelection(desktopSettings, mode)
   }
@@ -109,6 +117,10 @@ export function applyDesktopSettings(
   ctx.effect(
     () => ctx.locale.register(DESKTOP_MODEL_LOCALE_NAMESPACE, { zh: modelZh, en: modelEn }),
     'dsh-plugin-desktop: model settings dictionaries',
+  )
+  ctx.effect(
+    () => ctx.locale.register(DESKTOP_PROXY_LOCALE_NAMESPACE, { zh: proxyZh, en: proxyEn }),
+    'dsh-plugin-desktop: proxy settings dictionaries',
   )
   ctx.effect(
     () => installDesktopSettingsStyles(),
@@ -143,6 +155,14 @@ export function applyDesktopSettings(
     key: 'llm-pi-ai',
     inject: () => ({ t: modelT }) as never,
   }, DesktopProviderCardExtras as never))
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: 'proxy',
+    order: 98,
+    label: () => proxyT('nav'),
+    locale: DESKTOP_PROXY_LOCALE_NAMESPACE,
+    inject: () => ({ api, desktopSettings }),
+  }, DesktopProxySection))
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
     id: 'desktop',

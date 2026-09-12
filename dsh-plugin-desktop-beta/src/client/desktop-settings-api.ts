@@ -18,6 +18,8 @@ const DIAGNOSTICS_EXPORT_PATH = '/api/desktop/diagnostics/export'
 const SKILLS_LIST_PATH = '/api/desktop/skills'
 const MCP_STATE_PATH = '/api/desktop/mcp'
 const MCP_TEST_PATH = '/api/desktop/mcp/test'
+const PROXY_DETECT_PATH = '/api/desktop/proxy/detect'
+const PROXY_TEST_PATH = '/api/desktop/proxy/test'
 const MAX_PROFILES = 256
 const MAX_SKILLS = 1024
 const MAX_SKILL_TEXT_LENGTH = 2048
@@ -157,6 +159,28 @@ export interface DesktopUpdateStateView {
   readonly downloadingVersion: string | null
 }
 
+/** Renderer-facing local outbound-proxy probe outcome. */
+export interface DesktopProxyDetectView {
+  readonly found: boolean
+  readonly proxyUrl: string
+}
+
+/** Renderer-facing model-proxy reachability probe. */
+export interface DesktopProxyTestView {
+  readonly ok: boolean
+  readonly code:
+    | 'ok'
+    | 'invalid-url'
+    | 'no-proxy'
+    | 'proxy-refused'
+    | 'proxy-auth'
+    | 'timeout'
+    | 'tls'
+    | 'dns'
+    | 'target-unreachable'
+    | 'unknown'
+}
+
 /** Renderer-facing MCP probe outcome. */
 export interface DesktopMcpTestView {
   readonly ok: boolean
@@ -188,6 +212,8 @@ export interface DesktopSettingsApi {
   getMcp(): Promise<DesktopMcpStateView>
   putMcp(servers: readonly DesktopMcpServerWrite[]): Promise<DesktopMcpWriteView>
   testMcp(row: DesktopMcpServerWrite, id?: string): Promise<DesktopMcpTestView>
+  detectLocalProxy?(): Promise<DesktopProxyDetectView>
+  testModelProxy?(proxyUrl: string): Promise<DesktopProxyTestView>
 }
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
@@ -549,6 +575,46 @@ function parseUpdateStateView(value: unknown): DesktopUpdateStateView {
   }
 }
 
+const PROXY_TEST_CODES: ReadonlySet<DesktopProxyTestView['code']> = new Set([
+  'ok',
+  'invalid-url',
+  'no-proxy',
+  'proxy-refused',
+  'proxy-auth',
+  'timeout',
+  'tls',
+  'dns',
+  'target-unreachable',
+  'unknown',
+])
+
+function parseProxyTestView(value: unknown): DesktopProxyTestView {
+  if (!isObject(value) || typeof value.ok !== 'boolean' || typeof value.code !== 'string') {
+    throw new Error('dsh-plugin-desktop: invalid proxy test response')
+  }
+  if (!PROXY_TEST_CODES.has(value.code as DesktopProxyTestView['code'])) {
+    throw new Error('dsh-plugin-desktop: invalid proxy test response')
+  }
+  if (value.ok !== (value.code === 'ok')) {
+    throw new Error('dsh-plugin-desktop: invalid proxy test response')
+  }
+  return { ok: value.ok, code: value.code as DesktopProxyTestView['code'] }
+}
+
+function parseProxyDetectView(value: unknown): DesktopProxyDetectView {
+  if (!isObject(value) || typeof value.found !== 'boolean' || typeof value.proxyUrl !== 'string') {
+    throw new Error('dsh-plugin-desktop: invalid proxy detect response')
+  }
+  if (!value.found) {
+    if (value.proxyUrl !== '') throw new Error('dsh-plugin-desktop: invalid proxy detect response')
+    return { found: false, proxyUrl: '' }
+  }
+  if (!/^http:\/\/127\.0\.0\.1:\d{2,5}$/u.test(value.proxyUrl)) {
+    throw new Error('dsh-plugin-desktop: invalid proxy detect response')
+  }
+  return { found: true, proxyUrl: value.proxyUrl }
+}
+
 function parseMcpTestView(value: unknown): DesktopMcpTestView {
   if (!isObject(value)) throw new Error('dsh-plugin-desktop: invalid MCP test response')
   if (typeof value.ok !== 'boolean') throw new Error('dsh-plugin-desktop: invalid MCP test response')
@@ -705,6 +771,32 @@ export function createDesktopSettingsApi(fetcher: FetchLike = globalThis.fetch.b
         row,
       })))
     },
+    async detectLocalProxy() {
+      return parseProxyDetectView(await readResponse(await post(fetcher, PROXY_DETECT_PATH, {})))
+    },
+    async testModelProxy(proxyUrl: string) {
+      const abort = new AbortController()
+      const timer = setTimeout(() => { abort.abort() }, 12_000)
+      try {
+        const response = await fetcher(PROXY_TEST_PATH, {
+          method: 'POST',
+          credentials: 'same-origin',
+          redirect: 'error',
+          signal: abort.signal,
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ proxyUrl }),
+        })
+        return parseProxyTestView(await readResponse(response))
+      } catch (cause) {
+        if (abort.signal.aborted) return { ok: false, code: 'timeout' as const }
+        throw cause
+      } finally {
+        clearTimeout(timer)
+      }
+    },
   })
 }
 
@@ -726,4 +818,6 @@ export const desktopSettingsPaths = Object.freeze({
   skillsList: SKILLS_LIST_PATH,
   mcpState: MCP_STATE_PATH,
   mcpTest: MCP_TEST_PATH,
+  proxyDetect: PROXY_DETECT_PATH,
+  proxyTest: PROXY_TEST_PATH,
 })

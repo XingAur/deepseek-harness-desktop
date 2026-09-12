@@ -134,8 +134,10 @@ import {
   desktopInstallAnchor,
   healDesktopProfileModuleFallback,
   prepareDesktopProfile,
+  readDesktopStartupSettingsFromHome,
   type SkippedOptionalEntry,
 } from './profile.ts'
+import { installDesktopOutboundProxy } from './desktop-proxy.ts'
 import { DesktopProfileCheckpoint } from './profile-checkpoint.ts'
 import {
   completeOrSkipDesktopSetupWizard,
@@ -716,25 +718,19 @@ async function start(): Promise<void> {
     }
     process.env.DSH_HOME = homeDir
     const desktopLaunchEnvironment = withDesktopDshHome(environment, homeDir)
-    // Node's fetch ignores proxy variables, and LLM requests plus provider
-    // sign-ins run in this process, so the launcher owns the global dispatcher
-    // when this channel's vendored runtime ships the proxy package. The
-    // specifier stays a variable on purpose: channels whose vendored runtime
-    // predates the proxy package keep direct transport instead of failing the
-    // launch, and their composition never declares the module.
-    const proxyModuleSpecifier = '@deepseek-ai/dsh-http-proxy'
-    const proxyModule = await import(proxyModuleSpecifier).catch(() => undefined) as
-      | {
-          installProxyFromEnvironment:
-          (env: typeof desktopLaunchEnvironment, report: (message: string) => void) => Promise<() => Promise<void>>
-        }
-      | undefined
-    if (proxyModule !== undefined) {
-      disposeProxyPolicy = await proxyModule.installProxyFromEnvironment(
-        desktopLaunchEnvironment,
-        message => electronLogger.error(`${BIN_NAME}: ${message}`),
-      )
-    }
+    // LLM requests and provider sign-ins run in this process. Model-scoped
+    // proxy covers overseas APIs; an empty model URL still inherits HTTP_PROXY
+    // for those hosts only. Process-wide proxyUrl remains the all-traffic override.
+    const startupSettings = readDesktopStartupSettingsFromHome(homeDir)
+    disposeProxyPolicy = await installDesktopOutboundProxy(
+      desktopLaunchEnvironment,
+      startupSettings.proxyUrl,
+      message => electronLogger.error(`${BIN_NAME}: ${message}`),
+      {
+        url: startupSettings.modelProxyUrl,
+        providers: startupSettings.modelProxyProviders,
+      },
+    )
     const projectionCacheRecovery = recoverOversizedSessionProjectionCache(homeDir)
     if (projectionCacheRecovery.status === 'quarantined') {
       sessionProjectionCacheRecovery = projectionCacheRecovery

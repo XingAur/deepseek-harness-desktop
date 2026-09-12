@@ -281,6 +281,29 @@ export interface DesktopMcpWriteResponse {
 /** Stable API path for probing one MCP server row without saving it. */
 export const DESKTOP_MCP_TEST_PATH = '/api/desktop/mcp/test'
 
+/** Probe well-known loopback HTTP proxy ports without saving a setting. */
+export const DESKTOP_PROXY_DETECT_PATH = '/api/desktop/proxy/detect'
+
+/** Probe whether a drafted proxy can reach api.x.ai without saving a setting. */
+export const DESKTOP_PROXY_TEST_PATH = '/api/desktop/proxy/test'
+
+/** Renderer-safe outcome of a local outbound-proxy probe. */
+export interface DesktopProxyDetectResponse {
+  readonly found: boolean
+  readonly proxyUrl: string
+}
+
+/** Exact body accepted by the model-proxy test endpoint. */
+export interface DesktopProxyTestRequest {
+  readonly proxyUrl: string
+}
+
+/** Renderer-safe outcome of a model-proxy reachability probe. */
+export interface DesktopProxyTestResponse {
+  readonly ok: boolean
+  readonly code: string
+}
+
 /** Exact body accepted by the MCP test endpoint. */
 export interface DesktopMcpTestRequest {
   /**

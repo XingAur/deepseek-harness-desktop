@@ -15,7 +15,6 @@ import {
   THEME_SETTINGS_NAMESPACE,
   type ThemeSettings,
 } from '@deepseek-ai/dsh-client-ui-theme'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import {
   handleRendererBootRequest,
   RENDERER_BOOT_REPORT_PATH,
@@ -43,6 +42,8 @@ import {
   DESKTOP_SKILLS_LIST_PATH,
   DESKTOP_MCP_STATE_PATH,
   DESKTOP_MCP_TEST_PATH,
+  DESKTOP_PROXY_DETECT_PATH,
+  DESKTOP_PROXY_TEST_PATH,
   DESKTOP_TERMINAL_OPEN_PATH,
 } from './desktop-settings-contract.ts'
 import {
@@ -60,6 +61,8 @@ import {
   handleDesktopSkillsListRequest,
   handleDesktopMcpStateRequest,
   handleDesktopMcpTestRequest,
+  handleDesktopProxyDetectRequest,
+  handleDesktopProxyTestRequest,
   handleDesktopTerminalOpenRequest,
 } from './desktop-settings-route.ts'
 import type {} from './desktop-settings-controller.ts'
@@ -75,6 +78,7 @@ import {
   desktopWebServerHost,
   type DesktopNetworkExposure,
 } from './desktop-network.ts'
+import type { DesktopModelProxyProvider } from './desktop-model-proxy.ts'
 import { DESKTOP_FRAME_HEIGHT } from './window-chrome.ts'
 import {
   DEFAULT_MACOS_WINDOW_MATERIAL,
@@ -85,6 +89,7 @@ import {
   type PersistedWindowsWindowMaterial,
   windowsSupportsMica,
 } from './window-material.ts'
+import { DESKTOP_PRODUCT_NAME } from './product-identity.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'desktop-shell'
@@ -104,10 +109,10 @@ export type {
   DesktopRemoteRelayState,
 } from './remote-relay.ts'
 
-export const DESKTOP_SETTINGS_NAMESPACE = settingsNamespace('dsh-desktop')
+export const DESKTOP_SETTINGS_NAMESPACE = 'dsh-desktop'
 
-const UI_THEME_SETTINGS_NAMESPACE = settingsNamespace(THEME_SETTINGS_NAMESPACE)
-const UI_LOCALE_SETTINGS_NAMESPACE = settingsNamespace(LOCALE_SETTINGS_NAMESPACE)
+const UI_THEME_SETTINGS_NAMESPACE = THEME_SETTINGS_NAMESPACE
+const UI_LOCALE_SETTINGS_NAMESPACE = LOCALE_SETTINGS_NAMESPACE
 
 /** Apply the official Connection trust and browser-auth fence before a private Desktop route. */
 function rejectDesktopRequest(
@@ -145,6 +150,12 @@ export interface DesktopSettings {
   remoteRelayOrigin: string
   /** Log verbosity threshold applied to the file logger. */
   logLevel: 'debug' | 'info' | 'warn' | 'error'
+  /** Outbound proxy URL; empty inherits HTTP_PROXY from the launch environment. */
+  proxyUrl: string
+  /** Proxy URL applied only to selected overseas model hosts. */
+  modelProxyUrl: string
+  /** Provider ids whose API hosts use the model proxy. */
+  modelProxyProviders: DesktopModelProxyProvider[]
 }
 
 /** Schema registered with the standard settings service. */
@@ -157,6 +168,9 @@ export const DesktopSettingsSchema: z<DesktopSettings> = z.object({
   networkExposure: z.union(['loopback', 'lan'] as const).default('loopback'),
   remoteRelayOrigin: z.string().default(''),
   logLevel: z.union(['debug', 'info', 'warn', 'error'] as const).default('info'),
+  proxyUrl: z.string().default(''),
+  modelProxyUrl: z.string().default(''),
+  modelProxyProviders: z.array(z.union(['xai', 'openai-codex'] as const)).default(['xai', 'openai-codex']),
 })
 
 /** Native window configuration. */
@@ -171,6 +185,12 @@ export interface Config {
   port: number
   /** Configured listener exposure used to detect restart-applied settings changes. */
   networkExposure: DesktopNetworkExposure
+  /** Outbound proxy URL used to detect restart-applied settings changes. */
+  proxyUrl: string
+  /** Model-scoped proxy URL used to detect restart-applied settings changes. */
+  modelProxyUrl: string
+  /** Model-proxy provider ids used to detect restart-applied settings changes. */
+  modelProxyProviders: DesktopModelProxyProvider[]
   /** Initial window width in CSS pixels. */
   width: number
   /** Initial window height in CSS pixels. */
@@ -188,6 +208,9 @@ export const Config: z<Config> = z.object({
   windowsMaterial: z.union(['off', 'acrylic', 'mica'] as const).default(DEFAULT_WINDOWS_WINDOW_MATERIAL),
   port: z.number().step(1).min(0).max(65_535).default(DESKTOP_DEFAULT_WEB_PORT),
   networkExposure: z.union(['loopback', 'lan'] as const).default('loopback'),
+  proxyUrl: z.string().default(''),
+  modelProxyUrl: z.string().default(''),
+  modelProxyProviders: z.array(z.union(['xai', 'openai-codex'] as const)).default(['xai', 'openai-codex']),
   width: z.number().step(1).min(800).default(1280),
   height: z.number().step(1).min(600).default(840),
   minWidth: z.number().step(1).min(640).default(900),
@@ -325,6 +348,8 @@ export function apply(ctx: Context, config: Config): void {
       [DESKTOP_SKILLS_LIST_PATH, handleDesktopSkillsListRequest],
       [DESKTOP_MCP_STATE_PATH, handleDesktopMcpStateRequest],
       [DESKTOP_MCP_TEST_PATH, handleDesktopMcpTestRequest],
+      [DESKTOP_PROXY_DETECT_PATH, handleDesktopProxyDetectRequest],
+      [DESKTOP_PROXY_TEST_PATH, handleDesktopProxyTestRequest],
       [DESKTOP_PROFILE_CREATE_PATH, handleDesktopProfileCreateRequest],
       [DESKTOP_PROFILE_DELETE_PATH, handleDesktopProfileDeleteRequest],
       [DESKTOP_PROFILE_SELECT_PATH, handleDesktopProfileSelectRequest],
@@ -419,18 +444,18 @@ export function apply(ctx: Context, config: Config): void {
     exposure: DesktopNetworkExposure,
   ): void => {
     browserAccess.setOrdinaryBrowserEnabled(browserEnabled || remoteRelayAccess.required)
-    void lanHttps.setEnabled(browserEnabled && exposure === 'lan').then((snapshot) => {
-      if (snapshot.state === 'failed') {
+      void lanHttps.setEnabled(browserEnabled && exposure === 'lan').then((snapshot) => {
+        if (snapshot.state === 'failed') {
+          ctx.logger.error(
+            `dsh-plugin-desktop: LAN HTTPS edge failed to start (${snapshot.errorCode ?? 'unknown'})`,
+          )
+        }
+      }).catch((cause: unknown) => {
         ctx.logger.error(
-          `dsh-plugin-desktop: LAN HTTPS edge failed to start (${snapshot.errorCode ?? 'unknown'})`,
+          `dsh-plugin-desktop: LAN HTTPS edge transition failed: ${cause instanceof Error ? cause.message : String(cause)}`,
         )
-      }
-    }).catch((cause: unknown) => {
-      ctx.logger.error(
-        `dsh-plugin-desktop: LAN HTTPS edge transition failed: ${cause instanceof Error ? cause.message : String(cause)}`,
-      )
-    })
-  }
+      })
+    }
   ctx.effect(() => {
     let pending: ReturnType<typeof setImmediate> | undefined
     updateLiveWebAccess(browserAccess.ordinaryBrowserEnabled && !remoteRelayAccess.required, config.networkExposure)
@@ -448,7 +473,11 @@ export function apply(ctx: Context, config: Config): void {
       if (next.mode === config.mode
         && next.port === config.port
         && next.macosMaterial === config.macosMaterial
-        && next.windowsMaterial === config.windowsMaterial) {
+        && next.windowsMaterial === config.windowsMaterial
+        && (next.proxyUrl ?? '') === (config.proxyUrl ?? '')
+        && (next.modelProxyUrl ?? '') === (config.modelProxyUrl ?? '')
+        && JSON.stringify(next.modelProxyProviders ?? ['xai', 'openai-codex'])
+          === JSON.stringify(config.modelProxyProviders ?? ['xai', 'openai-codex'])) {
         if (pending !== undefined) clearImmediate(pending)
         pending = undefined
         return
@@ -524,7 +553,7 @@ export function apply(ctx: Context, config: Config): void {
         url,
         authenticationUrl: ctx.connection.authenticatedUrl(new URL(url).origin),
         rendererAccessHeader: browserAccess.rendererHeader,
-        productName: 'DSH Desktop',
+        productName: DESKTOP_PRODUCT_NAME,
         windowTitle: 'DeepSeek Harness Desktop',
         iconPath,
         trayIcons,

@@ -8,7 +8,6 @@ import type {
 import type { LocaleId } from '@deepseek-ai/dsh-client-locale'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import type { ThemePreference } from '@deepseek-ai/dsh-client-ui-theme'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   apply,
@@ -39,6 +38,8 @@ import {
   DESKTOP_SKILLS_LIST_PATH,
   DESKTOP_MCP_STATE_PATH,
   DESKTOP_MCP_TEST_PATH,
+  DESKTOP_PROXY_DETECT_PATH,
+  DESKTOP_PROXY_TEST_PATH,
   DESKTOP_TERMINAL_OPEN_PATH,
 } from '../src/desktop-settings-contract.ts'
 import type { DesktopRuntime, DesktopShellSpec } from '../src/runtime.ts'
@@ -52,6 +53,9 @@ const config: DesktopConfig = {
   windowsMaterial: 'off',
   port: 43_120,
   networkExposure: 'loopback',
+  proxyUrl: '',
+  modelProxyUrl: '',
+  modelProxyProviders: ['xai', 'openai-codex'],
   width: 1280,
   height: 840,
   minWidth: 900,
@@ -169,6 +173,9 @@ function createHarness(
         openBrowser: ordinaryBrowserEnabled,
         networkExposure: config.networkExposure,
         logLevel: 'info' as const,
+        proxyUrl: config.proxyUrl,
+        modelProxyUrl: config.modelProxyUrl,
+        modelProxyProviders: config.modelProxyProviders,
       }),
       watch: (callback: typeof watcher) => {
         watcher = callback
@@ -223,11 +230,11 @@ function createHarness(
     notify: async (next, prev) => { await watcher?.(next, prev) },
     notifyLocale: (preference) => {
       localePreference = preference
-      for (const listener of settingsUpdated) listener(settingsNamespace('locale'), { preference })
+      for (const listener of settingsUpdated) listener('locale', { preference })
     },
     notifyTheme: (preference) => {
       themePreference = preference
-      for (const listener of settingsUpdated) listener(settingsNamespace('ui-theme'), { preference })
+      for (const listener of settingsUpdated) listener('ui-theme', { preference })
     },
   }
 }
@@ -245,6 +252,9 @@ describe('desktop Host plugin', () => {
       networkExposure: 'loopback',
       remoteRelayOrigin: '',
       logLevel: 'info',
+      proxyUrl: '',
+      modelProxyUrl: '',
+      modelProxyProviders: ['xai', 'openai-codex'],
     })
     expect(() => DesktopSettingsSchema({ port: -1 } as DesktopSettings)).toThrow()
     expect(() => DesktopSettingsSchema({ port: 1.5 } as DesktopSettings)).toThrow()
@@ -354,7 +364,7 @@ describe('desktop Host plugin', () => {
       mode: 'compatibility',
       url: 'http://127.0.0.1:43120/?dsh-desktop-mode=compatibility&dsh-desktop-platform=darwin&dsh-desktop-version=2.0.0&dsh-desktop-material=transparent&dsh-desktop-titlebar-inset=36',
       authenticationUrl: 'http://127.0.0.1:43120/?token=test-token',
-      productName: 'DSH Desktop',
+      productName: 'DSH Desktop Beta',
       windowTitle: 'DeepSeek Harness Desktop',
       rendererAccessHeader: {
         name: 'x-dsh-desktop-renderer',
@@ -427,6 +437,8 @@ describe('desktop Host plugin', () => {
       DESKTOP_SKILLS_LIST_PATH,
       DESKTOP_MCP_STATE_PATH,
       DESKTOP_MCP_TEST_PATH,
+      DESKTOP_PROXY_DETECT_PATH,
+      DESKTOP_PROXY_TEST_PATH,
       DESKTOP_PROFILE_CREATE_PATH,
       DESKTOP_PROFILE_DELETE_PATH,
       DESKTOP_PROFILE_SELECT_PATH,
@@ -543,15 +555,15 @@ describe('desktop Host plugin', () => {
     apply(harness.ctx, config)
 
     await harness.notify(
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info' },
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info' },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
     )
     expect(harness.restart).not.toHaveBeenCalled()
 
     harness.restart.mockImplementation(() => new Promise<void>(() => {}))
     await harness.notify(
-      { mode: 'advanced', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info' },
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info' },
+      { mode: 'advanced', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
     )
     await vi.runAllTimersAsync()
     expect(harness.restart).toHaveBeenCalledOnce()
@@ -564,8 +576,8 @@ describe('desktop Host plugin', () => {
     harness.restart.mockImplementation(() => new Promise<void>(() => {}))
 
     await harness.notify(
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'off', port: 43_120, openBrowser: true, networkExposure: 'lan', remoteRelayOrigin: '', logLevel: 'info' },
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'off', port: 43_120, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info' },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'off', port: 43_120, openBrowser: true, networkExposure: 'lan', remoteRelayOrigin: '', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'off', port: 43_120, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
     )
     await vi.runAllTimersAsync()
     expect(harness.restart).not.toHaveBeenCalled()
@@ -575,8 +587,8 @@ describe('desktop Host plugin', () => {
     const enabledHarness = createHarness('darwin', true)
     apply(enabledHarness.ctx, config)
     await enabledHarness.notify(
-      { mode: 'advanced', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 43_120, openBrowser: true, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info' },
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 43_120, openBrowser: true, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info' },
+      { mode: 'advanced', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 43_120, openBrowser: true, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 43_120, openBrowser: true, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
     )
     await vi.runAllTimersAsync()
     expect(enabledHarness.restart).toHaveBeenCalledOnce()
@@ -590,15 +602,15 @@ describe('desktop Host plugin', () => {
     apply(harness.ctx, config)
 
     await harness.notify(
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'debug' },
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info' },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'debug', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
     )
     expect(harness.restart).not.toHaveBeenCalled()
 
     harness.restart.mockImplementation(() => new Promise<void>(() => {}))
     await harness.notify(
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 43_189, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'debug' },
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'debug' },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 43_189, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'debug', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'debug', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
     )
     await vi.runAllTimersAsync()
     expect(harness.restart).toHaveBeenCalledOnce()
@@ -611,8 +623,8 @@ describe('desktop Host plugin', () => {
 
     harness.restart.mockImplementation(() => new Promise<void>(() => {}))
     await harness.notify(
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'mica', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info' },
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info' },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'mica', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
     )
     await vi.runAllTimersAsync()
 
@@ -670,6 +682,9 @@ describe('desktop Host plugin', () => {
       networkExposure: 'loopback',
       remoteRelayOrigin: '',
       logLevel: 'info',
+      proxyUrl: '',
+      modelProxyUrl: '',
+      modelProxyProviders: ['xai', 'openai-codex'],
     }
     expect(() => options?.validate?.({ ...settings, mode: 'advanced' })).toThrow(
       'supported on macOS and Windows',
@@ -702,8 +717,10 @@ describe('desktop Host plugin', () => {
       port: 43_120,
       openBrowser: false,
       networkExposure: 'lan',
-      remoteRelayOrigin: '',
       logLevel: 'info',
+      proxyUrl: '',
+      modelProxyUrl: '',
+      modelProxyProviders: ['xai', 'openai-codex'],
     })).not.toThrow()
   })
 })

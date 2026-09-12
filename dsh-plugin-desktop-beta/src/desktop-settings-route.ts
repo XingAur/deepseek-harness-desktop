@@ -5,6 +5,8 @@ import { assertDesktopProfileName } from './profile-manager.ts'
 import type { DesktopMarketProvider } from './desktop-market.ts'
 import type DesktopSettingsController from './desktop-settings-controller.ts'
 import type { DesktopSettingsPostResponse } from './desktop-settings-controller.ts'
+import { detectLocalOutboundProxy } from './desktop-proxy-detect.ts'
+import { DESKTOP_PROXY_TEST_CODES, testDesktopModelProxy } from './desktop-proxy-test.ts'
 import type {
   DesktopUpdateStateResponse,
   DesktopMcpTestRequest,
@@ -13,6 +15,9 @@ import type {
   DesktopProfileCreateRequest,
   DesktopProfileDeleteRequest,
   DesktopProfileSelectRequest,
+  DesktopProxyDetectResponse,
+  DesktopProxyTestRequest,
+  DesktopProxyTestResponse,
   DesktopSettingsErrorResponse,
 } from './desktop-settings-contract.ts'
 
@@ -341,6 +346,69 @@ export async function handleDesktopMcpTestRequest(
   } catch (cause) {
     reportError('test mcp server', cause)
     finishJson(res, 500, error('mcp probe unavailable'))
+  }
+}
+
+/**
+ * Probe well-known loopback HTTP proxy ports and report the first CONNECT
+ * responder without writing settings.
+ */
+export async function handleDesktopProxyDetectRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  expectedOrigin: string,
+  _controller: DesktopSettingsController,
+  reportError: (operation: string, cause: unknown) => void = () => {},
+): Promise<void> {
+  if (req.method !== 'POST') return finishJson(res, 405, error('method not allowed'), 'POST')
+  if (!isSameOriginLoopbackRequest(req, expectedOrigin, true)) {
+    return finishJson(res, 403, error('forbidden'))
+  }
+  try {
+    const proxyUrl = await detectLocalOutboundProxy()
+    const body: DesktopProxyDetectResponse = proxyUrl === null
+      ? { found: false, proxyUrl: '' }
+      : { found: true, proxyUrl }
+    finishJson(res, 200, body)
+  } catch (cause) {
+    reportError('detect local proxy', cause)
+    finishJson(res, 500, error('proxy detect unavailable'))
+  }
+}
+
+/**
+ * Probe api.x.ai through a drafted proxy URL without writing settings.
+ */
+export async function handleDesktopProxyTestRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  expectedOrigin: string,
+  _controller: DesktopSettingsController,
+  reportError: (operation: string, cause: unknown) => void = () => {},
+): Promise<void> {
+  if (req.method !== 'POST') return finishJson(res, 405, error('method not allowed'), 'POST')
+  if (!isSameOriginLoopbackRequest(req, expectedOrigin, true)) {
+    return finishJson(res, 403, error('forbidden'))
+  }
+  const value = await parsePostBody(req, res)
+  if (value === INVALID_BODY) return
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return finishJson(res, 400, error('invalid proxy test request'))
+  }
+  const proxyUrl = (value as DesktopProxyTestRequest).proxyUrl
+  if (typeof proxyUrl !== 'string' || proxyUrl.length > 2048) {
+    return finishJson(res, 400, error('invalid proxy test request'))
+  }
+  try {
+    const result = await testDesktopModelProxy(proxyUrl)
+    if (!DESKTOP_PROXY_TEST_CODES.includes(result.code)) {
+      return finishJson(res, 500, error('proxy test unavailable'))
+    }
+    const body: DesktopProxyTestResponse = { ok: result.ok, code: result.code }
+    finishJson(res, 200, body)
+  } catch (cause) {
+    reportError('test model proxy', cause)
+    finishJson(res, 500, error('proxy test unavailable'))
   }
 }
 

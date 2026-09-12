@@ -12,7 +12,13 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { composeEntries, initProfile, PROFILE_TEMPLATES } from '@deepseek-ai/dsh-app-boot'
+import {
+  composeEntries,
+  healProfilesModuleFallback,
+  initProfile,
+  PROFILE_TEMPLATES,
+} from '@deepseek-ai/dsh-app-boot'
+import { retainAsarModuleResolver } from '../src/asar-module-resolver-state.ts'
 import {
   DESKTOP_PACKAGE_NAME,
   desktopShellModeFromSettings,
@@ -76,6 +82,26 @@ afterEach(() => {
 describe('desktop profile composition', {
   timeout: process.platform === 'win32' ? 10_000 : 5_000,
 }, () => {
+  it('does not recreate the shared Profile fallback while the packaged ASAR resolver is active', async () => {
+    const home = temporaryHome()
+    const installAnchor = join(
+      home,
+      'resources',
+      'app.asar',
+      'node_modules',
+      '@deepseek-ai',
+      'dsh',
+      'package.json',
+    )
+    const releaseResolver = retainAsarModuleResolver()
+    try {
+      await expect(healProfilesModuleFallback({ home, installAnchor })).resolves.toBeUndefined()
+      expect(existsSync(join(home, 'profiles', 'node_modules'))).toBe(false)
+    } finally {
+      releaseResolver()
+    }
+  })
+
   it('removes only provably managed legacy shared fallbacks', () => {
     const home = temporaryHome()
     const sharedModules = join(home, 'profiles', 'node_modules')
@@ -185,6 +211,7 @@ describe('desktop profile composition', {
     expect(desktopBundleList([
       '@deepseek-ai/dsh-base',
       'third-party-one',
+      'dsh-plugin-desktop',
       DESKTOP_PACKAGE_NAME,
       'third-party-two',
     ])).toEqual([
@@ -193,39 +220,6 @@ describe('desktop profile composition', {
       'third-party-one',
       'third-party-two',
     ])
-  })
-
-  it('keeps Stable core bundles in the Desktop installation when a shared Profile is newer', () => {
-    const home = temporaryHome()
-    const profileDir = ensureDesktopProfile(home)
-    installBundle(
-      home,
-      '@deepseek-ai/dsh-web-app',
-      [
-        '- insert:',
-        '    - id: newer-profile-web',
-        '      name: newer-profile-web',
-        '',
-      ].join('\n'),
-      '99.0.0',
-    )
-    const manifestPath = join(profileDir, 'package.json')
-    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>
-    writeFileSync(manifestPath, JSON.stringify({
-      ...manifest,
-      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'] } },
-    }) + '\n')
-
-    const prepared = prepareDesktopProfile(undefined, home, 'darwin')
-    const webLayer = prepared.profile.layers.find(layer => layer.packageName === '@deepseek-ai/dsh-web-app')
-
-    expect(webLayer).toBeDefined()
-    expect(webLayer?.packageDir).not.toBe(join(
-      profileDir,
-      'node_modules',
-      '@deepseek-ai',
-      'dsh-web-app',
-    ))
   })
 
   it('repairs a base-only CLI profile without replacing dependencies', () => {
@@ -404,13 +398,26 @@ virtualStoreDirMaxLength: 60
     }))
     expect(inserted).toContainEqual(expect.objectContaining({
       id: 'desktop-webserver',
-      name: 'dsh-plugin-desktop/webserver',
+      name: 'dsh-plugin-desktop-beta/webserver',
       config: { host: '127.0.0.1', port: 43_120 },
     }))
     expect(patches).toContainEqual(expect.objectContaining({
       id: 'agent-presets',
-      config: expect.objectContaining({ roots: [expect.objectContaining({ trust: 'system' })] }),
+      config: expect.objectContaining({
+        roots: [
+          { path: shippedPresetRoot(), trust: 'system' },
+          { path: join(home, '.agent-presets'), trust: 'user' },
+          { path: join(prepared.profile.dir, 'agent-preset-compat'), trust: 'system' },
+        ],
+        includeUserRoot: false,
+      }),
     }))
+    expect(existsSync(join(
+      prepared.profile.dir,
+      'agent-preset-compat',
+      'code',
+      'agent.cordis.yml',
+    ))).toBe(true)
     expect(readFileSync(prepared.rootConfig, 'utf8')).toBe('[]\n')
     expect(prepared.homeDir).toBe(home)
     expect(fileURLToPath(prepared.bareModuleBaseUrl)).toBe(join(prepared.profile.dir, 'package.json'))
@@ -455,20 +462,20 @@ virtualStoreDirMaxLength: 60
     }))
     expect(rows.map(row => row.id)).not.toContain('desktop-windows-pwsh-sandbox')
     expect(rows.find(row => row.id === 'desktop-terminal')).toEqual(expect.objectContaining({
-      name: 'dsh-plugin-desktop/terminal',
+      name: 'dsh-plugin-desktop-beta/terminal',
       disabled: { __jsExpr: "process.platform === 'linux'" },
     }))
     expect(rows.find(row => row.id === 'desktop-pnpm')).toEqual(expect.objectContaining({
-      name: 'dsh-plugin-desktop/pnpm',
+      name: 'dsh-plugin-desktop-beta/pnpm',
     }))
     expect(rows.find(row => row.id === 'desktop-updates')).toEqual(expect.objectContaining({
-      name: 'dsh-plugin-desktop/updates',
+      name: 'dsh-plugin-desktop-beta/updates',
     }))
     expect(rows.find(row => row.id === 'desktop-notifications')).toEqual(expect.objectContaining({
-      name: 'dsh-plugin-desktop/notifications',
+      name: 'dsh-plugin-desktop-beta/notifications',
     }))
     expect(rows.find(row => row.id === 'desktop-profiles')).toEqual(expect.objectContaining({
-      name: 'dsh-plugin-desktop/profiles',
+      name: 'dsh-plugin-desktop-beta/profiles',
     }))
   })
 
@@ -769,7 +776,7 @@ virtualStoreDirMaxLength: 60
       name: 'third-party-layout',
     })
     expect(rows.find(row => row.id === 'desktop-shell')).toEqual(expect.objectContaining({
-      name: 'dsh-plugin-desktop',
+      name: 'dsh-plugin-desktop-beta',
       config: expect.objectContaining({ mode: 'compatibility' }),
     }))
   })
@@ -801,7 +808,7 @@ virtualStoreDirMaxLength: 60
       disabled: true,
     }))
     expect(rows.find(row => row.id === 'desktop-webserver')).toEqual(expect.objectContaining({
-      name: 'dsh-plugin-desktop/webserver',
+      name: 'dsh-plugin-desktop-beta/webserver',
       config: { host: '127.0.0.1', port: 43_189 },
     }))
     expect(rows.find(row => row.id === 'web-runtime')).toEqual(expect.objectContaining({
@@ -885,6 +892,9 @@ virtualStoreDirMaxLength: 60
       windowsMaterial: 'off',
       openBrowser: false,
       networkExposure: 'loopback',
+      proxyUrl: '',
+      modelProxyUrl: '',
+      modelProxyProviders: ['xai', 'openai-codex'],
       remoteRelayOrigin: '',
     })
     expect(desktopStartupSettingsFromSettings({ 'dsh-desktop': { mode: 'advanced' } })).toEqual({
@@ -894,6 +904,9 @@ virtualStoreDirMaxLength: 60
       windowsMaterial: 'off',
       openBrowser: false,
       networkExposure: 'loopback',
+      proxyUrl: '',
+      modelProxyUrl: '',
+      modelProxyProviders: ['xai', 'openai-codex'],
       remoteRelayOrigin: '',
     })
     expect(desktopShellModeFromSettings({ unrelated: { enabled: true } })).toBe('compatibility')
@@ -1045,7 +1058,12 @@ virtualStoreDirMaxLength: 60
     expect(rows.find(row => row.id === 'agent-presets')).toEqual(expect.objectContaining({
       name: '@deepseek-ai/dsh-agent-presets',
       config: expect.objectContaining({
-        roots: [{ path: shippedPresetRoot(), trust: 'system' }],
+        roots: [
+          { path: shippedPresetRoot(), trust: 'system' },
+          { path: join(home, '.agent-presets'), trust: 'user' },
+          { path: join(prepared.profile.dir, 'agent-preset-compat'), trust: 'system' },
+        ],
+        includeUserRoot: false,
       }),
     }))
     expect(rows.find(row => row.id === 'agent-presets')?.disabled).toBeFalsy()
@@ -1056,7 +1074,7 @@ virtualStoreDirMaxLength: 60
     }))
     expect(rows).toContainEqual(expect.objectContaining({
       id: 'desktop-windows-pwsh-sandbox',
-      name: 'dsh-plugin-desktop/windows-pwsh-sandbox',
+      name: 'dsh-plugin-desktop-beta/windows-pwsh-sandbox',
       disabled: { __jsExpr: "process.platform !== 'win32'" },
       config: { cwd: 'C:\\workspace' },
     }))

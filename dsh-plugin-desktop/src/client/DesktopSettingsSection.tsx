@@ -24,6 +24,9 @@ export interface DesktopShellSettings {
   readonly openBrowser: boolean
   readonly networkExposure: 'loopback' | 'lan'
   readonly logLevel: 'debug' | 'info' | 'warn' | 'error'
+  readonly proxyUrl: string
+  readonly modelProxyUrl: string
+  readonly modelProxyProviders: readonly string[]
 }
 
 /** Browser view of the Host `dsh-desktop-notifications` settings namespace. */

@@ -43,6 +43,8 @@ import FileSettingsProvider, {
 import { parseAllDocuments, parseDocument } from 'yaml'
 import { COMPAT_PRESET_DIRNAME, materializeLegacyPresetAliases } from './agent-preset-compat.ts'
 import { findOverlayPackage, resolveOverlayPackage } from './package-overlay.ts'
+import { parseDesktopModelProxyProviders } from './desktop-model-proxy.ts'
+import { parseDesktopProxyUrl } from './desktop-proxy-url.ts'
 import { canonicalRelayOrigin } from './remote-relay-origin.ts'
 import { withAsarModuleResolver } from './asar-module-resolver-state.ts'
 import { DESKTOP_DEFAULT_WEB_PORT } from './desktop-port.ts'
@@ -161,6 +163,12 @@ export interface DesktopStartupSettings {
   /** Persisted compatibility key for ordinary-browser access permission. */
   openBrowser: boolean
   networkExposure: DesktopNetworkExposure
+  /** Outbound proxy URL; empty inherits HTTP_PROXY from the launch environment. */
+  proxyUrl: string
+  /** Proxy URL used only for selected overseas model hosts. */
+  modelProxyUrl: string
+  /** Provider ids whose API hosts use `modelProxyUrl` or HTTP_PROXY. */
+  modelProxyProviders: readonly string[]
   /** Configured remote-control relay origin; empty keeps the relay tunnel off. */
   remoteRelayOrigin: string
 }
@@ -172,6 +180,9 @@ const DEFAULT_DESKTOP_STARTUP_SETTINGS: DesktopStartupSettings = Object.freeze({
   windowsMaterial: DEFAULT_WINDOWS_WINDOW_MATERIAL,
   openBrowser: false,
   networkExposure: 'loopback',
+  proxyUrl: '',
+  modelProxyUrl: '',
+  modelProxyProviders: ['xai', 'openai-codex'],
   remoteRelayOrigin: '',
 })
 
@@ -222,6 +233,9 @@ export function desktopStartupSettingsFromSettings(document: unknown): DesktopSt
     windowsMaterial: parseWindowsWindowMaterial(values.windowsMaterial),
     openBrowser,
     networkExposure: desktopNetworkExposureForBrowserAccess(openBrowser, networkExposure),
+    proxyUrl: parseDesktopProxyUrl(values.proxyUrl),
+    modelProxyUrl: parseDesktopProxyUrl(values.modelProxyUrl),
+    modelProxyProviders: parseDesktopModelProxyProviders(values.modelProxyProviders),
     remoteRelayOrigin,
   }
 }
@@ -258,6 +272,11 @@ export function readDesktopStartupSettings(config: SettingsFileConfig): DesktopS
     document = text.trim().length === 0 ? {} : JSON.parse(text)
   }
   return desktopStartupSettingsFromSettings(document)
+}
+
+/** Read Desktop startup settings from the active DSH home. */
+export function readDesktopStartupSettingsFromHome(home: string): DesktopStartupSettings {
+  return readDesktopStartupSettings(FileSettingsProvider.Config({ dshHome: home }))
 }
 
 /** Read only the shell mode from the settings provider's resolved file. */
@@ -1041,6 +1060,9 @@ export function prepareDesktopProfile(
     windowsMaterial,
     openBrowser,
     networkExposure,
+    proxyUrl,
+    modelProxyUrl,
+    modelProxyProviders,
     remoteRelayOrigin,
   } = readDesktopStartupSettings(settingsConfig)
   patches.push({
@@ -1212,6 +1234,9 @@ export function prepareDesktopProfile(
       networkExposure,
       macosMaterial,
       windowsMaterial,
+      proxyUrl,
+      modelProxyUrl,
+      modelProxyProviders,
     },
   })
   return {
