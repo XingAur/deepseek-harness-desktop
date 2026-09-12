@@ -1,12 +1,39 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Ban, ChevronDown, LoaderCircle, Plus, Send, Sparkles } from 'lucide-react'
-import { Button } from '../components/ui/button.tsx'
+import { ArrowLeft, Ban, LoaderCircle, Moon, Plus, Send, Sparkles, Sun } from 'lucide-react'
 
 /** Relative bases survive both loopback (/mobile/) and relay (/r/<pair>/mobile/) hosting. */
 const API = (name: string) => new URL(`../api/desktop/mobile/${name}`, window.location.href).href
-const FULL_CLIENT = () => new URL('../', window.location.href).href
 const TOKEN_EXCHANGE = (token: string) => new URL(`../?token=${encodeURIComponent(token)}`, window.location.href).href
 const POLL_MS = 2_500
+const THEME_KEY = 'dsh-mobile-theme'
+
+/** Manual dark override mirroring theme.css's prefers-color-scheme block. */
+const MANUAL_DARK_STYLE = `
+html.dshMobileManualDark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  color-scheme: dark;
+}
+html.dshMobileManualDark body { background: oklch(0.145 0 0); color: oklch(0.985 0 0); }
+@keyframes dshMobileDot { 0%, 80%, 100% { transform: scale(.5); opacity: .4 } 40% { transform: scale(1); opacity: 1 } }
+.dshMobileThinkingDot { animation: dshMobileDot 1.2s ease-in-out infinite; }
+.dshMobileThinkingDot:nth-child(2) { animation-delay: .15s }
+.dshMobileThinkingDot:nth-child(3) { animation-delay: .3s }
+`
 
 interface SessionRow {
   readonly id: string
@@ -31,7 +58,15 @@ interface StateResponse {
   readonly relay: { readonly active: boolean }
 }
 
+interface TranscriptLine {
+  readonly role: 'user' | 'assistant'
+  readonly text: string
+  readonly time: number
+}
+
 type Phase = 'bootstrapping' | 'expired' | 'loading' | 'ready' | 'error'
+type View = { kind: 'list' } | { kind: 'session'; id: string } | { kind: 'new' }
+type ThemeMode = 'light' | 'dark'
 
 function locale(): 'en' | 'zh' {
   return navigator.language.toLowerCase().startsWith('zh') ? 'zh' : 'en'
@@ -39,46 +74,50 @@ function locale(): 'en' | 'zh' {
 
 const COPY = {
   en: Object.freeze({
-    appName: 'DSH',
     newSession: 'New session',
-    promptPlaceholder: 'Ask DSH anything…',
+    promptPlaceholder: 'Describe the task for the agent…',
+    messagePlaceholder: 'Reply…',
     send: 'Send',
     defaultWorkspace: 'Default',
     running: 'Running',
     idle: 'Idle',
-    empty: 'No sessions yet. Start one below.',
+    thinking: 'Thinking',
+    empty: 'No sessions yet. Start one from the top.',
+    emptyTranscript: 'No messages yet. Say something below.',
     cancel: 'Stop',
     approvalBanner: 'Awaiting desktop approval',
     approvalNote: 'Approvals are answered on the desktop client.',
     expired: 'This link is no longer valid. Regenerate it from the desktop tray.',
     error: 'State unavailable.',
     retry: 'Retry',
-    fullClient: 'Full client',
-    workspace: 'Workspace',
-    messagePlaceholder: 'Reply…',
+    toggleTheme: 'Toggle theme',
+    back: 'Back',
+    newTaskTitle: 'New session',
     justNow: 'just now',
     minutesAgo: (value: number) => `${String(value)} min ago`,
     hoursAgo: (value: number) => `${String(value)} h ago`,
     daysAgo: (value: number) => `${String(value)} d ago`,
   }),
   zh: Object.freeze({
-    appName: 'DSH',
     newSession: '新会话',
-    promptPlaceholder: '向 DSH 问点什么…',
+    promptPlaceholder: '描述要交给 Agent 的任务…',
+    messagePlaceholder: '继续对话…',
     send: '发送',
     defaultWorkspace: '默认工作区',
     running: '运行中',
     idle: '空闲',
-    empty: '还没有会话,在下方开始一个。',
+    thinking: '思考中',
+    empty: '还没有会话,点击上方新建。',
+    emptyTranscript: '还没有消息,在下方说点什么。',
     cancel: '停止',
     approvalBanner: '等待桌面端批准',
     approvalNote: '批准操作需要在桌面客户端完成。',
     expired: '链接已失效,请在桌面端托盘重新生成。',
     error: '状态获取失败。',
     retry: '重试',
-    fullClient: '完整客户端',
-    workspace: '工作区',
-    messagePlaceholder: '继续对话…',
+    toggleTheme: '切换深浅色',
+    back: '返回',
+    newTaskTitle: '新会话',
     justNow: '刚刚',
     minutesAgo: (value: number) => `${String(value)} 分钟前`,
     hoursAgo: (value: number) => `${String(value)} 小时前`,
@@ -87,23 +126,25 @@ const COPY = {
 } as const
 
 interface MobileCopy {
-  readonly appName: string
   readonly newSession: string
   readonly promptPlaceholder: string
+  readonly messagePlaceholder: string
   readonly send: string
   readonly defaultWorkspace: string
   readonly running: string
   readonly idle: string
+  readonly thinking: string
   readonly empty: string
+  readonly emptyTranscript: string
   readonly cancel: string
   readonly approvalBanner: string
   readonly approvalNote: string
   readonly expired: string
   readonly error: string
   readonly retry: string
-  readonly fullClient: string
-  readonly workspace: string
-  readonly messagePlaceholder: string
+  readonly toggleTheme: string
+  readonly back: string
+  readonly newTaskTitle: string
   readonly justNow: string
   readonly minutesAgo: (value: number) => string
   readonly hoursAgo: (value: number) => string
@@ -137,58 +178,28 @@ async function apiCall(input: string, init?: RequestInit): Promise<Response> {
   })
 }
 
-/**
- * Mobile mirror of the desktop sidebar's session list, styled with the same
- * theme tokens: workspace groups with count badges, elevated session cards
- * with status dots and relative times, and the client's rounded composer.
- */
-function SessionCard(props: {
-  readonly session: SessionRow
-  readonly now: number
-  readonly copy: MobileCopy
-  readonly open: boolean
-  readonly busy: boolean
-  readonly draft: string
-  readonly onToggle: () => void
-  readonly onDraft: (value: string) => void
-  readonly onSend: () => void
-  readonly onCancel: () => void
-}): ReactNode {
-  const { session, now, copy } = props
-  return <div className={`overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm ${session.running ? 'shadow-primary/5' : ''}`}>
-    <button
-      className="flex w-full items-start gap-3 px-4 py-3.5 text-left transition-colors active:bg-muted/70"
-      onClick={props.onToggle}
-      type="button"
-    >
-      <span className={`mt-[9px] size-2 shrink-0 rounded-full ${session.running ? 'animate-pulse bg-amber-500' : 'bg-muted-foreground/35'}`} />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[15px] font-medium leading-6 text-foreground">
-          {session.title ?? session.id.slice(0, 8)}
-        </span>
-        <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
-          {relativeTime(session.updatedAt, now, copy)}
-        </span>
-      </span>
-      <span className={`mt-1 shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium leading-4 ${session.running ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400' : 'bg-muted text-muted-foreground'}`}>
-        {session.running ? copy.running : copy.idle}
-      </span>
-      <ChevronDown aria-hidden className={`mt-1.5 size-4 shrink-0 text-muted-foreground/60 transition-transform ${props.open ? 'rotate-180' : ''}`} />
-    </button>
-    {props.open
-      ? <div className="flex items-center gap-2 border-t border-border/60 bg-muted/40 px-3 py-2.5">
-        <input
-          className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-background px-3 text-[15px] text-foreground outline-none placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/40"
-          onChange={event => { props.onDraft(event.target.value) }}
-          placeholder={copy.messagePlaceholder}
-          value={props.draft}
-        />
-        <Button aria-label={copy.send} className="size-10 shrink-0 rounded-full p-0" disabled={props.busy || props.draft.trim().length === 0} onClick={props.onSend} size="icon" type="button"><Send className="size-4" /></Button>
-        {session.running
-          ? <Button aria-label={copy.cancel} className="size-10 shrink-0 rounded-full p-0" disabled={props.busy} onClick={props.onCancel} size="icon" type="button" variant="outline"><Ban className="size-4" /></Button>
-          : null}
-      </div>
-      : null}
+/** The client's thinking row: pulsing loader, bouncing dots, dimmed label. */
+function ThinkingRow({ label }: { readonly label: string }): ReactNode {
+  return <div className="flex items-center gap-2.5 px-1 py-3 text-sm text-muted-foreground" aria-live="polite">
+    <LoaderCircle aria-hidden className="size-4 animate-spin text-muted-foreground/70" />
+    <span className="flex items-center gap-1">
+      <span className="dshMobileThinkingDot size-1.5 rounded-full bg-muted-foreground/70" />
+      <span className="dshMobileThinkingDot size-1.5 rounded-full bg-muted-foreground/70" />
+      <span className="dshMobileThinkingDot size-1.5 rounded-full bg-muted-foreground/70" />
+    </span>
+    {label}…
+  </div>
+}
+
+/** One chat balloon: user on the right in primary, assistant on the left in card. */
+function ChatLine({ line }: { readonly line: TranscriptLine }): ReactNode {
+  const mine = line.role === 'user'
+  return <div className={`flex w-full ${mine ? 'justify-end' : 'justify-start'}`}>
+    <div className={`max-w-[86%] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-[15px] leading-6 shadow-sm ${mine
+      ? 'rounded-br-md bg-primary text-primary-foreground'
+      : 'rounded-bl-md border border-border/60 bg-card text-foreground'}`}>
+      {line.text}
+    </div>
   </div>
 }
 
@@ -196,13 +207,36 @@ export function MobileApp(): JSX.Element {
   const copy = copyFor()
   const [phase, setPhase] = useState<Phase>('bootstrapping')
   const [state, setState] = useState<StateResponse | null>(null)
+  const [view, setView] = useState<View>({ kind: 'list' })
+  const [transcript, setTranscript] = useState<readonly TranscriptLine[]>([])
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
-  const [openSession, setOpenSession] = useState<string | null>(null)
-  const [sessionDrafts, setSessionDrafts] = useState<Record<string, string>>({})
+  const [sent, setSent] = useState(0)
+  const [theme, setTheme] = useState<ThemeMode>(() =>
+    window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
   const [now, setNow] = useState(() => Date.now())
   const bootstrapped = useRef(false)
   const composer = useRef<HTMLInputElement | null>(null)
+  const scroller = useRef<HTMLDivElement | null>(null)
+
+  // Manual theme: an explicit choice persists and overrides the system scheme.
+  useEffect(() => {
+    const stored = window.localStorage.getItem(THEME_KEY)
+    const initial = stored === 'light' || stored === 'dark'
+      ? stored
+      : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    setTheme(initial)
+    const style = document.createElement('style')
+    style.textContent = MANUAL_DARK_STYLE
+    document.head.appendChild(style)
+    document.documentElement.classList.toggle('dshMobileManualDark', initial === 'dark')
+  }, [])
+  const toggleTheme = (): void => {
+    const next = theme === 'dark' ? 'light' : 'dark'
+    setTheme(next)
+    window.localStorage.setItem(THEME_KEY, next)
+    document.documentElement.classList.toggle('dshMobileManualDark', next === 'dark')
+  }
 
   const poll = useCallback(async () => {
     if (document.visibilityState === 'hidden') return
@@ -218,6 +252,15 @@ export function MobileApp(): JSX.Element {
     } catch {
       setPhase('error')
     }
+  }, [])
+
+  const pollTranscript = useCallback(async (sessionId: string) => {
+    try {
+      const response = await apiCall(`${API('transcript')}?sessionId=${encodeURIComponent(sessionId)}`)
+      if (!response.ok) return
+      const payload = await response.json() as { messages?: readonly TranscriptLine[] }
+      setTranscript(payload.messages ?? [])
+    } catch { /* transient; the next tick retries */ }
   }, [])
 
   useEffect(() => {
@@ -250,14 +293,35 @@ export function MobileApp(): JSX.Element {
     const timer = window.setInterval(() => {
       setNow(Date.now())
       void poll()
+      if (view.kind === 'session') void pollTranscript(view.id)
     }, POLL_MS)
-    const onVisible = (): void => { if (document.visibilityState === 'visible') void poll() }
+    const onVisible = (): void => {
+      if (document.visibilityState !== 'visible') return
+      void poll()
+      if (view.kind === 'session') void pollTranscript(view.id)
+    }
     document.addEventListener('visibilitychange', onVisible)
     return () => {
       window.clearInterval(timer)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [poll])
+  }, [poll, pollTranscript, view])
+
+  // Fresh transcript whenever the detail view opens.
+  useEffect(() => {
+    if (view.kind === 'session') void pollTranscript(view.id)
+    else setTranscript([])
+  }, [view, pollTranscript])
+
+  // Keep the chat pinned to the newest line.
+  useEffect(() => {
+    const el = scroller.current
+    if (el !== null) el.scrollTop = el.scrollHeight
+  }, [transcript, sent])
+
+  const openSession = (id: string): void => {
+    setView({ kind: 'session', id })
+  }
 
   const createTask = async (): Promise<void> => {
     const content = draft.trim()
@@ -270,8 +334,14 @@ export function MobileApp(): JSX.Element {
         body: JSON.stringify({ content }),
       })
       if (response.ok) {
+        const created = await response.json() as { sessionId?: string }
         setDraft('')
         await poll()
+        if (typeof created.sessionId === 'string') {
+          setView({ kind: 'session', id: created.sessionId })
+          setSent(Date.now())
+          void pollTranscript(created.sessionId)
+        }
       }
     } finally {
       setBusy(false)
@@ -279,44 +349,41 @@ export function MobileApp(): JSX.Element {
   }
 
   const sendToSession = async (): Promise<void> => {
-    const sessionId = openSession
-    const content = (sessionDrafts[sessionId ?? ''] ?? '').trim()
-    if (sessionId === null || content.length === 0 || busy) return
+    if (view.kind !== 'session') return
+    const sessionId = view.id
+    const content = draft.trim()
+    if (content.length === 0 || busy) return
     setBusy(true)
+    setDraft('')
+    setSent(Date.now())
+    // Optimistic echo, replaced by the polled transcript.
+    setTranscript(current => [...current, { role: 'user', text: content, time: Date.now() }])
     try {
-      const response = await apiCall(API('prompt'), {
+      await apiCall(API('prompt'), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ sessionId, content }),
       })
-      if (response.ok) {
-        setSessionDrafts(current => ({ ...current, [sessionId]: '' }))
-        await poll()
-      }
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const cancelSession = async (sessionId: string): Promise<void> => {
-    if (busy) return
-    setBusy(true)
-    try {
-      await apiCall(API('cancel'), {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ sessionId }),
-      })
+      await pollTranscript(sessionId)
       await poll()
     } finally {
       setBusy(false)
     }
   }
 
-  const startNewSession = (): void => {
-    setOpenSession(null)
-    composer.current?.focus()
-    composer.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  const cancelSession = async (): Promise<void> => {
+    if (view.kind !== 'session' || busy) return
+    setBusy(true)
+    try {
+      await apiCall(API('cancel'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId: view.id }),
+      })
+      await poll()
+    } finally {
+      setBusy(false)
+    }
   }
 
   if (phase === 'bootstrapping') {
@@ -327,15 +394,12 @@ export function MobileApp(): JSX.Element {
     return <main className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center gap-4 bg-background px-6 text-center text-foreground">
       <Sparkles aria-hidden className="size-8 text-muted-foreground/50" />
       <p className="text-sm text-muted-foreground">{copy.expired}</p>
-      <Button onClick={() => { void poll() }} variant="outline">{copy.retry}</Button>
+      <button className="rounded-full border border-border px-4 py-2 text-sm text-foreground active:bg-muted" onClick={() => { void poll() }} type="button">{copy.retry}</button>
     </main>
   }
 
   const sessions = [...(state?.sessions ?? [])].sort((left, right) => right.updatedAt - left.updatedAt)
   const approvals = state?.approvals ?? []
-  // Workspace groups come from the same registry the desktop sidebar reads
-  // (title + manual session order); the cwd fallback only covers a server
-  // that predates server-side grouping.
   const byId = new Map(sessions.map(session => [session.id, session]))
   const serverGroups = state?.groups ?? []
   const groups: Array<[string, SessionRow[]]> = serverGroups.length > 0
@@ -357,10 +421,93 @@ export function MobileApp(): JSX.Element {
     })()
   const runningCount = sessions.filter(session => session.running).length
 
+  // ---- Detail view: transcript, thinking state, chat composer ----
+  if (view.kind === 'session' || view.kind === 'new') {
+    const isNew = view.kind === 'new'
+    const session = isNew ? undefined : byId.get(view.id)
+    const running = session?.running === true
+    const title = isNew ? copy.newTaskTitle : (session?.title ?? view.id.slice(0, 8))
+    const waiting = isNew
+      ? false
+      : running || (sent > 0 && Date.now() - sent < 120_000 && busy)
+    const send = isNew ? createTask : sendToSession
+    return <main className="mx-auto flex h-screen max-w-md flex-col bg-background text-foreground">
+      <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-border/60 bg-background/95 px-3 py-3 backdrop-blur">
+        <button aria-label={copy.back} className="flex size-9 items-center justify-center rounded-full text-foreground active:bg-muted" onClick={() => { setView({ kind: 'list' }) }} type="button">
+          <ArrowLeft aria-hidden className="size-5" />
+        </button>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[15px] font-semibold leading-6 text-foreground">{title}</p>
+          {isNew
+            ? <p className="text-xs leading-4 text-muted-foreground">{copy.promptPlaceholder}</p>
+            : <p className="flex items-center gap-1.5 text-xs leading-4 text-muted-foreground">
+                {running ? <span className="size-1.5 animate-pulse rounded-full bg-amber-500" /> : null}
+                {session !== undefined ? relativeTime(session.updatedAt, now, copy) : ''}
+                {session?.cwd ? ` · ${workspaceLabel(session.cwd)}` : ''}
+              </p>}
+        </div>
+        {running
+          ? <button aria-label={copy.cancel} className="flex h-8 items-center gap-1.5 rounded-full border border-border px-3 text-xs text-foreground active:bg-muted" disabled={busy} onClick={() => { void cancelSession() }} type="button">
+              <Ban aria-hidden className="size-3.5" />{copy.cancel}
+            </button>
+          : null}
+        <button aria-label={copy.toggleTheme} className="flex size-9 items-center justify-center rounded-full text-muted-foreground active:bg-muted" onClick={toggleTheme} type="button">
+          {theme === 'dark' ? <Sun aria-hidden className="size-4.5" /> : <Moon aria-hidden className="size-4.5" />}
+        </button>
+      </header>
+
+      {approvals.length > 0
+        ? <p aria-live="polite" className="mx-3 mt-3 rounded-lg bg-amber-500/15 px-3 py-2 text-xs font-medium leading-5 text-amber-600 dark:text-amber-400">
+            {copy.approvalBanner}: {approvals.map(item => item.toolName).join(', ')} — {copy.approvalNote}
+          </p>
+        : null}
+
+      <div className="flex-1 overflow-y-auto px-3 py-4" ref={scroller}>
+        {isNew && transcript.length === 0
+          ? <div className="pt-20 text-center">
+              <Sparkles aria-hidden className="mx-auto size-8 text-muted-foreground/40" />
+              <p className="mx-6 mt-3 text-sm leading-6 text-muted-foreground">{copy.promptPlaceholder}</p>
+            </div>
+          : null}
+        {!isNew && transcript.length === 0
+          ? <p className="pt-16 text-center text-sm text-muted-foreground">{copy.emptyTranscript}</p>
+          : null}
+        <div className="flex flex-col gap-2.5">
+          {transcript.map((line, index) => <ChatLine key={`${String(line.time)}-${String(index)}`} line={line} />)}
+          {waiting ? <ThinkingRow label={copy.thinking} /> : null}
+        </div>
+      </div>
+
+      <form
+        className="sticky bottom-0 border-t border-border/60 bg-background/95 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur"
+        onSubmit={event => { event.preventDefault(); void send() }}
+      >
+        <div className="flex items-center gap-2 rounded-2xl border border-border bg-card px-3.5 py-1.5 shadow-sm focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/40">
+          <input
+            className="h-11 min-w-0 flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground/70"
+            onChange={event => { setDraft(event.target.value) }}
+            placeholder={isNew ? copy.promptPlaceholder : copy.messagePlaceholder}
+            ref={composer}
+            value={draft}
+          />
+          <button
+            aria-label={copy.send}
+            className={`flex size-11 shrink-0 items-center justify-center rounded-full transition-all ${draft.trim().length === 0 || busy ? 'bg-muted text-muted-foreground/40' : 'bg-primary text-primary-foreground shadow-sm active:scale-95'}`}
+            disabled={busy || draft.trim().length === 0}
+            type="submit"
+          >
+            {busy ? <LoaderCircle aria-hidden className="size-4 animate-spin" /> : <Send aria-hidden className="size-4" />}
+          </button>
+        </div>
+      </form>
+    </main>
+  }
+
+  // ---- List view: workspace groups of session cards ----
   return <main className="mx-auto flex h-screen max-w-md flex-col bg-muted/40 text-foreground">
     <header className="sticky top-0 z-10 border-b border-border/60 bg-background/95 backdrop-blur">
       <div className="flex items-center justify-between px-4 pb-3 pt-4">
-        <button className="flex items-center gap-2.5 active:opacity-80" onClick={startNewSession} type="button">
+        <button className="flex items-center gap-2.5 active:opacity-80" onClick={() => { setView({ kind: 'new' }); setTimeout(() => composer.current?.focus(), 60) }} type="button">
           <span className="flex size-8 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm"><Plus aria-hidden className="size-4" strokeWidth={2} /></span>
           <span className="text-[15px] font-semibold tracking-tight text-foreground">{copy.newSession}</span>
         </button>
@@ -368,7 +515,9 @@ export function MobileApp(): JSX.Element {
           {runningCount > 0
             ? <span className="flex items-center gap-1.5 rounded-full bg-amber-500/15 px-2.5 py-1 text-[11px] font-medium text-amber-600 dark:text-amber-400"><span className="size-1.5 animate-pulse rounded-full bg-amber-500" />{`${String(runningCount)} ${copy.running}`}</span>
             : null}
-          <a className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline" href={FULL_CLIENT()}>{copy.fullClient}</a>
+          <button aria-label={copy.toggleTheme} className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" onClick={toggleTheme} type="button">
+            {theme === 'dark' ? <Sun aria-hidden className="size-4.5" /> : <Moon aria-hidden className="size-4.5" />}
+          </button>
         </span>
       </div>
       {approvals.length > 0
@@ -391,43 +540,28 @@ export function MobileApp(): JSX.Element {
           <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium leading-4 text-muted-foreground tabular-nums">{String(rows.length)}</span>
         </h2>
         <div className="flex flex-col gap-2">
-          {rows.map(session => <SessionCard
+          {rows.map(session => <button
+            className="flex w-full items-start gap-3 rounded-xl border border-border/70 bg-card px-4 py-3.5 text-left shadow-sm transition-colors active:bg-muted/70"
             key={session.id}
-            busy={busy}
-            copy={copy}
-            draft={sessionDrafts[session.id] ?? ''}
-            now={now}
-            onCancel={() => { void cancelSession(session.id) }}
-            onDraft={value => { setSessionDrafts(current => ({ ...current, [session.id]: value })) }}
-            onSend={() => { void sendToSession() }}
-            onToggle={() => { setOpenSession(current => current === session.id ? null : session.id) }}
-            open={openSession === session.id}
-            session={session}
-          />)}
+            onClick={() => { openSession(session.id) }}
+            type="button"
+          >
+            <span className={`mt-[9px] size-2 shrink-0 rounded-full ${session.running ? 'animate-pulse bg-amber-500' : 'bg-muted-foreground/35'}`} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[15px] font-medium leading-6 text-foreground">
+                {session.title ?? session.id.slice(0, 8)}
+              </span>
+              <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
+                {relativeTime(session.updatedAt, now, copy)}
+                {session.cwd ? ` · ${workspaceLabel(session.cwd)}` : ''}
+              </span>
+            </span>
+            <span className={`mt-1 shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium leading-4 ${session.running ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400' : 'bg-muted text-muted-foreground'}`}>
+              {session.running ? copy.running : copy.idle}
+            </span>
+          </button>)}
         </div>
       </div>)}
     </section>
-    <form
-      className="sticky bottom-0 border-t border-border/60 bg-background/95 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur"
-      onSubmit={event => { event.preventDefault(); void createTask() }}
-    >
-      <div className="flex items-center gap-2 rounded-2xl border border-border bg-card px-3.5 py-1.5 shadow-sm focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/40">
-        <input
-          className="h-11 min-w-0 flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground/70"
-          onChange={event => { setDraft(event.target.value) }}
-          placeholder={copy.promptPlaceholder}
-          ref={composer}
-          value={draft}
-        />
-        <button
-          aria-label={copy.send}
-          className={`flex size-11 shrink-0 items-center justify-center rounded-full transition-all ${draft.trim().length === 0 || busy ? 'bg-muted text-muted-foreground/40' : 'bg-primary text-primary-foreground shadow-sm active:scale-95'}`}
-          disabled={busy || draft.trim().length === 0}
-          type="submit"
-        >
-          {busy ? <LoaderCircle aria-hidden className="size-4 animate-spin" /> : <Send aria-hidden className="size-4" />}
-        </button>
-      </div>
-    </form>
   </main>
 }
