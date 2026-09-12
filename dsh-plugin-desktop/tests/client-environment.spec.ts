@@ -296,10 +296,10 @@ describe('advanced desktop layout', () => {
       material: 'off',
       micaSupported: false,
       availableMaterials: ['off', 'transparent'],
-      safeAreaInsets: { top: 0, right: 0, bottom: 0, left: 0 },
+      safeAreaInsets: { top: DESKTOP_FRAME_HEIGHT, right: 0, bottom: 0, left: 0 },
       dragRegion: {
-        height: 0,
-        leftInset: 0,
+        height: DESKTOP_FRAME_HEIGHT,
+        leftInset: MACOS_TRAFFIC_LIGHT_SAFE_WIDTH,
         rightInset: 0,
       },
     })

@@ -398,26 +398,13 @@ virtualStoreDirMaxLength: 60
     }))
     expect(inserted).toContainEqual(expect.objectContaining({
       id: 'desktop-webserver',
-      name: 'dsh-plugin-desktop-beta/webserver',
+      name: 'dsh-plugin-desktop/webserver',
       config: { host: '127.0.0.1', port: 43_120 },
     }))
     expect(patches).toContainEqual(expect.objectContaining({
       id: 'agent-presets',
-      config: expect.objectContaining({
-        roots: [
-          { path: shippedPresetRoot(), trust: 'system' },
-          { path: join(home, '.agent-presets'), trust: 'user' },
-          { path: join(prepared.profile.dir, 'agent-preset-compat'), trust: 'system' },
-        ],
-        includeUserRoot: false,
-      }),
+      config: expect.objectContaining({ roots: [expect.objectContaining({ trust: 'system' })] }),
     }))
-    expect(existsSync(join(
-      prepared.profile.dir,
-      'agent-preset-compat',
-      'code',
-      'agent.cordis.yml',
-    ))).toBe(true)
     expect(readFileSync(prepared.rootConfig, 'utf8')).toBe('[]\n')
     expect(prepared.homeDir).toBe(home)
     expect(fileURLToPath(prepared.bareModuleBaseUrl)).toBe(join(prepared.profile.dir, 'package.json'))
@@ -462,20 +449,20 @@ virtualStoreDirMaxLength: 60
     }))
     expect(rows.map(row => row.id)).not.toContain('desktop-windows-pwsh-sandbox')
     expect(rows.find(row => row.id === 'desktop-terminal')).toEqual(expect.objectContaining({
-      name: 'dsh-plugin-desktop-beta/terminal',
+      name: 'dsh-plugin-desktop/terminal',
       disabled: { __jsExpr: "process.platform === 'linux'" },
     }))
     expect(rows.find(row => row.id === 'desktop-pnpm')).toEqual(expect.objectContaining({
-      name: 'dsh-plugin-desktop-beta/pnpm',
+      name: 'dsh-plugin-desktop/pnpm',
     }))
     expect(rows.find(row => row.id === 'desktop-updates')).toEqual(expect.objectContaining({
-      name: 'dsh-plugin-desktop-beta/updates',
+      name: 'dsh-plugin-desktop/updates',
     }))
     expect(rows.find(row => row.id === 'desktop-notifications')).toEqual(expect.objectContaining({
-      name: 'dsh-plugin-desktop-beta/notifications',
+      name: 'dsh-plugin-desktop/notifications',
     }))
     expect(rows.find(row => row.id === 'desktop-profiles')).toEqual(expect.objectContaining({
-      name: 'dsh-plugin-desktop-beta/profiles',
+      name: 'dsh-plugin-desktop/profiles',
     }))
   })
 
@@ -776,7 +763,7 @@ virtualStoreDirMaxLength: 60
       name: 'third-party-layout',
     })
     expect(rows.find(row => row.id === 'desktop-shell')).toEqual(expect.objectContaining({
-      name: 'dsh-plugin-desktop-beta',
+      name: 'dsh-plugin-desktop',
       config: expect.objectContaining({ mode: 'compatibility' }),
     }))
   })
@@ -808,7 +795,7 @@ virtualStoreDirMaxLength: 60
       disabled: true,
     }))
     expect(rows.find(row => row.id === 'desktop-webserver')).toEqual(expect.objectContaining({
-      name: 'dsh-plugin-desktop-beta/webserver',
+      name: 'dsh-plugin-desktop/webserver',
       config: { host: '127.0.0.1', port: 43_189 },
     }))
     expect(rows.find(row => row.id === 'web-runtime')).toEqual(expect.objectContaining({
@@ -1061,12 +1048,7 @@ virtualStoreDirMaxLength: 60
     expect(rows.find(row => row.id === 'agent-presets')).toEqual(expect.objectContaining({
       name: '@deepseek-ai/dsh-agent-presets',
       config: expect.objectContaining({
-        roots: [
-          { path: shippedPresetRoot(), trust: 'system' },
-          { path: join(home, '.agent-presets'), trust: 'user' },
-          { path: join(prepared.profile.dir, 'agent-preset-compat'), trust: 'system' },
-        ],
-        includeUserRoot: false,
+        roots: [{ path: shippedPresetRoot(), trust: 'system' }],
       }),
     }))
     expect(rows.find(row => row.id === 'agent-presets')?.disabled).toBeFalsy()
@@ -1077,7 +1059,7 @@ virtualStoreDirMaxLength: 60
     }))
     expect(rows).toContainEqual(expect.objectContaining({
       id: 'desktop-windows-pwsh-sandbox',
-      name: 'dsh-plugin-desktop-beta/windows-pwsh-sandbox',
+      name: 'dsh-plugin-desktop/windows-pwsh-sandbox',
       disabled: { __jsExpr: "process.platform !== 'win32'" },
       config: { cwd: 'C:\\workspace' },
     }))
