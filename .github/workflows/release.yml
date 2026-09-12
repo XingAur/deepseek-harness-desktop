@@ -188,8 +188,8 @@ jobs:
         run: |
           set -euo pipefail
           version=$(node -p "require('./dsh-plugin-desktop/package.json').version")
-          exe=$(find artifacts -name 'stable-DSH-Desktop-*-x64-Setup.exe' | head -n 1)
-          dmg=$(find artifacts -name 'stable-DSH.Desktop-*-universal.dmg' | head -n 1)
+          exe=$(find artifacts -name 'DSH-Desktop-*-x64-Setup.exe' | head -n 1)
+          dmg=$(find artifacts -name 'DSH.Desktop-*-universal.dmg' | head -n 1)
           test -n "$exe" || { echo 'stable setup exe not found'; exit 1; }
           test -n "$dmg" || { echo 'stable dmg not found'; exit 1; }
           install -m 600 /dev/null key
