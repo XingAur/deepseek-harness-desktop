@@ -817,7 +817,8 @@ export function DesktopSettingsSection({
           />
         </div>
       </section>
-      {confirmLan && (
+
+            {confirmLan && (
         <div className="dshDesktopSettingsDialogBackdrop" role="presentation">
           <div className="dshDesktopSettingsDialog" role="alertdialog" aria-modal="true" aria-labelledby="dsh-desktop-lan-warning-title" aria-describedby="dsh-desktop-lan-warning-body">
             <h3 id="dsh-desktop-lan-warning-title">{t('lanWarningTitle')}</h3>

@@ -29,7 +29,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        workspace: [dsh-plugin-desktop, dsh-plugin-desktop-beta]
+        workspace: [dsh-plugin-desktop]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -75,7 +75,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        workspace: [dsh-plugin-desktop, dsh-plugin-desktop-beta]
+        workspace: [dsh-plugin-desktop]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -159,8 +159,52 @@ jobs:
           if ! gh release view "$TAG"; then
             gh release create "$TAG" --target "$GITHUB_SHA" \
               --title "DSH Desktop $TAG" \
-              --notes "Windows 安装包(NSIS Setup)与便携版(Portable zip)、macOS 通用 DMG(未签名),含 stable 与 beta 两个变体。
+              --notes "Windows 安装包(NSIS Setup)与便携版(Portable zip)、macOS 通用 DMG(未签名)。
 
           本 Release 由 Release workflow 构建并上传:完整打包门禁(check:win-package / check:mac-package)通过后才产出。macOS 签名与公证为手工步骤,DMG 首次打开需在系统设置中允许。"
           fi
           gh release upload "$TAG" release/* --clobber
+
+  # 把 stable 安装包与版本清单同步到自建更新服务器(国内直连,应用内检查更新
+  # 与下载都指向它)。SSH 私钥经 UPDATE_SERVER_* secrets 注入,仅此任务可见。
+  # 未配置 UPDATE_SERVER_* secrets 的仓库(如下游 fork)自动跳过,不部署也不报错。
+  deploy-updates:
+    needs: [publish]
+    runs-on: ubuntu-latest
+    env:
+      UPDATE_HOST: ${{ secrets.UPDATE_SERVER_HOST }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+          pattern: release-build-*
+      - name: Upload installers to the update server
+        if: ${{ env.UPDATE_HOST != '' }}
+        env:
+          UPDATE_HOST: ${{ secrets.UPDATE_SERVER_HOST }}
+          UPDATE_USER: ${{ secrets.UPDATE_SERVER_USER }}
+          UPDATE_KEY: ${{ secrets.UPDATE_SERVER_SSH_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./dsh-plugin-desktop/package.json').version")
+          exe=$(find artifacts -type f -name '*-x64-Setup.exe' | head -n 1)
+          dmg=$(find artifacts -type f -name '*.dmg' | head -n 1)
+          test -n "$exe" || { echo 'stable setup exe not found'; exit 1; }
+          test -n "$dmg" || { echo 'stable dmg not found'; exit 1; }
+          # base64 round-trip keeps the OpenSSH key byte-exact across runners
+          install -m 600 /dev/null key.b64
+          printf '%s' "$UPDATE_KEY" > key.b64
+          base64 -d key.b64 > key && chmod 600 key
+          ssh_key_args=(-i "$PWD/key" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30)
+          scp "${ssh_key_args[@]}" "$exe" "$UPDATE_USER@$UPDATE_HOST:/var/www/dsh-updates/DSH-Desktop-windows-latest.exe"
+          scp "${ssh_key_args[@]}" "$dmg" "$UPDATE_USER@$UPDATE_HOST:/var/www/dsh-updates/DSH-Desktop-mac-latest.dmg"
+          printf '{"version":"%s","channel":"stable"}' "$version" > latest.json
+          scp "${ssh_key_args[@]}" latest.json "$UPDATE_USER@$UPDATE_HOST:/var/www/dsh-updates/latest.json"
+          ssh "${ssh_key_args[@]}" "$UPDATE_USER@$UPDATE_HOST" 'chown caddy:caddy /var/www/dsh-updates/* 2>/dev/null || true'
+          echo "update server now serves $version"

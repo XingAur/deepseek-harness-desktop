@@ -244,6 +244,7 @@ export interface DesktopRuntime {
   /** Open the native model diagnostics window, focusing an existing instance. */
   openModelDiagnosticsWindow(): void
 
+
   /** Confirm that one renderer-selected workspace is safe to persist. */
   validateDirectory(path: string): Promise<boolean>
 

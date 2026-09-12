@@ -250,7 +250,7 @@ describe('desktop Host plugin', () => {
       port: 43_120,
       openBrowser: false,
       networkExposure: 'loopback',
-      remoteRelayOrigin: '',
+      remoteRelayOrigin: 'https://8.147.62.187',
       logLevel: 'info',
       proxyUrl: '',
       modelProxyUrl: '',
@@ -555,15 +555,15 @@ describe('desktop Host plugin', () => {
     apply(harness.ctx, config)
 
     await harness.notify(
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: 'https://8.147.62.187', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: 'https://8.147.62.187', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
     )
     expect(harness.restart).not.toHaveBeenCalled()
 
     harness.restart.mockImplementation(() => new Promise<void>(() => {}))
     await harness.notify(
-      { mode: 'advanced', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
+      { mode: 'advanced', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: 'https://8.147.62.187', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: 'https://8.147.62.187', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
     )
     await vi.runAllTimersAsync()
     expect(harness.restart).toHaveBeenCalledOnce()
@@ -576,8 +576,8 @@ describe('desktop Host plugin', () => {
     harness.restart.mockImplementation(() => new Promise<void>(() => {}))
 
     await harness.notify(
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'off', port: 43_120, openBrowser: true, networkExposure: 'lan', remoteRelayOrigin: '', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'off', port: 43_120, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'off', port: 43_120, openBrowser: true, networkExposure: 'lan', remoteRelayOrigin: 'https://8.147.62.187', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'off', port: 43_120, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: 'https://8.147.62.187', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
     )
     await vi.runAllTimersAsync()
     expect(harness.restart).not.toHaveBeenCalled()
@@ -587,8 +587,8 @@ describe('desktop Host plugin', () => {
     const enabledHarness = createHarness('darwin', true)
     apply(enabledHarness.ctx, config)
     await enabledHarness.notify(
-      { mode: 'advanced', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 43_120, openBrowser: true, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 43_120, openBrowser: true, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
+      { mode: 'advanced', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 43_120, openBrowser: true, networkExposure: 'loopback', remoteRelayOrigin: 'https://8.147.62.187', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 43_120, openBrowser: true, networkExposure: 'loopback', remoteRelayOrigin: 'https://8.147.62.187', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
     )
     await vi.runAllTimersAsync()
     expect(enabledHarness.restart).toHaveBeenCalledOnce()
@@ -602,15 +602,15 @@ describe('desktop Host plugin', () => {
     apply(harness.ctx, config)
 
     await harness.notify(
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'debug', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: 'https://8.147.62.187', logLevel: 'debug', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: 'https://8.147.62.187', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
     )
     expect(harness.restart).not.toHaveBeenCalled()
 
     harness.restart.mockImplementation(() => new Promise<void>(() => {}))
     await harness.notify(
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 43_189, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'debug', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'debug', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 43_189, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: 'https://8.147.62.187', logLevel: 'debug', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: 'https://8.147.62.187', logLevel: 'debug', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
     )
     await vi.runAllTimersAsync()
     expect(harness.restart).toHaveBeenCalledOnce()
@@ -623,8 +623,8 @@ describe('desktop Host plugin', () => {
 
     harness.restart.mockImplementation(() => new Promise<void>(() => {}))
     await harness.notify(
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'mica', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
-      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: '', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'mica', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: 'https://8.147.62.187', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
+      { mode: 'compatibility', macosMaterial: 'transparent', windowsMaterial: 'acrylic', port: 0, openBrowser: false, networkExposure: 'loopback', remoteRelayOrigin: 'https://8.147.62.187', logLevel: 'info', proxyUrl: '', modelProxyUrl: '', modelProxyProviders: ['xai', 'openai-codex'] },
     )
     await vi.runAllTimersAsync()
 
@@ -680,7 +680,7 @@ describe('desktop Host plugin', () => {
       port: 43_120,
       openBrowser: false,
       networkExposure: 'loopback',
-      remoteRelayOrigin: '',
+      remoteRelayOrigin: 'https://8.147.62.187',
       logLevel: 'info',
       proxyUrl: '',
       modelProxyUrl: '',

@@ -168,7 +168,12 @@ export interface DesktopStartupSettings {
   modelProxyProviders: readonly string[]
   /** Configured remote-control relay origin; empty keeps the relay tunnel off. */
   remoteRelayOrigin: string
+  /** Whether scheduled background update checks run in packaged builds. */
+  autoUpdateCheck: boolean
 }
+
+/** The relay origin shipped as the default so fresh installs work unconfigured. */
+const DEFAULT_REMOTE_RELAY_ORIGIN = 'https://8.147.62.187'
 
 const DEFAULT_DESKTOP_STARTUP_SETTINGS: DesktopStartupSettings = Object.freeze({
   mode: DEFAULT_DESKTOP_SHELL_MODE,
@@ -180,12 +185,13 @@ const DEFAULT_DESKTOP_STARTUP_SETTINGS: DesktopStartupSettings = Object.freeze({
   proxyUrl: '',
   modelProxyUrl: '',
   modelProxyProviders: ['xai', 'openai-codex'],
-  remoteRelayOrigin: '',
+  remoteRelayOrigin: DEFAULT_REMOTE_RELAY_ORIGIN,
+  autoUpdateCheck: true,
 })
 
 /** Validate the configured remote-control relay origin, failing loud on typos. */
 function parseDesktopRemoteRelayOrigin(value: unknown): string {
-  if (value === undefined) return ''
+  if (value === undefined) return DEFAULT_REMOTE_RELAY_ORIGIN
   if (typeof value !== 'string') {
     throw new Error(`${BIN_NAME}: remoteRelayOrigin must be a string`)
   }
@@ -217,6 +223,7 @@ export function desktopStartupSettingsFromSettings(document: unknown): DesktopSt
   const values = section as Record<string, unknown>
   const mode = parseDesktopShellMode(values.mode)
   const remoteRelayOrigin = parseDesktopRemoteRelayOrigin(values.remoteRelayOrigin)
+  const autoUpdateCheck = values.autoUpdateCheck === undefined ? true : values.autoUpdateCheck === true
   const networkExposure = parseDesktopNetworkExposure(values.networkExposure)
   const openBrowser = desktopBrowserAccessEnabled(
     mode,
@@ -234,6 +241,7 @@ export function desktopStartupSettingsFromSettings(document: unknown): DesktopSt
     modelProxyUrl: parseDesktopProxyUrl(values.modelProxyUrl),
     modelProxyProviders: parseDesktopModelProxyProviders(values.modelProxyProviders),
     remoteRelayOrigin,
+    autoUpdateCheck,
   }
 }
 

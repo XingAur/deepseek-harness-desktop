@@ -25,10 +25,19 @@ export type ForkUpdateSource =
     }
 
 /**
- * This fork ships with upstream update services switched off. Flip this
- * constant to a `custom` source once a fork-owned release service exists.
+ * The fork's update source: the self-hosted relay/update server. China-local
+ * delivery avoids GitHub connectivity problems; the endpoints answer the
+ * upstream contracts verbatim (version JSON + raw installer bytes). Flip to
+ * `disabled` to turn every update surface off again.
  */
-export const FORK_UPDATE_SOURCE: ForkUpdateSource = { kind: 'disabled' }
+export const FORK_UPDATE_SOURCE: ForkUpdateSource = {
+  kind: 'custom',
+  versionEndpoint: 'https://8.147.62.187/updates/latest.json',
+  downloadEndpoints: {
+    win32: 'https://8.147.62.187/updates/DSH-Desktop-windows-latest.exe',
+    darwin: 'https://8.147.62.187/updates/DSH-Desktop-mac-latest.dmg',
+  },
+}
 
 /** Concrete endpoints handed to the update seams, or undefined when disabled. */
 export interface ResolvedForkUpdateEndpoints {

@@ -309,6 +309,16 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
   }
 
   /** @inheritdoc */
+  getLaunchAtLoginEnabled(): boolean {
+    return app.getLoginItemSettings().openAtLogin
+  }
+
+  /** @inheritdoc */
+  setLaunchAtLoginEnabled(enabled: boolean): void {
+    app.setLoginItemSettings({ openAtLogin: enabled })
+  }
+
+  /** @inheritdoc */
   openModelDiagnosticsWindow(): void {
     if (this.modelDiagnosticsWindow === undefined) {
       this.modelDiagnosticsWindow = new ModelDiagnosticsWindow()

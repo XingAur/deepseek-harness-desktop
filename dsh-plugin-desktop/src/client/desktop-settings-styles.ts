@@ -483,6 +483,9 @@ const CSS = `
   transition: border-color var(--ds-transition-duration-fast) var(--ds-ease-in-out);
 }
 .dshDesktopSettingsRow:hover { border-color: var(--dsw-alias-border-l2); }
+.dshDesktopSettingsRowInline { justify-content: space-between; cursor: default; transition: none; }
+.dshDesktopSettingsRowInline:hover { border-color: var(--dsw-alias-border-l1); }
+.dshDesktopSettingsRowInline > span { color: var(--dsw-alias-label-secondary); font-size: 13px; line-height: 20px; }
 .dshDesktopSettingsRowIcon {
   display: grid;
   place-items: center;

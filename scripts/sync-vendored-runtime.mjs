@@ -38,7 +38,9 @@ const upstream = upstreamDocument.channels?.[channel]
 if (upstream === undefined || typeof upstream !== 'object') fail(`missing upstream metadata for ${channel}`)
 const otherChannel = channel === 'stable' ? 'beta' : 'stable'
 const otherVersion = upstreamDocument.channels?.[otherChannel]?.sourceVersion
-if (typeof otherVersion !== 'string' || !/^[0-9A-Za-z][0-9A-Za-z.-]*$/u.test(otherVersion)) {
+// A single-channel checkout (beta variant removed) has no other side to validate.
+if (otherVersion !== undefined
+  && (typeof otherVersion !== 'string' || !/^[0-9A-Za-z][0-9A-Za-z.-]*$/u.test(otherVersion))) {
   fail(`unsafe ${otherChannel} source version ${JSON.stringify(otherVersion)}`)
 }
 const pluginPaths = [
