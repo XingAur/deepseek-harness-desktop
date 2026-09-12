@@ -33,6 +33,7 @@ function child(): ControlledSubprocess {
   const outcome = deferred<SubprocessOutcome>()
   const tree = deferred<boolean>()
   return {
+    pid: 43_120,
     stdin: undefined,
     stdout: new PassThrough(),
     stderr: new PassThrough(),
@@ -42,7 +43,7 @@ function child(): ControlledSubprocess {
     waitForExit: vi.fn(() => tree.promise),
     resolveDone: value => { outcome.resolve(value) },
     resolveTree: (value = true) => { tree.resolve(value) },
-  }
+  } as ControlledSubprocess
 }
 
 function bootstrap(root = '/desktop runtime'): DesktopPnpmBootstrap {
