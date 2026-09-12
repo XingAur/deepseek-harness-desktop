@@ -11,6 +11,16 @@ export type DesktopProxyLocaleKey =
   | 'modelProxyIntro'
   | 'modelProxyXai'
   | 'modelProxyCodex'
+  | 'modelProxyAnthropic'
+  | 'modelProxyGemini'
+  | 'modelProxyOwnUrl'
+  | 'modelProxyExtraHosts'
+  | 'modelProxyExtraHostsHint'
+  | 'modelProxyExtraHostsInvalid'
+  | 'modelProxyAddName'
+  | 'modelProxyAddHost'
+  | 'modelProxyAdd'
+  | 'modelProxyRemove'
   | 'modelProxyDetect'
   | 'modelProxyDetecting'
   | 'modelProxyDetected'
@@ -51,9 +61,19 @@ export const zh: Record<DesktopProxyLocaleKey, string> = {
   restartRequired: '选择已保存，重启 DSH Desktop 后生效。',
   restarting: '正在重启 DSH Desktop…',
   modelProxyTitle: '模型代理',
-  modelProxyIntro: '只给出国模型走梯子，智谱、云效等国内请求直连。留空则用 .env 的 HTTP_PROXY，仍只打勾选的模型。',
+  modelProxyIntro: '按厂商勾选谁走代理。默认都用上面同一条。某个厂商要换线，填单独代理。智谱 GLM 不要勾。',
   modelProxyXai: 'xAI / Grok',
   modelProxyCodex: 'OpenAI / Codex',
+  modelProxyAnthropic: 'Anthropic',
+  modelProxyGemini: 'Google Gemini',
+  modelProxyOwnUrl: '单独代理（可选，留空=用共用代理）',
+  modelProxyExtraHosts: '自定义模型',
+  modelProxyExtraHostsHint: '和 Grok / Codex 一样走模型代理。填名称和 API 域名，不要填智谱、云效。',
+  modelProxyExtraHostsInvalid: '名称或域名无效。名称不能空，域名例如 api.anthropic.com。',
+  modelProxyAddName: '模型名称',
+  modelProxyAddHost: 'API 域名',
+  modelProxyAdd: '添加模型',
+  modelProxyRemove: '删除',
   modelProxyDetect: '检测本机代理',
   modelProxyDetecting: '正在检测…',
   modelProxyDetected: '已填入本机代理，请保存后重启。',
@@ -95,9 +115,19 @@ export const en: Record<DesktopProxyLocaleKey, string> = {
   restartRequired: 'Your choice was saved and will take effect after DSH Desktop restarts.',
   restarting: 'Restarting DSH Desktop…',
   modelProxyTitle: 'Model proxy',
-  modelProxyIntro: 'Sends only overseas model APIs through a tunnel. Domestic requests such as Zhipu and Yunxiao stay direct. Leave empty to use HTTP_PROXY from .env for the checked providers only.',
+  modelProxyIntro: 'Choose which vendors use the tunnel. Checked vendors share the URL above. Set a dedicated URL only when one vendor needs a different proxy. Do not check Zhipu/GLM.',
   modelProxyXai: 'xAI / Grok',
   modelProxyCodex: 'OpenAI / Codex',
+  modelProxyAnthropic: 'Anthropic',
+  modelProxyGemini: 'Google Gemini',
+  modelProxyOwnUrl: 'Dedicated proxy (optional; empty uses the shared URL)',
+  modelProxyExtraHosts: 'Custom models',
+  modelProxyExtraHostsHint: 'These use the same model proxy as Grok and Codex. Add a name and API host. Do not add Zhipu or Yunxiao.',
+  modelProxyExtraHostsInvalid: 'Name or host is invalid. Name cannot be empty; host should look like api.anthropic.com.',
+  modelProxyAddName: 'Model name',
+  modelProxyAddHost: 'API host',
+  modelProxyAdd: 'Add model',
+  modelProxyRemove: 'Remove',
   modelProxyDetect: 'Detect local proxy',
   modelProxyDetecting: 'Detecting…',
   modelProxyDetected: 'Filled in a local proxy. Save and restart to apply it.',

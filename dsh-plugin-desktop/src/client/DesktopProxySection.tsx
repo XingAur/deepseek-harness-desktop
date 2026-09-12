@@ -5,6 +5,7 @@ import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { DesktopProxyTestView, DesktopSettingsApi } from './desktop-settings-api.ts'
 import type { DesktopShellSettings } from './DesktopSettingsSection.tsx'
+import { normalizeDesktopModelProxyHost } from '../desktop-model-proxy.ts'
 import { parseDesktopProxyUrl } from '../desktop-proxy-url.ts'
 
 /** Registration-side business face for the proxy settings section. */
@@ -22,6 +23,8 @@ export type DesktopProxySectionProps =
 type BusyOperation = 'proxy' | 'proxy-detect' | 'proxy-test' | 'model-proxy'
 type ProxyDetectStatus = 'idle' | 'found' | 'missing'
 type RestartState = 'none' | 'restarting' | 'required'
+type CustomModel = { readonly name: string, readonly host: string, readonly proxyUrl: string }
+const BUILTIN_MODEL_PROXY_PROVIDERS = ['xai', 'openai-codex', 'anthropic', 'gemini'] as const
 
 function useScope<T>(scope: SettingsScope<T>) {
   const subscribe = useCallback((listener: () => void) => scope.subscribe(listener), [scope])
@@ -41,6 +44,12 @@ export function DesktopProxySection({ t, api, desktopSettings }: DesktopProxySec
   const [modelProxyInvalid, setModelProxyInvalid] = useState(false)
   const [modelProxyDetect, setModelProxyDetect] = useState<ProxyDetectStatus>('idle')
   const [modelProxyProviders, setModelProxyProviders] = useState<readonly string[]>(['xai', 'openai-codex'])
+  const [customModels, setCustomModels] = useState<readonly CustomModel[]>([])
+  const [providerUrls, setProviderUrls] = useState<Record<string, string>>({})
+  const [addName, setAddName] = useState('')
+  const [addHost, setAddHost] = useState('')
+  const [addProxyUrl, setAddProxyUrl] = useState('')
+  const [customInvalid, setCustomInvalid] = useState(false)
   const [modelProxyTest, setModelProxyTest] = useState<DesktopProxyTestView>()
 
   useEffect(() => {
@@ -50,9 +59,25 @@ export function DesktopProxySection({ t, api, desktopSettings }: DesktopProxySec
       setModelProxyDraft(desktop.value.modelProxyUrl ?? '')
       setModelProxyInvalid(false)
       setModelProxyProviders(desktop.value.modelProxyProviders ?? ['xai', 'openai-codex'])
+      const custom = desktop.value.modelProxyCustomProviders ?? []
+      if (custom.length > 0) {
+        setCustomModels(custom.flatMap(item => {
+          const host = item.hosts[0]
+          return host === undefined ? [] : [{ name: item.name, host, proxyUrl: item.proxyUrl ?? '' }]
+        }))
+      } else {
+        setCustomModels((desktop.value.modelProxyExtraHosts ?? []).map(host => ({ name: host, host, proxyUrl: '' })))
+      }
+      const urls: Record<string, string> = {}
+      for (const row of desktop.value.modelProxyProviderUrls ?? []) urls[row.provider] = row.proxyUrl
+      setProviderUrls(urls)
+      setAddName('')
+      setAddHost('')
+      setAddProxyUrl('')
+      setCustomInvalid(false)
       setModelProxyTest(undefined)
     }
-  }, [desktop.status, desktop.value?.proxyUrl, desktop.value?.modelProxyUrl, desktop.value?.modelProxyProviders])
+  }, [desktop.status, desktop.value?.proxyUrl, desktop.value?.modelProxyUrl, desktop.value?.modelProxyProviders, desktop.value?.modelProxyExtraHosts, desktop.value?.modelProxyCustomProviders, desktop.value?.modelProxyProviderUrls])
 
   useEffect(() => {
     if (restart !== 'restarting') return
@@ -108,10 +133,42 @@ export function DesktopProxySection({ t, api, desktopSettings }: DesktopProxySec
         return
       }
       setModelProxyInvalid(false)
+      const extraHosts: string[] = []
+      const customProviders: Array<{ name: string, hosts: string[], proxyUrl: string }> = []
+      for (const item of customModels) {
+        const host = normalizeDesktopModelProxyHost(item.host)
+        if (host === undefined || item.name.trim() === '') {
+          setCustomInvalid(true)
+          return
+        }
+        let ownUrl = ''
+        try {
+          ownUrl = parseDesktopProxyUrl(item.proxyUrl)
+        } catch {
+          setCustomInvalid(true)
+          return
+        }
+        if (!extraHosts.includes(host)) extraHosts.push(host)
+        customProviders.push({ name: item.name.trim(), hosts: [host], proxyUrl: ownUrl })
+      }
+      const providerUrlRows: Array<{ provider: string, proxyUrl: string }> = []
+      for (const [provider, raw] of Object.entries(providerUrls)) {
+        if (!modelProxyProviders.includes(provider) || raw.trim() === '') continue
+        try {
+          providerUrlRows.push({ provider, proxyUrl: parseDesktopProxyUrl(raw) })
+        } catch {
+          setModelProxyInvalid(true)
+          return
+        }
+      }
+      setCustomInvalid(false)
       setModelProxyDetect('idle')
       setModelProxyTest(undefined)
       await desktopSettings.set('modelProxyUrl', parsed)
       await desktopSettings.set('modelProxyProviders', [...modelProxyProviders])
+      await desktopSettings.set('modelProxyExtraHosts', extraHosts)
+      await desktopSettings.set('modelProxyCustomProviders', customProviders)
+      await desktopSettings.set('modelProxyProviderUrls', providerUrlRows)
       requestRestart()
     })
   }
@@ -166,6 +223,31 @@ export function DesktopProxySection({ t, api, desktopSettings }: DesktopProxySec
     })
   }
 
+  const addCustomModel = (): void => {
+    const name = addName.trim()
+    const host = normalizeDesktopModelProxyHost(addHost)
+    if (name === '' || host === undefined) {
+      setCustomInvalid(true)
+      return
+    }
+    if (customModels.some(item => item.name.toLowerCase() === name.toLowerCase() || item.host === host)) {
+      setCustomInvalid(true)
+      return
+    }
+    setCustomInvalid(false)
+    let ownUrl = ''
+    try {
+      ownUrl = parseDesktopProxyUrl(addProxyUrl)
+    } catch {
+      setCustomInvalid(true)
+      return
+    }
+    setCustomModels(current => [...current, { name, host, proxyUrl: ownUrl }])
+    setAddName('')
+    setAddHost('')
+    setAddProxyUrl('')
+  }
+
   return (
     <div className="dshDesktopSettings">
       <header className="dshDesktopSettingsHeader">
@@ -188,25 +270,109 @@ export function DesktopProxySection({ t, api, desktopSettings }: DesktopProxySec
         <p className="dshDesktopSettingsHint">{t(modelStatus)}</p>
         <form className="dshDesktopSettingsPanel dshDesktopSettingsProxyForm" onSubmit={saveModelProxy}>
           <div className="dshDesktopSettingsList" role="group" aria-labelledby="dsh-desktop-model-proxy-title">
-            <label className="dshDesktopSettingsCheckRow">
-              <input
-                type="checkbox"
-                checked={modelProxyProviders.includes('xai')}
-                disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
-                onChange={event => { toggleModelProvider('xai', event.currentTarget.checked) }}
-              />
-              <span>{t('modelProxyXai')}</span>
-            </label>
-            <label className="dshDesktopSettingsCheckRow">
-              <input
-                type="checkbox"
-                checked={modelProxyProviders.includes('openai-codex')}
-                disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
-                onChange={event => { toggleModelProvider('openai-codex', event.currentTarget.checked) }}
-              />
-              <span>{t('modelProxyCodex')}</span>
-            </label>
+            {BUILTIN_MODEL_PROXY_PROVIDERS.map(id => (
+              <div key={id}>
+                <label className="dshDesktopSettingsCheckRow">
+                  <input
+                    type="checkbox"
+                    checked={modelProxyProviders.includes(id)}
+                    disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+                    onChange={event => { toggleModelProvider(id, event.currentTarget.checked) }}
+                  />
+                  <span>{t(id === 'openai-codex' ? 'modelProxyCodex' : id === 'anthropic' ? 'modelProxyAnthropic' : id === 'gemini' ? 'modelProxyGemini' : 'modelProxyXai')}</span>
+                </label>
+                {modelProxyProviders.includes(id) && (
+                  <label className="dshDesktopSettingsField">
+                    <span>{t('modelProxyOwnUrl')}</span>
+                    <input
+                      className="dshDesktopSettingsInput dshDesktopSettingsProxyInput"
+                      type="text"
+                      autoComplete="off"
+                      placeholder={t('proxyUrlPlaceholder')}
+                      value={providerUrls[id] ?? ''}
+                      disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+                      onChange={event => {
+                        const value = event.currentTarget.value
+                        setProviderUrls(current => ({ ...current, [id]: value }))
+                      }}
+                    />
+                  </label>
+                )}
+              </div>
+            ))}
+            {customModels.map(item => (
+              <label className="dshDesktopSettingsCheckRow" key={`${item.name}:${item.host}`}>
+                <span>{item.name}</span>
+                <button
+                  type="button"
+                  className="dshDesktopSettingsButton dshDesktopSettingsButtonSecondary"
+                  disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+                  onClick={() => {
+                    setCustomModels(current => current.filter(entry => entry.name !== item.name || entry.host !== item.host))
+                  }}
+                >
+                  {t('modelProxyRemove')}
+                </button>
+              </label>
+            ))}
           </div>
+          <div className="dshDesktopSettingsField">
+            <span>{t('modelProxyExtraHosts')}</span>
+            <p className="dshDesktopSettingsHint">{t('modelProxyExtraHostsHint')}</p>
+            <label className="dshDesktopSettingsField">
+              <span>{t('modelProxyAddName')}</span>
+              <input
+                className="dshDesktopSettingsInput dshDesktopSettingsProxyInput"
+                type="text"
+                autoComplete="off"
+                value={addName}
+                disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+                onChange={event => {
+                  setAddName(event.currentTarget.value)
+                  setCustomInvalid(false)
+                }}
+              />
+            </label>
+            <label className="dshDesktopSettingsField">
+              <span>{t('modelProxyAddHost')}</span>
+              <input
+                className="dshDesktopSettingsInput dshDesktopSettingsProxyInput"
+                type="text"
+                autoComplete="off"
+                placeholder="api.anthropic.com"
+                value={addHost}
+                disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+                onChange={event => {
+                  setAddHost(event.currentTarget.value)
+                  setCustomInvalid(false)
+                }}
+              />
+            </label>
+            <label className="dshDesktopSettingsField">
+              <span>{t('modelProxyOwnUrl')}</span>
+              <input
+                className="dshDesktopSettingsInput dshDesktopSettingsProxyInput"
+                type="text"
+                autoComplete="off"
+                placeholder={t('proxyUrlPlaceholder')}
+                value={addProxyUrl}
+                disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+                onChange={event => {
+                  setAddProxyUrl(event.currentTarget.value)
+                  setCustomInvalid(false)
+                }}
+              />
+            </label>
+            <button
+              type="button"
+              className="dshDesktopSettingsButton dshDesktopSettingsButtonSecondary"
+              disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+              onClick={addCustomModel}
+            >
+              {t('modelProxyAdd')}
+            </button>
+          </div>
+          {customInvalid && <p className="dshDesktopSettingsError" role="alert">{t('modelProxyExtraHostsInvalid')}</p>}
           <label className="dshDesktopSettingsField">
             <span>{t('proxyUrl')}</span>
             <input

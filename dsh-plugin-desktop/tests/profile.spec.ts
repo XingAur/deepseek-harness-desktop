@@ -882,6 +882,9 @@ virtualStoreDirMaxLength: 60
       proxyUrl: '',
       modelProxyUrl: '',
       modelProxyProviders: ['xai', 'openai-codex'],
+      modelProxyExtraHosts: [],
+      modelProxyCustomProviders: [],
+      modelProxyProviderUrls: {},
       autoUpdateCheck: true,
       remoteRelayOrigin: 'https://8.147.62.187',
     })
@@ -895,6 +898,9 @@ virtualStoreDirMaxLength: 60
       proxyUrl: '',
       modelProxyUrl: '',
       modelProxyProviders: ['xai', 'openai-codex'],
+      modelProxyExtraHosts: [],
+      modelProxyCustomProviders: [],
+      modelProxyProviderUrls: {},
       autoUpdateCheck: true,
       remoteRelayOrigin: 'https://8.147.62.187',
     })

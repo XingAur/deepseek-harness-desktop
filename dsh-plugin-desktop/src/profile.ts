@@ -42,7 +42,13 @@ import FileSettingsProvider, {
 } from '@deepseek-ai/dsh-settings-file'
 import { parseAllDocuments, parseDocument } from 'yaml'
 import { findOverlayPackage, resolveOverlayPackage } from './package-overlay.ts'
-import { parseDesktopModelProxyProviders } from './desktop-model-proxy.ts'
+import {
+  parseDesktopModelProxyCustomProviders,
+  parseDesktopModelProxyExtraHosts,
+  parseDesktopModelProxyProviderUrls,
+  parseDesktopModelProxyProviders,
+  type DesktopModelProxyCustomProvider,
+} from './desktop-model-proxy.ts'
 import { parseDesktopProxyUrl } from './desktop-proxy-url.ts'
 import { canonicalRelayOrigin } from './remote-relay-origin.ts'
 import { withAsarModuleResolver } from './asar-module-resolver-state.ts'
@@ -166,6 +172,12 @@ export interface DesktopStartupSettings {
   modelProxyUrl: string
   /** Provider ids whose API hosts use `modelProxyUrl` or HTTP_PROXY. */
   modelProxyProviders: readonly string[]
+  /** Extra API hostnames that also use the model proxy. */
+  modelProxyExtraHosts: readonly string[]
+  /** User-added models that also use the model proxy. */
+  modelProxyCustomProviders: readonly DesktopModelProxyCustomProvider[]
+  /** Dedicated proxy URL per built-in provider; empty uses the shared URL. */
+  modelProxyProviderUrls: Readonly<Record<string, string>>
   /** Configured remote-control relay origin; empty keeps the relay tunnel off. */
   remoteRelayOrigin: string
   /** Whether scheduled background update checks run in packaged builds. */
@@ -185,6 +197,9 @@ const DEFAULT_DESKTOP_STARTUP_SETTINGS: DesktopStartupSettings = Object.freeze({
   proxyUrl: '',
   modelProxyUrl: '',
   modelProxyProviders: ['xai', 'openai-codex'],
+  modelProxyExtraHosts: [],
+  modelProxyCustomProviders: [],
+  modelProxyProviderUrls: {},
   remoteRelayOrigin: DEFAULT_REMOTE_RELAY_ORIGIN,
   autoUpdateCheck: true,
 })
@@ -240,6 +255,9 @@ export function desktopStartupSettingsFromSettings(document: unknown): DesktopSt
     proxyUrl: parseDesktopProxyUrl(values.proxyUrl),
     modelProxyUrl: parseDesktopProxyUrl(values.modelProxyUrl),
     modelProxyProviders: parseDesktopModelProxyProviders(values.modelProxyProviders),
+    modelProxyExtraHosts: parseDesktopModelProxyExtraHosts(values.modelProxyExtraHosts),
+    modelProxyCustomProviders: parseDesktopModelProxyCustomProviders(values.modelProxyCustomProviders),
+    modelProxyProviderUrls: parseDesktopModelProxyProviderUrls(values.modelProxyProviderUrls),
     remoteRelayOrigin,
     autoUpdateCheck,
   }
@@ -1068,6 +1086,9 @@ export function prepareDesktopProfile(
     proxyUrl,
     modelProxyUrl,
     modelProxyProviders,
+    modelProxyExtraHosts,
+    modelProxyCustomProviders,
+    modelProxyProviderUrls,
     remoteRelayOrigin,
   } = readDesktopStartupSettings(settingsConfig)
   patches.push({
@@ -1229,6 +1250,9 @@ export function prepareDesktopProfile(
       proxyUrl,
       modelProxyUrl,
       modelProxyProviders,
+      modelProxyExtraHosts,
+      modelProxyCustomProviders,
+      modelProxyProviderUrls: Object.entries(modelProxyProviderUrls).map(([provider, proxyUrl]) => ({ provider, proxyUrl })),
     },
   })
   return {
