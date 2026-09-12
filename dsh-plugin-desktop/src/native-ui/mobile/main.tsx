@@ -1,4 +1,5 @@
 import '../shared/theme.css'
+import './theme-override.css'
 import { CSPProvider } from '@base-ui/react/csp-provider'
 import { createRoot } from 'react-dom/client'
 import { MobileApp } from './App.tsx'

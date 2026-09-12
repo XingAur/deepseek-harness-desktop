@@ -7,34 +7,6 @@ const TOKEN_EXCHANGE = (token: string) => new URL(`../?token=${encodeURIComponen
 const POLL_MS = 2_500
 const THEME_KEY = 'dsh-mobile-theme'
 
-/** Manual dark override mirroring theme.css's prefers-color-scheme block. */
-const MANUAL_DARK_STYLE = `
-html.dshMobileManualDark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  color-scheme: dark;
-}
-html.dshMobileManualDark body { background: oklch(0.145 0 0); color: oklch(0.985 0 0); }
-@keyframes dshMobileDot { 0%, 80%, 100% { transform: scale(.5); opacity: .4 } 40% { transform: scale(1); opacity: 1 } }
-.dshMobileThinkingDot { animation: dshMobileDot 1.2s ease-in-out infinite; }
-.dshMobileThinkingDot:nth-child(2) { animation-delay: .15s }
-.dshMobileThinkingDot:nth-child(3) { animation-delay: .3s }
-`
-
 interface SessionRow {
   readonly id: string
   readonly title: string | null
@@ -226,9 +198,6 @@ export function MobileApp(): JSX.Element {
       ? stored
       : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
     setTheme(initial)
-    const style = document.createElement('style')
-    style.textContent = MANUAL_DARK_STYLE
-    document.head.appendChild(style)
     document.documentElement.classList.toggle('dshMobileManualDark', initial === 'dark')
   }, [])
   const toggleTheme = (): void => {
@@ -457,7 +426,7 @@ export function MobileApp(): JSX.Element {
       </header>
 
       {approvals.length > 0
-        ? <p aria-live="polite" className="mx-3 mt-3 rounded-lg bg-amber-500/15 px-3 py-2 text-xs font-medium leading-5 text-amber-600 dark:text-amber-400">
+        ? <p aria-live="polite" className="mx-3 mt-3 rounded-lg bg-amber-500/15 px-3 py-2 text-xs font-medium leading-5 text-amber-500">
             {copy.approvalBanner}: {approvals.map(item => item.toolName).join(', ')} — {copy.approvalNote}
           </p>
         : null}
@@ -513,7 +482,7 @@ export function MobileApp(): JSX.Element {
         </button>
         <span className="flex items-center gap-2">
           {runningCount > 0
-            ? <span className="flex items-center gap-1.5 rounded-full bg-amber-500/15 px-2.5 py-1 text-[11px] font-medium text-amber-600 dark:text-amber-400"><span className="size-1.5 animate-pulse rounded-full bg-amber-500" />{`${String(runningCount)} ${copy.running}`}</span>
+            ? <span className="flex items-center gap-1.5 rounded-full bg-amber-500/15 px-2.5 py-1 text-[11px] font-medium text-amber-500"><span className="size-1.5 animate-pulse rounded-full bg-amber-500" />{`${String(runningCount)} ${copy.running}`}</span>
             : null}
           <button aria-label={copy.toggleTheme} className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" onClick={toggleTheme} type="button">
             {theme === 'dark' ? <Sun aria-hidden className="size-4.5" /> : <Moon aria-hidden className="size-4.5" />}
@@ -521,7 +490,7 @@ export function MobileApp(): JSX.Element {
         </span>
       </div>
       {approvals.length > 0
-        ? <p aria-live="polite" className="mx-4 mb-3 rounded-lg bg-amber-500/15 px-3 py-2 text-xs font-medium leading-5 text-amber-600 dark:text-amber-400">
+        ? <p aria-live="polite" className="mx-4 mb-3 rounded-lg bg-amber-500/15 px-3 py-2 text-xs font-medium leading-5 text-amber-500">
             {copy.approvalBanner}: {approvals.map(item => item.toolName).join(', ')} — {copy.approvalNote}
           </p>
         : null}
@@ -556,7 +525,7 @@ export function MobileApp(): JSX.Element {
                 {session.cwd ? ` · ${workspaceLabel(session.cwd)}` : ''}
               </span>
             </span>
-            <span className={`mt-1 shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium leading-4 ${session.running ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400' : 'bg-muted text-muted-foreground'}`}>
+            <span className={`mt-1 shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium leading-4 ${session.running ? 'bg-amber-500/15 text-amber-500' : 'bg-muted text-muted-foreground'}`}>
               {session.running ? copy.running : copy.idle}
             </span>
           </button>)}
