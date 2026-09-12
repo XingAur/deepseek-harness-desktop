@@ -1,5 +1,12 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowLeft, Ban, LoaderCircle, Moon, Plus, Send, Sparkles, Sun } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { ArrowLeft, LoaderCircle, Moon, MoreHorizontal, PencilLine, Plus, Sparkles, SquareTerminal, Sun } from 'lucide-react'
+import { copyFor, formatTokens, relativeTime, workspaceLabel } from './copy.ts'
+import { ThinkingRow, TranscriptView } from './Transcript.tsx'
+import { ContextSheet, ModelSheet, PermissionSheet, RenameSheet, Sheet } from './Sheets.tsx'
+import { InterruptionCard, type AnswerDraft } from './InterruptionCard.tsx'
+import { Composer } from './Composer.tsx'
+import { SidePanel, type PanelTab } from './SidePanel.tsx'
+import type { ModelCatalog, ModelSelectionValue, SessionInfo, SessionRow, StateResponse, TranscriptItem } from './types.ts'
 
 /** Relative bases survive both loopback (/mobile/) and relay (/r/<pair>/mobile/) hosting. */
 const API = (name: string) => new URL(`../api/desktop/mobile/${name}`, window.location.href).href
@@ -7,139 +14,10 @@ const TOKEN_EXCHANGE = (token: string) => new URL(`../?token=${encodeURIComponen
 const POLL_MS = 2_500
 const THEME_KEY = 'dsh-mobile-theme'
 
-interface SessionRow {
-  readonly id: string
-  readonly title: string | null
-  readonly running: boolean
-  readonly updatedAt: number
-  readonly cwd: string | null
-}
-
-interface PendingApproval {
-  readonly sessionId: string | null
-  readonly toolName: string
-  readonly callId: string | null
-  readonly reason: string | null
-  readonly at: number
-}
-
-interface StateResponse {
-  readonly sessions: readonly SessionRow[]
-  readonly groups: readonly { readonly name: string; readonly sessionIds: readonly string[] }[]
-  readonly approvals: readonly PendingApproval[]
-  readonly relay: { readonly active: boolean }
-}
-
-interface TranscriptLine {
-  readonly role: 'user' | 'assistant'
-  readonly text: string
-  readonly time: number
-}
-
 type Phase = 'bootstrapping' | 'expired' | 'loading' | 'ready' | 'error'
 type View = { kind: 'list' } | { kind: 'session'; id: string } | { kind: 'new' }
 type ThemeMode = 'light' | 'dark'
-
-function locale(): 'en' | 'zh' {
-  return navigator.language.toLowerCase().startsWith('zh') ? 'zh' : 'en'
-}
-
-const COPY = {
-  en: Object.freeze({
-    newSession: 'New session',
-    promptPlaceholder: 'Describe the task for the agent…',
-    messagePlaceholder: 'Reply…',
-    send: 'Send',
-    defaultWorkspace: 'Default',
-    running: 'Running',
-    idle: 'Idle',
-    thinking: 'Thinking',
-    empty: 'No sessions yet. Start one from the top.',
-    emptyTranscript: 'No messages yet. Say something below.',
-    cancel: 'Stop',
-    approvalBanner: 'Awaiting desktop approval',
-    approvalNote: 'Approvals are answered on the desktop client.',
-    expired: 'This link is no longer valid. Regenerate it from the desktop tray.',
-    error: 'State unavailable.',
-    retry: 'Retry',
-    toggleTheme: 'Toggle theme',
-    back: 'Back',
-    newTaskTitle: 'New session',
-    justNow: 'just now',
-    minutesAgo: (value: number) => `${String(value)} min ago`,
-    hoursAgo: (value: number) => `${String(value)} h ago`,
-    daysAgo: (value: number) => `${String(value)} d ago`,
-  }),
-  zh: Object.freeze({
-    newSession: '新会话',
-    promptPlaceholder: '描述要交给 Agent 的任务…',
-    messagePlaceholder: '继续对话…',
-    send: '发送',
-    defaultWorkspace: '默认工作区',
-    running: '运行中',
-    idle: '空闲',
-    thinking: '思考中',
-    empty: '还没有会话,点击上方新建。',
-    emptyTranscript: '还没有消息,在下方说点什么。',
-    cancel: '停止',
-    approvalBanner: '等待桌面端批准',
-    approvalNote: '批准操作需要在桌面客户端完成。',
-    expired: '链接已失效,请在桌面端托盘重新生成。',
-    error: '状态获取失败。',
-    retry: '重试',
-    toggleTheme: '切换深浅色',
-    back: '返回',
-    newTaskTitle: '新会话',
-    justNow: '刚刚',
-    minutesAgo: (value: number) => `${String(value)} 分钟前`,
-    hoursAgo: (value: number) => `${String(value)} 小时前`,
-    daysAgo: (value: number) => `${String(value)} 天前`,
-  }),
-} as const
-
-interface MobileCopy {
-  readonly newSession: string
-  readonly promptPlaceholder: string
-  readonly messagePlaceholder: string
-  readonly send: string
-  readonly defaultWorkspace: string
-  readonly running: string
-  readonly idle: string
-  readonly thinking: string
-  readonly empty: string
-  readonly emptyTranscript: string
-  readonly cancel: string
-  readonly approvalBanner: string
-  readonly approvalNote: string
-  readonly expired: string
-  readonly error: string
-  readonly retry: string
-  readonly toggleTheme: string
-  readonly back: string
-  readonly newTaskTitle: string
-  readonly justNow: string
-  readonly minutesAgo: (value: number) => string
-  readonly hoursAgo: (value: number) => string
-  readonly daysAgo: (value: number) => string
-}
-
-function copyFor(): MobileCopy {
-  return locale() === 'zh' ? COPY.zh : COPY.en
-}
-
-function relativeTime(at: number, now: number, copy: MobileCopy): string {
-  const delta = Math.max(0, Math.floor((now - at) / 1000))
-  if (delta < 60) return copy.justNow
-  if (delta < 3_600) return copy.minutesAgo(Math.floor(delta / 60))
-  if (delta < 86_400) return copy.hoursAgo(Math.floor(delta / 3_600))
-  return copy.daysAgo(Math.floor(delta / 86_400))
-}
-
-function workspaceLabel(cwd: string): string {
-  const parts = cwd.split(/[\\/]/u).filter(part => part !== '')
-  const tail = parts.slice(-2).join('/')
-  return tail === '' ? cwd : tail
-}
+type SheetKind = 'menu' | 'permission' | 'model' | 'context' | 'rename' | null
 
 async function apiCall(input: string, init?: RequestInit): Promise<Response> {
   return await fetch(input, {
@@ -150,29 +28,12 @@ async function apiCall(input: string, init?: RequestInit): Promise<Response> {
   })
 }
 
-/** The client's thinking row: pulsing loader, bouncing dots, dimmed label. */
-function ThinkingRow({ label }: { readonly label: string }): ReactNode {
-  return <div className="flex items-center gap-2.5 px-1 py-3 text-sm text-muted-foreground" aria-live="polite">
-    <LoaderCircle aria-hidden className="size-4 animate-spin text-muted-foreground/70" />
-    <span className="flex items-center gap-1">
-      <span className="dshMobileThinkingDot size-1.5 rounded-full bg-muted-foreground/70" />
-      <span className="dshMobileThinkingDot size-1.5 rounded-full bg-muted-foreground/70" />
-      <span className="dshMobileThinkingDot size-1.5 rounded-full bg-muted-foreground/70" />
-    </span>
-    {label}…
-  </div>
-}
-
-/** One chat balloon: user on the right in primary, assistant on the left in card. */
-function ChatLine({ line }: { readonly line: TranscriptLine }): ReactNode {
-  const mine = line.role === 'user'
-  return <div className={`flex w-full ${mine ? 'justify-end' : 'justify-start'}`}>
-    <div className={`max-w-[86%] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-[15px] leading-6 shadow-sm ${mine
-      ? 'rounded-br-md bg-primary text-primary-foreground'
-      : 'rounded-bl-md border border-border/60 bg-card text-foreground'}`}>
-      {line.text}
-    </div>
-  </div>
+async function postJson(name: string, body: Record<string, unknown>): Promise<Response> {
+  return await apiCall(API(name), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
 }
 
 export function MobileApp(): JSX.Element {
@@ -180,16 +41,24 @@ export function MobileApp(): JSX.Element {
   const [phase, setPhase] = useState<Phase>('bootstrapping')
   const [state, setState] = useState<StateResponse | null>(null)
   const [view, setView] = useState<View>({ kind: 'list' })
-  const [transcript, setTranscript] = useState<readonly TranscriptLine[]>([])
+  const [transcript, setTranscript] = useState<readonly TranscriptItem[]>([])
+  const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null)
+  const [catalog, setCatalog] = useState<ModelCatalog | null>(null)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
+  const [acting, setActing] = useState(false)
   const [sent, setSent] = useState(0)
+  const [sheet, setSheet] = useState<SheetKind>(null)
+  const [panel, setPanel] = useState<PanelTab | null>(null)
+  const [planDraft, setPlanDraft] = useState<string | null>(null)
+  const [flash, setFlash] = useState<string | null>(null)
   const [theme, setTheme] = useState<ThemeMode>(() =>
     window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
   const [now, setNow] = useState(() => Date.now())
   const bootstrapped = useRef(false)
   const composer = useRef<HTMLInputElement | null>(null)
   const scroller = useRef<HTMLDivElement | null>(null)
+  const lastPanelTab = useRef<PanelTab>('plan')
 
   // Manual theme: an explicit choice persists and overrides the system scheme.
   // Both directions carry a class so manual light also beats a dark system.
@@ -212,6 +81,27 @@ export function MobileApp(): JSX.Element {
     applyManualThemeClass(next)
   }
 
+  useEffect(() => {
+    if (flash === null) return
+    const timer = window.setTimeout(() => { setFlash(null) }, 2_600)
+    return () => { window.clearTimeout(timer) }
+  }, [flash])
+
+  // The plan tab keeps showing the latest reviewed plan even after it is answered.
+  useEffect(() => {
+    const pending = [...(state?.interruptions ?? [])]
+      .filter(item => item.kind === 'question')
+      .sort((left, right) => right.at - left.at)
+    for (const item of pending) {
+      const detail = (item.questions ?? [])
+        .find(question => question.intent?.kind === 'plan-review' && question.detail !== undefined && question.detail !== '')?.detail
+      if (detail !== undefined) {
+        setPlanDraft(detail)
+        return
+      }
+    }
+  }, [state?.interruptions])
+
   const poll = useCallback(async () => {
     if (document.visibilityState === 'hidden') return
     try {
@@ -232,9 +122,24 @@ export function MobileApp(): JSX.Element {
     try {
       const response = await apiCall(`${API('transcript')}?sessionId=${encodeURIComponent(sessionId)}`)
       if (!response.ok) return
-      const payload = await response.json() as { messages?: readonly TranscriptLine[] }
+      const payload = await response.json() as { messages?: readonly TranscriptItem[] }
       setTranscript(payload.messages ?? [])
     } catch { /* transient; the next tick retries */ }
+  }, [])
+
+  const pollSessionInfo = useCallback(async (sessionId: string) => {
+    try {
+      const response = await apiCall(`${API('session-info')}?sessionId=${encodeURIComponent(sessionId)}`)
+      if (!response.ok) return
+      setSessionInfo(await response.json() as SessionInfo)
+    } catch { /* transient; the next tick retries */ }
+  }, [])
+
+  const ensureCatalog = useCallback(async (): Promise<void> => {
+    try {
+      const response = await apiCall(API('model-catalog'))
+      if (response.ok) setCatalog(await response.json() as ModelCatalog)
+    } catch { /* surfaced by the empty sheet */ }
   }, [])
 
   useEffect(() => {
@@ -267,25 +172,36 @@ export function MobileApp(): JSX.Element {
     const timer = window.setInterval(() => {
       setNow(Date.now())
       void poll()
-      if (view.kind === 'session') void pollTranscript(view.id)
+      if (view.kind === 'session') {
+        void pollTranscript(view.id)
+        void pollSessionInfo(view.id)
+      }
     }, POLL_MS)
     const onVisible = (): void => {
       if (document.visibilityState !== 'visible') return
       void poll()
-      if (view.kind === 'session') void pollTranscript(view.id)
+      if (view.kind === 'session') {
+        void pollTranscript(view.id)
+        void pollSessionInfo(view.id)
+      }
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => {
       window.clearInterval(timer)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [poll, pollTranscript, view])
+  }, [poll, pollTranscript, pollSessionInfo, view])
 
   // Fresh transcript whenever the detail view opens.
   useEffect(() => {
-    if (view.kind === 'session') void pollTranscript(view.id)
-    else setTranscript([])
-  }, [view, pollTranscript])
+    if (view.kind === 'session') {
+      void pollTranscript(view.id)
+      void pollSessionInfo(view.id)
+    } else {
+      setTranscript([])
+      setSessionInfo(null)
+    }
+  }, [view, pollTranscript, pollSessionInfo])
 
   // Keep the chat pinned to the newest line.
   useEffect(() => {
@@ -302,11 +218,7 @@ export function MobileApp(): JSX.Element {
     if (content.length === 0 || busy) return
     setBusy(true)
     try {
-      const response = await apiCall(API('create'), {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ content }),
-      })
+      const response = await postJson('create', { content })
       if (response.ok) {
         const created = await response.json() as { sessionId?: string }
         setDraft('')
@@ -331,14 +243,11 @@ export function MobileApp(): JSX.Element {
     setDraft('')
     setSent(Date.now())
     // Optimistic echo, replaced by the polled transcript.
-    setTranscript(current => [...current, { role: 'user', text: content, time: Date.now() }])
+    setTranscript(current => [...current, { kind: 'user', text: content, time: Date.now() }])
     try {
-      await apiCall(API('prompt'), {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ sessionId, content }),
-      })
+      await postJson('prompt', { sessionId, content })
       await pollTranscript(sessionId)
+      await pollSessionInfo(sessionId)
       await poll()
     } finally {
       setBusy(false)
@@ -349,14 +258,112 @@ export function MobileApp(): JSX.Element {
     if (view.kind !== 'session' || busy) return
     setBusy(true)
     try {
-      await apiCall(API('cancel'), {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ sessionId: view.id }),
-      })
+      await postJson('cancel', { sessionId: view.id })
       await poll()
     } finally {
       setBusy(false)
+    }
+  }
+
+  const decideInterruption = async (key: string, action: 'allow' | 'reject' | 'delegate'): Promise<void> => {
+    if (acting) return
+    setActing(true)
+    try {
+      const response = await postJson('approve', { key, action })
+      if (response.ok) setFlash(copy.decisionRecorded)
+      else if (response.status === 409) setFlash(copy.decisionConflict)
+      else setFlash(copy.actionFailed)
+      await poll()
+    } catch {
+      setFlash(copy.actionFailed)
+    } finally {
+      setActing(false)
+    }
+  }
+
+  const answerInterruption = async (key: string, answers: readonly AnswerDraft[]): Promise<void> => {
+    if (acting) return
+    setActing(true)
+    try {
+      const response = await postJson('answer', { key, answers })
+      if (response.ok) setFlash(copy.decisionRecorded)
+      else if (response.status === 409) setFlash(copy.decisionConflict)
+      else setFlash(copy.actionFailed)
+      await poll()
+    } catch {
+      setFlash(copy.actionFailed)
+    } finally {
+      setActing(false)
+    }
+  }
+
+  const removeQueueItem = async (itemId: string): Promise<void> => {
+    if (view.kind !== 'session') return
+    try {
+      await postJson('queue-remove', { sessionId: view.id, itemId })
+      await pollSessionInfo(view.id)
+    } catch {
+      setFlash(copy.actionFailed)
+    }
+  }
+
+  const applyPermission = async (preset: string): Promise<void> => {
+    if (view.kind !== 'session') return
+    setActing(true)
+    try {
+      const response = await postJson('permission', { sessionId: view.id, preset })
+      setFlash(response.ok ? copy.decisionRecorded : copy.actionFailed)
+      if (response.ok) setSheet(null)
+      if (view.kind === 'session') await pollSessionInfo(view.id)
+    } catch {
+      setFlash(copy.actionFailed)
+    } finally {
+      setActing(false)
+    }
+  }
+
+  const applyModel = async (selection: ModelSelectionValue): Promise<void> => {
+    if (view.kind !== 'session') return
+    setActing(true)
+    try {
+      const response = await postJson('select-model', { ...selection })
+      setFlash(response.ok ? copy.decisionRecorded : copy.actionFailed)
+      if (response.ok) setSheet(null)
+      if (view.kind === 'session') await pollSessionInfo(view.id)
+    } catch {
+      setFlash(copy.actionFailed)
+    } finally {
+      setActing(false)
+    }
+  }
+
+  const doCompact = async (): Promise<void> => {
+    if (view.kind !== 'session') return
+    setActing(true)
+    try {
+      const response = await postJson('compact', { sessionId: view.id })
+      setFlash(response.ok ? copy.compactDone : copy.actionFailed)
+      setSheet(null)
+      await poll()
+    } catch {
+      setFlash(copy.actionFailed)
+    } finally {
+      setActing(false)
+    }
+  }
+
+  const doRename = async (title: string): Promise<void> => {
+    if (view.kind !== 'session') return
+    setActing(true)
+    try {
+      const response = await postJson('rename', { sessionId: view.id, title })
+      setFlash(response.ok ? copy.decisionRecorded : copy.actionFailed)
+      if (response.ok) setSheet(null)
+      await poll()
+    } catch {
+      setFlash(copy.actionFailed)
+    } finally {
+      setActing(false)
     }
   }
 
@@ -373,7 +380,7 @@ export function MobileApp(): JSX.Element {
   }
 
   const sessions = [...(state?.sessions ?? [])].sort((left, right) => right.updatedAt - left.updatedAt)
-  const approvals = state?.approvals ?? []
+  const interruptions = state?.interruptions ?? []
   const byId = new Map(sessions.map(session => [session.id, session]))
   const serverGroups = state?.groups ?? []
   const groups: Array<[string, SessionRow[]]> = serverGroups.length > 0
@@ -395,6 +402,9 @@ export function MobileApp(): JSX.Element {
     })()
   const runningCount = sessions.filter(session => session.running).length
 
+  const flashBar = flash === null ? null
+    : <p aria-live="polite" className="fixed left-1/2 top-3 z-40 -translate-x-1/2 rounded-full bg-foreground/90 px-4 py-1.5 text-xs font-medium text-background shadow-lg">{flash}</p>
+
   // ---- Detail view: transcript, thinking state, chat composer ----
   if (view.kind === 'session' || view.kind === 'new') {
     const isNew = view.kind === 'new'
@@ -405,9 +415,15 @@ export function MobileApp(): JSX.Element {
       ? false
       : running || (sent > 0 && Date.now() - sent < 120_000 && busy)
     const send = isNew ? createTask : sendToSession
+    const viewInterruptions = isNew ? [] : interruptions.filter(item => item.sessionId === null || item.sessionId === view.id)
+    const permissions = sessionInfo?.permissions ?? null
+    const permissionLabel = permissions === null
+      ? null
+      : (permissions.options.find(option => option.value === permissions.currentValue)?.name ?? permissions.currentValue)
+    const modelLabel = sessionInfo?.model?.model ?? null
     return <main className="mx-auto flex h-screen max-w-md flex-col bg-background text-foreground">
-      <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-border/60 bg-background/95 px-3 py-3 backdrop-blur">
-        <button aria-label={copy.back} className="flex size-9 items-center justify-center rounded-full text-foreground active:bg-muted" onClick={() => { setView({ kind: 'list' }) }} type="button">
+      <header className="sticky top-0 z-10 flex items-center gap-2.5 border-b border-border/60 bg-background/95 px-3 py-3 backdrop-blur">
+        <button aria-label={copy.back} className="flex size-9 shrink-0 items-center justify-center rounded-full text-foreground active:bg-muted" onClick={() => { setView({ kind: 'list' }) }} type="button">
           <ArrowLeft aria-hidden className="size-5" />
         </button>
         <div className="min-w-0 flex-1">
@@ -420,20 +436,26 @@ export function MobileApp(): JSX.Element {
                 {session?.cwd ? ` · ${workspaceLabel(session.cwd)}` : ''}
               </p>}
         </div>
-        {running
-          ? <button aria-label={copy.cancel} className="flex h-8 items-center gap-1.5 rounded-full border border-border px-3 text-xs text-foreground active:bg-muted" disabled={busy} onClick={() => { void cancelSession() }} type="button">
-              <Ban aria-hidden className="size-3.5" />{copy.cancel}
+        {!isNew
+          ? <button aria-label={copy.openPanel} className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground active:bg-muted" onClick={() => { setPanel(lastPanelTab.current) }} type="button">
+              <SquareTerminal aria-hidden className="size-4.5" />
             </button>
           : null}
-        <button aria-label={copy.toggleTheme} className="flex size-9 items-center justify-center rounded-full text-muted-foreground active:bg-muted" onClick={toggleTheme} type="button">
+        {!isNew
+          ? <button aria-label={copy.sessionMenu} className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground active:bg-muted" onClick={() => { setSheet('menu') }} type="button">
+              <MoreHorizontal aria-hidden className="size-5" />
+            </button>
+          : null}
+        <button aria-label={copy.toggleTheme} className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground active:bg-muted" onClick={toggleTheme} type="button">
           {theme === 'dark' ? <Sun aria-hidden className="size-4.5" /> : <Moon aria-hidden className="size-4.5" />}
         </button>
       </header>
 
-      {approvals.length > 0
-        ? <p aria-live="polite" className="mx-3 mt-3 rounded-lg bg-amber-500/15 px-3 py-2 text-xs font-medium leading-5 text-amber-500">
-            {copy.approvalBanner}: {approvals.map(item => item.toolName).join(', ')} — {copy.approvalNote}
-          </p>
+      {viewInterruptions.length > 0
+        ? <div className="flex flex-col gap-2 px-3 pt-3">
+            {viewInterruptions.slice(0, 3).map(record => <InterruptionCard busy={acting} copy={copy} key={record.key} onAnswer={answerInterruption} onDecide={decideInterruption} record={record} />)}
+            {viewInterruptions.length > 3 ? <p className="px-1 text-xs text-muted-foreground">+{String(viewInterruptions.length - 3)}</p> : null}
+          </div>
         : null}
 
       <div className="flex-1 overflow-y-auto px-3 py-4" ref={scroller}>
@@ -446,34 +468,74 @@ export function MobileApp(): JSX.Element {
         {!isNew && transcript.length === 0
           ? <p className="pt-16 text-center text-sm text-muted-foreground">{copy.emptyTranscript}</p>
           : null}
-        <div className="flex flex-col gap-2.5">
-          {transcript.map((line, index) => <ChatLine key={`${String(line.time)}-${String(index)}`} line={line} />)}
-          {waiting ? <ThinkingRow label={copy.thinking} /> : null}
-        </div>
+        <TranscriptView copy={copy} items={transcript} />
+        {waiting ? <ThinkingRow label={copy.thinking} /> : null}
       </div>
 
-      <form
-        className="sticky bottom-0 border-t border-border/60 bg-background/95 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur"
-        onSubmit={event => { event.preventDefault(); void send() }}
-      >
-        <div className="flex items-center gap-2 rounded-2xl border border-border bg-card px-3.5 py-1.5 shadow-sm focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/40">
-          <input
-            className="h-11 min-w-0 flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground/70"
-            onChange={event => { setDraft(event.target.value) }}
-            placeholder={isNew ? copy.promptPlaceholder : copy.messagePlaceholder}
-            ref={composer}
-            value={draft}
+      <Composer
+        busy={busy}
+        contextPercent={sessionInfo?.context?.percent ?? null}
+        copy={copy}
+        draft={draft}
+        modelLabel={modelLabel}
+        onDraft={setDraft}
+        onOpenContext={() => { setSheet('context') }}
+        onOpenModel={() => { void ensureCatalog(); setSheet('model') }}
+        onOpenPermissions={() => { setSheet('permission') }}
+        onRemoveQueue={removeQueueItem}
+        onSend={() => { void send() }}
+        onStop={() => { void cancelSession() }}
+        permissionLabel={permissionLabel}
+        placeholder={isNew ? copy.promptPlaceholder : (running ? copy.queuePlaceholder : copy.messagePlaceholder)}
+        queue={isNew ? [] : (sessionInfo?.queue ?? [])}
+        running={running}
+      />
+
+      {sheet === 'menu' && view.kind === 'session'
+        ? <Sheet onClose={() => { setSheet(null) }} title={copy.sessionMenu}>
+            <div className="flex flex-col gap-1.5 pb-2">
+              <button className="flex w-full items-center gap-3 rounded-xl border border-border/70 bg-card px-3.5 py-3 text-left text-sm font-medium text-foreground active:bg-muted/70" onClick={() => { setSheet('rename') }} type="button">
+                <PencilLine aria-hidden className="size-4 text-muted-foreground" />
+                {copy.rename}
+              </button>
+              <button className="flex w-full items-center gap-3 rounded-xl border border-border/70 bg-card px-3.5 py-3 text-left text-sm font-medium text-foreground active:bg-muted/70" disabled={acting} onClick={() => { void doCompact() }} type="button">
+                <span aria-hidden className="text-base leading-none">⌥</span>
+                {copy.compact}
+              </button>
+            </div>
+          </Sheet>
+        : null}
+      {sheet === 'rename' && view.kind === 'session'
+        ? <Sheet onClose={() => { setSheet(null) }} title={copy.renameTitle}>
+            <RenameSheet busy={acting} copy={copy} initial={session?.title ?? ''} onSave={title => { void doRename(title) }} />
+          </Sheet>
+        : null}
+      {sheet === 'permission' && permissions !== null
+        ? <Sheet onClose={() => { setSheet(null) }} title={copy.permissionTitle}>
+            <PermissionSheet busy={acting} onSelect={preset => { void applyPermission(preset) }} permissions={permissions} />
+          </Sheet>
+        : null}
+      {sheet === 'model'
+        ? <Sheet onClose={() => { setSheet(null) }} title={copy.modelTitle}>
+            <ModelSheet busy={acting} catalog={catalog} copy={copy} current={sessionInfo?.model ?? null} onApply={selection => { void applyModel(selection) }} />
+          </Sheet>
+        : null}
+      {sheet === 'context' && sessionInfo !== null
+        ? <Sheet onClose={() => { setSheet(null) }} title={copy.contextTitle}>
+            <ContextSheet copy={copy} formatTokens={formatTokens} info={sessionInfo} />
+          </Sheet>
+        : null}
+      {panel !== null && !isNew
+        ? <SidePanel
+            copy={copy}
+            onClose={() => { setPanel(null) }}
+            onTab={tab => { lastPanelTab.current = tab; setPanel(tab) }}
+            planMarkdown={planDraft}
+            tab={panel}
+            transcript={transcript}
           />
-          <button
-            aria-label={copy.send}
-            className={`flex size-11 shrink-0 items-center justify-center rounded-full transition-all ${draft.trim().length === 0 || busy ? 'bg-muted text-muted-foreground/40' : 'bg-primary text-primary-foreground shadow-sm active:scale-95'}`}
-            disabled={busy || draft.trim().length === 0}
-            type="submit"
-          >
-            {busy ? <LoaderCircle aria-hidden className="size-4 animate-spin" /> : <Send aria-hidden className="size-4" />}
-          </button>
-        </div>
-      </form>
+        : null}
+      {flashBar}
     </main>
   }
 
@@ -494,10 +556,11 @@ export function MobileApp(): JSX.Element {
           </button>
         </span>
       </div>
-      {approvals.length > 0
-        ? <p aria-live="polite" className="mx-4 mb-3 rounded-lg bg-amber-500/15 px-3 py-2 text-xs font-medium leading-5 text-amber-500">
-            {copy.approvalBanner}: {approvals.map(item => item.toolName).join(', ')} — {copy.approvalNote}
-          </p>
+      {interruptions.length > 0
+        ? <div className="flex flex-col gap-2 px-4 pb-3">
+            {interruptions.slice(0, 2).map(record => <InterruptionCard busy={acting} copy={copy} key={record.key} onAnswer={answerInterruption} onDecide={decideInterruption} record={record} />)}
+            {interruptions.length > 2 ? <p className="px-1 text-xs text-muted-foreground">+{String(interruptions.length - 2)}</p> : null}
+          </div>
         : null}
     </header>
     <section aria-label="sessions" className="flex-1 overflow-y-auto px-3 pb-4">
@@ -537,5 +600,6 @@ export function MobileApp(): JSX.Element {
         </div>
       </div>)}
     </section>
+    {flashBar}
   </main>
 }

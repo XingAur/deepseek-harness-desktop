@@ -60,3 +60,17 @@ html.dshMobileManualLight body {
 .dshMobileThinkingDot { animation: dshMobileDot 1.2s ease-in-out infinite; }
 .dshMobileThinkingDot:nth-child(2) { animation-delay: 0.15s; }
 .dshMobileThinkingDot:nth-child(3) { animation-delay: 0.3s; }
+
+/* Bottom-sheet entrance: slides up under the sheet's own lifetime. */
+@keyframes dshMobileSheetRise {
+  from { transform: translateY(14%); opacity: 0.6; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.dshMobileSheetUp { animation: dshMobileSheetRise 0.18s ease-out; }
+
+/* Collapsible reasoning/question details: native marker stays hidden cross-browser. */
+details.dshMobileDetails > summary { list-style: none; }
+details.dshMobileDetails > summary::-webkit-details-marker { display: none; }
+
+/* Keep long mono titles readable inside tool rows. */
+html.dshMobileDocument .font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }

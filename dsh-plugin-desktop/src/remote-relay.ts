@@ -10,7 +10,9 @@ import type {} from '@deepseek-ai/dsh-client-connection'
 import { canonicalRelayOrigin } from './remote-relay-origin.ts'
 export { canonicalRelayOrigin } from './remote-relay-origin.ts'
 import { RemoteRelayTunnel, type RemoteRelayTunnelState } from './remote-relay-tunnel.ts'
-import { registerMobileApi, type MobilePendingApproval } from './mobile-api.ts'
+import { registerMobileApi } from './mobile-api.ts'
+import { MobileInterruptions, normalizeQuestions, type MobileInterruptionSettlement } from './mobile-interruptions.ts'
+import { MobileControlCache } from './mobile-control.ts'
 import { desktopTrayLabel } from './tray-locale.ts'
 
 /** States surfaced to the pairing dialog and the sidebar entry. */
@@ -75,46 +77,104 @@ function base32Identifier(): string {
 /**
  * Activate the remote-control surface for one Host generation: the mobile
  * page and its API are always mounted, while the outbound relay tunnel runs
- * only when a relay origin is configured. Approvals are mirrored read-only
- * through a transparent Host waterfall listener.
+ * only when a relay origin is configured. Approvals and structured questions
+ * are phone-first through bounded holds on the Host waterfalls, degrading to
+ * the desktop answerer when no phone is around.
  */
 export function applyRemoteRelay(ctx: Context, options: RemoteRelayOptions): void {
   const mobileRoot = join(dirname(fileURLToPath(import.meta.url)), 'native-ui')
   const origin = canonicalRelayOrigin(options.relayOrigin)
 
-  const pendingApprovals = new Map<string, MobilePendingApproval>()
+  let tunnel: RemoteRelayTunnel | null = null
+  const mobilePresence = { lastSeen: 0 }
+  const phoneActive = (): boolean => Date.now() - mobilePresence.lastSeen < 15_000
+
+  /**
+   * Interruptions (tool approvals, structured questions) are phone-first:
+   * while the phone page is actively polling, the waterfall answer is held so
+   * the phone can claim it; staleness, expiry, or an explicit delegate falls
+   * through to the desktop answerer with behavior unchanged.
+   */
+  const interruptions = new MobileInterruptions({
+    phoneActive,
+    now: () => Date.now(),
+    log: message => ctx.logger.info(message),
+  })
+  const controlCache = new MobileControlCache(message => ctx.logger.warn(message))
+  ctx.effect(() => () => { controlCache.dispose() }, 'dsh-plugin-desktop: mobile control cache lifetime')
+
+  function sessionKeyOf(request: { agent?: { session?: { id?: unknown } } }): string | null {
+    return typeof request.agent?.session?.id === 'string' ? request.agent.session.id : null
+  }
+
   type ApprovalWaterfall = {
     on(name: 'approval/request', listener: (request: {
       agent?: { session?: { id?: unknown } }
       toolName?: unknown
       callId?: unknown
       reason?: unknown
+      signal?: AbortSignal
     }, next: () => Promise<string> | string) => Promise<string>): () => void
   }
   ctx.effect(() => (ctx as unknown as ApprovalWaterfall).on(
     'approval/request',
     (request, next) => {
-      try {
-        const sessionId = typeof request.agent?.session?.id === 'string' ? request.agent.session.id : null
-        const toolName = typeof request.toolName === 'string' ? request.toolName : 'unknown-tool'
-        const callId = typeof request.callId === 'string' ? request.callId : null
-        const reason = typeof request.reason === 'string' ? request.reason : null
-        const key = `${sessionId ?? '-'}:${callId ?? toolName}:${String(Date.now())}`
-        pendingApprovals.set(key, { sessionId, toolName, callId, reason, at: Date.now() })
+      const settleOnDesktop = (): Promise<string> => {
         if (typeof next !== 'function') return Promise.resolve('unavailable')
-        return Promise.resolve(next()).finally(() => pendingApprovals.delete(key))
+        return Promise.resolve(next())
+      }
+      try {
+        const handle = interruptions.hold({
+          sessionId: sessionKeyOf(request),
+          toolName: typeof request.toolName === 'string' ? request.toolName : 'unknown-tool',
+          callId: typeof request.callId === 'string' ? request.callId : null,
+          reason: typeof request.reason === 'string' ? request.reason : null,
+          questions: null,
+        }, request.signal)
+        return handle.settled.then((settlement: MobileInterruptionSettlement): string | Promise<string> => {
+          if (settlement.kind === 'phone-decision') return settlement.decision === 'allow' ? 'allowed-once' : 'rejected'
+          if (settlement.kind === 'abort') return 'cancelled'
+          return settleOnDesktop()
+        }).finally(handle.retire)
       } catch (cause) {
-        ctx.logger.error(`dsh-plugin-desktop: approval mirror failed: ${cause instanceof Error ? cause.message : String(cause)}`)
-        if (typeof next === 'function') return Promise.resolve(next())
-        return Promise.resolve('unavailable')
+        ctx.logger.error(`dsh-plugin-desktop: approval phone hold failed: ${cause instanceof Error ? cause.message : String(cause)}`)
+        return settleOnDesktop()
       }
     },
-  ), 'dsh-plugin-desktop: remote relay approval mirror')
+  ), 'dsh-plugin-desktop: remote relay approval hold')
+
+  type QuestionWaterfall = {
+    on(name: 'user-questions/request', listener: (request: {
+      agent?: { session?: { id?: unknown } }
+      questions?: unknown
+      signal?: AbortSignal
+    }, next: () => Promise<{ answers: readonly { id: string; selected: readonly string[]; custom?: string }[] }> | { answers: readonly { id: string; selected: readonly string[]; custom?: string }[] }) => Promise<{ answers: readonly { id: string; selected: readonly string[]; custom?: string }[] }>): () => void
+  }
+  ctx.effect(() => (ctx as unknown as QuestionWaterfall).on(
+    'user-questions/request',
+    (request, next) => {
+      const questions = normalizeQuestions(request.questions)
+      if (questions === null) {
+        // Not phone-renderable (empty or oversized): the desktop keeps it.
+        return typeof next === 'function' ? Promise.resolve(next()) : Promise.reject(new Error('no user-questions answerer accepted the request'))
+      }
+      const handle = interruptions.hold({
+        sessionId: sessionKeyOf(request),
+        toolName: 'ask-user',
+        callId: null,
+        reason: null,
+        questions,
+      }, request.signal)
+      return handle.settled.then(settlement => {
+        if (settlement.kind === 'phone-answer') return { answers: settlement.answers }
+        if (settlement.kind === 'abort') throw new Error('question aborted before the phone answered')
+        if (typeof next !== 'function') throw new Error('no user-questions answerer accepted the request')
+        return next()
+      }).finally(handle.retire)
+    },
+  ), 'dsh-plugin-desktop: remote relay question hold')
 
   let pairing: RelayPairing | null = null
-  let tunnel: RemoteRelayTunnel | null = null
-  const mobilePresence = { lastSeen: 0 }
-  const phoneActive = (): boolean => Date.now() - mobilePresence.lastSeen < 15_000
 
   function mintPairing(relayCtx: Context, relayOrigin: URL): RelayPairing {
     let token: string | null = null
@@ -196,7 +256,8 @@ export function applyRemoteRelay(ctx: Context, options: RemoteRelayOptions): voi
 
   registerMobileApi({
     ctx,
-    pendingApprovals: () => [...pendingApprovals.values()],
+    interruptions,
+    controlCache,
     relayActive: () => tunnel?.snapshot().state === 'ready',
     presence: mobilePresence,
   })
