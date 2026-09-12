@@ -158,8 +158,46 @@ jobs:
           if ! gh release view "$TAG"; then
             gh release create "$TAG" --target "$GITHUB_SHA" \
               --title "DSH Desktop $TAG" \
-              --notes "Windows 安装包(NSIS Setup)与便携版(Portable zip),含 stable 与 beta 两个变体。
+              --notes "Windows 安装包(NSIS Setup)与便携版(Portable zip)、macOS 通用 DMG(未签名),含 stable 与 beta 两个变体。
 
           本 Release 由 Release workflow 构建并上传:完整打包门禁(check:win-package)通过后才产出。"
           fi
           gh release upload "$TAG" release/* --clobber
+
+  # 把 stable 安装包与版本清单同步到自建更新服务器(国内直连,应用内检查更新
+  # 与下载都指向它)。SSH 私钥经 UPDATE_SERVER_* secrets 注入,仅此任务可见。
+  deploy-updates:
+    needs: [publish]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+          pattern: release-build-*
+      - name: Upload installers to the update server
+        env:
+          UPDATE_HOST: ${{ secrets.UPDATE_SERVER_HOST }}
+          UPDATE_USER: ${{ secrets.UPDATE_SERVER_USER }}
+          UPDATE_KEY: ${{ secrets.UPDATE_SERVER_SSH_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./dsh-plugin-desktop/package.json').version")
+          exe=$(find artifacts -name 'stable-DSH-Desktop-*-x64-Setup.exe' | head -n 1)
+          dmg=$(find artifacts -name 'stable-DSH.Desktop-*-universal.dmg' | head -n 1)
+          test -n "$exe" || { echo 'stable setup exe not found'; exit 1; }
+          test -n "$dmg" || { echo 'stable dmg not found'; exit 1; }
+          install -m 600 /dev/null key
+          printf '%s' "$UPDATE_KEY" > key
+          ssh_key_args=(-i "$PWD/key" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30)
+          scp "${ssh_key_args[@]}" "$exe" "$UPDATE_USER@$UPDATE_HOST:/var/www/dsh-updates/DSH-Desktop-windows-latest.exe"
+          scp "${ssh_key_args[@]}" "$dmg" "$UPDATE_USER@$UPDATE_HOST:/var/www/dsh-updates/DSH-Desktop-mac-latest.dmg"
+          printf '{"version":"%s","channel":"stable"}' "$version" > latest.json
+          scp "${ssh_key_args[@]}" latest.json "$UPDATE_USER@$UPDATE_HOST:/var/www/dsh-updates/latest.json"
+          ssh "${ssh_key_args[@]}" "$UPDATE_USER@$UPDATE_HOST" 'chown caddy:caddy /var/www/dsh-updates/* 2>/dev/null || true'
+          echo "update server now serves $version"
