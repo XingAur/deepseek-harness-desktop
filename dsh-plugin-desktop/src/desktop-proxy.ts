@@ -2,7 +2,9 @@
 
 import {
   desktopModelProxyHosts,
-  hostnameUsesModelProxy,
+  resolveDesktopModelProxyUrl,
+  type DesktopModelProxyCustomProvider,
+  type DesktopModelProxyRouteInput,
 } from './desktop-model-proxy.ts'
 import {
   desktopProxyKind,
@@ -18,6 +20,9 @@ export interface DesktopProxyEnvLookup {
 export interface DesktopModelProxyInstall {
   readonly url: string
   readonly providers: readonly string[]
+  readonly extraHosts?: readonly string[]
+  readonly customProviders?: readonly DesktopModelProxyCustomProvider[]
+  readonly providerUrls?: Readonly<Record<string, string>>
 }
 
 function envWithHttpOverride(
@@ -71,14 +76,47 @@ async function installHttpProxyFromEnvironment(
   return await proxyModule.installProxyFromEnvironment(env, report)
 }
 
+type UndiciDispatcher = {
+  close(): Promise<void>
+  on(event: string, listener: (...args: never[]) => void): UndiciDispatcher
+}
+
 type UndiciProxyRuntime = {
-  Agent: new (opts?: { factory?: (origin: string | URL) => { close(): Promise<void> } }) => {
-    close(): Promise<void>
-  }
-  ProxyAgent: new (uri: string) => { close(): Promise<void> }
-  Socks5ProxyAgent: new (uri: string) => { close(): Promise<void> }
+  Agent: new (opts?: {
+    factory?: (origin: string | URL, options?: object) => UndiciDispatcher
+  }) => UndiciDispatcher
+  Pool: new (origin: string | URL, opts?: object) => UndiciDispatcher
+  ProxyAgent: new (opts: string | { uri: string }) => UndiciDispatcher
+  Socks5ProxyAgent: new (uri: string) => UndiciDispatcher
   getGlobalDispatcher: () => unknown
   setGlobalDispatcher: (dispatcher: unknown) => void
+}
+
+const PROCESS_PROXY_ENV_KEYS = [
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'ALL_PROXY',
+  'NO_PROXY',
+  'http_proxy',
+  'https_proxy',
+  'all_proxy',
+  'no_proxy',
+  'NODE_USE_ENV_PROXY',
+] as const
+
+function clearProcessProxyEnv(): () => void {
+  const previous: Partial<Record<(typeof PROCESS_PROXY_ENV_KEYS)[number], string | undefined>> = {}
+  for (const name of PROCESS_PROXY_ENV_KEYS) {
+    previous[name] = process.env[name]
+    Reflect.deleteProperty(process.env, name)
+  }
+  return () => {
+    for (const name of PROCESS_PROXY_ENV_KEYS) {
+      const value = previous[name]
+      if (value === undefined) Reflect.deleteProperty(process.env, name)
+      else process.env[name] = value
+    }
+  }
 }
 
 async function loadUndici(): Promise<UndiciProxyRuntime | undefined> {
@@ -104,8 +142,7 @@ async function installSocksProxy(
 }
 
 async function installHostAllowlistProxy(
-  proxyUrl: string,
-  hosts: readonly string[],
+  route: DesktopModelProxyRouteInput,
   report: (message: string) => void,
 ): Promise<() => Promise<void>> {
   const undici = await loadUndici()
@@ -113,32 +150,39 @@ async function installHostAllowlistProxy(
     report('model proxy support is unavailable in this runtime; connecting directly')
     return async () => {}
   }
-  const kind = desktopProxyKind(proxyUrl)
-  if (kind === 'none' || hosts.length === 0) return async () => {}
-  if (kind === 'socks' && undici.Socks5ProxyAgent === undefined) {
-    report('SOCKS proxy support is unavailable in this runtime; connecting directly')
-    return async () => {}
-  }
+  const hosts = desktopModelProxyHosts(route.providers, route.extraHosts, route.customProviders)
+  const hasUrl = route.sharedUrl !== ''
+    || Object.values(route.providerUrls ?? {}).some(url => url.trim() !== '')
+    || (route.customProviders ?? []).some(item => item.proxyUrl.trim() !== '')
+  if (hosts.length === 0 || !hasUrl) return async () => {}
   const previous = undici.getGlobalDispatcher()
-  const proxied = kind === 'socks'
-    ? new undici.Socks5ProxyAgent(proxyUrl)
-    : new undici.ProxyAgent(proxyUrl)
-  const direct = new undici.Agent()
+  const restoreEnv = clearProcessProxyEnv()
   const agent = new undici.Agent({
-    factory(origin) {
+    factory(origin, options) {
+      let hostname = ''
       try {
-        const hostname = (origin instanceof URL ? origin : new URL(String(origin))).hostname
-        return hostnameUsesModelProxy(hostname, hosts) ? proxied : direct
+        hostname = (origin instanceof URL ? origin : new URL(String(origin))).hostname
       } catch {
-        return direct
+        hostname = ''
       }
+      const proxyUrl = hostname === '' ? '' : resolveDesktopModelProxyUrl(hostname, route)
+      const kind = desktopProxyKind(proxyUrl)
+      if (kind === 'socks' && undici.Socks5ProxyAgent !== undefined) {
+        return new undici.Socks5ProxyAgent(proxyUrl)
+      }
+      if (kind === 'http') return new undici.ProxyAgent({ ...options, uri: proxyUrl })
+      // One Pool per origin. Returning a shared Agent here is closed by undici
+      // when that origin drains, which then breaks later direct fetches
+      // (Zhipu, Yunxiao, and other domestic APIs).
+      return new undici.Pool(origin, options)
     },
   })
   undici.setGlobalDispatcher(agent)
   report(`model proxy enabled for ${hosts.join(', ')}`)
   return async () => {
     undici.setGlobalDispatcher(previous)
-    await Promise.all([agent.close(), proxied.close(), direct.close()])
+    restoreEnv()
+    await agent.close()
   }
 }
 
@@ -180,9 +224,13 @@ export async function installDesktopOutboundProxy(
     report('dsh-desktop.modelProxyUrl is not a usable proxy URL; trying HTTP_PROXY for model hosts')
   }
   if (modelUrl === '') modelUrl = readEnvironmentProxyUrl(env)
-  const hosts = desktopModelProxyHosts(modelProxy?.providers ?? ['xai', 'openai-codex'])
-  if (modelUrl === '' || hosts.length === 0) return async () => {}
-  return await installHostAllowlistProxy(modelUrl, hosts, report)
+  return await installHostAllowlistProxy({
+    sharedUrl: modelUrl,
+    providers: modelProxy?.providers ?? ['xai', 'openai-codex'],
+    extraHosts: modelProxy?.extraHosts ?? [],
+    customProviders: modelProxy?.customProviders ?? [],
+    providerUrls: modelProxy?.providerUrls ?? {},
+  }, report)
 }
 
 export {

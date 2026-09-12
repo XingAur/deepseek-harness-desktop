@@ -14,6 +14,8 @@ export interface DesktopModelSigninCopy {
   readonly deviceMessage: string
   readonly deviceCodeDetail: (code: string) => string
   readonly deviceAdvisory: string
+  /** Shown while a browser callback is racing a typed-code prompt this shell cannot answer. */
+  readonly browserWaitMessage: string
   readonly dismiss: string
   readonly cancelLogin: string
   /** Raised after the attempt committed the credential. */
@@ -35,6 +37,7 @@ const copy: Record<DesktopLocale, DesktopModelSigninCopy> = {
     deviceMessage: 'Your browser opened the sign-in page. Sign in and approve the authorization there; the confirmation code is filled in for you.',
     deviceCodeDetail: code => `Confirmation code: ${code}`,
     deviceAdvisory: 'Closing this window also cancels the pending sign-in.',
+    browserWaitMessage: 'Your browser opened the sign-in page. Finish signing in there; this window continues automatically.',
     dismiss: 'OK',
     cancelLogin: 'Cancel Sign-in',
     successMessage: 'The credential was saved. Later model requests use it automatically.',
@@ -50,6 +53,7 @@ const copy: Record<DesktopLocale, DesktopModelSigninCopy> = {
     deviceMessage: '浏览器已打开登录页面。请在页面中登录并批准授权；确认码会自动填入，如未填入请手动输入。',
     deviceCodeDetail: code => `确认码：${code}`,
     deviceAdvisory: '关闭此窗口也会取消进行中的登录。',
+    browserWaitMessage: '浏览器已打开登录页面。请在页面中完成登录，完成后会自动继续。',
     dismiss: '知道了',
     cancelLogin: '取消登录',
     successMessage: '登录凭据已保存，之后的模型请求会自动使用。',

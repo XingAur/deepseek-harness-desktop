@@ -27,10 +27,31 @@ import {
 } from '../src/window-chrome.ts'
 
 describe('desktop client environment', () => {
-  it.each(['darwin', 'win32', 'linux'])('keeps compatibility chrome out of the %s client slot tree', platform => {
+  it.each(['darwin', 'win32'])('installs the independent compatibility frame on %s', platform => {
     const marker = platform === 'win32' ? '&dsh-desktop-mica=0' : ''
     vi.stubGlobal('window', { location: {
       search: `?dsh-desktop-platform=${platform}&dsh-desktop-mode=compatibility&dsh-desktop-version=2.0.3&dsh-desktop-material=off${marker}`,
+    } })
+    const effect = vi.fn()
+    const inject = vi.fn()
+    const ctx = {
+      effect,
+      slots: { inject },
+      locale: { bind: () => (key: string) => key },
+      settingsScope: { bind: () => ({}) },
+    } as unknown as ClientContext
+    try {
+      apply(ctx)
+      expect(inject.mock.calls.map(([name]) => name)).toContain('shell.overlay')
+      expect(effect.mock.calls.map(([, label]) => label)).toContain('desktop: independent compatibility frame styles')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('keeps compatibility chrome out of the linux client slot tree', () => {
+    vi.stubGlobal('window', { location: {
+      search: '?dsh-desktop-platform=linux&dsh-desktop-mode=compatibility&dsh-desktop-version=2.0.3&dsh-desktop-material=off',
     } })
     const effect = vi.fn()
     const inject = vi.fn()

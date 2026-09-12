@@ -27,6 +27,9 @@ export interface DesktopShellSettings {
   readonly proxyUrl: string
   readonly modelProxyUrl: string
   readonly modelProxyProviders: readonly string[]
+  readonly modelProxyExtraHosts: readonly string[]
+  readonly modelProxyCustomProviders: readonly { readonly name: string, readonly hosts: readonly string[], readonly proxyUrl?: string }[]
+  readonly modelProxyProviderUrls: readonly { readonly provider: string, readonly proxyUrl: string }[]
 }
 
 /** Browser view of the Host `dsh-desktop-notifications` settings namespace. */

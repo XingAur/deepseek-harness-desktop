@@ -13,7 +13,7 @@ import { applyDesktopRemoteEntry } from './DesktopRemoteEntry.tsx'
 import { applyDesktopSettings } from './desktop-settings.ts'
 import { installDesktopDirectoryPickerBridge } from './directory-picker.ts'
 import { parseDesktopClientEnvironment } from './environment.ts'
-import { applyExtendedShell } from './extended-shell.ts'
+import { applyExtendedShell, applyFramedShell } from './extended-shell.ts'
 import { desktopWindowService, provideDesktopWindow } from './window-service.ts'
 
 export { applyAdvancedShell } from './advanced-shell.ts'
@@ -101,4 +101,10 @@ export function apply(ctx: ClientContext): void {
   }
   if (environment.mode === 'advanced') applyAdvancedShell(ctx, environment)
   if (environment.mode === 'extended') applyExtendedShell(ctx, environment, desktopSettings)
+  // Compatibility keeps the official layout, but the BrowserWindow is
+  // frameless. Without this frame the official header covers the native drag
+  // band, so the window cannot be dragged or double-click maximized.
+  if (environment.mode === 'compatibility' && environment.platform !== 'linux') {
+    applyFramedShell(ctx, environment, desktopSettings)
+  }
 }

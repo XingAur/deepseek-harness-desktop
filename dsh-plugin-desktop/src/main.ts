@@ -701,6 +701,9 @@ async function start(): Promise<void> {
       {
         url: startupSettings.modelProxyUrl,
         providers: startupSettings.modelProxyProviders,
+        extraHosts: startupSettings.modelProxyExtraHosts,
+        customProviders: startupSettings.modelProxyCustomProviders,
+        providerUrls: startupSettings.modelProxyProviderUrls,
       },
     )
     const projectionCacheRecovery = recoverOversizedSessionProjectionCache(homeDir)

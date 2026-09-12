@@ -78,7 +78,7 @@ import {
   desktopWebServerHost,
   type DesktopNetworkExposure,
 } from './desktop-network.ts'
-import type { DesktopModelProxyProvider } from './desktop-model-proxy.ts'
+import type { DesktopModelProxyCustomProvider, DesktopModelProxyProvider } from './desktop-model-proxy.ts'
 import { DESKTOP_FRAME_HEIGHT } from './window-chrome.ts'
 import {
   DEFAULT_MACOS_WINDOW_MATERIAL,
@@ -156,6 +156,12 @@ export interface DesktopSettings {
   modelProxyUrl: string
   /** Provider ids whose API hosts use the model proxy. */
   modelProxyProviders: DesktopModelProxyProvider[]
+  /** Extra API hostnames that also use the model proxy. */
+  modelProxyExtraHosts: string[]
+  /** User-added models (name + API hosts) that use the model proxy. */
+  modelProxyCustomProviders: DesktopModelProxyCustomProvider[]
+  /** Optional dedicated proxy URL per built-in provider id. */
+  modelProxyProviderUrls: Array<{ provider: string, proxyUrl: string }>
 }
 
 /** Schema registered with the standard settings service. */
@@ -170,7 +176,17 @@ export const DesktopSettingsSchema: z<DesktopSettings> = z.object({
   logLevel: z.union(['debug', 'info', 'warn', 'error'] as const).default('info'),
   proxyUrl: z.string().default(''),
   modelProxyUrl: z.string().default(''),
-  modelProxyProviders: z.array(z.union(['xai', 'openai-codex'] as const)).default(['xai', 'openai-codex']),
+  modelProxyProviders: z.array(z.union(['xai', 'openai-codex', 'anthropic', 'gemini'] as const)).default(['xai', 'openai-codex']),
+  modelProxyExtraHosts: z.array(z.string()).default([]),
+  modelProxyCustomProviders: z.array(z.object({
+    name: z.string(),
+    hosts: z.array(z.string()),
+    proxyUrl: z.string().default(''),
+  })).default([]),
+  modelProxyProviderUrls: z.array(z.object({
+    provider: z.string(),
+    proxyUrl: z.string(),
+  })).default([]),
 })
 
 /** Native window configuration. */
@@ -191,6 +207,12 @@ export interface Config {
   modelProxyUrl: string
   /** Model-proxy provider ids used to detect restart-applied settings changes. */
   modelProxyProviders: DesktopModelProxyProvider[]
+  /** Extra model-proxy hostnames used to detect restart-applied settings changes. */
+  modelProxyExtraHosts: string[]
+  /** User-added model-proxy providers used to detect restart-applied settings changes. */
+  modelProxyCustomProviders: DesktopModelProxyCustomProvider[]
+  /** Optional dedicated proxy URL per built-in provider id. */
+  modelProxyProviderUrls: Array<{ provider: string, proxyUrl: string }>
   /** Initial window width in CSS pixels. */
   width: number
   /** Initial window height in CSS pixels. */
@@ -210,7 +232,17 @@ export const Config: z<Config> = z.object({
   networkExposure: z.union(['loopback', 'lan'] as const).default('loopback'),
   proxyUrl: z.string().default(''),
   modelProxyUrl: z.string().default(''),
-  modelProxyProviders: z.array(z.union(['xai', 'openai-codex'] as const)).default(['xai', 'openai-codex']),
+  modelProxyProviders: z.array(z.union(['xai', 'openai-codex', 'anthropic', 'gemini'] as const)).default(['xai', 'openai-codex']),
+  modelProxyExtraHosts: z.array(z.string()).default([]),
+  modelProxyCustomProviders: z.array(z.object({
+    name: z.string(),
+    hosts: z.array(z.string()),
+    proxyUrl: z.string().default(''),
+  })).default([]),
+  modelProxyProviderUrls: z.array(z.object({
+    provider: z.string(),
+    proxyUrl: z.string(),
+  })).default([]),
   width: z.number().step(1).min(800).default(1280),
   height: z.number().step(1).min(600).default(840),
   minWidth: z.number().step(1).min(640).default(900),
@@ -477,7 +509,13 @@ export function apply(ctx: Context, config: Config): void {
         && (next.proxyUrl ?? '') === (config.proxyUrl ?? '')
         && (next.modelProxyUrl ?? '') === (config.modelProxyUrl ?? '')
         && JSON.stringify(next.modelProxyProviders ?? ['xai', 'openai-codex'])
-          === JSON.stringify(config.modelProxyProviders ?? ['xai', 'openai-codex'])) {
+          === JSON.stringify(config.modelProxyProviders ?? ['xai', 'openai-codex'])
+        && JSON.stringify(next.modelProxyExtraHosts ?? [])
+          === JSON.stringify(config.modelProxyExtraHosts ?? [])
+        && JSON.stringify(next.modelProxyCustomProviders ?? [])
+          === JSON.stringify(config.modelProxyCustomProviders ?? [])
+        && JSON.stringify(next.modelProxyProviderUrls ?? [])
+          === JSON.stringify(config.modelProxyProviderUrls ?? [])) {
         if (pending !== undefined) clearImmediate(pending)
         pending = undefined
         return

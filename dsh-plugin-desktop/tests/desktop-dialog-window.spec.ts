@@ -208,6 +208,32 @@ describe('DesktopDialogWindow', () => {
     await expect(result).resolves.toEqual({ response: 2 })
   })
 
+  it('maps an already-aborted signal to cancel without opening a window', async () => {
+    await expect(new DesktopDialogWindow({
+      title: 'Confirm',
+      message: 'Continue?',
+      buttons: ['Continue', 'Cancel'],
+      cancelId: 1,
+      signal: AbortSignal.abort(),
+    }).run()).resolves.toEqual({ response: 1 })
+    expect(electron.windows).toHaveLength(0)
+  })
+
+  it('closes an open dialog when its signal aborts', async () => {
+    const controller = new AbortController()
+    const result = new DesktopDialogWindow({
+      title: 'Confirm',
+      message: 'Continue?',
+      buttons: ['Continue', 'Cancel'],
+      cancelId: 1,
+      signal: controller.signal,
+    }).run()
+    await vi.waitFor(() => { expect(electron.windows).toHaveLength(1) })
+    controller.abort()
+    await expect(result).resolves.toEqual({ response: 1 })
+    expect(electron.windows[0]?.destroy).toHaveBeenCalledOnce()
+  })
+
   it('maps window close to the configured cancel response', async () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
     const result = new DesktopDialogWindow({
