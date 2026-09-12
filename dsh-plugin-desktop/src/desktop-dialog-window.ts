@@ -44,6 +44,8 @@ export interface DesktopDialogOptions {
   readonly presentation?: 'default' | 'diagnostic' | 'profile-compatibility'
   /** Override whether this dialog exposes native close/caption controls. */
   readonly windowControls?: boolean
+  /** Closes the dialog as cancel when a raced prompt is withdrawn. */
+  readonly signal?: AbortSignal
 }
 
 export interface DesktopDialogResult {
@@ -83,6 +85,7 @@ export class DesktopDialogWindow {
     }
     const cancelId = normalizedIndex(this.options.cancelId, this.options.buttons.length - 1, this.options.buttons.length)
     const defaultId = normalizedIndex(this.options.defaultId, 0, this.options.buttons.length)
+    if (this.options.signal?.aborted) return Object.freeze({ response: cancelId })
     const state = Buffer.from(JSON.stringify({
       type: this.options.type ?? 'none',
       title: this.options.title,
@@ -132,6 +135,7 @@ export class DesktopDialogWindow {
       let preferredHeight: number | undefined
       let appliedHeight: number | undefined
       let revealTimer: ReturnType<typeof setTimeout> | undefined
+      let onAbort: (() => void) | undefined
       const reveal = (): void => {
         if (revealed || !documentLoaded || !paintReady || window.isDestroyed()) return
         revealed = true
@@ -139,9 +143,15 @@ export class DesktopDialogWindow {
         revealTimer = undefined
         revealApplication(window)
       }
+      const detachAbort = (): void => {
+        if (onAbort === undefined) return
+        this.options.signal?.removeEventListener('abort', onAbort)
+        onAbort = undefined
+      }
       const finish = (response: number): void => {
         if (settled) return
         settled = true
+        detachAbort()
         if (revealTimer !== undefined) clearTimeout(revealTimer)
         if (!window.isDestroyed()) window.destroy()
         resolve(Object.freeze({ response }))
@@ -191,6 +201,9 @@ export class DesktopDialogWindow {
         scheduleReveal()
       })
       window.on('closed', () => { finish(cancelId) })
+      onAbort = () => { finish(cancelId) }
+      this.options.signal?.addEventListener('abort', onAbort, { once: true })
+      if (this.options.signal?.aborted) finish(cancelId)
       void window.loadFile(DIALOG_DOCUMENT, {
         query: {
           state,
@@ -200,6 +213,7 @@ export class DesktopDialogWindow {
       }).catch((cause: unknown) => {
         if (settled) return
         settled = true
+        detachAbort()
         if (revealTimer !== undefined) clearTimeout(revealTimer)
         if (!window.isDestroyed()) window.destroy()
         reject(cause)
