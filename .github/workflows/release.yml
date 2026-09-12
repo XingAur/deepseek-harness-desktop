@@ -193,7 +193,7 @@ jobs:
           test -n "$exe" || { echo 'stable setup exe not found'; exit 1; }
           test -n "$dmg" || { echo 'stable dmg not found'; exit 1; }
           install -m 600 /dev/null key
-          printf '%s' "$UPDATE_KEY" > key
+          printf '%s\n' "$UPDATE_KEY" > key
           ssh_key_args=(-i "$PWD/key" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30)
           scp "${ssh_key_args[@]}" "$exe" "$UPDATE_USER@$UPDATE_HOST:/var/www/dsh-updates/DSH-Desktop-windows-latest.exe"
           scp "${ssh_key_args[@]}" "$dmg" "$UPDATE_USER@$UPDATE_HOST:/var/www/dsh-updates/DSH-Desktop-mac-latest.dmg"
