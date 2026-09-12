@@ -585,47 +585,6 @@ export async function handleDesktopDeveloperToolsToggleRequest(
   }
 }
 
-/** Read or write the OS login-item state from an exact same-origin request. */
-export async function handleDesktopLaunchAtLoginRequest(
-  req: IncomingMessage,
-  res: ServerResponse,
-  expectedOrigin: string,
-  read: () => boolean,
-  write: (enabled: boolean) => void,
-  reportError: (operation: string, cause: unknown) => void = () => {},
-): Promise<void> {
-  if (req.method === 'GET') {
-    if (!isSameOriginLoopbackRequest(req, expectedOrigin, false)) {
-      return finishJson(res, 403, error('forbidden'))
-    }
-    try {
-      finishJson(res, 200, { enabled: read() })
-    } catch (cause) {
-      reportError('read the login item', cause)
-      finishJson(res, 500, error('login item state unavailable'))
-    }
-    return
-  }
-  if (req.method !== 'POST') return finishJson(res, 405, error('method not allowed'), 'GET')
-  if (!isSameOriginLoopbackRequest(req, expectedOrigin, true)) {
-    return finishJson(res, 403, error('forbidden'))
-  }
-  const value = await parsePostBody(req, res)
-  if (value === INVALID_BODY) return
-  if (value === null || typeof value !== 'object' || Array.isArray(value)
-    || typeof (value as { enabled?: unknown }).enabled !== 'boolean'
-    || Object.keys(value).length !== 1) {
-    return finishJson(res, 400, error('invalid login item request'))
-  }
-  try {
-    write((value as { enabled: boolean }).enabled)
-    finishJson(res, 200, { enabled: read() })
-  } catch (cause) {
-    reportError('write the login item', cause)
-    finishJson(res, 500, error('login item could not be updated'))
-  }
-}
-
 /** Run the generation-owned interactive update flow from an exact empty request. */
 export async function handleDesktopUpdateCheckRequest(
   req: IncomingMessage,

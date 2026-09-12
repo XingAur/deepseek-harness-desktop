@@ -40,7 +40,6 @@ export const DESKTOP_UPDATE_STATE_PATH = '/api/desktop/updates/state'
 export const DESKTOP_UPDATE_DOWNLOAD_PATH = '/api/desktop/updates/download'
 
 /** Read or write this application's OS login-item state. */
-export const DESKTOP_LAUNCH_AT_LOGIN_PATH = '/api/desktop/launch-at-login'
 
 /** Export one local diagnostic archive through the launcher-owned flow. */
 export const DESKTOP_DIAGNOSTICS_EXPORT_PATH = '/api/desktop/diagnostics/export'
