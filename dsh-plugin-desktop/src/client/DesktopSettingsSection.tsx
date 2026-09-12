@@ -545,7 +545,7 @@ export function DesktopSettingsSection({
                     title={profile.name}
                     body={profileState(profile, t)}
                     selected={current}
-                    disabled={!profile.selectable || busy !== undefined || restart !== 'none'}
+                    disabled={!profile.selectable || busy !== undefined}
                     action={() => { selectProfile(profile.name) }}
                     status={current ? t('activeProfile') : undefined}
                     aside={deleteAction}
@@ -562,14 +562,14 @@ export function DesktopSettingsSection({
                   maxLength={128}
                   autoComplete="off"
                   placeholder={t('profileNamePlaceholder')}
-                  disabled={busy !== undefined || restart !== 'none'}
+                  disabled={busy !== undefined}
                   onChange={event => { setProfileName(event.currentTarget.value) }}
                 />
               </label>
               <button
                 type="submit"
                 className="dshDesktopSettingsButton"
-                disabled={profileName.trim().length === 0 || busy !== undefined || restart !== 'none'}
+                disabled={profileName.trim().length === 0 || busy !== undefined}
               >
                 {busy === 'create-profile' ? t('creatingProfile') : t('create')}
               </button>
@@ -596,7 +596,7 @@ export function DesktopSettingsSection({
                 body={marketBody(option, t)}
                 selected={view.market.requested === option.id}
                 reselectable={view.market.requested === option.id && view.market.requested !== view.market.effective}
-                disabled={busy !== undefined || restart !== 'none'}
+                disabled={busy !== undefined}
                 action={() => { selectMarket(option.id) }}
                 status={view.market.requested === option.id && view.market.requested !== view.market.effective
                     ? t('retryMarket')
@@ -618,7 +618,7 @@ export function DesktopSettingsSection({
             title={t('compatibilityMode')}
             body={t('compatibilityModeBody')}
             selected={mode === 'compatibility'}
-            disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+            disabled={!settingsWritable || busy !== undefined}
             action={() => { setMode('compatibility') }}
             status={mode === 'compatibility' ? t('selected') : undefined}
           />
@@ -626,7 +626,7 @@ export function DesktopSettingsSection({
             title={t('extendedMode')}
             body={platform === 'linux' ? t('extendedUnavailableLinux') : t('extendedModeBody')}
             selected={mode === 'extended'}
-            disabled={platform === 'linux' || !settingsWritable || busy !== undefined || restart !== 'none'}
+            disabled={platform === 'linux' || !settingsWritable || busy !== undefined}
             action={() => { setMode('extended') }}
             status={mode === 'extended' ? t('selected') : undefined}
           />
@@ -634,7 +634,7 @@ export function DesktopSettingsSection({
             title={t('advancedMode')}
             body={platform === 'linux' ? t('advancedUnavailableLinux') : t('advancedModeBody')}
             selected={mode === 'advanced'}
-            disabled={platform === 'linux' || !settingsWritable || busy !== undefined || restart !== 'none'}
+            disabled={platform === 'linux' || !settingsWritable || busy !== undefined}
             action={() => { setMode('advanced') }}
             status={mode === 'advanced' ? t('selected') : undefined}
           />
@@ -653,7 +653,7 @@ export function DesktopSettingsSection({
                   || (!micaSupported && desktop.value?.windowsMaterial === 'mica')
                   ? 'off'
                   : desktop.value?.windowsMaterial ?? 'off'}
-              disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+              disabled={!settingsWritable || busy !== undefined}
               onChange={event => { setMaterial(event.currentTarget.value) }}
             >
               <option value="off">{t('windowMaterialOff')}</option>

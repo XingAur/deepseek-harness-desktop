@@ -295,7 +295,7 @@ export function DesktopProxySection({ t, api, desktopSettings }: DesktopProxySec
               <button
                 type="button"
                 className="dshDesktopSettingsButton dshDesktopSettingsButtonSecondary"
-                disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+                disabled={!settingsWritable || busy !== undefined}
                 onClick={() => {
                   setModelProxyDraft(suggestedProxyUrl)
                   setSuggestedProxyUrl(undefined)
@@ -312,7 +312,7 @@ export function DesktopProxySection({ t, api, desktopSettings }: DesktopProxySec
                 <button
                   type="button"
                   className="dshDesktopSettingsButton dshDesktopSettingsButtonSecondary"
-                  disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+                  disabled={!settingsWritable || busy !== undefined}
                   onClick={selectOverseasGroup}
                 >
                   {t('modelProxySelectOverseas')}
@@ -320,7 +320,7 @@ export function DesktopProxySection({ t, api, desktopSettings }: DesktopProxySec
                 <button
                   type="button"
                   className="dshDesktopSettingsButton dshDesktopSettingsButtonSecondary"
-                  disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+                  disabled={!settingsWritable || busy !== undefined}
                   onClick={clearProviderGroup}
                 >
                   {t('modelProxyDirectAll')}
@@ -333,7 +333,7 @@ export function DesktopProxySection({ t, api, desktopSettings }: DesktopProxySec
                   <input
                     type="checkbox"
                     checked={modelProxyProviders.includes(id)}
-                    disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+                    disabled={!settingsWritable || busy !== undefined}
                     onChange={event => { toggleModelProvider(id, event.currentTarget.checked) }}
                   />
                   <span>{t(id === 'openai-codex' ? 'modelProxyCodex' : id === 'anthropic' ? 'modelProxyAnthropic' : id === 'gemini' ? 'modelProxyGemini' : 'modelProxyXai')}</span>
@@ -347,7 +347,7 @@ export function DesktopProxySection({ t, api, desktopSettings }: DesktopProxySec
                       autoComplete="off"
                       placeholder={t('proxyUrlPlaceholder')}
                       value={providerUrls[id] ?? ''}
-                      disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+                      disabled={!settingsWritable || busy !== undefined}
                       onChange={event => {
                         const value = event.currentTarget.value
                         setProviderUrls(current => ({ ...current, [id]: value }))
@@ -363,7 +363,7 @@ export function DesktopProxySection({ t, api, desktopSettings }: DesktopProxySec
                 <button
                   type="button"
                   className="dshDesktopSettingsButton dshDesktopSettingsButtonSecondary"
-                  disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+                  disabled={!settingsWritable || busy !== undefined}
                   onClick={() => {
                     setCustomModels(current => current.filter(entry => entry.name !== item.name || entry.host !== item.host))
                   }}
@@ -383,7 +383,7 @@ export function DesktopProxySection({ t, api, desktopSettings }: DesktopProxySec
                 type="text"
                 autoComplete="off"
                 value={addName}
-                disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+                disabled={!settingsWritable || busy !== undefined}
                 onChange={event => {
                   setAddName(event.currentTarget.value)
                   setCustomInvalid(false)
@@ -398,7 +398,7 @@ export function DesktopProxySection({ t, api, desktopSettings }: DesktopProxySec
                 autoComplete="off"
                 placeholder="api.anthropic.com"
                 value={addHost}
-                disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+                disabled={!settingsWritable || busy !== undefined}
                 onChange={event => {
                   setAddHost(event.currentTarget.value)
                   setCustomInvalid(false)
@@ -413,7 +413,7 @@ export function DesktopProxySection({ t, api, desktopSettings }: DesktopProxySec
                 autoComplete="off"
                 placeholder={t('proxyUrlPlaceholder')}
                 value={addProxyUrl}
-                disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+                disabled={!settingsWritable || busy !== undefined}
                 onChange={event => {
                   setAddProxyUrl(event.currentTarget.value)
                   setCustomInvalid(false)
@@ -423,7 +423,7 @@ export function DesktopProxySection({ t, api, desktopSettings }: DesktopProxySec
             <button
               type="button"
               className="dshDesktopSettingsButton dshDesktopSettingsButtonSecondary"
-              disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+              disabled={!settingsWritable || busy !== undefined}
               onClick={addCustomModel}
             >
               {t('modelProxyAdd')}
@@ -441,7 +441,7 @@ export function DesktopProxySection({ t, api, desktopSettings }: DesktopProxySec
               spellCheck={false}
               value={modelProxyDraft}
               placeholder={t('proxyUrlPlaceholder')}
-              disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+              disabled={!settingsWritable || busy !== undefined}
               onChange={event => {
                 setModelProxyDraft(event.currentTarget.value)
                 setModelProxyInvalid(false)
@@ -455,7 +455,7 @@ export function DesktopProxySection({ t, api, desktopSettings }: DesktopProxySec
               <button
                 type="button"
                 className="dshDesktopSettingsButton"
-                disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+                disabled={!settingsWritable || busy !== undefined}
                 onClick={detectModelProxy}
               >
                 {busy === 'proxy-detect' ? t('modelProxyDetecting') : t('modelProxyDetect')}
@@ -465,7 +465,7 @@ export function DesktopProxySection({ t, api, desktopSettings }: DesktopProxySec
               <button
                 type="button"
                 className="dshDesktopSettingsButton"
-                disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+                disabled={!settingsWritable || busy !== undefined}
                 onClick={testModelProxy}
               >
                 {busy === 'proxy-test' ? t('modelProxyTesting') : t('modelProxyTest')}
@@ -474,7 +474,7 @@ export function DesktopProxySection({ t, api, desktopSettings }: DesktopProxySec
             <button
               type="submit"
               className="dshDesktopSettingsPrimary"
-              disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+              disabled={!settingsWritable || busy !== undefined}
             >
               {t('modelProxySave')}
             </button>
@@ -512,7 +512,7 @@ export function DesktopProxySection({ t, api, desktopSettings }: DesktopProxySec
                 spellCheck={false}
                 value={proxyDraft}
                 placeholder={t('proxyUrlPlaceholder')}
-                disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+                disabled={!settingsWritable || busy !== undefined}
                 onChange={event => {
                   setProxyDraft(event.currentTarget.value)
                   setProxyInvalid(false)
@@ -523,7 +523,7 @@ export function DesktopProxySection({ t, api, desktopSettings }: DesktopProxySec
               <button
                 type="submit"
                 className="dshDesktopSettingsPrimary"
-                disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+                disabled={!settingsWritable || busy !== undefined}
               >
                 {t('proxySave')}
               </button>
