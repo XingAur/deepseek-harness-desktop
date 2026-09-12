@@ -1257,7 +1257,6 @@ async function start(): Promise<void> {
       setupWizardWindow = new DesktopSetupWizardWindow({
         locale: desktopLocaleFromLanguageTag(app.getLocale()),
         input: {
-          appVersion,
           profileName: activeProfileName,
           platform: runtime.platform,
           micaSupported: process.platform === 'win32' && windowsSupportsMica(runtime.windowsBuild),
