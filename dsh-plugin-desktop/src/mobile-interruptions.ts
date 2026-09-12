@@ -85,6 +85,12 @@ export interface MobileInterruptionsOptions {
   readonly holdMs?: number
   /** Watchdog cadence for staleness and expiry. */
   readonly tickMs?: number
+  /**
+   * Parallel mode: the desktop shows the ask at the same time (the adapter
+   * delegates immediately), so the phone record has no staleness or expiry —
+   * it lives until either side answers.
+   */
+  readonly parallel?: boolean
 }
 
 const DEFAULT_HOLD_MS = 60_000
@@ -116,6 +122,7 @@ export class MobileInterruptions {
   private readonly log: (message: string) => void
   private readonly holdMs: number
   private readonly tickMs: number
+  private readonly parallel: boolean
 
   constructor(options: MobileInterruptionsOptions) {
     this.phoneActive = options.phoneActive
@@ -123,6 +130,7 @@ export class MobileInterruptions {
     this.log = options.log
     this.holdMs = options.holdMs ?? DEFAULT_HOLD_MS
     this.tickMs = options.tickMs ?? DEFAULT_TICK_MS
+    this.parallel = options.parallel === true
   }
 
   /** Records visible to the phone page, oldest first. */
@@ -166,7 +174,11 @@ export class MobileInterruptions {
       if (entry.watcher !== null) clearInterval(entry.watcher)
       this.entries.delete(record.key)
     }
-    if (this.phoneActive()) {
+    if (this.parallel) {
+      // Parallel mode: the desktop already shows the ask; the phone record
+      // lives until either side answers or the ask is withdrawn.
+      signal?.addEventListener('abort', () => { entry.settle({ kind: 'abort' }) }, { once: true })
+    } else if (this.phoneActive()) {
       entry.watcher = setInterval(() => {
         if (signal?.aborted === true) {
           entry.settle({ kind: 'abort' })

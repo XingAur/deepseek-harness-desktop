@@ -74,6 +74,28 @@ describe('MobileInterruptions', () => {
     }
   })
 
+  it('parallel mode keeps the record with no phone around and no expiry', async () => {
+    vi.useFakeTimers()
+    try {
+      let active = false
+      const interruptions = new MobileInterruptions({
+        phoneActive: () => active,
+        now: () => 1_000,
+        log: () => undefined,
+        parallel: true,
+      })
+      const handle = interruptions.hold(approvalRequest)
+      expect(interruptions.snapshot()).toHaveLength(1)
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(handle.record.delegated).toBe(false)
+      expect(interruptions.snapshot()).toHaveLength(1)
+      expect(interruptions.decide(handle.record.key, { action: 'allow' })).toBe('ok')
+      await expect(handle.settled).resolves.toEqual({ kind: 'phone-decision', decision: 'allow' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('validates phone answers against the pending questions', async () => {
     const questions = normalizeQuestions([
       { id: 'q1', question: 'Pick one', options: [{ label: 'A' }, { label: 'B' }] },

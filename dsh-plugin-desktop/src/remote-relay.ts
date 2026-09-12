@@ -11,7 +11,7 @@ import { canonicalRelayOrigin } from './remote-relay-origin.ts'
 export { canonicalRelayOrigin } from './remote-relay-origin.ts'
 import { RemoteRelayTunnel, type RemoteRelayTunnelState } from './remote-relay-tunnel.ts'
 import { registerMobileApi } from './mobile-api.ts'
-import { MobileInterruptions, normalizeQuestions, type MobileInterruptionSettlement } from './mobile-interruptions.ts'
+import { MobileInterruptions, normalizeQuestions } from './mobile-interruptions.ts'
 import { MobileControlCache } from './mobile-control.ts'
 import { desktopTrayLabel } from './tray-locale.ts'
 
@@ -90,15 +90,17 @@ export function applyRemoteRelay(ctx: Context, options: RemoteRelayOptions): voi
   const phoneActive = (): boolean => Date.now() - mobilePresence.lastSeen < 15_000
 
   /**
-   * Interruptions (tool approvals, structured questions) are phone-first:
-   * while the phone page is actively polling, the waterfall answer is held so
-   * the phone can claim it; staleness, expiry, or an explicit delegate falls
-   * through to the desktop answerer with behavior unchanged.
+   * Interruptions (tool approvals, structured questions) run in PARALLEL on
+   * phone and desktop: the ask is delegated to the desktop answerer
+   * immediately while the phone gets its own actionable record; whichever
+   * side answers first settles the waterfall, the other side's record or
+   * popup is simply retired/dismissed.
    */
   const interruptions = new MobileInterruptions({
     phoneActive,
     now: () => Date.now(),
     log: message => ctx.logger.info(message),
+    parallel: true,
   })
   const controlCache = new MobileControlCache(message => ctx.logger.warn(message))
   ctx.effect(() => () => { controlCache.dispose() }, 'dsh-plugin-desktop: mobile control cache lifetime')
@@ -114,15 +116,15 @@ export function applyRemoteRelay(ctx: Context, options: RemoteRelayOptions): voi
       callId?: unknown
       reason?: unknown
       signal?: AbortSignal
-    }, next: () => Promise<string> | string) => Promise<string>): () => void
+    }, next: () => Promise<string> | string) => Promise<string>, options?: { prepend?: boolean }): () => void
   }
   ctx.effect(() => (ctx as unknown as ApprovalWaterfall).on(
     'approval/request',
     (request, next) => {
-      const settleOnDesktop = (): Promise<string> => {
-        if (typeof next !== 'function') return Promise.resolve('unavailable')
-        return Promise.resolve(next())
-      }
+      // Desktop keeps its popup: delegate down the chain right away.
+      const desktop: Promise<string> = typeof next === 'function'
+        ? Promise.resolve(next())
+        : Promise.resolve('unavailable')
       try {
         const handle = interruptions.hold({
           sessionId: sessionKeyOf(request),
@@ -131,16 +133,35 @@ export function applyRemoteRelay(ctx: Context, options: RemoteRelayOptions): voi
           reason: typeof request.reason === 'string' ? request.reason : null,
           questions: null,
         }, request.signal)
-        return handle.settled.then((settlement: MobileInterruptionSettlement): string | Promise<string> => {
-          if (settlement.kind === 'phone-decision') return settlement.decision === 'allow' ? 'allowed-once' : 'rejected'
-          if (settlement.kind === 'abort') return 'cancelled'
-          return settleOnDesktop()
-        }).finally(handle.retire)
+        return new Promise<string>((resolve, reject) => {
+          let done = false
+          const finish = (settle: () => void): void => {
+            if (done) return
+            done = true
+            handle.retire()
+            settle()
+          }
+          void handle.settled.then(settlement => {
+            if (settlement.kind === 'phone-decision') {
+              finish(() => { resolve(settlement.decision === 'allow' ? 'allowed-once' : 'rejected') })
+            } else if (settlement.kind === 'abort') {
+              finish(() => { resolve('cancelled') })
+            } else {
+              // Phone side dismissed its card; the desktop answer still settles the ask.
+              handle.retire()
+            }
+          })
+          void desktop.then(outcome => { finish(() => { resolve(outcome) }) }, cause => { finish(() => { reject(cause) }) })
+        })
       } catch (cause) {
         ctx.logger.error(`dsh-plugin-desktop: approval phone hold failed: ${cause instanceof Error ? cause.message : String(cause)}`)
-        return settleOnDesktop()
+        return desktop
       }
     },
+    // Prepend: the runtime's api-remotes forwarder registers earlier and
+    // claims agent-scoped asks for the desktop browser; only a listener ahead
+    // of it can register the phone's parallel record before delegating.
+    { prepend: true },
   ), 'dsh-plugin-desktop: remote relay approval hold')
 
   type QuestionWaterfall = {
@@ -148,7 +169,7 @@ export function applyRemoteRelay(ctx: Context, options: RemoteRelayOptions): voi
       agent?: { session?: { id?: unknown } }
       questions?: unknown
       signal?: AbortSignal
-    }, next: () => Promise<{ answers: readonly { id: string; selected: readonly string[]; custom?: string }[] }> | { answers: readonly { id: string; selected: readonly string[]; custom?: string }[] }) => Promise<{ answers: readonly { id: string; selected: readonly string[]; custom?: string }[] }>): () => void
+    }, next: () => Promise<{ answers: readonly { id: string; selected: readonly string[]; custom?: string }[] }> | { answers: readonly { id: string; selected: readonly string[]; custom?: string }[] }) => Promise<{ answers: readonly { id: string; selected: readonly string[]; custom?: string }[] }>, options?: { prepend?: boolean }): () => void
   }
   ctx.effect(() => (ctx as unknown as QuestionWaterfall).on(
     'user-questions/request',
@@ -158,6 +179,8 @@ export function applyRemoteRelay(ctx: Context, options: RemoteRelayOptions): voi
         // Not phone-renderable (empty or oversized): the desktop keeps it.
         return typeof next === 'function' ? Promise.resolve(next()) : Promise.reject(new Error('no user-questions answerer accepted the request'))
       }
+      // Desktop keeps its dialog: delegate down the chain right away.
+      const desktop = typeof next === 'function' ? Promise.resolve(next()) : undefined
       const handle = interruptions.hold({
         sessionId: sessionKeyOf(request),
         toolName: 'ask-user',
@@ -165,13 +188,31 @@ export function applyRemoteRelay(ctx: Context, options: RemoteRelayOptions): voi
         reason: null,
         questions,
       }, request.signal)
-      return handle.settled.then(settlement => {
-        if (settlement.kind === 'phone-answer') return { answers: settlement.answers }
-        if (settlement.kind === 'abort') throw new Error('question aborted before the phone answered')
-        if (typeof next !== 'function') throw new Error('no user-questions answerer accepted the request')
-        return next()
-      }).finally(handle.retire)
+      return new Promise<{ answers: readonly { id: string; selected: readonly string[]; custom?: string }[] }>((resolve, reject) => {
+        let done = false
+        const finish = (settle: () => void): void => {
+          if (done) return
+          done = true
+          handle.retire()
+          settle()
+        }
+        void handle.settled.then(settlement => {
+          if (settlement.kind === 'phone-answer') {
+            finish(() => { resolve({ answers: settlement.answers }) })
+          } else if (settlement.kind === 'abort') {
+            finish(() => { reject(new Error('question aborted before either side answered')) })
+          } else {
+            // Phone side dismissed its card; the desktop answer still settles the ask.
+            handle.retire()
+          }
+        })
+        if (desktop !== undefined) {
+          void desktop.then(answer => { finish(() => { resolve(answer) }) }, cause => { finish(() => { reject(cause) }) })
+        }
+      })
     },
+    // Prepend ahead of the api-remotes forwarder, same as the approval hold.
+    { prepend: true },
   ), 'dsh-plugin-desktop: remote relay question hold')
 
   let pairing: RelayPairing | null = null

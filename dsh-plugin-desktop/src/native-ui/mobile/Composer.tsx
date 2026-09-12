@@ -125,6 +125,7 @@ export function Composer(props: {
               <span className="truncate">{permissionLabel}</span>
             </button>
           : null}
+        <span className="min-w-2 flex-1" />
         {modelLabel !== null
           ? <button aria-label={copy.model} className="flex h-8 max-w-28 shrink items-center gap-1 rounded-full px-2 text-[11px] font-medium text-foreground/80 active:bg-muted" onClick={onOpenModel} type="button">
               <span aria-hidden className="text-[10px]">▣</span>
@@ -143,14 +144,13 @@ export function Composer(props: {
               {`${String(contextPercent)}%`}
             </button>
           : null}
-        <span className="min-w-2 flex-1" />
         {running
-          ? <button aria-label={copy.cancel} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background active:scale-95" onClick={onStop} type="button">
+          ? <button aria-label={copy.cancel} className="ml-1 flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background active:scale-95" onClick={onStop} type="button">
               <Square aria-hidden className="size-3.5 fill-current" />
             </button>
           : <button
               aria-label={copy.send}
-              className={`flex size-8 shrink-0 items-center justify-center rounded-full transition-all ${canSend ? 'bg-primary text-primary-foreground shadow-sm active:scale-95' : 'bg-muted text-muted-foreground/40'}`}
+              className={`ml-1 flex size-8 shrink-0 items-center justify-center rounded-full transition-all ${canSend ? 'bg-primary text-primary-foreground shadow-sm active:scale-95' : 'bg-muted text-muted-foreground/40'}`}
               disabled={!canSend}
               type="submit"
             >

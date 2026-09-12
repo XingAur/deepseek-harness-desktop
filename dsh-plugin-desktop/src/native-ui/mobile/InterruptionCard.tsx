@@ -34,9 +34,6 @@ function ApprovalCard({ record, copy, busy, onDecide }: {
           <button className="flex h-9 flex-1 items-center justify-center rounded-lg bg-red-500/90 text-xs font-semibold text-white shadow-sm active:scale-[0.98] disabled:opacity-50" disabled={busy} onClick={() => { onDecide(record.key, 'reject') }} type="button">
             {copy.reject}
           </button>
-          <button className="flex h-9 items-center justify-center rounded-lg border border-border bg-card px-3 text-xs font-medium text-muted-foreground active:scale-[0.98] disabled:opacity-50" disabled={busy} onClick={() => { onDecide(record.key, 'delegate') }} type="button">
-            {copy.answerOnDesktop}
-          </button>
         </div>}
   </div>
 }
