@@ -208,18 +208,21 @@ export function MobileApp(): JSX.Element {
     }
   }, [poll, pollTranscript, pollSessionInfo, view])
 
-  // Fresh transcript whenever the detail view opens.
+  // Fresh transcript whenever the detail view opens. The catalog is prefetched
+  // so the effort pill renders immediately, not only after opening the model
+  // sheet once.
   useEffect(() => {
     if (view.kind === 'session') {
       void pollTranscript(view.id)
       void pollSessionInfo(view.id)
       void ensurePresetOptions()
+      void ensureCatalog()
     } else {
       setTranscript([])
       setSessionInfo(null)
       setFacts(null)
     }
-  }, [view, pollTranscript, pollSessionInfo, ensurePresetOptions])
+  }, [view, pollTranscript, pollSessionInfo, ensurePresetOptions, ensureCatalog])
 
   // Keep the chat pinned to the newest line.
   useEffect(() => {
