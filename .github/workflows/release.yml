@@ -1,13 +1,14 @@
 name: Release
 
 # 手动触发(可在 Actions 页面选分支)或推送 v* 标签触发:
-# 在 Windows runner 上完成两变体的完整打包门禁并产出 NSIS 安装包与便携版,
-# 然后创建 GitHub Release 并把安装包作为资产上传。
+# Windows: 两变体完整门禁后产出 NSIS 安装包与便携版。
+# macOS: 两变体完整门禁后产出通用(unsigned) DMG。
+# 然后创建或更新 GitHub Release 并上传安装包。
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: '发布标签(例如 v2.0.7);留空则按 dsh-plugin-desktop 的版本号推导'
+        description: '发布标签(例如 v2.0.11);留空则按 dsh-plugin-desktop 的版本号推导'
         required: false
         default: ''
   push:
@@ -67,8 +68,49 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  # 与 release-windows 同构的 macOS 链:完整 mac 门禁(check:mac-package)后产出
+  # 通用(unsigned)DMG。签名与公证仍是在有凭据机器上的手工步骤。
+  release-macos:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        workspace: [dsh-plugin-desktop, dsh-plugin-desktop-beta]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          submodules: recursive
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.23.2
+      - run: corepack enable
+      - name: Resolve Yarn cache folder
+        id: yarn-cache
+        shell: bash
+        run: echo "dir=$(yarn config get cacheFolder)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.yarn-cache.outputs.dir }}
+          key: yarn-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('yarn.lock', '.yarnrc.yml') }}
+      - run: yarn install --immutable
+      - run: yarn workspace ${{ matrix.workspace }} check:mac-package
+      - name: Build macOS DMG (unsigned universal)
+        env:
+          DSH_PACKAGE_CHECK_ALREADY_RAN: '1'
+        run: yarn workspace ${{ matrix.workspace }} dist:mac-smoke
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-build-mac-${{ matrix.workspace }}
+          path: |
+            ${{ matrix.workspace }}/dist/mac-smoke/*.dmg
+          if-no-files-found: error
+          retention-days: 3
+
   publish:
-    needs: [release-windows]
+    needs: [release-windows, release-macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -97,7 +139,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release
-          find artifacts -type f \( -name '*.exe' -o -name '*.zip' \) -print0 |
+          find artifacts -type f \( -name '*.exe' -o -name '*.zip' -o -name '*.dmg' \) -print0 |
           while IFS= read -r -d '' file; do
             base=$(basename "$file")
             case "$base" in
@@ -117,8 +159,8 @@ jobs:
           if ! gh release view "$TAG"; then
             gh release create "$TAG" --target "$GITHUB_SHA" \
               --title "DSH Desktop $TAG" \
-              --notes "Windows 安装包(NSIS Setup)与便携版(Portable zip),含 stable 与 beta 两个变体。
+              --notes "Windows 安装包(NSIS Setup)与便携版(Portable zip)、macOS 通用 DMG(未签名),含 stable 与 beta 两个变体。
 
-          本 Release 由 Release workflow 构建并上传:完整打包门禁(check:win-package)通过后才产出。"
+          本 Release 由 Release workflow 构建并上传:完整打包门禁(check:win-package / check:mac-package)通过后才产出。macOS 签名与公证为手工步骤,DMG 首次打开需在系统设置中允许。"
           fi
           gh release upload "$TAG" release/* --clobber
