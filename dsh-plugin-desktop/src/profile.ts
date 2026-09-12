@@ -164,6 +164,9 @@ export interface DesktopStartupSettings {
   autoUpdateCheck: boolean
 }
 
+/** The relay origin shipped as the default so fresh installs work unconfigured. */
+const DEFAULT_REMOTE_RELAY_ORIGIN = 'https://8.147.62.187'
+
 const DEFAULT_DESKTOP_STARTUP_SETTINGS: DesktopStartupSettings = Object.freeze({
   mode: DEFAULT_DESKTOP_SHELL_MODE,
   port: DEFAULT_DESKTOP_PORT,
@@ -171,13 +174,13 @@ const DEFAULT_DESKTOP_STARTUP_SETTINGS: DesktopStartupSettings = Object.freeze({
   windowsMaterial: DEFAULT_WINDOWS_WINDOW_MATERIAL,
   openBrowser: false,
   networkExposure: 'loopback',
-  remoteRelayOrigin: '',
+  remoteRelayOrigin: DEFAULT_REMOTE_RELAY_ORIGIN,
   autoUpdateCheck: true,
 })
 
 /** Validate the configured remote-control relay origin, failing loud on typos. */
 function parseDesktopRemoteRelayOrigin(value: unknown): string {
-  if (value === undefined) return ''
+  if (value === undefined) return DEFAULT_REMOTE_RELAY_ORIGIN
   if (typeof value !== 'string') {
     throw new Error(`${BIN_NAME}: remoteRelayOrigin must be a string`)
   }

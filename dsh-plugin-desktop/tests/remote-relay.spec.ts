@@ -59,8 +59,9 @@ describe('rawTunnelRequest', () => {
 })
 
 describe('desktopStartupSettingsFromSettings relay origin', () => {
-  it('defaults to disabled and round-trips a canonical https origin', () => {
-    expect(desktopStartupSettingsFromSettings({}).remoteRelayOrigin).toBe('')
+  it('defaults to the built-in relay and round-trips a canonical https origin', () => {
+    expect(desktopStartupSettingsFromSettings({}).remoteRelayOrigin).toBe('https://8.147.62.187')
+    expect(desktopStartupSettingsFromSettings({ 'dsh-desktop': { remoteRelayOrigin: '' } }).remoteRelayOrigin).toBe('')
     expect(desktopStartupSettingsFromSettings({
       'dsh-desktop': { remoteRelayOrigin: 'https://relay.example.com/' },
     }).remoteRelayOrigin).toBe('https://relay.example.com')

@@ -155,7 +155,7 @@ export const DesktopSettingsSchema: z<DesktopSettings> = z.object({
   port: z.number().step(1).min(0).max(65_535).default(DESKTOP_DEFAULT_WEB_PORT),
   openBrowser: z.boolean().default(false),
   networkExposure: z.union(['loopback', 'lan'] as const).default('loopback'),
-  remoteRelayOrigin: z.string().default(''),
+  remoteRelayOrigin: z.string().default('https://8.147.62.187'),
   logLevel: z.union(['debug', 'info', 'warn', 'error'] as const).default('info'),
 })
 

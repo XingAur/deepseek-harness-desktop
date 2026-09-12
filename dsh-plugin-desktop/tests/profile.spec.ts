@@ -500,7 +500,7 @@ virtualStoreDirMaxLength: 60
     expect(rows.find(row => row.id === 'web-runtime')).toEqual(expect.objectContaining({
       config: expect.objectContaining({
         openBrowser: false,
-        trustedHosts: ['lab.internal', '192.168.1.5', '10.0.0.7'],
+        trustedHosts: ['lab.internal', '192.168.1.5', '10.0.0.7', '8.147.62.187'],
       }),
     }))
     expect(rows.find(row => row.id === 'desktop-webserver')).toEqual(expect.objectContaining({
@@ -886,7 +886,7 @@ virtualStoreDirMaxLength: 60
       openBrowser: false,
       networkExposure: 'loopback',
       autoUpdateCheck: true,
-      remoteRelayOrigin: '',
+      remoteRelayOrigin: 'https://8.147.62.187',
     })
     expect(desktopStartupSettingsFromSettings({ 'dsh-desktop': { mode: 'advanced' } })).toEqual({
       mode: 'advanced',
@@ -896,7 +896,7 @@ virtualStoreDirMaxLength: 60
       openBrowser: false,
       networkExposure: 'loopback',
       autoUpdateCheck: true,
-      remoteRelayOrigin: '',
+      remoteRelayOrigin: 'https://8.147.62.187',
     })
     expect(desktopShellModeFromSettings({ unrelated: { enabled: true } })).toBe('compatibility')
   })
