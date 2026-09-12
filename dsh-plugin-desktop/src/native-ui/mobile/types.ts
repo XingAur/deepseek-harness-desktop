@@ -55,7 +55,7 @@ export interface DiffSummary {
 }
 
 export type TranscriptItem =
-  | { readonly kind: 'user'; readonly text: string; readonly time: number }
+  | { readonly kind: 'user'; readonly text: string; readonly time: number; readonly imageCount: number }
   | { readonly kind: 'assistant'; readonly text: string; readonly time: number }
   | { readonly kind: 'reasoning'; readonly text: string; readonly time: number }
   | {
@@ -85,6 +85,24 @@ export interface ModelSelectionValue {
   readonly provider: string
   readonly model: string
   readonly reasoningEffort?: string
+}
+
+/** Log-derived current model and permission preset for one session. */
+export interface SessionFacts {
+  readonly model: ModelSelectionValue | null
+  readonly permissionPreset: string | null
+}
+
+export interface TranscriptResponse {
+  readonly sessionId: string
+  readonly messages: readonly TranscriptItem[]
+  readonly facts: SessionFacts
+}
+
+/** Switchable permission presets from the host service, not a live projection. */
+export interface PermissionPresetsResponse {
+  readonly options: readonly PermissionOption[]
+  readonly defaultPreset: string | null
 }
 
 export interface ContextSummary {

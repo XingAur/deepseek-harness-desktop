@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
+  countImageParts,
   diffLineCounts,
   displayTitleOf,
   mobileContextOf,
   mobileDiffSummaries,
+  mobileFactsFromEvents,
+  mobileImageParts,
   mobileModelOf,
   mobilePermissionsOf,
   mobilePromptParts,
@@ -37,9 +40,20 @@ describe('mobileTranscriptFromEvents', () => {
       { type: 'event', event: { type: 'user/message', time: 4, data: { content: 'plain' } } },
     ])
     expect(items).toEqual([
-      { kind: 'user', text: 'hi', time: 1 },
+      { kind: 'user', text: 'hi', time: 1, imageCount: 0 },
       { kind: 'assistant', text: 'hello there', time: 3 },
-      { kind: 'user', text: 'plain', time: 4 },
+      { kind: 'user', text: 'plain', time: 4, imageCount: 0 },
+    ])
+  })
+
+  it('keeps an image badge when a user prompt carries pictures', () => {
+    const items = mobileTranscriptFromEvents([
+      { type: 'user/message', time: 1, data: { content: [{ type: 'text', text: 'look' }, { type: 'image', mediaType: 'image/png', data: 'x' }, { type: 'image', mediaType: 'image/png', data: 'y' }], source: { kind: 'user' } } },
+      { type: 'user/message', time: 2, data: { content: [{ type: 'image', mediaType: 'image/png', data: 'z' }], source: { kind: 'user' } } },
+    ])
+    expect(items).toEqual([
+      { kind: 'user', text: 'look', time: 1, imageCount: 2 },
+      { kind: 'user', text: '', time: 2, imageCount: 1 },
     ])
   })
 
@@ -59,11 +73,11 @@ describe('mobileTranscriptFromEvents', () => {
   it('folds tool call and result into one row with status, duration, and diff counts', () => {
     const items = mobileTranscriptFromEvents([
       { type: 'tool/call', time: 100, data: { callId: 'c1', name: 'edit', arguments: '{"file_path":"src/app.ts"}' } },
-      { type: 'tool/result', time: 160, data: { message: { callId: 'c1' }, meta: { diffs: [
+      { type: 'tool/result', time: 160, data: { message: { source: { kind: 'tool', callId: 'c1' } }, meta: { diffs: [
         { path: 'src/app.ts', oldText: 'a\nb\nc', newText: 'a\nx\nc\nd' },
       ] } } },
       { type: 'tool/call', time: 200, data: { callId: 'c2', name: 'bash', arguments: '{"command":"pnpm test"}' } },
-      { type: 'tool/result', time: 260, data: { message: { callId: 'c2' }, error: { name: 'Exit', code: 1 } } },
+      { type: 'tool/result', time: 260, data: { message: { source: { kind: 'tool', callId: 'c2' } }, error: { name: 'Exit', code: 1 } } },
     ])
     expect(items).toHaveLength(2)
     expect(items[0]).toEqual({
@@ -71,6 +85,18 @@ describe('mobileTranscriptFromEvents', () => {
       diffs: [{ path: 'src/app.ts', added: 2, removed: 1 }],
     })
     expect(items[1]).toMatchObject({ kind: 'tool', callId: 'c2', title: 'pnpm test', status: 'error', diffs: null })
+  })
+
+  it('pairs results through the tool source callId the wire actually carries', () => {
+    const items = mobileTranscriptFromEvents([
+      { type: 'tool/call', time: 10, data: { callId: 'w1', name: 'web_fetch', arguments: '{"url":"https://x.ai"}' } },
+      { type: 'tool/result', time: 30, data: { message: { source: { kind: 'tool', callId: 'w1' }, content: [{ type: 'tool-result', toolCallId: 'w1' }] } } },
+      { type: 'tool/call', time: 40, data: { callId: 'w2', name: 'web_fetch', arguments: '{"url":"https://y.ai"}' } },
+      { type: 'tool/result', time: 60, data: { message: { source: { kind: 'tool', callId: 'w2' }, content: [] }, error: { name: 'Fetch' } } },
+    ])
+    expect(items).toHaveLength(2)
+    expect(items[0]).toMatchObject({ kind: 'tool', callId: 'w1', status: 'ok', end: 30 })
+    expect(items[1]).toMatchObject({ kind: 'tool', callId: 'w2', status: 'error', end: 60 })
   })
 
   it('dedupes identical todo snapshots and keeps the rows bounded', () => {
@@ -128,6 +154,44 @@ describe('textFromPromptContent', () => {
   it('joins text parts and ignores non-text blocks', () => {
     expect(textFromPromptContent([{ type: 'text', text: 'a' }, { type: 'image' }, { type: 'text', text: 'b' }])).toBe('ab')
     expect(textFromPromptContent(' raw ')).toBe('raw')
+  })
+})
+
+describe('mobileImageParts', () => {
+  it('accepts whitelisted media types and bounds the list', () => {
+    expect(mobileImageParts(undefined)).toEqual([])
+    expect(mobileImageParts([{ mediaType: 'image/png', data: 'abc', name: 'shot.png' }]))
+      .toEqual([{ type: 'image', mediaType: 'image/png', data: 'abc', name: 'shot.png' }])
+    expect(mobileImageParts([{ mediaType: 'image/bmp', data: 'abc' }])).toBeNull()
+    expect(mobileImageParts([{ mediaType: 'image/png' }])).toBeNull()
+    expect(mobileImageParts(Array.from({ length: 5 }, () => ({ mediaType: 'image/png', data: 'x' })))).toBeNull()
+  })
+})
+
+describe('countImageParts', () => {
+  it('counts image blocks only', () => {
+    expect(countImageParts([{ type: 'text', text: 'a' }, { type: 'image' }, { type: 'image' }])).toBe(2)
+    expect(countImageParts('plain')).toBe(0)
+  })
+})
+
+describe('mobileFactsFromEvents', () => {
+  it('keeps the newest model selection (with effort) and permission preset', () => {
+    const facts = mobileFactsFromEvents([
+      { type: 'permission/preset', time: 1, data: { preset: 'read-only' } },
+      { type: 'model/selection', time: 2, data: { provider: 'zai', model: 'glm-5.3' } },
+      { type: 'permission/preset', time: 3, data: { preset: 'workspace-write' } },
+      { type: 'model/selection', time: 4, data: { provider: 'xai', model: 'grok-4.6', reasoningEffort: 'high' } },
+      { type: 'request/context', time: 5, data: { provider: 'xai', model: 'grok-4.6', contextWindow: 500000 } },
+      { type: 'model/selection', time: 6, data: { provider: 'xai', model: 'grok-4.6', reasoningEffort: 'high' } },
+    ])
+    expect(facts).toEqual({
+      model: { provider: 'xai', model: 'grok-4.6', reasoningEffort: 'high' },
+      permissionPreset: 'workspace-write',
+    })
+  })
+  it('returns nulls on an empty log', () => {
+    expect(mobileFactsFromEvents([])).toEqual({ model: null, permissionPreset: null })
   })
 })
 

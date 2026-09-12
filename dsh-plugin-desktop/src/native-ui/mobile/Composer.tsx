@@ -1,31 +1,88 @@
-/** Bottom composer: tool rail (permissions/model/context/stop), queue chips, input. */
+/** Bottom composer: auto-growing textarea with an inline tool rail.
+ *
+ * Layout mirrors the ZCode phone page: the textarea grows with its content
+ * inside one rounded card; the icon rail (attachment, permissions, model,
+ * context) and the send/stop button sit in a bottom row inside that card.
+ */
 
-import type { ReactNode } from 'react'
-import { Box, Gauge, LoaderCircle, Send, ShieldCheck, Square, X } from 'lucide-react'
+import { useEffect, useRef, type ChangeEvent, type ReactNode } from 'react'
+import { Brain, Gauge, LoaderCircle, Paperclip, Send, ShieldCheck, Square, X } from 'lucide-react'
 import type { MobileCopy } from './copy.ts'
 import type { QueueEntry } from './types.ts'
 
-export function Composer({ copy, draft, onDraft, busy, running, placeholder, permissionLabel, modelLabel, contextPercent, queue, onSend, onStop, onOpenPermissions, onOpenModel, onOpenContext, onRemoveQueue }: {
+export interface ComposerAttachment {
+  readonly mediaType: string
+  readonly data: string
+  readonly name: string
+}
+
+const MAX_ATTACHMENTS = 4
+
+export function Composer(props: {
   readonly copy: MobileCopy
   readonly draft: string
   readonly onDraft: (value: string) => void
+  readonly attachments: readonly ComposerAttachment[]
+  readonly onAttachments: (value: readonly ComposerAttachment[]) => void
   readonly busy: boolean
   readonly running: boolean
   readonly placeholder: string
   readonly permissionLabel: string | null
   readonly modelLabel: string | null
+  readonly effortLabel: string | null
   readonly contextPercent: number | null
   readonly queue: readonly QueueEntry[]
   readonly onSend: () => void
   readonly onStop: () => void
   readonly onOpenPermissions: () => void
   readonly onOpenModel: () => void
+  readonly onOpenEffort: () => void
   readonly onOpenContext: () => void
   readonly onRemoveQueue: (itemId: string) => void
 }): ReactNode {
+  const {
+    copy, draft, onDraft, attachments, onAttachments, busy, running, placeholder,
+    permissionLabel, modelLabel, effortLabel, contextPercent, queue,
+    onSend, onStop, onOpenPermissions, onOpenModel, onOpenEffort, onOpenContext, onRemoveQueue,
+  } = props
+  const textarea = useRef<HTMLTextAreaElement | null>(null)
+
+  // Auto-grow: one row by default, taller as content wraps. Setting height
+  // through the CSSOM (element.style) is not blocked by style-src CSP, which
+  // governs inline style attributes and <style> elements only.
+  useEffect(() => {
+    const el = textarea.current
+    if (el === null) return
+    el.style.height = 'auto'
+    el.style.height = `${String(Math.min(el.scrollHeight, 160))}px`
+  }, [draft])
+
+  const canSend = !busy && (draft.trim().length > 0 || attachments.length > 0)
+
+  const pickFiles = (event: ChangeEvent<HTMLInputElement>): void => {
+    const files = Array.from(event.target.files ?? []).filter(file => file.type.startsWith('image/'))
+    const room = MAX_ATTACHMENTS - attachments.length
+    const accepted = files.slice(0, Math.max(0, room))
+    event.target.value = ''
+    void Promise.all(accepted.map(async file => await new Promise<ComposerAttachment | null>(resolve => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const result = typeof reader.result === 'string' ? reader.result : ''
+        const comma = result.indexOf(',')
+        const data = comma >= 0 ? result.slice(comma + 1) : ''
+        resolve(data === '' ? null : { mediaType: file.type, data, name: file.name })
+      }
+      reader.onerror = () => { resolve(null) }
+      reader.readAsDataURL(file)
+    }))).then(parsed => {
+      const added = parsed.filter((row): row is ComposerAttachment => row !== null)
+      if (added.length > 0) onAttachments([...attachments, ...added])
+    })
+  }
+
   return <form
-    className="sticky bottom-0 z-10 border-t border-border/60 bg-background/95 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2.5 backdrop-blur"
-    onSubmit={event => { event.preventDefault(); onSend() }}
+    className="sticky bottom-0 z-10 border-t border-border/60 bg-background/95 px-3 pb-[max(0.6rem,env(safe-area-inset-bottom))] pt-2.5 backdrop-blur"
+    onSubmit={submitEvent => { submitEvent.preventDefault(); if (canSend) onSend() }}
   >
     {queue.length > 0
       ? <div className="mb-2 flex flex-col gap-1.5">
@@ -38,46 +95,68 @@ export function Composer({ copy, draft, onDraft, busy, running, placeholder, per
           </div>)}
         </div>
       : null}
-    <div className="mb-2 flex items-center gap-1.5 overflow-x-auto pb-0.5">
-      {permissionLabel !== null
-        ? <button className="flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-[11px] font-medium text-foreground/90 active:bg-muted" onClick={onOpenPermissions} type="button">
-            <ShieldCheck aria-hidden className="size-3.5 text-muted-foreground" />
-            <span className="max-w-28 truncate">{permissionLabel}</span>
-          </button>
+    <div className="rounded-2xl border border-border bg-card px-3 pb-1.5 pt-2.5 shadow-sm focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/40">
+      {attachments.length > 0
+        ? <div className="mb-2 flex gap-2 overflow-x-auto pb-0.5">
+            {attachments.map((file, index) => <span className="relative shrink-0" key={`${file.name}-${String(index)}`}>
+              <img alt={file.name} className="size-16 rounded-lg border border-border/60 object-cover" src={`data:${file.mediaType};base64,${file.data}`} />
+              <button aria-label={file.name} className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full bg-foreground text-background shadow" onClick={() => { onAttachments(attachments.filter((_, i) => i !== index)) }} type="button">
+                <X aria-hidden className="size-3" />
+              </button>
+            </span>)}
+          </div>
         : null}
-      {modelLabel !== null
-        ? <button className="flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-[11px] font-medium text-foreground/90 active:bg-muted" onClick={onOpenModel} type="button">
-            <Box aria-hidden className="size-3.5 text-muted-foreground" />
-            <span className="max-w-28 truncate">{modelLabel}</span>
-          </button>
-        : null}
-      {contextPercent !== null
-        ? <button className={`flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-medium active:bg-muted ${contextPercent >= 90 ? 'border-red-500/50 bg-red-500/10 text-red-600 dark:text-red-400' : 'border-border bg-card text-foreground/90'}`} onClick={onOpenContext} type="button">
-            <Gauge aria-hidden className="size-3.5" />
-            <span className="tabular-nums">{`${String(contextPercent)}%`}</span>
-          </button>
-        : null}
-      {running
-        ? <button aria-label={copy.cancel} className="ml-auto flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background active:scale-95" onClick={onStop} type="button">
-            <Square aria-hidden className="size-3.5 fill-current" />
-          </button>
-        : null}
-    </div>
-    <div className="flex items-center gap-2 rounded-2xl border border-border bg-card px-3.5 py-1.5 shadow-sm focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/40">
-      <input
-        className="h-11 min-w-0 flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground/70"
+      <textarea
+        className="block max-h-40 w-full resize-none bg-transparent text-base leading-6 text-foreground outline-none placeholder:text-muted-foreground/70"
         onChange={event => { onDraft(event.target.value) }}
         placeholder={placeholder}
+        ref={textarea}
+        rows={1}
         value={draft}
       />
-      <button
-        aria-label={copy.send}
-        className={`flex size-11 shrink-0 items-center justify-center rounded-full transition-all ${draft.trim().length === 0 || busy ? 'bg-muted text-muted-foreground/40' : 'bg-primary text-primary-foreground shadow-sm active:scale-95'}`}
-        disabled={busy || draft.trim().length === 0}
-        type="submit"
-      >
-        {busy ? <LoaderCircle aria-hidden className="size-4 animate-spin" /> : <Send aria-hidden className="size-4" />}
-      </button>
+      <div className="flex items-center gap-0.5 py-1">
+        <label className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground active:bg-muted">
+          <Paperclip aria-hidden className="size-4" />
+          <input accept="image/*" className="hidden" multiple onChange={pickFiles} type="file" />
+        </label>
+        {permissionLabel !== null
+          ? <button aria-label={copy.permission} className="flex h-8 max-w-28 shrink items-center gap-1 rounded-full px-2 text-[11px] font-medium text-foreground/80 active:bg-muted" onClick={onOpenPermissions} type="button">
+              <ShieldCheck aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+              <span className="truncate">{permissionLabel}</span>
+            </button>
+          : null}
+        {modelLabel !== null
+          ? <button aria-label={copy.model} className="flex h-8 max-w-28 shrink items-center gap-1 rounded-full px-2 text-[11px] font-medium text-foreground/80 active:bg-muted" onClick={onOpenModel} type="button">
+              <span aria-hidden className="text-[10px]">▣</span>
+              <span className="truncate">{modelLabel}</span>
+            </button>
+          : null}
+        {effortLabel !== null
+          ? <button aria-label={copy.thinkingLevel} className="flex h-8 shrink-0 items-center gap-1 rounded-full px-2 text-[11px] font-medium text-foreground/80 active:bg-muted" onClick={onOpenEffort} type="button">
+              <Brain aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+              <span className="max-w-16 truncate">{effortLabel}</span>
+            </button>
+          : null}
+        {contextPercent !== null
+          ? <button aria-label={copy.contextTitle} className={`flex h-8 shrink-0 items-center gap-1 rounded-full px-2 text-[11px] font-medium tabular-nums active:bg-muted ${contextPercent >= 90 ? 'text-red-600 dark:text-red-400' : 'text-foreground/80'}`} onClick={onOpenContext} type="button">
+              <Gauge aria-hidden className="size-4 text-muted-foreground" />
+              {`${String(contextPercent)}%`}
+            </button>
+          : null}
+        <span className="min-w-2 flex-1" />
+        {running
+          ? <button aria-label={copy.cancel} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background active:scale-95" onClick={onStop} type="button">
+              <Square aria-hidden className="size-3.5 fill-current" />
+            </button>
+          : <button
+              aria-label={copy.send}
+              className={`flex size-8 shrink-0 items-center justify-center rounded-full transition-all ${canSend ? 'bg-primary text-primary-foreground shadow-sm active:scale-95' : 'bg-muted text-muted-foreground/40'}`}
+              disabled={!canSend}
+              type="submit"
+            >
+              {busy ? <LoaderCircle aria-hidden className="size-4 animate-spin" /> : <Send aria-hidden className="size-4" />}
+            </button>}
+      </div>
     </div>
   </form>
 }

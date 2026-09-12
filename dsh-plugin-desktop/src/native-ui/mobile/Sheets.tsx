@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from 'react'
 import { Check, LoaderCircle, X } from 'lucide-react'
 import type { MobileCopy, formatTokens as formatTokensFn } from './copy.ts'
-import type { ModelCatalog, ModelSelectionValue, PermissionSelect, SessionInfo } from './types.ts'
+import type { ModelCatalog, ModelSelectionValue, PermissionOption, SessionInfo } from './types.ts'
 
 type FormatTokens = typeof formatTokensFn
 
@@ -28,14 +28,16 @@ function RowCheck({ visible }: { readonly visible: boolean }): ReactNode {
   return <span className="flex size-5 shrink-0 items-center justify-center">{visible ? <Check aria-hidden className="size-4 text-primary" /> : null}</span>
 }
 
-export function PermissionSheet({ permissions, busy, onSelect }: {
-  readonly permissions: PermissionSelect
+export function PermissionSheet({ options, currentValue, busy, onSelect }: {
+  readonly options: readonly PermissionOption[]
+  readonly currentValue: string
   readonly busy: boolean
   readonly onSelect: (preset: string) => void
 }): ReactNode {
   return <div className="flex flex-col gap-1.5 pb-2">
-    {permissions.options.map(option => {
-      const selected = option.value === permissions.currentValue
+    {options.length === 0 ? <p className="py-6 text-center text-sm text-muted-foreground">—</p> : null}
+    {options.map(option => {
+      const selected = option.value === currentValue
       return <button
         className={`flex w-full items-start gap-2.5 rounded-xl border px-3.5 py-3 text-left transition-colors active:bg-muted/70 ${selected ? 'border-primary/60 bg-primary/5' : 'border-border/70 bg-card'}`}
         disabled={busy || option.value === 'custom'}

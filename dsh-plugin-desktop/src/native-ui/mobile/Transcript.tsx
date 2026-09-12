@@ -22,12 +22,13 @@ function durationText(ms: number): string {
 }
 
 /** One chat balloon: user on the right in primary, assistant on the left in card. */
-function ChatBalloon({ kind, text }: { readonly kind: 'user' | 'assistant'; readonly text: string }): ReactNode {
+function ChatBalloon({ kind, text, imageCount, copy }: { readonly kind: 'user' | 'assistant'; readonly text: string; readonly imageCount?: number; readonly copy: MobileCopy }): ReactNode {
   const mine = kind === 'user'
   return <div className={`flex w-full ${mine ? 'justify-end' : 'justify-start'}`}>
     <div className={`max-w-[86%] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-[15px] leading-6 shadow-sm ${mine
       ? 'rounded-br-md bg-primary text-primary-foreground'
       : 'rounded-bl-md border border-border/60 bg-card text-foreground'}`}>
+      {imageCount !== undefined && imageCount > 0 ? <span className="mb-1 flex items-center gap-1.5 text-xs opacity-80">🖼 {`${String(imageCount)} ${copy.imageAttachments}`}</span> : null}
       {text}
     </div>
   </div>
@@ -133,8 +134,8 @@ export function TranscriptView({ items, copy }: { readonly items: readonly Trans
   return <div className="flex flex-col gap-2.5">
     {items.map((item, index) => {
       const key = `${item.kind}-${String(item.time)}-${String(index)}`
-      if (item.kind === 'user') return <ChatBalloon key={key} kind="user" text={item.text} />
-      if (item.kind === 'assistant') return <ChatBalloon key={key} kind="assistant" text={item.text} />
+      if (item.kind === 'user') return <ChatBalloon copy={copy} imageCount={item.imageCount} key={key} kind="user" text={item.text} />
+      if (item.kind === 'assistant') return <ChatBalloon copy={copy} key={key} kind="assistant" text={item.text} />
       if (item.kind === 'reasoning') return <ReasoningNode key={key} text={item.text} copy={copy} />
       if (item.kind === 'tool') return <ToolRow key={key} item={item} copy={copy} />
       return <TodoCard key={key} todos={item.todos} copy={copy} />

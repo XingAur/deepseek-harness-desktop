@@ -44,7 +44,7 @@ export interface MobileTodoItem {
  * with diff counts, and task-list snapshots.
  */
 export type MobileTranscriptItem =
-  | { readonly kind: 'user'; readonly text: string; readonly time: number }
+  | { readonly kind: 'user'; readonly text: string; readonly time: number; readonly imageCount: number }
   | { readonly kind: 'assistant'; readonly text: string; readonly time: number }
   | { readonly kind: 'reasoning'; readonly text: string; readonly time: number }
   | {
@@ -60,12 +60,16 @@ export type MobileTranscriptItem =
   | { readonly kind: 'todo'; readonly todos: readonly MobileTodoItem[]; readonly time: number }
 
 const MAX_BODY_BYTES = 64 * 1024
+/** Prompt bodies may carry base64 image attachments, so they get their own ceiling. */
+const MAX_PROMPT_BODY_BYTES = 12 * 1024 * 1024
 const MAX_TRANSCRIPT_ITEMS = 120
 const MAX_TEXT_CHARS = 2_000
 const MAX_TOOL_TITLE_CHARS = 200
 const MAX_PATH_CHARS = 160
 const MAX_DIFFS_PER_CALL = 8
 const MAX_DIFF_LINES_PER_SIDE = 200
+const IMAGE_MEDIA_TYPES: ReadonlySet<string> = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
+const MAX_IMAGES_PER_PROMPT = 4
 
 /** Session summary fields the mobile page consumes; kept deliberately narrow. */
 interface MobileSessionRow {
@@ -112,6 +116,13 @@ interface PermissionPresetsFace {
   set?: (session: unknown, preset: string) => void
 }
 
+/** Read-side slice of the same service for the options route. */
+interface PermissionPresetsReadFace {
+  readonly names: readonly string[]
+  optionOf: (name: string) => unknown
+  readonly defaultPreset?: string
+}
+
 function freshSignal(ms: number): AbortSignal {
   return AbortSignal.timeout(ms)
 }
@@ -135,6 +146,41 @@ interface WorkspaceFeedFace {
  */
 export function mobilePromptParts(text: string): ReadonlyArray<{ readonly type: 'text'; readonly text: string }> {
   return [{ type: 'text', text }]
+}
+
+/** One phone-attached image normalized into a Host prompt content part. */
+export interface MobileImagePart {
+  readonly type: 'image'
+  readonly mediaType: string
+  readonly data: string
+  readonly name?: string
+}
+
+/**
+ * Validate a phone-submitted attachment list into Host image content parts.
+ * Returns null for any malformed entry so callers reject the whole payload
+ * instead of silently dropping images the user believes were sent.
+ */
+export function mobileImageParts(value: unknown): readonly MobileImagePart[] | null {
+  if (value === undefined || value === null) return []
+  if (!Array.isArray(value) || value.length > MAX_IMAGES_PER_PROMPT) return null
+  const parts: MobileImagePart[] = []
+  for (const row of value) {
+    const item = asRecord(row)
+    if (item === null) return null
+    if (typeof item.mediaType !== 'string' || !IMAGE_MEDIA_TYPES.has(item.mediaType)) return null
+    if (typeof item.data !== 'string' || item.data === '') return null
+    const name = typeof item.name === 'string' && item.name !== '' ? item.name.slice(0, 200) : undefined
+    parts.push(name === undefined
+      ? { type: 'image', mediaType: item.mediaType, data: item.data }
+      : { type: 'image', mediaType: item.mediaType, data: item.data, name })
+  }
+  return parts
+}
+
+/** Build the full prompt content: text part plus validated image parts. */
+export function mobilePromptContent(text: string, images: readonly MobileImagePart[]): ReadonlyArray<{ readonly type: 'text'; readonly text: string } | MobileImagePart> {
+  return [...mobilePromptParts(text), ...images]
 }
 
 /** Pull visible text out of a message content array or a lone string. */
@@ -179,6 +225,17 @@ function asWireEvent(record: unknown): { type: string; time: number; data: unkno
     }
   }
   return null
+}
+
+/** Count image blocks in a user message content array (for the 🖼 badge). */
+export function countImageParts(content: unknown): number {
+  if (!Array.isArray(content)) return 0
+  let count = 0
+  for (const part of content) {
+    const block = asRecord(part)
+    if (block?.type === 'image') count += 1
+  }
+  return count
 }
 
 function clipText(value: string, max: number): string {
@@ -299,7 +356,10 @@ export function mobileTranscriptFromEvents(events: readonly unknown[]): readonly
       const kind = source?.kind
       if (kind !== undefined && kind !== 'user') continue
       const text = textFromPromptContent(data?.content)
-      if (text !== '') items.push({ kind: 'user', text: clipText(text, MAX_TEXT_CHARS), time: event.time })
+      const imageCount = countImageParts(data?.content)
+      if (text !== '' || imageCount > 0) {
+        items.push({ kind: 'user', text: clipText(text, MAX_TEXT_CHARS), time: event.time, imageCount })
+      }
       continue
     }
     if (event.type === 'assistant/message') {
@@ -341,10 +401,21 @@ export function mobileTranscriptFromEvents(events: readonly unknown[]): readonly
       continue
     }
     if (event.type === 'tool/result') {
+      // The wire carries the correlation id on the result message's tool
+      // source (and on each tool-result content block), never as a sibling.
       const message = asRecord(data?.message)
-      const callId = typeof message?.callId === 'string'
-        ? message.callId
-        : (typeof data?.callId === 'string' ? data.callId : '')
+      const source = asRecord(message?.source)
+      let callId = typeof source?.callId === 'string' ? source.callId : ''
+      if (callId === '' && Array.isArray(message?.content)) {
+        for (const part of message.content) {
+          const block = asRecord(part)
+          if (typeof block?.toolCallId === 'string') {
+            callId = block.toolCallId
+            break
+          }
+        }
+      }
+      if (callId === '' && typeof data?.callId === 'string') callId = data.callId
       if (callId === '') continue
       for (let index = items.length - 1; index >= 0; index -= 1) {
         const item = items[index]
@@ -369,6 +440,41 @@ export function mobileTranscriptFromEvents(events: readonly unknown[]): readonly
     }
   }
   return items.length > MAX_TRANSCRIPT_ITEMS ? items.slice(-MAX_TRANSCRIPT_ITEMS) : items
+}
+
+/** Session facts derived from the durable log rather than live projections. */
+export interface MobileSessionFacts {
+  readonly model: { readonly provider: string; readonly model: string; readonly reasoningEffort?: string } | null
+  readonly permissionPreset: string | null
+}
+
+/**
+ * Fold the log's model-selection and permission-preset events into the
+ * phone-side current values. The control stream's projection values cover
+ * only live sessions reliably; the log is authoritative for both.
+ */
+export function mobileFactsFromEvents(events: readonly unknown[]): MobileSessionFacts {
+  let model: MobileSessionFacts['model'] = null
+  let permissionPreset: string | null = null
+  for (const record of events) {
+    const event = asWireEvent(record)
+    if (event === null) continue
+    const data = asRecord(event.data)
+    if (event.type === 'model/selection' || event.type === 'request/context') {
+      const provider = data !== null && typeof data.provider === 'string' ? data.provider : ''
+      const name = data !== null && typeof data.model === 'string' ? data.model : ''
+      if (provider !== '' && name !== '') {
+        model = data !== null && typeof data.reasoningEffort === 'string' && data.reasoningEffort !== ''
+          ? { provider, model: name, reasoningEffort: data.reasoningEffort }
+          : { provider, model: name }
+      }
+      continue
+    }
+    if (event.type === 'permission/preset' && data !== null && typeof data.preset === 'string' && data.preset !== '') {
+      permissionPreset = data.preset
+    }
+  }
+  return { model, permissionPreset }
 }
 
 function sessionController(ctx: Context): SessionControllerFace | undefined {
@@ -521,12 +627,12 @@ function sameOriginMutatingRequest(req: IncomingMessage): boolean {
   return originAuthority !== null && originAuthority === (host ?? '')
 }
 
-async function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+async function readJsonBody(req: IncomingMessage, limitBytes: number = MAX_BODY_BYTES): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = []
   let size = 0
   for await (const chunk of req) {
     size += (chunk as Buffer).length
-    if (size > MAX_BODY_BYTES) throw new Error('request body too large')
+    if (size > limitBytes) throw new Error('request body too large')
     chunks.push(chunk as Buffer)
   }
   if (chunks.length === 0) return {}
@@ -547,7 +653,7 @@ function requireController(ctx: Context, res: ServerResponse): SessionController
 }
 
 /** Shared POST-route preamble: method, CSRF, and body parsing. */
-async function readMutatingBody(req: IncomingMessage, res: ServerResponse): Promise<Record<string, unknown> | null> {
+async function readMutatingBody(req: IncomingMessage, res: ServerResponse, limitBytes: number = MAX_BODY_BYTES): Promise<Record<string, unknown> | null> {
   if (req.method !== 'POST') {
     res.writeHead(405, { allow: 'POST', 'cache-control': 'no-store' })
     res.end('method not allowed')
@@ -559,27 +665,27 @@ async function readMutatingBody(req: IncomingMessage, res: ServerResponse): Prom
     return null
   }
   try {
-    return await readJsonBody(req)
+    return await readJsonBody(req, limitBytes)
   } catch (cause) {
     json(res, 400, { error: 'invalid-request', message: cause instanceof Error ? cause.message : String(cause) })
     return null
   }
 }
 
-async function loadTranscript(controller: SessionControllerFace, sessionId: string): Promise<readonly MobileTranscriptItem[]> {
+async function loadTranscript(controller: SessionControllerFace, sessionId: string): Promise<{ messages: readonly MobileTranscriptItem[]; facts: MobileSessionFacts }> {
+  let events: readonly unknown[] = []
   if (typeof controller.inspect === 'function') {
     const inspected = await controller.inspect(sessionId)
-    return mobileTranscriptFromEvents(inspected.events ?? [])
-  }
-  if (typeof controller.page === 'function') {
+    events = inspected.events ?? []
+  } else if (typeof controller.page === 'function') {
     const page = await controller.page({
       address: { kind: 'session', sessionId },
       throughSeq: -1,
       maxMessages: MAX_TRANSCRIPT_ITEMS,
     })
-    return mobileTranscriptFromEvents(page.records ?? [])
+    events = page.records ?? []
   }
-  return []
+  return { messages: mobileTranscriptFromEvents(events), facts: mobileFactsFromEvents(events) }
 }
 
 /**
@@ -682,7 +788,7 @@ export function registerMobileApi(options: MobileApiOptions): void {
       }
       options.presence.lastSeen = Date.now()
       void loadTranscript(controller, sessionId).then(
-        messages => { json(res, 200, { sessionId, messages }) },
+        loaded => { json(res, 200, { sessionId, messages: loaded.messages, facts: loaded.facts }) },
         cause => { fail(cause, res, 'mobile transcript read failed', 'transcript-unavailable') },
       )
     },
@@ -748,19 +854,28 @@ export function registerMobileApi(options: MobileApiOptions): void {
     path: '/api/desktop/mobile/create',
     handler: (req, res) => {
       if (reject(req, res)) return
-      void readMutatingBody(req, res).then(async body => {
+      void readMutatingBody(req, res, MAX_PROMPT_BODY_BYTES).then(async body => {
         if (body === null) return
         const controller = requireController(ctx, res)
         if (controller === undefined) return
         const content = typeof body.content === 'string' ? body.content.trim() : ''
+        const images = mobileImageParts(body.images)
         const cwd = typeof body.cwd === 'string' && body.cwd !== '' ? body.cwd : undefined
+        if ((content === '' && (images === null || images.length === 0))) {
+          json(res, 400, { error: 'invalid-request' })
+          return
+        }
+        if (images === null) {
+          json(res, 400, { error: 'invalid-request' })
+          return
+        }
         const created = await controller.create(cwd === undefined ? {} : { cwd })
-        if (content !== '') {
+        if (content !== '' || images.length > 0) {
           await controller.prompt({
             sessionId: created.sessionId,
             requestId: randomUUID(),
             mode: 'queue',
-            content: mobilePromptParts(content),
+            content: mobilePromptContent(content, images),
           }, freshSignal(120_000))
         }
         json(res, 200, { sessionId: created.sessionId })
@@ -773,13 +888,14 @@ export function registerMobileApi(options: MobileApiOptions): void {
     path: '/api/desktop/mobile/prompt',
     handler: (req, res) => {
       if (reject(req, res)) return
-      void readMutatingBody(req, res).then(async body => {
+      void readMutatingBody(req, res, MAX_PROMPT_BODY_BYTES).then(async body => {
         if (body === null) return
         const controller = requireController(ctx, res)
         if (controller === undefined) return
         const sessionId = body.sessionId
         const content = typeof body.content === 'string' ? body.content.trim() : ''
-        if (typeof sessionId !== 'string' || sessionId === '' || content === '') {
+        const images = mobileImageParts(body.images)
+        if (typeof sessionId !== 'string' || sessionId === '' || images === null || (content === '' && images.length === 0)) {
           json(res, 400, { error: 'invalid-request' })
           return
         }
@@ -787,7 +903,7 @@ export function registerMobileApi(options: MobileApiOptions): void {
           sessionId,
           requestId: randomUUID(),
           mode: 'queue',
-          content: mobilePromptParts(content),
+          content: mobilePromptContent(content, images),
         }, freshSignal(120_000))
         json(res, 200, { accepted: true })
       }).catch(cause => { fail(cause, res, 'mobile prompt failed', 'prompt-failed') })
@@ -957,6 +1073,39 @@ export function registerMobileApi(options: MobileApiOptions): void {
       }).catch(cause => { fail(cause, res, 'mobile compact failed', 'compact-failed') })
     },
   }), 'dsh-plugin-desktop: mobile compact route')
+
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: '/api/desktop/mobile/permission-presets',
+    handler: (req, res) => {
+      if (reject(req, res)) return
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405, { allow: 'GET, HEAD', 'cache-control': 'no-store' })
+        res.end('method not allowed')
+        return
+      }
+      options.presence.lastSeen = Date.now()
+      const presets = ctx.get('permissionPresets') as PermissionPresetsReadFace | undefined
+      if (presets === undefined || typeof presets.optionOf !== 'function' || typeof presets.names !== 'object') {
+        json(res, 200, { options: [], defaultPreset: null })
+        return
+      }
+      const optionsList: Array<{ value: string; name: string; description?: string }> = []
+      try {
+        for (const name of presets.names) {
+          const option = presets.optionOf(name) as { value?: unknown; name?: unknown; description?: unknown } | undefined
+          if (option === undefined || typeof option.value !== 'string' || typeof option.name !== 'string') continue
+          const normalized: { value: string; name: string; description?: string } = { value: option.value, name: option.name }
+          if (typeof option.description === 'string') normalized.description = clipText(option.description, 200)
+          optionsList.push(normalized)
+        }
+      } catch {
+        // A missing preset table leaves the phone without the switch, not without the page.
+      }
+      const defaultPreset = typeof presets.defaultPreset === 'string' ? presets.defaultPreset : null
+      json(res, 200, { options: optionsList, defaultPreset })
+    },
+  }), 'dsh-plugin-desktop: mobile permission-presets route')
 
   const decideRoute = (path: string, label: string, code: string): void => {
     ctx.effect(() => ctx.webServer.register({

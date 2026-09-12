@@ -69,6 +69,7 @@ export interface MobileCopy {
   readonly noPlan: string
   readonly terminalEmpty: string
   readonly openPanel: string
+  readonly imageAttachments: string
   readonly justNow: string
   readonly minutesAgo: (value: number) => string
   readonly hoursAgo: (value: number) => string
@@ -149,6 +150,7 @@ const COPY = {
     noPlan: 'No plan document yet. It appears here while a plan is up for review.',
     terminalEmpty: 'No command history in this session yet.',
     openPanel: 'Open side panel',
+    imageAttachments: 'image(s) attached',
     justNow: 'just now',
     minutesAgo: (value: number) => `${String(value)} min ago`,
     hoursAgo: (value: number) => `${String(value)} h ago`,
@@ -223,6 +225,7 @@ const COPY = {
     noPlan: '还没有计划文档。计划提交确认时会显示在这里。',
     terminalEmpty: '本会话还没有命令历史。',
     openPanel: '打开侧边面板',
+    imageAttachments: '张图片',
     justNow: '刚刚',
     minutesAgo: (value: number) => `${String(value)} 分钟前`,
     hoursAgo: (value: number) => `${String(value)} 小时前`,

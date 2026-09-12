@@ -4,9 +4,9 @@ import { copyFor, formatTokens, relativeTime, workspaceLabel } from './copy.ts'
 import { ThinkingRow, TranscriptView } from './Transcript.tsx'
 import { ContextSheet, ModelSheet, PermissionSheet, RenameSheet, Sheet } from './Sheets.tsx'
 import { InterruptionCard, type AnswerDraft } from './InterruptionCard.tsx'
-import { Composer } from './Composer.tsx'
+import { Composer, type ComposerAttachment } from './Composer.tsx'
 import { SidePanel, type PanelTab } from './SidePanel.tsx'
-import type { ModelCatalog, ModelSelectionValue, SessionInfo, SessionRow, StateResponse, TranscriptItem } from './types.ts'
+import type { ModelCatalog, ModelSelectionValue, PermissionOption, PermissionPresetsResponse, SessionFacts, SessionInfo, SessionRow, StateResponse, TranscriptItem, TranscriptResponse } from './types.ts'
 
 /** Relative bases survive both loopback (/mobile/) and relay (/r/<pair>/mobile/) hosting. */
 const API = (name: string) => new URL(`../api/desktop/mobile/${name}`, window.location.href).href
@@ -17,7 +17,7 @@ const THEME_KEY = 'dsh-mobile-theme'
 type Phase = 'bootstrapping' | 'expired' | 'loading' | 'ready' | 'error'
 type View = { kind: 'list' } | { kind: 'session'; id: string } | { kind: 'new' }
 type ThemeMode = 'light' | 'dark'
-type SheetKind = 'menu' | 'permission' | 'model' | 'context' | 'rename' | null
+type SheetKind = 'menu' | 'permission' | 'model' | 'effort' | 'context' | 'rename' | null
 
 async function apiCall(input: string, init?: RequestInit): Promise<Response> {
   return await fetch(input, {
@@ -43,8 +43,12 @@ export function MobileApp(): JSX.Element {
   const [view, setView] = useState<View>({ kind: 'list' })
   const [transcript, setTranscript] = useState<readonly TranscriptItem[]>([])
   const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null)
+  const [facts, setFacts] = useState<SessionFacts | null>(null)
+  const [presetOptions, setPresetOptions] = useState<readonly PermissionOption[] | null>(null)
+  const [presetDefault, setPresetDefault] = useState<string | null>(null)
   const [catalog, setCatalog] = useState<ModelCatalog | null>(null)
   const [draft, setDraft] = useState('')
+  const [attachments, setAttachments] = useState<readonly ComposerAttachment[]>([])
   const [busy, setBusy] = useState(false)
   const [acting, setActing] = useState(false)
   const [sent, setSent] = useState(0)
@@ -122,10 +126,22 @@ export function MobileApp(): JSX.Element {
     try {
       const response = await apiCall(`${API('transcript')}?sessionId=${encodeURIComponent(sessionId)}`)
       if (!response.ok) return
-      const payload = await response.json() as { messages?: readonly TranscriptItem[] }
+      const payload = await response.json() as TranscriptResponse
       setTranscript(payload.messages ?? [])
+      setFacts(payload.facts ?? null)
     } catch { /* transient; the next tick retries */ }
   }, [])
+
+  const ensurePresetOptions = useCallback(async (): Promise<void> => {
+    if (presetOptions !== null) return
+    try {
+      const response = await apiCall(API('permission-presets'))
+      if (!response.ok) return
+      const payload = await response.json() as PermissionPresetsResponse
+      setPresetOptions(payload.options ?? [])
+      setPresetDefault(payload.defaultPreset ?? null)
+    } catch { /* the pill simply stays hidden */ }
+  }, [presetOptions])
 
   const pollSessionInfo = useCallback(async (sessionId: string) => {
     try {
@@ -197,11 +213,13 @@ export function MobileApp(): JSX.Element {
     if (view.kind === 'session') {
       void pollTranscript(view.id)
       void pollSessionInfo(view.id)
+      void ensurePresetOptions()
     } else {
       setTranscript([])
       setSessionInfo(null)
+      setFacts(null)
     }
-  }, [view, pollTranscript, pollSessionInfo])
+  }, [view, pollTranscript, pollSessionInfo, ensurePresetOptions])
 
   // Keep the chat pinned to the newest line.
   useEffect(() => {
@@ -215,13 +233,14 @@ export function MobileApp(): JSX.Element {
 
   const createTask = async (): Promise<void> => {
     const content = draft.trim()
-    if (content.length === 0 || busy) return
+    if ((content.length === 0 && attachments.length === 0) || busy) return
     setBusy(true)
     try {
-      const response = await postJson('create', { content })
+      const response = await postJson('create', { content, images: attachments })
       if (response.ok) {
         const created = await response.json() as { sessionId?: string }
         setDraft('')
+        setAttachments([])
         await poll()
         if (typeof created.sessionId === 'string') {
           setView({ kind: 'session', id: created.sessionId })
@@ -238,14 +257,17 @@ export function MobileApp(): JSX.Element {
     if (view.kind !== 'session') return
     const sessionId = view.id
     const content = draft.trim()
-    if (content.length === 0 || busy) return
+    if (content.length === 0 && attachments.length === 0) return
+    if (busy) return
     setBusy(true)
     setDraft('')
     setSent(Date.now())
+    const sentImages = attachments
+    setAttachments([])
     // Optimistic echo, replaced by the polled transcript.
-    setTranscript(current => [...current, { kind: 'user', text: content, time: Date.now() }])
+    if (content !== '') setTranscript(current => [...current, { kind: 'user', text: content, time: Date.now(), imageCount: sentImages.length }])
     try {
-      await postJson('prompt', { sessionId, content })
+      await postJson('prompt', { sessionId, content, images: sentImages })
       await pollTranscript(sessionId)
       await pollSessionInfo(sessionId)
       await poll()
@@ -416,34 +438,50 @@ export function MobileApp(): JSX.Element {
       : running || (sent > 0 && Date.now() - sent < 120_000 && busy)
     const send = isNew ? createTask : sendToSession
     const viewInterruptions = isNew ? [] : interruptions.filter(item => item.sessionId === null || item.sessionId === view.id)
-    const permissions = sessionInfo?.permissions ?? null
-    const permissionLabel = permissions === null
+    // Current values prefer the log-derived facts: the control projection only
+    // covers live sessions reliably, the durable log covers every session.
+    const permissionCurrentValue = sessionInfo?.permissions?.currentValue
+      ?? facts?.permissionPreset
+      ?? presetDefault
+      ?? null
+    const permissionOptions = sessionInfo?.permissions?.options ?? presetOptions
+    const permissionLabel = permissionCurrentValue === null || permissionOptions === null || permissionOptions.length === 0
       ? null
-      : (permissions.options.find(option => option.value === permissions.currentValue)?.name ?? permissions.currentValue)
-    const modelLabel = sessionInfo?.model?.model ?? null
+      : (permissionOptions.find(option => option.value === permissionCurrentValue)?.name ?? permissionCurrentValue)
+    const modelLabel = facts?.model?.model ?? sessionInfo?.model?.model ?? null
+    // Effort pill: the current model's selectable levels, resolved from the catalog.
+    const currentModel = facts?.model ?? sessionInfo?.model ?? null
+    const effortChoices = currentModel === null
+      ? []
+      : (catalog?.groups ?? [])
+          .find(group => group.id === currentModel.provider)?.models
+          .find(row => row.id === currentModel.model)?.reasoning?.efforts ?? []
+    const effortLabel = effortChoices.length > 0 ? (currentModel?.reasoningEffort ?? effortChoices.find(level => level.id === 'high')?.id ?? effortChoices[0]?.name ?? null) : null
     return <main className="mx-auto flex h-screen max-w-md flex-col bg-background text-foreground">
-      <header className="sticky top-0 z-10 flex items-center gap-2.5 border-b border-border/60 bg-background/95 px-3 py-3 backdrop-blur">
+      <header className="sticky top-0 z-10 flex items-center gap-2 border-b border-border/60 bg-background/95 px-3 py-3 backdrop-blur">
         <button aria-label={copy.back} className="flex size-9 shrink-0 items-center justify-center rounded-full text-foreground active:bg-muted" onClick={() => { setView({ kind: 'list' }) }} type="button">
           <ArrowLeft aria-hidden className="size-5" />
         </button>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[15px] font-semibold leading-6 text-foreground">{title}</p>
-          {isNew
-            ? <p className="text-xs leading-4 text-muted-foreground">{copy.promptPlaceholder}</p>
-            : <p className="flex items-center gap-1.5 text-xs leading-4 text-muted-foreground">
-                {running ? <span className="size-1.5 animate-pulse rounded-full bg-amber-500" /> : null}
-                {session !== undefined ? relativeTime(session.updatedAt, now, copy) : ''}
-                {session?.cwd ? ` · ${workspaceLabel(session.cwd)}` : ''}
-              </p>}
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[15px] font-semibold leading-6 text-foreground">{title}</p>
+            {isNew
+              ? <p className="text-xs leading-4 text-muted-foreground">{copy.promptPlaceholder}</p>
+              : <p className="flex items-center gap-1.5 text-xs leading-4 text-muted-foreground">
+                  {running ? <span className="size-1.5 animate-pulse rounded-full bg-amber-500" /> : null}
+                  {session !== undefined ? relativeTime(session.updatedAt, now, copy) : ''}
+                  {session?.cwd ? ` · ${workspaceLabel(session.cwd)}` : ''}
+                </p>}
+          </div>
+          {!isNew
+            ? <button aria-label={copy.sessionMenu} className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground active:bg-muted" onClick={() => { setSheet('menu') }} type="button">
+                <MoreHorizontal aria-hidden className="size-5" />
+              </button>
+            : null}
         </div>
         {!isNew
           ? <button aria-label={copy.openPanel} className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground active:bg-muted" onClick={() => { setPanel(lastPanelTab.current) }} type="button">
               <SquareTerminal aria-hidden className="size-4.5" />
-            </button>
-          : null}
-        {!isNew
-          ? <button aria-label={copy.sessionMenu} className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground active:bg-muted" onClick={() => { setSheet('menu') }} type="button">
-              <MoreHorizontal aria-hidden className="size-5" />
             </button>
           : null}
         <button aria-label={copy.toggleTheme} className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground active:bg-muted" onClick={toggleTheme} type="button">
@@ -473,15 +511,19 @@ export function MobileApp(): JSX.Element {
       </div>
 
       <Composer
+        attachments={attachments}
         busy={busy}
         contextPercent={sessionInfo?.context?.percent ?? null}
         copy={copy}
         draft={draft}
         modelLabel={modelLabel}
+        onAttachments={setAttachments}
         onDraft={setDraft}
+        effortLabel={effortLabel}
         onOpenContext={() => { setSheet('context') }}
         onOpenModel={() => { void ensureCatalog(); setSheet('model') }}
-        onOpenPermissions={() => { setSheet('permission') }}
+        onOpenEffort={() => { void ensureCatalog(); setSheet('effort') }}
+        onOpenPermissions={() => { void ensurePresetOptions(); setSheet('permission') }}
         onRemoveQueue={removeQueueItem}
         onSend={() => { void send() }}
         onStop={() => { void cancelSession() }}
@@ -510,14 +552,36 @@ export function MobileApp(): JSX.Element {
             <RenameSheet busy={acting} copy={copy} initial={session?.title ?? ''} onSave={title => { void doRename(title) }} />
           </Sheet>
         : null}
-      {sheet === 'permission' && permissions !== null
+      {sheet === 'permission' && permissionOptions !== null && permissionOptions.length > 0 && permissionCurrentValue !== null
         ? <Sheet onClose={() => { setSheet(null) }} title={copy.permissionTitle}>
-            <PermissionSheet busy={acting} onSelect={preset => { void applyPermission(preset) }} permissions={permissions} />
+            <PermissionSheet busy={acting} currentValue={permissionCurrentValue} onSelect={preset => { void applyPermission(preset) }} options={permissionOptions} />
           </Sheet>
         : null}
       {sheet === 'model'
         ? <Sheet onClose={() => { setSheet(null) }} title={copy.modelTitle}>
-            <ModelSheet busy={acting} catalog={catalog} copy={copy} current={sessionInfo?.model ?? null} onApply={selection => { void applyModel(selection) }} />
+            <ModelSheet busy={acting} catalog={catalog} copy={copy} current={facts?.model ?? sessionInfo?.model ?? null} onApply={selection => { void applyModel(selection) }} />
+          </Sheet>
+        : null}
+      {sheet === 'effort' && currentModel !== null && effortChoices.length > 0
+        ? <Sheet onClose={() => { setSheet(null) }} title={copy.thinkingLevel}>
+            <div className="flex flex-col gap-1.5 pb-2">
+              {effortChoices.map(level => {
+                const selected = (currentModel.reasoningEffort ?? effortChoices.find(row => row.id === 'high')?.id) === level.id
+                return <button
+                  className={`flex w-full items-center gap-2.5 rounded-xl border px-3.5 py-3 text-left transition-colors active:bg-muted/70 ${selected ? 'border-primary/60 bg-primary/5' : 'border-border/70 bg-card'}`}
+                  disabled={acting}
+                  key={level.id}
+                  onClick={() => { void applyModel({ provider: currentModel.provider, model: currentModel.model, reasoningEffort: level.id }) }}
+                  type="button"
+                >
+                  <span className={`flex size-4 shrink-0 items-center justify-center rounded-full border ${selected ? 'border-primary bg-primary' : 'border-muted-foreground/40'}`} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium leading-5 text-foreground">{level.name}</span>
+                    {level.description !== undefined ? <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">{level.description}</span> : null}
+                  </span>
+                </button>
+              })}
+            </div>
           </Sheet>
         : null}
       {sheet === 'context' && sessionInfo !== null
