@@ -1,18 +1,6 @@
 /** Desktop-owned settings copy. */
 
 export const zh = {
-  aaSaving: '正在保存 Agents-Anywhere 选项…',
-  aaLoadFailed: 'Agents-Anywhere 未能加载，本次已关闭。请检查日志或重新选择启用以重试。',
-  retryAa: '重试加载',
-  aaSaveFailed: '未能保存 Agents-Anywhere 选项，请重试。',
-  aaSaved: 'Agents-Anywhere 选项已保存。',
-  aaTitle: 'Agents-Anywhere',
-  aaIntro: '通过内置插件 dsh-bridge-next，在手机和 Web 上访问本机 DSH。',
-  aaDisabled: '不启用 Agents-Anywhere',
-  aaDisabledBody: '保持手机连接功能关闭。',
-  aaEnabled: '启用 Agents-Anywhere',
-  aaEnabledBody: '启用后，从侧栏“手机连接”完成设置。',
-  beta: 'Beta',
   nav: '桌面设置',
   title: 'DSH Desktop 设置',
   intro: '管理当前 Profile、插件市场和桌面功能。',
@@ -120,18 +108,6 @@ export const zh = {
 export type DesktopSettingsLocaleKey = keyof typeof zh
 
 export const en: Record<DesktopSettingsLocaleKey, string> = {
-  aaSaving: 'Saving Agents-Anywhere preference…',
-  aaLoadFailed: 'Agents-Anywhere could not load and is disabled for this run. Check the logs or select it again to retry.',
-  retryAa: 'Retry loading',
-  aaSaveFailed: 'Could not save Agents-Anywhere preference. Please try again.',
-  aaSaved: 'Agents-Anywhere preference saved.',
-  aaTitle: 'Agents-Anywhere',
-  aaIntro: 'Access this DSH from your phone and Web through the bundled dsh-bridge-next plugin.',
-  aaDisabled: 'Keep Agents-Anywhere disabled',
-  aaDisabledBody: 'Keep phone connection turned off.',
-  aaEnabled: 'Enable Agents-Anywhere',
-  aaEnabledBody: 'After enabling, open Phone connection in the sidebar to complete setup.',
-  beta: 'Beta',
   nav: 'Desktop settings',
   title: 'DSH Desktop settings',
   intro: 'Manage the current Profile, plugin market, and Desktop features.',

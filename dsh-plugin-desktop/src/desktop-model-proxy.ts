@@ -8,6 +8,36 @@ export const DESKTOP_MODEL_PROXY_PROVIDERS = ['xai', 'openai-codex', 'anthropic'
 /** One provider id accepted by `dsh-desktop.modelProxyProviders`. */
 export type DesktopModelProxyProvider = (typeof DESKTOP_MODEL_PROXY_PROVIDERS)[number]
 
+/** Region group of one built-in provider, driving one-click presets in the UI. */
+export type DesktopModelProxyProviderRegion = 'overseas'
+
+/** Static provider metadata consumed by the settings UI for grouping/presets. */
+export interface DesktopModelProxyProviderInfo {
+  readonly id: DesktopModelProxyProvider
+  readonly region: DesktopModelProxyProviderRegion
+}
+
+/**
+ * Built-in provider metadata. Every built-in today is an overseas API that
+ * usually needs a VPN/proxy from mainland networks; domestic providers stay
+ * direct by design and never appear here.
+ */
+export const DESKTOP_MODEL_PROXY_PROVIDER_INFO: readonly DesktopModelProxyProviderInfo[] = [
+  { id: 'xai', region: 'overseas' },
+  { id: 'openai-codex', region: 'overseas' },
+  { id: 'anthropic', region: 'overseas' },
+  { id: 'gemini', region: 'overseas' },
+]
+
+/** All built-in provider ids in one region — the "select the whole group" preset. */
+export function desktopModelProxyProvidersInRegion(
+  region: DesktopModelProxyProviderRegion,
+): DesktopModelProxyProvider[] {
+  return DESKTOP_MODEL_PROXY_PROVIDER_INFO
+    .filter(info => info.region === region)
+    .map(info => info.id)
+}
+
 const PROVIDER_HOSTS: Readonly<Record<DesktopModelProxyProvider, readonly string[]>> = {
   xai: ['api.x.ai', 'x.ai'],
   'openai-codex': ['api.openai.com', 'openai.com', 'chatgpt.com', 'auth.openai.com'],

@@ -6,6 +6,7 @@ import { AdvancedFrame } from './AdvancedFrame.tsx'
 import { DesktopLayoutState } from './layout-state.ts'
 import { installDesktopLayout } from './layout-service.ts'
 import { installDesktopOwnedStyles } from './styles.ts'
+import { installDesktopSoftDarkTheme } from './desktop-theme-overrides.ts'
 import { DesktopThemePresenter } from './theme-presenter.ts'
 
 /** Own the enhanced layout and root slot without installing an independent frame. */
@@ -31,12 +32,14 @@ export function applyAdvancedShell(ctx: ClientContext, environment: DesktopClien
   }, 'desktop: advanced shell styles')
 
   ctx.effect(() => {
+    const removeOverrides = installDesktopSoftDarkTheme(ctx)
     const presenter = new DesktopThemePresenter()
     presenter.apply(ctx.theme.getTheme())
     const off = ctx.on('theme/change', snapshot => { presenter.apply(snapshot) })
     return () => {
       off()
       presenter.dispose()
+      removeOverrides()
     }
   }, 'desktop: theme presenter')
 

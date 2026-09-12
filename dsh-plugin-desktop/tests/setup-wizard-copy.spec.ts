@@ -39,8 +39,6 @@ describe('Desktop Setup Wizard copy and contract', () => {
   it('explains the LAN HTTPS edge, local CA trust, and lack of an HTTP fallback in both locales', () => {
     const chinese = desktopSetupWizardCopy('zh')
     const english = desktopSetupWizardCopy('en')
-    expect(chinese.beta).toBe('Beta')
-    expect(english.beta).toBe('Beta')
     expect(chinese.lanWarningBody).toContain(
       '这样很危险，所有在你局域网内的人都能直接操作你的电脑，请谨慎开启',
     )

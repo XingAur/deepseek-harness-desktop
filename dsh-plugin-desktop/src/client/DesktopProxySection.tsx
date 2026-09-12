@@ -1,11 +1,11 @@
 /** Settings sidebar page for model-scoped and process-wide proxies. */
 
-import { useCallback, useEffect, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { DesktopProxyTestView, DesktopSettingsApi } from './desktop-settings-api.ts'
 import type { DesktopShellSettings } from './DesktopSettingsSection.tsx'
-import { normalizeDesktopModelProxyHost } from '../desktop-model-proxy.ts'
+import { normalizeDesktopModelProxyHost, desktopModelProxyProvidersInRegion } from '../desktop-model-proxy.ts'
 import { parseDesktopProxyUrl } from '../desktop-proxy-url.ts'
 
 /** Registration-side business face for the proxy settings section. */
@@ -51,6 +51,7 @@ export function DesktopProxySection({ t, api, desktopSettings }: DesktopProxySec
   const [addProxyUrl, setAddProxyUrl] = useState('')
   const [customInvalid, setCustomInvalid] = useState(false)
   const [modelProxyTest, setModelProxyTest] = useState<DesktopProxyTestView>()
+  const [suggestedProxyUrl, setSuggestedProxyUrl] = useState<string>()
 
   useEffect(() => {
     if (desktop.status === 'ready' && desktop.value !== undefined) {
@@ -84,6 +85,21 @@ export function DesktopProxySection({ t, api, desktopSettings }: DesktopProxySec
     const timer = setTimeout(() => { setRestart('required') }, 8_000)
     return () => { clearTimeout(timer) }
   }, [restart])
+
+  // Silent first-open probe: when no shared URL is configured yet, look for a
+  // local Clash/V2Ray once and surface a suggestion. The user must apply it;
+  // nothing is written without an explicit click.
+  const autoDetected = useRef(false)
+  useEffect(() => {
+    if (autoDetected.current) return
+    if (desktop.status !== 'ready' || desktop.value === undefined) return
+    if ((desktop.value.modelProxyUrl ?? '').trim() !== '') { autoDetected.current = true; return }
+    autoDetected.current = true
+    if (api.detectLocalProxy === undefined) return
+    void api.detectLocalProxy().then(result => {
+      if (result.found) setSuggestedProxyUrl(result.proxyUrl)
+    }).catch(() => {})
+  }, [desktop.status, desktop.value, api])
 
   const run = useCallback(async (operation: BusyOperation, invoke: () => Promise<void>) => {
     setBusy(operation)
@@ -223,6 +239,10 @@ export function DesktopProxySection({ t, api, desktopSettings }: DesktopProxySec
     })
   }
 
+  /** One-click presets over the overseas provider group. */
+  const selectOverseasGroup = (): void => { setModelProxyProviders(desktopModelProxyProvidersInRegion('overseas')) }
+  const clearProviderGroup = (): void => { setModelProxyProviders([]) }
+
   const addCustomModel = (): void => {
     const name = addName.trim()
     const host = normalizeDesktopModelProxyHost(addHost)
@@ -269,7 +289,44 @@ export function DesktopProxySection({ t, api, desktopSettings }: DesktopProxySec
         </div>
         <p className="dshDesktopSettingsHint">{t(modelStatus)}</p>
         <form className="dshDesktopSettingsPanel dshDesktopSettingsProxyForm" onSubmit={saveModelProxy}>
+          {suggestedProxyUrl !== undefined && modelProxyDraft.trim() === '' && (
+            <p className="dshDesktopSettingsHint" role="status">
+              {t('modelProxySuggestion')} {suggestedProxyUrl}
+              <button
+                type="button"
+                className="dshDesktopSettingsButton dshDesktopSettingsButtonSecondary"
+                disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+                onClick={() => {
+                  setModelProxyDraft(suggestedProxyUrl)
+                  setSuggestedProxyUrl(undefined)
+                }}
+              >
+                {t('modelProxyApplySuggestion')}
+              </button>
+            </p>
+          )}
           <div className="dshDesktopSettingsList" role="group" aria-labelledby="dsh-desktop-model-proxy-title">
+            <div className="dshDesktopSettingsCheckRow">
+              <span>{t('modelProxyOverseasGroup')}</span>
+              <span className="dshDesktopSettingsProxyActions">
+                <button
+                  type="button"
+                  className="dshDesktopSettingsButton dshDesktopSettingsButtonSecondary"
+                  disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+                  onClick={selectOverseasGroup}
+                >
+                  {t('modelProxySelectOverseas')}
+                </button>
+                <button
+                  type="button"
+                  className="dshDesktopSettingsButton dshDesktopSettingsButtonSecondary"
+                  disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+                  onClick={clearProviderGroup}
+                >
+                  {t('modelProxyDirectAll')}
+                </button>
+              </span>
+            </div>
             {BUILTIN_MODEL_PROXY_PROVIDERS.map(id => (
               <div key={id}>
                 <label className="dshDesktopSettingsCheckRow">

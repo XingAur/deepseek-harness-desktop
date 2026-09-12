@@ -3,16 +3,6 @@
 import type { DesktopLocale } from './runtime.ts'
 
 export interface DesktopSetupWizardCopy {
-  readonly aaTitle: string
-  readonly aaIntro: string
-  readonly aaDisabled: string
-  readonly aaDisabledBody: string
-  readonly aaEnabled: string
-  readonly aaEnabledBody: string
-  readonly aaNextTitle: string
-  readonly aaNextBody: string
-  readonly aaNextDesktop: string
-  readonly beta: string
   readonly title: string
   readonly profile: string
   readonly welcomeTitle: string
@@ -84,17 +74,7 @@ export interface DesktopSetupWizardCopy {
 
 const COPY: Record<DesktopLocale, DesktopSetupWizardCopy> = {
   en: {
-    aaTitle: 'Agents-Anywhere',
-    aaIntro: 'Access this DSH from your phone and Web through the bundled dsh-bridge-next plugin.',
-    aaDisabled: 'Keep Agents-Anywhere disabled',
-    aaDisabledBody: 'Keep phone connection turned off.',
-    aaEnabled: 'Enable Agents-Anywhere',
-    aaEnabledBody: 'After enabling, open Phone connection in the sidebar to complete setup.',
-    aaNextTitle: 'How to configure?',
-    aaNextBody: 'After completing setup, click Phone connection at the bottom left of the main sidebar and follow the instructions to finish configuration.',
-    aaNextDesktop: 'If the Agents-Anywhere desktop app is installed on this computer, manage the connection directly in that app.',
 
-    beta: 'Beta',
     title: 'Set up DSH Desktop',
     profile: 'Profile',
     welcomeTitle: 'Welcome to DSH Desktop',
@@ -164,17 +144,7 @@ const COPY: Record<DesktopLocale, DesktopSetupWizardCopy> = {
     invalidState: 'Setup information could not be loaded. Close this window and try again.',
   },
   zh: {
-    aaTitle: 'Agents-Anywhere',
-    aaIntro: '通过内置插件 dsh-bridge-next，在手机和 Web 上访问本机 DSH。',
-    aaDisabled: '不启用 Agents-Anywhere',
-    aaDisabledBody: '保持手机连接功能关闭。',
-    aaEnabled: '启用 Agents-Anywhere',
-    aaEnabledBody: '启用后，从侧栏“手机连接”完成设置。',
-    aaNextTitle: '如何配置？',
-    aaNextBody: '完成引导设置后，请在主界面侧边栏左下处点击“手机连接”，按照后续引导即可完成配置。',
-    aaNextDesktop: '如果本机已安装 Agents-Anywhere 桌面端，直接在桌面端管理连接即可。',
 
-    beta: 'Beta',
     title: '设置 DSH Desktop',
     profile: 'Profile',
     welcomeTitle: '欢迎设置 DSH Desktop',

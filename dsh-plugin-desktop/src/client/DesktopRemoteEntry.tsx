@@ -61,7 +61,7 @@ const CSS = `
   font-size: 13px;
   line-height: 20px;
 }
-.dshDesktopRemoteEntryWide { justify-content: flex-start; padding: 0 10px; width: 100%; }
+.dshDesktopRemoteEntryWide { justify-content: flex-start; padding: 0 10px 0 8px; width: calc(100% + 4px); margin: 0 -2px; height: 42px; }
 .dshDesktopRemoteEntry:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
 .dshDesktopRemoteEntry:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--dsw-alias-border-l3); }
 .dshDesktopRemoteEntryOnline { color: var(--dsw-alias-state-success-primary); }

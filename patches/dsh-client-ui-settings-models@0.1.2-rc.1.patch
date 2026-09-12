@@ -1,8 +1,29 @@
 diff --git a/lib/client.js b/lib/client.js
-index 841a62b..1ca2d45 100644
+index 841a62b..62d2c27 100644
 --- a/lib/client.js
 +++ b/lib/client.js
-@@ -1441,6 +1441,16 @@ window.__ModuleLoader__.load({
+@@ -788,6 +788,20 @@ window.__ModuleLoader__.load({
+ 										editCapacity(index, "maxTokens", event.target.value);
+ 									}
+ 								})]
++							}), (0, react_jsx_runtime.jsxs)("label", {
++								className: ModelsSection_module_css_default["modelField"],
++								children: [(0, react_jsx_runtime.jsx)("span", {
++									className: ModelsSection_module_css_default["modelFieldLabel"],
++									children: t("modelImageInput")
++								}), (0, react_jsx_runtime.jsx)("input", {
++									type: "checkbox",
++									checked: Array.isArray(model.input) && model.input.includes("image"),
++									"aria-label": `${t("modelImageInput")} ${index + 1}`,
++									disabled,
++									onChange: (event) => {
++										patch(index, { input: event.target.checked ? ["text", "image"] : void 0 });
++									}
++								})]
+ 							})]
+ 						}) : null]
+ 					}, index)),
+@@ -1441,6 +1455,16 @@ window.__ModuleLoader__.load({
  		function ProviderEditor(props) {
  			const { namespace, schema, settingsPath, operations, t } = props;
  			const [draft, setDraft] = (0, react.useState)(() => draftAt(schema, namespace, settingsPath));
@@ -19,7 +40,7 @@ index 841a62b..1ca2d45 100644
  			const [keyDraft, setKeyDraft] = (0, react.useState)("");
  			const [keyState, setKeyState] = (0, react.useState)(void 0);
  			const [busy, setBusy] = (0, react.useState)(false);
-@@ -1691,7 +1701,8 @@ window.__ModuleLoader__.load({
+@@ -1691,7 +1715,8 @@ window.__ModuleLoader__.load({
  								probe,
  								probeBlocked: keyFailure,
  								operations
@@ -29,7 +50,7 @@ index 841a62b..1ca2d45 100644
  						]
  					})]
  				})] });
-@@ -1972,12 +1983,13 @@ window.__ModuleLoader__.load({
+@@ -1972,12 +1997,13 @@ window.__ModuleLoader__.load({
  									readOnly: !state.writable,
  									onClose: (changed) => {
  										closeSetup(changed, target);
@@ -49,7 +70,7 @@ index 841a62b..1ca2d45 100644
  							}, row.entry.provider);
  							const open = !adding && editing?.provider === row.entry.provider;
  							const credentialConfigured = row.credential?.configured === true;
-@@ -2037,11 +2049,6 @@ window.__ModuleLoader__.load({
+@@ -2037,11 +2063,6 @@ window.__ModuleLoader__.load({
  											}) : null]
  										})]
  									}),
@@ -61,7 +82,7 @@ index 841a62b..1ca2d45 100644
  									open ? renderProviderEditor({
  										target,
  										namespace,
-@@ -2051,7 +2058,12 @@ window.__ModuleLoader__.load({
+@@ -2051,7 +2072,12 @@ window.__ModuleLoader__.load({
  										readOnly: !state.writable,
  										onClose: (changed) => {
  											closeEditor(changed, target);
@@ -75,7 +96,7 @@ index 841a62b..1ca2d45 100644
  									}) : null
  								]
  							}, row.entry.provider);
-@@ -2095,13 +2107,13 @@ window.__ModuleLoader__.load({
+@@ -2095,13 +2121,13 @@ window.__ModuleLoader__.load({
  									readOnly: !state.writable,
  									onClose: (changed) => {
  										closeEditor(changed, addTarget);
@@ -95,3 +116,19 @@ index 841a62b..1ca2d45 100644
  							]
  						}) : declaring ? (0, react_jsx_runtime.jsx)("div", {
  							className: ModelsSection_module_css_default["addCard"],
+@@ -2665,6 +2691,7 @@ window.__ModuleLoader__.load({
+ 			maxTokens: "Max output tokens",
+ 			maxTokensPlaceholder: "Uses the provider default",
+ 			modelAdvanced: "Capacities",
++			modelImageInput: "Image input",
+ 			addModel: "Add model",
+ 			removeModel: "Delete model",
+ 			modelsEmpty: "No models will be shown in the selector. Unlisted IDs can still be sent directly.",
+@@ -2767,6 +2794,7 @@ window.__ModuleLoader__.load({
+ 			maxTokens: "最大输出 token 数",
+ 			maxTokensPlaceholder: "使用提供方默认值",
+ 			modelAdvanced: "容量",
++			modelImageInput: "图片输入",
+ 			addModel: "添加模型",
+ 			removeModel: "删除模型",
+ 			modelsEmpty: "模型选择器中将不显示任何模型；目录外 ID 仍可直接发送。",

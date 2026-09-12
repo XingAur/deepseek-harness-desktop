@@ -216,8 +216,6 @@ describe('Desktop settings API', () => {
     expect(en.lanTrustNotice).toContain('not stable')
     expect(en.lanTrustNotice).toContain('install and trust')
     expect(en.lanTrustNotice).toContain('not guaranteed')
-    expect(zh.beta).toBe('Beta')
-    expect(en.beta).toBe('Beta')
     expect(zh.lanWarningBody).toContain('带 token')
     expect(zh.lanWarningBody).toContain('HTTPS')
     expect(zh.lanWarningBody).toContain('本地 CA')

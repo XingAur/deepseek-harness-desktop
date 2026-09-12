@@ -192,19 +192,24 @@ export function MobileApp(): JSX.Element {
   const scroller = useRef<HTMLDivElement | null>(null)
 
   // Manual theme: an explicit choice persists and overrides the system scheme.
+  // Both directions carry a class so manual light also beats a dark system.
+  const applyManualThemeClass = (mode: ThemeMode): void => {
+    document.documentElement.classList.toggle('dshMobileManualDark', mode === 'dark')
+    document.documentElement.classList.toggle('dshMobileManualLight', mode === 'light')
+  }
   useEffect(() => {
     const stored = window.localStorage.getItem(THEME_KEY)
     const initial = stored === 'light' || stored === 'dark'
       ? stored
       : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
     setTheme(initial)
-    document.documentElement.classList.toggle('dshMobileManualDark', initial === 'dark')
+    applyManualThemeClass(initial)
   }, [])
   const toggleTheme = (): void => {
     const next = theme === 'dark' ? 'light' : 'dark'
     setTheme(next)
     window.localStorage.setItem(THEME_KEY, next)
-    document.documentElement.classList.toggle('dshMobileManualDark', next === 'dark')
+    applyManualThemeClass(next)
   }
 
   const poll = useCallback(async () => {

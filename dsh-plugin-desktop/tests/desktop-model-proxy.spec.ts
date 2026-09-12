@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DESKTOP_MODEL_PROXY_PROVIDERS,
   desktopModelProxyHosts,
   hostnameUsesModelProxy,
   normalizeDesktopModelProxyHost,
@@ -7,6 +8,8 @@ import {
   parseDesktopModelProxyExtraHosts,
   parseDesktopModelProxyProviders,
   resolveDesktopModelProxyUrl,
+  desktopModelProxyProvidersInRegion,
+  DESKTOP_MODEL_PROXY_PROVIDER_INFO,
 } from '../src/desktop-model-proxy.ts'
 
 describe('desktop model proxy allowlist', () => {
@@ -65,5 +68,11 @@ describe('desktop model proxy allowlist', () => {
     expect(resolveDesktopModelProxyUrl('api.x.ai', input)).toBe('http://127.0.0.1:7890')
     expect(resolveDesktopModelProxyUrl('api.anthropic.com', input)).toBe('http://user:pass@geo.example:8001')
     expect(resolveDesktopModelProxyUrl('open.bigmodel.cn', input)).toBe('')
+  })
+  it('groups every built-in provider as overseas for the one-click preset', () => {
+    expect(DESKTOP_MODEL_PROXY_PROVIDER_INFO.map(info => info.id).sort())
+      .toEqual([...DESKTOP_MODEL_PROXY_PROVIDERS].sort())
+    expect(desktopModelProxyProvidersInRegion('overseas').sort())
+      .toEqual(['anthropic', 'gemini', 'openai-codex', 'xai'])
   })
 })

@@ -13,6 +13,11 @@ export type DesktopProxyLocaleKey =
   | 'modelProxyCodex'
   | 'modelProxyAnthropic'
   | 'modelProxyGemini'
+  | 'modelProxyOverseasGroup'
+  | 'modelProxySelectOverseas'
+  | 'modelProxyDirectAll'
+  | 'modelProxySuggestion'
+  | 'modelProxyApplySuggestion'
   | 'modelProxyOwnUrl'
   | 'modelProxyExtraHosts'
   | 'modelProxyExtraHostsHint'
@@ -66,6 +71,11 @@ export const zh: Record<DesktopProxyLocaleKey, string> = {
   modelProxyCodex: 'OpenAI / Codex',
   modelProxyAnthropic: 'Anthropic',
   modelProxyGemini: 'Google Gemini',
+  modelProxyOverseasGroup: '海外厂商（默认都需要代理）',
+  modelProxySelectOverseas: '全部走代理',
+  modelProxyDirectAll: '全部直连',
+  modelProxySuggestion: '检测到本机代理',
+  modelProxyApplySuggestion: '填入',
   modelProxyOwnUrl: '单独代理（可选，留空=用共用代理）',
   modelProxyExtraHosts: '自定义模型',
   modelProxyExtraHostsHint: '和 Grok / Codex 一样走模型代理。填名称和 API 域名，不要填智谱、云效。',
@@ -120,6 +130,11 @@ export const en: Record<DesktopProxyLocaleKey, string> = {
   modelProxyCodex: 'OpenAI / Codex',
   modelProxyAnthropic: 'Anthropic',
   modelProxyGemini: 'Google Gemini',
+  modelProxyOverseasGroup: 'Overseas providers (typically need a proxy)',
+  modelProxySelectOverseas: 'Route all through proxy',
+  modelProxyDirectAll: 'Direct all',
+  modelProxySuggestion: 'Local proxy detected:',
+  modelProxyApplySuggestion: 'Use it',
   modelProxyOwnUrl: 'Dedicated proxy (optional; empty uses the shared URL)',
   modelProxyExtraHosts: 'Custom models',
   modelProxyExtraHostsHint: 'These use the same model proxy as Grok and Codex. Add a name and API host. Do not add Zhipu or Yunxiao.',

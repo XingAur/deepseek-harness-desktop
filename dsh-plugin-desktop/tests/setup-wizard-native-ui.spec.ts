@@ -102,7 +102,6 @@ describe('Setup Wizard step flow', () => {
       'mode',
       'material',
       'market',
-      'aa',
       'notifications',
       'browser',
       'success',
@@ -116,7 +115,6 @@ describe('Setup Wizard step flow', () => {
       'mode',
       'material',
       'market',
-      'aa',
       'notifications',
       'browser',
     ])
@@ -124,7 +122,6 @@ describe('Setup Wizard step flow', () => {
       'mode',
       'material',
       'market',
-      'aa',
       'notifications',
       'browser',
       'success',
@@ -223,7 +220,7 @@ describe('Setup Wizard setting pages', () => {
     expect(browser).not.toContain(copy.dshMarket)
   })
 
-  it('marks Community Market and LAN access as Beta features', () => {
+  it('renders Community Market and LAN access without Beta badges', () => {
     const market = renderStep('market')
     const browser = renderStep('browser')
     const enabledBrowser = renderStep('browser', {
@@ -232,24 +229,15 @@ describe('Setup Wizard setting pages', () => {
       openBrowser: true,
       networkExposure: 'lan',
     })
-    const communityOption = market.indexOf('for="setup-plugin-market-community-market"')
-    const nextMarketOption = market.indexOf('for="setup-plugin-market-dsh-market"')
-    const marketBadge = market.indexOf('data-slot="badge"')
     const lanOption = browser.indexOf('for="setup-network-exposure-lan"')
-    const lanBadge = browser.indexOf('data-slot="badge"')
     const enabledLanOption = enabledBrowser.indexOf('for="setup-network-exposure-lan"')
     const enabledLanChoice = enabledBrowser.slice(
       enabledLanOption,
       enabledBrowser.indexOf('</label>', enabledLanOption),
     )
 
-    expect(occurrences(market, 'data-slot="badge"')).toBe(1)
-    expect(occurrences(browser, 'data-slot="badge"')).toBe(1)
-    expect(market).toContain(copy.beta)
-    expect(browser).toContain(copy.beta)
-    expect(marketBadge).toBeGreaterThan(communityOption)
-    expect(marketBadge).toBeLessThan(nextMarketOption)
-    expect(lanBadge).toBeGreaterThan(lanOption)
+    expect(occurrences(market, 'data-slot="badge"')).toBe(0)
+    expect(occurrences(browser, 'data-slot="badge"')).toBe(0)
     expect(browser.slice(lanOption)).toContain('disabled=""')
     expect(enabledLanChoice).not.toContain('disabled=""')
     expect(enabledLanChoice).toContain('aria-checked="true"')
@@ -449,12 +437,4 @@ describe('Setup Wizard native UI boundaries', () => {
     expect(decodeDesktopSetupWizardInput(valid.replace('locale=zh', 'locale=fr'))).toBeUndefined()
     expect(decodeDesktopSetupWizardInput(valid.replace('frame=true', 'frame=yes'))).toBeUndefined()
   })
-})
-
-it('offers AA opt-in with a Beta badge after the market page', () => {
-  const html = renderStep('aa')
-  expect(html).toContain('Agents-Anywhere')
-  expect(html).toContain('Beta')
-  expect(html).toContain('setup-aa-false')
-  expect(html).toContain('setup-aa-true')
 })
