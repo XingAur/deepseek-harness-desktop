@@ -38,8 +38,14 @@ export function PermissionSheet({ options, currentValue, busy, onSelect }: {
     {options.length === 0 ? <p className="py-6 text-center text-sm text-muted-foreground">—</p> : null}
     {options.map(option => {
       const selected = option.value === currentValue
+      const danger = option.value === 'danger-full-access'
       return <button
-        className={`flex w-full items-start gap-2.5 rounded-xl border px-3.5 py-3 text-left transition-colors active:bg-muted/70 ${selected ? 'border-primary/60 bg-primary/5' : 'border-border/70 bg-card'}`}
+        className={`flex w-full items-start gap-2.5 rounded-xl border px-3.5 py-3 text-left transition-colors active:bg-muted/70 ${
+          danger
+            ? 'border-orange-500/50 bg-orange-500/10'
+            : selected
+              ? 'border-primary/60 bg-primary/5'
+              : 'border-border/70 bg-card'}`}
         disabled={busy || option.value === 'custom'}
         key={option.value}
         onClick={() => { onSelect(option.value) }}
@@ -47,7 +53,7 @@ export function PermissionSheet({ options, currentValue, busy, onSelect }: {
       >
         <RowCheck visible={selected} />
         <span className="min-w-0 flex-1">
-          <span className="block text-sm font-medium leading-5 text-foreground">{option.name}</span>
+          <span className={`block text-sm font-medium leading-5 ${danger ? 'text-orange-600 dark:text-orange-400' : 'text-foreground'}`}>{option.name}</span>
           {option.description !== undefined ? <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">{option.description}</span> : null}
         </span>
         {busy && selected ? <LoaderCircle aria-hidden className="mt-1 size-4 animate-spin text-muted-foreground" /> : null}

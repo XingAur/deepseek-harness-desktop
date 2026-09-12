@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useRef, type ChangeEvent, type ReactNode } from 'react'
-import { Brain, Gauge, LoaderCircle, Paperclip, Send, ShieldCheck, Square, X } from 'lucide-react'
+import { Gauge, LoaderCircle, Paperclip, Send, ShieldCheck, Square, X } from 'lucide-react'
 import type { MobileCopy } from './copy.ts'
 import type { QueueEntry } from './types.ts'
 
@@ -114,18 +114,22 @@ export function Composer(props: {
         rows={1}
         value={draft}
       />
-      <div className="flex items-center gap-0.5 py-1">
+      <div className="flex items-center gap-1 py-1">
         <label className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground active:bg-muted">
           <Paperclip aria-hidden className="size-4" />
           <input accept="image/*" className="hidden" multiple onChange={pickFiles} type="file" />
         </label>
         {permissionLabel !== null
-          ? <button aria-label={copy.permission} className="flex h-8 max-w-28 shrink items-center gap-1 rounded-full px-2 text-[11px] font-medium text-foreground/80 active:bg-muted" onClick={onOpenPermissions} type="button">
-              <ShieldCheck aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-              <span className="truncate">{permissionLabel}</span>
+          ? <button aria-label={`${copy.permission}: ${permissionLabel}`} className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground active:bg-muted" onClick={onOpenPermissions} type="button">
+              <ShieldCheck aria-hidden className="size-4" />
             </button>
           : null}
         <span className="min-w-2 flex-1" />
+        {contextPercent !== null
+          ? <button aria-label={`${copy.contextTitle} ${String(contextPercent)}%`} className={`flex size-8 shrink-0 items-center justify-center rounded-full active:bg-muted ${contextPercent >= 90 ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground'}`} onClick={onOpenContext} type="button">
+              <Gauge aria-hidden className="size-4" />
+            </button>
+          : null}
         {modelLabel !== null
           ? <button aria-label={copy.model} className="flex h-8 max-w-28 shrink items-center gap-1 rounded-full px-2 text-[11px] font-medium text-foreground/80 active:bg-muted" onClick={onOpenModel} type="button">
               <span aria-hidden className="text-[10px]">▣</span>
@@ -133,24 +137,17 @@ export function Composer(props: {
             </button>
           : null}
         {effortLabel !== null
-          ? <button aria-label={copy.thinkingLevel} className="flex h-8 shrink-0 items-center gap-1 rounded-full px-2 text-[11px] font-medium text-foreground/80 active:bg-muted" onClick={onOpenEffort} type="button">
-              <Brain aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-              <span className="max-w-16 truncate">{effortLabel}</span>
-            </button>
-          : null}
-        {contextPercent !== null
-          ? <button aria-label={copy.contextTitle} className={`flex h-8 shrink-0 items-center gap-1 rounded-full px-2 text-[11px] font-medium tabular-nums active:bg-muted ${contextPercent >= 90 ? 'text-red-600 dark:text-red-400' : 'text-foreground/80'}`} onClick={onOpenContext} type="button">
-              <Gauge aria-hidden className="size-4 text-muted-foreground" />
-              {`${String(contextPercent)}%`}
+          ? <button aria-label={copy.thinkingLevel} className="flex h-8 max-w-20 shrink items-center rounded-full px-2 text-[11px] font-medium text-foreground/80 active:bg-muted" onClick={onOpenEffort} type="button">
+              <span className="truncate">{effortLabel}</span>
             </button>
           : null}
         {running
-          ? <button aria-label={copy.cancel} className="ml-1 flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background active:scale-95" onClick={onStop} type="button">
+          ? <button aria-label={copy.cancel} className="ml-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background active:scale-95" onClick={onStop} type="button">
               <Square aria-hidden className="size-3.5 fill-current" />
             </button>
           : <button
               aria-label={copy.send}
-              className={`ml-1 flex size-8 shrink-0 items-center justify-center rounded-full transition-all ${canSend ? 'bg-primary text-primary-foreground shadow-sm active:scale-95' : 'bg-muted text-muted-foreground/40'}`}
+              className={`ml-0.5 flex size-8 shrink-0 items-center justify-center rounded-full transition-all ${canSend ? 'bg-primary text-primary-foreground shadow-sm active:scale-95' : 'bg-muted text-muted-foreground/40'}`}
               disabled={!canSend}
               type="submit"
             >
