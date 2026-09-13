@@ -77,6 +77,7 @@ export const MAX_PNPM_SMART_UNPACK_BYTES = 32 * 1024 * 1024
 
 /** Package roots electron-builder may smart-unpack as one indivisible unit. */
 export const ALLOWED_SMART_UNPACK_PACKAGE_ROOTS = [
+  'node_modules/fs-ext',
   'node_modules/koffi',
   'node_modules/node-addon-require-builtin',
   'node_modules/node-pty',
@@ -87,6 +88,7 @@ export const ALLOWED_SMART_UNPACK_PACKAGE_ROOTS = [
 
 /** Platform package families selected by native dependencies at package time. */
 export const ALLOWED_SMART_UNPACK_PACKAGE_PREFIXES = [
+  'node_modules/@deepseek-ai/node-addon-system-',
   'node_modules/@img/sharp-',
   'node_modules/@koromix/koffi-',
   'node_modules/@vscode/ripgrep-',
@@ -100,6 +102,12 @@ export const REQUIRED_DSH_CLI_RUNTIME_ENTRIES = Object.freeze(
     .map(entry => `node_modules/@deepseek-ai/dsh/lib/${entry.name}`)
     .sort(),
 )
+
+/** PTC preset inputs selected by upstream's historical Session migration. */
+export const REQUIRED_AGENT_PRESET_RUNTIME_ENTRIES = [
+  'node_modules/@deepseek-ai/dsh-agent-presets/presets/ptc/agent.cordis.yml',
+  'node_modules/@deepseek-ai/dsh-agent-presets/presets/ptc/preset.yml',
+] as const
 
 /** AfterPack fields consumed without importing Electron Builder's incomplete declaration graph. */
 export interface PackagedRuntimeContext {
@@ -129,6 +137,7 @@ export const REQUIRED_PACKAGED_RUNTIME_ENTRIES = [
   'node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js',
   'node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html',
   'node_modules/@deepseek-ai/dsh-app-boot/lib/index.js',
+  ...REQUIRED_AGENT_PRESET_RUNTIME_ENTRIES,
   'node_modules/open/index.js',
   'node_modules/pnpm/bin/pnpm.mjs',
 ] as const
@@ -163,6 +172,8 @@ export const FORBIDDEN_UNPACKED_RUNTIME_ENTRIES = [
   'node_modules/@deepseek-ai/dsh-app-boot/lib/index.js',
   'node_modules/@deepseek-ai/dsh-base/lib/index.js',
   'node_modules/@deepseek-ai/dsh-web-app/lib/index.js',
+  // Preset inputs are ordinary read-only data covered by ASAR integrity.
+  ...REQUIRED_AGENT_PRESET_RUNTIME_ENTRIES,
   'node_modules/@vscode/ripgrep/lib/index.js',
   'node_modules/open/index.js',
   'node_modules/yaml/dist/index.js',
@@ -176,6 +187,18 @@ export const REQUIRED_WINDOWS_X64_NODE_PTY_ENTRIES = [
   'node_modules/node-pty/prebuilds/win32-x64/conpty/OpenConsole.exe',
   'node_modules/node-pty/prebuilds/win32-x64/conpty/conpty.dll',
 ] as const
+
+/** ABI-pinned fs-ext bindings selected by non-universal macOS and Linux packages. */
+export const REQUIRED_POSIX_FS_EXT_ENTRIES = {
+  darwin: {
+    x64: 'node_modules/fs-ext/prebuilds/darwin-x64/electron.abi148.node',
+    arm64: 'node_modules/fs-ext/prebuilds/darwin-arm64/electron.abi148.node',
+  },
+  linux: {
+    x64: 'node_modules/fs-ext/prebuilds/linux-x64/electron.abi148.node',
+    arm64: 'node_modules/fs-ext/prebuilds/linux-arm64/electron.abi148.node',
+  },
+} as const
 
 /** CPU-specific runtime assets that must coexist in a universal macOS application. */
 export const REQUIRED_MACOS_UNIVERSAL_ENTRIES = [
@@ -736,11 +759,24 @@ export function verifyPackagedRuntime(
   const desktopPhysicalEntries = context.electronPlatformName === 'darwin'
     ? REQUIRED_MACOS_UNPACKED_RUNTIME_ENTRIES
     : REQUIRED_NON_MACOS_UNPACKED_RUNTIME_ENTRIES
+  const posixFsExtEntry = context.electronPlatformName === 'darwin'
+    || context.electronPlatformName === 'linux'
+    ? context.arch === 1
+      ? REQUIRED_POSIX_FS_EXT_ENTRIES[context.electronPlatformName].x64
+      : context.arch === 3
+        ? REQUIRED_POSIX_FS_EXT_ENTRIES[context.electronPlatformName].arm64
+        : undefined
+    : undefined
   const requiredPhysicalEntries = context.electronPlatformName === 'win32'
-    ? [...desktopPhysicalEntries, ...REQUIRED_WINDOWS_X64_NODE_PTY_ENTRIES]
+    ? [
+        ...desktopPhysicalEntries,
+        ...REQUIRED_WINDOWS_X64_NODE_PTY_ENTRIES,
+      ]
     : context.electronPlatformName === 'darwin' && context.arch === 4
       ? [...desktopPhysicalEntries, ...REQUIRED_MACOS_UNIVERSAL_ENTRIES]
-      : desktopPhysicalEntries
+      : posixFsExtEntry === undefined
+        ? desktopPhysicalEntries
+        : [...desktopPhysicalEntries, posixFsExtEntry]
   const missing = requiredPhysicalEntries.filter(entry => !exists(join(unpackedRoot, entry)))
   if (missing.length > 0) {
     throw new Error(

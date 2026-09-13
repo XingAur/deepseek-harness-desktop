@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
@@ -36,6 +37,48 @@ assert(
 assert(existsSync(rgPath), `cannot find ripgrep at ${rgPath}`)
 const rgVersion = execFileSync(rgPath, ['--version'], { encoding: 'utf8', windowsHide: true })
 assert(/^ripgrep\s/u.test(rgVersion), `received an invalid ripgrep version: ${JSON.stringify(rgVersion.trim())}`)
+if (process.platform === 'win32') {
+  const sessionBackend = await import('@deepseek-ai/dsh-session-persistence-jsonl')
+  assert(
+    typeof sessionBackend.default === 'function',
+    'could not import the Windows JSONL session backend without fs-ext',
+  )
+} else {
+  const fsExt = createRequire(installAnchor)('fs-ext') as { flockSync?: unknown }
+  assert(typeof fsExt.flockSync === 'function', 'did not load the Electron ABI fs-ext binding')
+}
+
+/** Exercise upstream migration and native session locks from the packaged ASAR. */
+async function smokeSessionMigration(): Promise<void> {
+  const { Context } = await import('@deepseek-ai/cordis')
+  const { SessionId } = await import('@deepseek-ai/dsh-session')
+  const { default: JsonlSessionPersistence } = await import('@deepseek-ai/dsh-session-persistence-jsonl')
+  const root = mkdtempSync(join(tmpdir(), 'dsh-packaged-session-migration-'))
+  const id = SessionId('packaged-migration')
+  const directory = join(root, '_no-cwd', id)
+  const source = JSON.stringify({
+    type: 'session', version: 2, id, createdAt: 1, isSeeded: false,
+    delegationDepth: 0, agentPreset: 'code',
+  }) + '\n'
+  const ctx = new Context()
+  try {
+    mkdirSync(directory, { recursive: true })
+    writeFileSync(join(directory, 'session.v2.jsonl'), source)
+    await ctx.plugin(JsonlSessionPersistence, { root, compression: 'none' })
+    const handle = await ctx.sessionPersistence.open(id, 'write')
+    try {
+      assert(handle.header.version === 3 && handle.header.agentPreset === 'ptc', 'did not migrate the legacy preset through the upstream worker')
+    } finally {
+      await handle.close()
+    }
+    await ctx.sessionPersistence.flush()
+    assert(existsSync(join(directory, 'session.v3.jsonl')), 'did not publish the V3 session log')
+    assert(readFileSync(join(directory, 'session.v2.jsonl'), 'utf8') === source, 'changed the original V2 session log')
+  } finally {
+    await ctx.fiber.dispose()
+    rmSync(root, { recursive: true, force: true })
+  }
+}
 
 /** Exercise the production Worker entry through Electron's logical ASAR path. */
 async function smokeDiagnosticExportWorker(): Promise<void> {
@@ -208,6 +251,7 @@ try {
   rmSync(root, { recursive: true, force: true })
 }
 
+await smokeSessionMigration()
 await smokeDiagnosticExportWorker()
 await smokeAgentPresetRoster()
 

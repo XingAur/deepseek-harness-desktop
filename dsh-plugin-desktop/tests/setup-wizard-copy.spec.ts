@@ -9,6 +9,7 @@ import {
 import { desktopSetupWizardCopy } from '../src/setup-wizard-copy.ts'
 
 const input: DesktopSetupWizardInput = {
+  appVersion: '2.0.6-beta.1',
   profileName: 'work',
   platform: 'win32',
   micaSupported: true,
@@ -36,7 +37,7 @@ describe('Desktop Setup Wizard copy and contract', () => {
     expect(Object.values(chinese).every(value => value.length > 0)).toBe(true)
   })
 
-  it('explains the LAN HTTPS edge, local CA trust, and lack of an HTTP fallback in both locales', () => {
+  it('explains LAN access-link permissions, HTTPS, and certificate trust in both locales', () => {
     const chinese = desktopSetupWizardCopy('zh')
     const english = desktopSetupWizardCopy('en')
     expect(chinese.lanWarningBody).toContain(
@@ -55,9 +56,9 @@ describe('Desktop Setup Wizard copy and contract', () => {
     expect(english.lanWarningBody).toContain('secure context')
     expect(english.lanWarningBody).toContain('WebCrypto')
     expect(chinese.networkExposureBody).toContain('HTTPS')
-    expect(chinese.lanBody).toContain('客户机')
+    expect(chinese.lanBody).toContain('访问设备')
     expect(english.networkExposureBody).toContain('HTTPS')
-    expect(english.lanBody).toContain('client device')
+    expect(english.lanBody).toContain('each device')
   })
 
   it('describes the sequential navigation, skip confirmation, and final success action', () => {
@@ -65,7 +66,7 @@ describe('Desktop Setup Wizard copy and contract', () => {
     const chinese = desktopSetupWizardCopy('zh')
     expect(chinese.back).toBe('上一步')
     expect(chinese.next).toBe('下一步')
-    expect(chinese.successTitle).toContain('成功')
+    expect(chinese.successTitle).toContain('完成')
     expect(chinese.startUsing).toBe('开始使用')
     expect(chinese.skipDialogBody).toContain('设置')
     expect(chinese.skipDialogBody).toContain('桌面设置')
@@ -81,13 +82,13 @@ describe('Desktop Setup Wizard copy and contract', () => {
     const chinese = desktopSetupWizardCopy('zh')
     expect(chinese.welcomeTitle).toBeTruthy()
     expect(chinese.welcomeBody).toContain('Profile')
-    expect(chinese.firstProfileSetup).toContain('第一次')
-    expect(chinese.firstProfileSetup).toContain('桌面模式')
+    expect(chinese.firstProfileSetup).toContain('首次')
+    expect(chinese.firstProfileSetup).toContain('桌面设置')
     expect(chinese.startSetup).toBe('开始设置')
     expect(english.welcomeTitle).toBeTruthy()
     expect(english.welcomeBody).toContain('Profile')
     expect(english.firstProfileSetup).toMatch(/first(?:-time| time)/iu)
-    expect(english.firstProfileSetup).toMatch(/Desktop mode/iu)
+    expect(english.firstProfileSetup).toMatch(/Desktop setup/iu)
     expect(english.startSetup).toBe('Start setup')
   })
 
@@ -127,6 +128,8 @@ describe('Desktop Setup Wizard copy and contract', () => {
     expect(isDesktopSetupWizardInput(input)).toBe(true)
     expect(isDesktopSetupWizardInput({ ...input, unexpected: true })).toBe(false)
     expect(isDesktopSetupWizardInput({ ...input, notifications: { enabled: true } })).toBe(false)
+    expect(isDesktopSetupWizardInput({ ...input, appVersion: '' })).toBe(false)
+    expect(isDesktopSetupWizardInput({ ...input, appVersion: '<script>' })).toBe(false)
     expect(isDesktopSetupWizardInput({ ...input, profileName: '../escape' })).toBe(false)
     expect(isDesktopSetupWizardInput({ ...input, profileName: 'CON' })).toBe(false)
     expect(desktopSetupWizardSelectionIsAvailable(input, input)).toBe(true)
