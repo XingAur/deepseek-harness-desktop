@@ -800,6 +800,7 @@ describe('published package surface', () => {
       'lib/**',
       'package.json',
       '!node_modules/node-pty/build/**',
+      '!node_modules/fs-ext/build/**',
       // Slimming excludes: development artifacts never needed at runtime.
       '!**/*.map',
       '!**/*.d.ts',
