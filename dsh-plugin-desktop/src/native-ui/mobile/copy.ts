@@ -12,6 +12,7 @@ export interface MobileCopy {
   readonly thinking: string
   readonly empty: string
   readonly emptyTranscript: string
+  readonly jumpLatest: string
   readonly cancel: string
   readonly expired: string
   readonly linkInUse: string
@@ -94,6 +95,7 @@ const COPY = {
     thinking: 'Thinking',
     empty: 'No sessions yet. Start one from the top.',
     emptyTranscript: 'No messages yet. Say something below.',
+    jumpLatest: 'Scroll to latest',
     cancel: 'Stop',
     expired: 'This link is no longer valid. Regenerate it from the desktop tray.',
     linkInUse: 'This link is already held by another device. Regenerate it on the desktop to switch devices.',
@@ -170,6 +172,7 @@ const COPY = {
     thinking: '思考中',
     empty: '还没有会话,点击上方新建。',
     emptyTranscript: '还没有消息,在下方说点什么。',
+    jumpLatest: '滚动到最新',
     cancel: '停止',
     expired: '链接已失效,请在桌面端托盘重新生成。',
     linkInUse: '此链接已被其他设备占用。请在桌面端重新生成后,用新设备扫码。',
