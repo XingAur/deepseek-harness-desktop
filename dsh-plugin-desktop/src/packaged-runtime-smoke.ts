@@ -110,42 +110,31 @@ async function smokeDiagnosticExportWorker(): Promise<void> {
 }
 
 /**
- * Exercise the vendored preset roster's patched discovery against a Profile
- * directory with no node_modules above it: every shipped preset must stay
- * healthy purely through DSH_HOST_PACKAGE_BASE, the sealed install anchor
- * (patches/dsh-agent-presets@<version>.patch).
+ * Exercise the vendored preset roster against the sealed app.asar install
+ * anchor (patches/dsh-agent-presets@<version>.patch).
  */
 async function smokeAgentPresetRoster(): Promise<void> {
-  const previousAnchor = process.env.DSH_HOST_PACKAGE_BASE
-  process.env.DSH_HOST_PACKAGE_BASE = new URL('../', installAnchor).href
-  const isolated = mkdtempSync(join(tmpdir(), 'dsh-packaged-preset-base-'))
-  try {
-    await withAsarModuleResolver(async () => {
-      const releaseResolver = installProfilePackageResolver(installAnchor.href)
-      try {
-        const roster = await discoverPresets(
-          [{ path: SHIPPED_PRESET_ROOT, trust: 'system' }],
-          `${pathToFileURL(isolated).href}/`,
-        )
-        const presetIds = roster.map(preset => preset.id)
-        assert(
-          presetIds.includes('minimal') && presetIds.includes('standard'),
-          `did not discover the shipped presets: ${presetIds.join(', ')}`,
-        )
-        const broken = roster.filter(preset => preset.broken !== undefined)
-        assert(
-          broken.length === 0,
-          `reported broken agent presets: ${broken.map(preset => `${preset.id}: ${String(preset.broken)}`).join('; ')}`,
-        )
-      } finally {
-        releaseResolver()
-      }
-    })
-  } finally {
-    if (previousAnchor === undefined) delete process.env.DSH_HOST_PACKAGE_BASE
-    else process.env.DSH_HOST_PACKAGE_BASE = previousAnchor
-    rmSync(isolated, { recursive: true, force: true })
-  }
+  await withAsarModuleResolver(async () => {
+    const releaseResolver = installProfilePackageResolver(installAnchor.href)
+    try {
+      const roster = await discoverPresets(
+        [{ path: SHIPPED_PRESET_ROOT, trust: 'system' }],
+        installAnchor.href,
+      )
+      const presetIds = roster.map(preset => preset.id)
+      assert(
+        presetIds.includes('minimal') && presetIds.includes('standard'),
+        `did not discover the shipped presets: ${presetIds.join(', ')}`,
+      )
+      const broken = roster.filter(preset => preset.broken !== undefined)
+      assert(
+        broken.length === 0,
+        `reported broken agent presets: ${broken.map(preset => `${preset.id}: ${String(preset.broken)}`).join('; ')}`,
+      )
+    } finally {
+      releaseResolver()
+    }
+  })
 }
 
 const root = mkdtempSync(join(tmpdir(), 'dsh-packaged-profile-resolver-'))
