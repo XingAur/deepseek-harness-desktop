@@ -14,6 +14,7 @@ export interface MobileCopy {
   readonly emptyTranscript: string
   readonly cancel: string
   readonly expired: string
+  readonly linkInUse: string
   readonly error: string
   readonly retry: string
   readonly toggleTheme: string
@@ -95,6 +96,7 @@ const COPY = {
     emptyTranscript: 'No messages yet. Say something below.',
     cancel: 'Stop',
     expired: 'This link is no longer valid. Regenerate it from the desktop tray.',
+    linkInUse: 'This link is already held by another device. Regenerate it on the desktop to switch devices.',
     error: 'State unavailable.',
     retry: 'Retry',
     toggleTheme: 'Toggle theme',
@@ -170,6 +172,7 @@ const COPY = {
     emptyTranscript: '还没有消息,在下方说点什么。',
     cancel: '停止',
     expired: '链接已失效,请在桌面端托盘重新生成。',
+    linkInUse: '此链接已被其他设备占用。请在桌面端重新生成后,用新设备扫码。',
     error: '状态获取失败。',
     retry: '重试',
     toggleTheme: '切换深浅色',

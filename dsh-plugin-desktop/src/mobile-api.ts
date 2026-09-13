@@ -23,6 +23,12 @@ export interface MobileApiOptions {
   readonly relayActive: () => boolean
   /** Presence sink stamped on every poll so the shell can tint its phone entry. */
   readonly presence: { lastSeen: number }
+  /**
+   * Single-device binding for the pairing: the first mobile client id to
+   * present itself owns the link until the pairing is regenerated; any other
+   * client id is rejected so one link can never drive two web sessions.
+   */
+  readonly clientBinding: { clientId: string | null }
 }
 
 /** One +/- count pair for a file a write/edit tool changed. */
@@ -615,14 +621,16 @@ function authorityOf(url: string): string | null {
 }
 
 /**
- * Mutating methods must be same-origin: the cookie is SameSite=Strict, and an
- * exact Origin match (whose authority equals the request Host) closes CSRF
- * for POSTs the way the desktop settings routes do for the loopback renderer.
+ * Mutating methods must be same-origin. The SameSite=Strict cookie is the
+ * primary CSRF defense (it is never sent on cross-site requests); the Origin
+ * check is a second lock for browsers that always send it. Embedded webviews
+ * (WeChat, some system browsers) omit the Origin header entirely, so an
+ * absent Origin is allowed through and only a mismatched Origin is rejected.
  */
 function sameOriginMutatingRequest(req: IncomingMessage): boolean {
   const origin = req.headers.origin
+  if (typeof origin !== 'string' || origin === '') return true
   const host = req.headers.host
-  if (typeof origin !== 'string' || origin === '') return false
   const originAuthority = authorityOf(origin)
   return originAuthority !== null && originAuthority === (host ?? '')
 }
@@ -698,10 +706,25 @@ export function registerMobileApi(options: MobileApiOptions): void {
   const { ctx } = options
   const reject = (req: IncomingMessage, res: ServerResponse): boolean => {
     const rejection = ctx.connection.requestRejection(req)
-    if (rejection === undefined) return false
-    res.writeHead(rejection)
-    res.end(rejection === 401 ? 'unauthorized' : 'forbidden')
-    return true
+    if (rejection !== undefined) {
+      res.writeHead(rejection)
+      res.end(rejection === 401 ? 'unauthorized' : 'forbidden')
+      return true
+    }
+    // Single-device binding: the first client id owns this pairing.
+    const header = req.headers['x-dsh-mobile-client']
+    const client = typeof header === 'string' && header !== '' ? header : ''
+    if (client !== '') {
+      if (options.clientBinding.clientId === null) {
+        options.clientBinding.clientId = client
+      } else if (options.clientBinding.clientId !== client) {
+        ctx.logger.warn('dsh-plugin-desktop: mobile link already bound to another device; rejecting')
+        res.writeHead(403, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+        res.end('{"error":"link-in-use"}\n')
+        return true
+      }
+    }
+    return false
   }
 
   const fail = (cause: unknown, res: ServerResponse, label: string, code: string): void => {

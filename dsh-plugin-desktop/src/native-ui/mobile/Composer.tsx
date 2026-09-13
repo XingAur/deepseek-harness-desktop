@@ -28,6 +28,7 @@ export function Composer(props: {
   readonly running: boolean
   readonly placeholder: string
   readonly permissionLabel: string | null
+  readonly permissionDanger: boolean
   readonly modelLabel: string | null
   readonly effortLabel: string | null
   readonly contextPercent: number | null
@@ -42,7 +43,7 @@ export function Composer(props: {
 }): ReactNode {
   const {
     copy, draft, onDraft, attachments, onAttachments, busy, running, placeholder,
-    permissionLabel, modelLabel, effortLabel, contextPercent, queue,
+    permissionLabel, permissionDanger, modelLabel, effortLabel, contextPercent, queue,
     onSend, onStop, onOpenPermissions, onOpenModel, onOpenEffort, onOpenContext, onRemoveQueue,
   } = props
   const textarea = useRef<HTMLTextAreaElement | null>(null)
@@ -114,30 +115,29 @@ export function Composer(props: {
         rows={1}
         value={draft}
       />
-      <div className="flex items-center gap-1 py-1">
+      <div className="flex items-center gap-0.5 py-1">
         <label className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground active:bg-muted">
           <Paperclip aria-hidden className="size-4" />
           <input accept="image/*" className="hidden" multiple onChange={pickFiles} type="file" />
         </label>
         {permissionLabel !== null
-          ? <button aria-label={`${copy.permission}: ${permissionLabel}`} className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground active:bg-muted" onClick={onOpenPermissions} type="button">
+          ? <button aria-label={`${copy.permission}: ${permissionLabel}`} className={`flex size-8 shrink-0 items-center justify-center rounded-full active:bg-muted ${permissionDanger ? 'text-orange-500' : 'text-muted-foreground'}`} onClick={onOpenPermissions} type="button">
               <ShieldCheck aria-hidden className="size-4" />
             </button>
           : null}
-        <span className="min-w-2 flex-1" />
+        <span className="min-w-1.5 flex-1" />
         {contextPercent !== null
           ? <button aria-label={`${copy.contextTitle} ${String(contextPercent)}%`} className={`flex size-8 shrink-0 items-center justify-center rounded-full active:bg-muted ${contextPercent >= 90 ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground'}`} onClick={onOpenContext} type="button">
               <Gauge aria-hidden className="size-4" />
             </button>
           : null}
         {modelLabel !== null
-          ? <button aria-label={copy.model} className="flex h-8 max-w-28 shrink items-center gap-1 rounded-full px-2 text-[11px] font-medium text-foreground/80 active:bg-muted" onClick={onOpenModel} type="button">
-              <span aria-hidden className="text-[10px]">▣</span>
+          ? <button aria-label={copy.model} className="flex h-8 max-w-28 shrink items-center rounded-full px-1.5 text-[11px] font-medium text-foreground/80 active:bg-muted" onClick={onOpenModel} type="button">
               <span className="truncate">{modelLabel}</span>
             </button>
           : null}
         {effortLabel !== null
-          ? <button aria-label={copy.thinkingLevel} className="flex h-8 max-w-20 shrink items-center rounded-full px-2 text-[11px] font-medium text-foreground/80 active:bg-muted" onClick={onOpenEffort} type="button">
+          ? <button aria-label={copy.thinkingLevel} className="flex h-8 max-w-20 shrink items-center rounded-full px-1.5 text-[11px] font-medium text-foreground/80 active:bg-muted" onClick={onOpenEffort} type="button">
               <span className="truncate">{effortLabel}</span>
             </button>
           : null}

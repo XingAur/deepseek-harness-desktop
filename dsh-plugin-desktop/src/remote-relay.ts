@@ -104,6 +104,7 @@ export function applyRemoteRelay(ctx: Context, options: RemoteRelayOptions): voi
   })
   const controlCache = new MobileControlCache(message => ctx.logger.warn(message))
   ctx.effect(() => () => { controlCache.dispose() }, 'dsh-plugin-desktop: mobile control cache lifetime')
+  const clientBinding = { clientId: null as string | null }
 
   function sessionKeyOf(request: { agent?: { session?: { id?: unknown } } }): string | null {
     return typeof request.agent?.session?.id === 'string' ? request.agent.session.id : null
@@ -299,6 +300,7 @@ export function applyRemoteRelay(ctx: Context, options: RemoteRelayOptions): voi
     ctx,
     interruptions,
     controlCache,
+    clientBinding,
     relayActive: () => tunnel?.snapshot().state === 'ready',
     presence: mobilePresence,
   })
@@ -445,6 +447,8 @@ export function applyRemoteRelay(ctx: Context, options: RemoteRelayOptions): voi
     tunnel?.dispose()
     tunnel = null
     pairing = mintPairing(ctx, origin)
+    // A fresh pairing may be claimed by any device again.
+    clientBinding.clientId = null
     if (!options.access.required) {
       options.access.required = true
       options.refreshAccess()

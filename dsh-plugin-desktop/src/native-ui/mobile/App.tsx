@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, LoaderCircle, Moon, MoreHorizontal, PencilLine, Plus, Sparkles, SquareTerminal, Sun } from 'lucide-react'
+import { ArrowLeft, LoaderCircle, Moon, MoreHorizontal, PencilLine, Plus, ShieldAlert, Sparkles, SquareTerminal, Sun } from 'lucide-react'
 import { copyFor, formatTokens, relativeTime, workspaceLabel } from './copy.ts'
 import { ThinkingRow, TranscriptView } from './Transcript.tsx'
 import { ContextSheet, ModelSheet, PermissionSheet, RenameSheet, Sheet } from './Sheets.tsx'
@@ -13,8 +13,22 @@ const API = (name: string) => new URL(`../api/desktop/mobile/${name}`, window.lo
 const TOKEN_EXCHANGE = (token: string) => new URL(`../?token=${encodeURIComponent(token)}`, window.location.href).href
 const POLL_MS = 2_500
 const THEME_KEY = 'dsh-mobile-theme'
+const CLIENT_KEY = 'dsh-mobile-client'
 
-type Phase = 'bootstrapping' | 'expired' | 'loading' | 'ready' | 'error'
+/** One stable id per browser profile: the host binds the pairing link to the
+ * first client it sees and rejects every other device until regeneration. */
+const CLIENT_ID: string = (() => {
+  let id = window.localStorage.getItem(CLIENT_KEY)
+  if (id === null || id === '') {
+    id = typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`
+    window.localStorage.setItem(CLIENT_KEY, id)
+  }
+  return id
+})()
+
+type Phase = 'bootstrapping' | 'expired' | 'in-use' | 'loading' | 'ready' | 'error'
 type View = { kind: 'list' } | { kind: 'session'; id: string } | { kind: 'new' }
 type ThemeMode = 'light' | 'dark'
 type SheetKind = 'menu' | 'permission' | 'model' | 'effort' | 'context' | 'rename' | null
@@ -24,7 +38,11 @@ async function apiCall(input: string, init?: RequestInit): Promise<Response> {
     ...init,
     credentials: 'same-origin',
     redirect: 'error',
-    headers: { accept: 'application/json', ...(init?.headers ?? {}) },
+    headers: {
+      accept: 'application/json',
+      'x-dsh-mobile-client': CLIENT_ID,
+      ...(init?.headers ?? {}),
+    },
   })
 }
 
@@ -112,6 +130,10 @@ export function MobileApp(): JSX.Element {
       const response = await apiCall(API('state'))
       if (response.status === 401) {
         setPhase('expired')
+        return
+      }
+      if (response.status === 403) {
+        setPhase('in-use')
         return
       }
       if (!response.ok) throw new Error(`HTTP ${String(response.status)}`)
@@ -404,6 +426,13 @@ export function MobileApp(): JSX.Element {
     </main>
   }
 
+  if (phase === 'in-use') {
+    return <main className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center gap-4 bg-background px-6 text-center text-foreground">
+      <ShieldAlert aria-hidden className="size-8 text-orange-500/70" />
+      <p className="text-sm text-muted-foreground">{copy.linkInUse}</p>
+    </main>
+  }
+
   const sessions = [...(state?.sessions ?? [])].sort((left, right) => right.updatedAt - left.updatedAt)
   const interruptions = state?.interruptions ?? []
   const byId = new Map(sessions.map(session => [session.id, session]))
@@ -452,14 +481,16 @@ export function MobileApp(): JSX.Element {
       ? null
       : (permissionOptions.find(option => option.value === permissionCurrentValue)?.name ?? permissionCurrentValue)
     const modelLabel = facts?.model?.model ?? sessionInfo?.model?.model ?? null
-    // Effort pill: the current model's selectable levels, resolved from the catalog.
+    // The effort pill only needs the current selection; the catalog feeds the
+    // picker sheet, not the pill, so it shows even before the catalog loads.
     const currentModel = facts?.model ?? sessionInfo?.model ?? null
+    const effortLabel = currentModel?.reasoningEffort ?? null
     const effortChoices = currentModel === null
       ? []
       : (catalog?.groups ?? [])
           .find(group => group.id === currentModel.provider)?.models
           .find(row => row.id === currentModel.model)?.reasoning?.efforts ?? []
-    const effortLabel = effortChoices.length > 0 ? (currentModel?.reasoningEffort ?? effortChoices.find(level => level.id === 'high')?.id ?? effortChoices[0]?.name ?? null) : null
+    const permissionDanger = permissionCurrentValue === 'danger-full-access'
     return <main className="mx-auto flex h-screen max-w-md flex-col bg-background text-foreground">
       <header className="sticky top-0 z-10 flex items-center gap-2 border-b border-border/60 bg-background/95 px-3 py-3 backdrop-blur">
         <button aria-label={copy.back} className="flex size-9 shrink-0 items-center justify-center rounded-full text-foreground active:bg-muted" onClick={() => { setView({ kind: 'list' }) }} type="button">
@@ -523,6 +554,7 @@ export function MobileApp(): JSX.Element {
         onAttachments={setAttachments}
         onDraft={setDraft}
         effortLabel={effortLabel}
+        permissionDanger={permissionDanger}
         onOpenContext={() => { setSheet('context') }}
         onOpenModel={() => { void ensureCatalog(); setSheet('model') }}
         onOpenEffort={() => { void ensureCatalog(); setSheet('effort') }}
@@ -565,26 +597,28 @@ export function MobileApp(): JSX.Element {
             <ModelSheet busy={acting} catalog={catalog} copy={copy} current={facts?.model ?? sessionInfo?.model ?? null} onApply={selection => { void applyModel(selection) }} />
           </Sheet>
         : null}
-      {sheet === 'effort' && currentModel !== null && effortChoices.length > 0
+      {sheet === 'effort'
         ? <Sheet onClose={() => { setSheet(null) }} title={copy.thinkingLevel}>
-            <div className="flex flex-col gap-1.5 pb-2">
-              {effortChoices.map(level => {
-                const selected = (currentModel.reasoningEffort ?? effortChoices.find(row => row.id === 'high')?.id) === level.id
-                return <button
-                  className={`flex w-full items-center gap-2.5 rounded-xl border px-3.5 py-3 text-left transition-colors active:bg-muted/70 ${selected ? 'border-primary/60 bg-primary/5' : 'border-border/70 bg-card'}`}
-                  disabled={acting}
-                  key={level.id}
-                  onClick={() => { void applyModel({ provider: currentModel.provider, model: currentModel.model, reasoningEffort: level.id }) }}
-                  type="button"
-                >
-                  <span className={`flex size-4 shrink-0 items-center justify-center rounded-full border ${selected ? 'border-primary bg-primary' : 'border-muted-foreground/40'}`} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-medium leading-5 text-foreground">{level.name}</span>
-                    {level.description !== undefined ? <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">{level.description}</span> : null}
-                  </span>
-                </button>
-              })}
-            </div>
+            {currentModel === null || effortChoices.length === 0
+              ? <p className="py-8 text-center text-sm text-muted-foreground">{copy.catalogEmpty}</p>
+              : <div className="flex flex-col gap-1.5 pb-2">
+                  {effortChoices.map(level => {
+                    const selected = (currentModel.reasoningEffort ?? effortChoices.find(row => row.id === 'high')?.id) === level.id
+                    return <button
+                      className={`flex w-full items-center gap-2.5 rounded-xl border px-3.5 py-3 text-left transition-colors active:bg-muted/70 ${selected ? 'border-primary/60 bg-primary/5' : 'border-border/70 bg-card'}`}
+                      disabled={acting}
+                      key={level.id}
+                      onClick={() => { void applyModel({ provider: currentModel.provider, model: currentModel.model, reasoningEffort: level.id }) }}
+                      type="button"
+                    >
+                      <span className={`flex size-4 shrink-0 items-center justify-center rounded-full border ${selected ? 'border-primary bg-primary' : 'border-muted-foreground/40'}`} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-medium leading-5 text-foreground">{level.name}</span>
+                        {level.description !== undefined ? <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">{level.description}</span> : null}
+                      </span>
+                    </button>
+                  })}
+                </div>}
           </Sheet>
         : null}
       {sheet === 'context' && sessionInfo !== null
