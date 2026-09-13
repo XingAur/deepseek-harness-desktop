@@ -158,7 +158,7 @@ export class RemotePairingWindow {
   private async collect(): Promise<void> {
     const window = this.window
     if (window === undefined || window.isDestroyed()) return
-    const snapshot = this.options.snapshot()
+    const snapshot = await this.options.snapshot()
     this.latest = {
       state: snapshot.state,
       relayOrigin: snapshot.relayOrigin,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { DesktopUpdateChip } from './DesktopUpdateChip.tsx'
 import type { PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
@@ -36,8 +36,7 @@ export function DesktopOwnedFrame({
   platform,
   version,
   renderSlot,
-  SessionProvider,
-  useSessions,
+  usePanelInfo,
 }: AdvancedFrameProps & {
   readonly mode: 'extended' | 'advanced'
 }) {

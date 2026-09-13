@@ -43,7 +43,7 @@ declare module '@deepseek-ai/cordis' {
 }
 
 /** Native adapter required for network, tray, confirmation, and installer access. */
-export const inject = ['desktopRuntime', 'webServer', 'settings']
+export const inject = ['desktopRuntime', 'webServer', 'connection', 'settings']
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647
 
@@ -84,25 +84,27 @@ export function apply(ctx: Context, config: Config): void {
     const adapter = ctx.desktopRuntime.updates
     // The scheduled-polling half follows the user's desktop setting live; the
     // manual check, tray command, and renderer routes stay mounted either way.
-    const scheduledEnabled = (): boolean =>
-      (ctx.settings.get('dsh-desktop') as { autoUpdateCheck?: unknown } | undefined)?.autoUpdateCheck !== false
+    const scheduledEnabled = (): boolean => {
+      const settings = ctx.settings?.get?.('dsh-desktop') as { autoUpdateCheck?: unknown } | undefined
+      return settings?.autoUpdateCheck !== false
+    }
     const lifecycle = startDesktopUpdateLifecycle({
       adapter,
-      policy: { ...config, enabled: scheduledEnabled() },
+      policy: { ...config, enabled: config.enabled && scheduledEnabled() },
       locale: () => ctx.desktopRuntime.locale,
       registerTrayItem: item => ctx.desktopRuntime.registerTrayItem(item),
       endpoints,
     })
-    const offSettings = ctx.on('settings/updated', (namespace: string, next: unknown) => {
+    const offSettings = ctx.on?.('settings/updated', (namespace: string, next: unknown) => {
       if (namespace !== 'dsh-desktop') return
-      lifecycle.setScheduledEnabled((next as { autoUpdateCheck?: unknown } | undefined)?.autoUpdateCheck !== false)
+      lifecycle.setScheduledEnabled(config.enabled && (next as { autoUpdateCheck?: unknown } | undefined)?.autoUpdateCheck !== false)
     })
     const rendererOrigin = `http://127.0.0.1:${String(ctx.webServer.port)}`
     const unregister = ctx.webServer.register({
       kind: 'exact',
       path: DESKTOP_UPDATE_CHECK_PATH,
       handler: (req, res) => {
-        const rejection = ctx.connection.requestRejection(req)
+        const rejection = ctx.connection?.requestRejection?.(req)
         if (rejection !== undefined) {
           res.writeHead(rejection)
           res.end(rejection === 401 ? 'unauthorized' : 'forbidden')
@@ -171,7 +173,7 @@ export function apply(ctx: Context, config: Config): void {
       },
     })
     return async () => {
-      offSettings()
+      offSettings?.()
       unregisterDownload()
       unregisterState()
       unregister()

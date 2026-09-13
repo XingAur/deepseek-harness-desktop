@@ -149,18 +149,23 @@ describe('advanced desktop layout', () => {
     const props = {
       layout,
       platform: 'darwin',
-      useSessions: (select: (state: { current?: string; byId: Record<string, { blank: boolean }> }) => unknown) =>
-        select({ byId: {} }),
-      renderSlot: (name: string) => createElement('span', { 'data-slot': name }),
+      usePanelInfo: (select: (info: PanelInfo) => unknown) => select(layout.getPanelInfo()),
+      renderSlot,
       SessionProvider: ({ children }: { children: ReactNode }) =>
         createElement('section', { 'data-session-provider': '' }, children),
     } as unknown as AdvancedFrameProps
 
     try {
       const markup = renderToStaticMarkup(createElement(Frame, props))
-      expect(markup).toContain(
-        '<section data-session-provider=""><span data-slot="details"></span></section>',
-      )
+      expect(markup).toContain('<span data-slot="rightbar"></span>')
+      expect(markup).not.toContain('data-session-provider')
+      expect(renderSlot).toHaveBeenCalledWith('main', {}, { entryKey: 'conversation' })
+      layout.selectPanel('files' as MainPanelId)
+      renderToStaticMarkup(createElement(Frame, props))
+      expect(renderSlot).toHaveBeenLastCalledWith('main', {}, { entryKey: 'files' })
+      layout.selectPanel(null)
+      renderToStaticMarkup(createElement(Frame, props))
+      expect(renderSlot).toHaveBeenLastCalledWith('main', {}, { entryKey: 'conversation' })
     } finally {
       vi.unstubAllGlobals()
     }
@@ -628,8 +633,8 @@ describe('independent Desktop frame', () => {
       })
       expect(rootInject).not.toHaveProperty('mode')
       expect(occupants[0]).toBe(ExtendedFrame)
-      expect(registrations).toHaveLength(1)
-      expect(ctx.slots.inject).not.toHaveBeenCalled()
+      expect(ctx.slots.inject).toHaveBeenCalledWith('shell.overlay', expect.any(Function))
+      expect(registrations.some(entry => entry.id === 'desktop-frame-titlebar')).toBe(true)
       expect(dataset).toMatchObject({
         dshDesktopMode: 'extended',
         dshDesktopPlatform: 'win32',
@@ -681,8 +686,9 @@ describe('independent Desktop frame', () => {
         material: 'transparent',
         micaSupported: false,
       })
-      expect(injectedSlots).toEqual([])
-      expect(registrations).toHaveLength(0)
+      expect(injectedSlots).toEqual(['shell.overlay'])
+      expect(registrations).toHaveLength(1)
+      expect(registrations[0]).toMatchObject({ id: 'desktop-frame-titlebar', name: 'shell.overlay' })
       expect(JSON.stringify(registrations)).not.toContain('desktop.titlebar.action')
       expect(dataset).toMatchObject({
         dshDesktopMode: 'compatibility',

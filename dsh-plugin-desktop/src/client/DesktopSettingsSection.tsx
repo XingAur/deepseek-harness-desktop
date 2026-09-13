@@ -59,7 +59,7 @@ export type DesktopSettingsSectionProps =
   & InjectFace<DesktopSettingsSectionInjected>
 
 type Translate = DesktopSettingsSectionProps['t']
-type BusyOperation = 'load' | 'create-profile' | 'select-profile' | 'delete-profile' | 'select-market' | 'mode' | 'material' | 'web' | 'notification'
+type BusyOperation = 'load' | 'create-profile' | 'select-profile' | 'delete-profile' | 'select-aa' | 'select-market' | 'mode' | 'material' | 'web' | 'notification'
 type RestartState = 'none' | 'restarting' | 'required'
 type LanPollWait = (signal: AbortSignal) => Promise<void>
 
@@ -322,6 +322,7 @@ export function DesktopSettingsSection({
   const [busy, setBusy] = useState<BusyOperation | undefined>('load')
   const [loadFailed, setLoadFailed] = useState(false)
   const [operationFailed, setOperationFailed] = useState(false)
+  const [aaStatus, setAaStatus] = useState<'idle' | 'saving' | 'failed' | 'saved'>('idle')
   const [restart, setRestart] = useState<RestartState>('none')
   const [pendingProfileDelete, setPendingProfileDelete] = useState<string>()
   const [confirmLan, setConfirmLan] = useState(false)
@@ -362,6 +363,7 @@ export function DesktopSettingsSection({
   const run = useCallback(async (operation: BusyOperation, invoke: () => Promise<void>) => {
     setBusy(operation)
     setOperationFailed(false)
+    if (operation !== 'select-aa') setAaStatus('idle')
     try {
       await invoke()
     } catch {
@@ -412,6 +414,24 @@ export function DesktopSettingsSection({
     void run('delete-profile', async () => {
       setView(await api.deleteProfile(name))
       setPendingProfileDelete(undefined)
+    })
+  }
+
+  const selectAa = (enabled: boolean): void => {
+    setAaStatus('saving')
+    void run('select-aa', async () => {
+      try {
+        if (!api.selectAa) throw new Error('AA selection is unavailable')
+        const response = await api.selectAa(enabled)
+        setView(current => current === undefined ? current : {
+          ...current, aa: { requested: enabled, effective: current.aa?.effective ?? false },
+        })
+        setAaStatus('saved')
+        if (response.restartRequired) requestRestart()
+      } catch (cause) {
+        setAaStatus('failed')
+        throw cause
+      }
     })
   }
 
@@ -479,7 +499,7 @@ export function DesktopSettingsSection({
         <p>{t('intro')}</p>
       </header>
 
-      {operationFailed && <p className="dshDesktopSettingsError" role="alert">{t('operationFailed')}</p>}
+      {operationFailed && aaStatus !== 'failed' && <p className="dshDesktopSettingsError" role="alert">{t('operationFailed')}</p>}
       {restart !== 'none' && (
         <p className="dshDesktopSettingsSuccess" role="status">
           {t(restart === 'restarting' ? 'restarting' : 'restartRequired')}
@@ -605,6 +625,34 @@ export function DesktopSettingsSection({
             ))}
           </div>
         )}
+      </section>
+
+      <section className="dshDesktopSettingsGroup" aria-labelledby="dsh-desktop-aa-title">
+        <div>
+          <h3 id="dsh-desktop-aa-title">{t('aaTitle')}</h3>
+          <p className="dshDesktopSettingsGroupIntro">{t('aaIntro')}</p>
+        </div>
+        {view?.aa?.requested === true && !view.aa.effective && restart === 'none' && (
+          <p className="dshDesktopSettingsNotice" role="status">{t('aaLoadFailed')}</p>
+        )}
+        {aaStatus === 'saving' && <p className="dshDesktopSettingsNotice" role="status">{t('aaSaving')}</p>}
+        {aaStatus === 'failed' && <p className="dshDesktopSettingsError" role="alert">{t('aaSaveFailed')}</p>}
+        {aaStatus === 'saved' && <p className="dshDesktopSettingsSuccess" role="status">
+          {t(restart === 'restarting' ? 'restarting' : restart === 'required' ? 'restartRequired' : 'aaSaved')}
+        </p>}
+        {view !== undefined && <div className="dshDesktopSettingsList" role="radiogroup" aria-labelledby="dsh-desktop-aa-title">
+          {[false, true].map(enabled => <Choice
+            key={String(enabled)}
+            title={t(enabled ? 'aaEnabled' : 'aaDisabled')}
+            body={t(enabled ? 'aaEnabledBody' : 'aaDisabledBody')}
+            selected={(view.aa?.requested ?? false) === enabled}
+            reselectable={enabled && view.aa?.requested === true && !view.aa.effective}
+            disabled={busy !== undefined || restart !== 'none'}
+            action={() => { selectAa(enabled) }}
+            status={enabled && view.aa?.requested === true && !view.aa.effective
+              ? t('retryAa') : (view.aa?.requested ?? false) === enabled ? t('selected') : undefined}
+          />)}
+        </div>}
       </section>
 
       <section className="dshDesktopSettingsGroup" aria-labelledby="dsh-desktop-presentation-title">

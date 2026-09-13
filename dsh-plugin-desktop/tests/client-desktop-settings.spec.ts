@@ -213,10 +213,10 @@ describe('Desktop settings API', () => {
     expect(en.lanTrustNotice).toContain('not guaranteed')
     expect(zh.lanWarningBody).toContain('带 token')
     expect(zh.lanWarningBody).toContain('HTTPS')
-    expect(zh.lanWarningBody).toContain('证书')
-    expect(en.lanWarningBody).toContain('access link')
+    expect(zh.lanWarningBody).toContain('本地 CA')
+    expect(en.lanWarningBody).toContain('token')
     expect(en.lanWarningBody).toContain('HTTPS')
-    expect(en.lanWarningBody).toContain('certificate')
+    expect(en.lanWarningBody).toContain('local CA')
     expect(Object.keys(zh)).not.toContain('lanHttpsUnavailable')
     expect(Object.keys(zh)).not.toContain('lanUrlsAfterRestart')
   })
@@ -500,8 +500,8 @@ describe('Desktop native action presentation', () => {
       t,
     }))
 
-    expect(markup).toContain('Extended mode')
-    expect(markup).toContain('aria-label="Window mode: Extended mode"')
+    expect(markup).toContain('Extended window')
+    expect(markup).toContain('aria-label="Desktop appearance and behavior: Extended window"')
     expect(markup).toContain('data-slot="hover-card-trigger"')
   })
 

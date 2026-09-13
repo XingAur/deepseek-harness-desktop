@@ -266,7 +266,7 @@ describe('Windows NSIS A/B packaging', () => {
       '--reverse',
       '--unsafe-paths',
       '--directory=.',
-      '--include=templates/nsis/include/extractAppPackage.nsh',
+      '--include=**/extractAppPackage.nsh',
       fileURLToPath(new URL('../../patches/app-builder-lib@26.15.7.patch', import.meta.url)),
     ], {
       env: {

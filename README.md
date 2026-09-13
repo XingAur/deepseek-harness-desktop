@@ -3,13 +3,13 @@
 基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 Electron 桌面客户端**个人定制版**:
 把 Harness 的本地 Web UI、Host 服务和插件系统封装成原生桌面应用,并叠加自用的远程控制与模型工具。
 
-- 上游链:anywhere-labs/deepseek-harness-desktop → LiuYuMiao-M/dsh-desktop → 本仓库(XingAur/deepseek-harness-desktop),独立演进
+- 上游链:[anywhere-labs/dsh-desktop](https://github.com/anywhere-labs/dsh-desktop) → 本仓库 [LiuYuMiao-M/dsh-desktop](https://github.com/LiuYuMiao-M/dsh-desktop),独立演进
 - 定位:自用为主,不提供任何官方支持承诺;安装包由本仓库 GitHub Actions 构建发布
 - 中文 · [English](README.en.md)
 
 ## 下载
 
-从 [GitHub Releases](https://github.com/XingAur/deepseek-harness-desktop/releases/latest) 获取:
+从 [GitHub Releases](https://github.com/LiuYuMiao-M/dsh-desktop/releases/latest) 获取:
 
 | 平台 | 文件 | 说明 |
 | --- | --- | --- |

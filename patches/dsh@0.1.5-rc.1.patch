@@ -35,7 +35,7 @@ index 0ccc772..24db492 100755
  */
 -async function runCli() {
 -	const invocation = parseDshArgs(process.argv.slice(2), readVersion());
-+async function runCli({ allowDesktopProfile = false } = {}) {
++async function runCli({ allowDesktopProfile = process.env.ELECTRON_RUN_AS_NODE === "1" } = {}) {
 +	const invocation = parseDshArgs(process.argv.slice(2), readVersion(), allowDesktopProfile);
  	switch (invocation.mode) {
  		case "profile": {

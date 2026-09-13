@@ -139,7 +139,7 @@ export interface RemotePairingWindowOptions {
   /** Resolve the tray locale each time the window refreshes its copy. */
   locale(): DesktopLocale
   /** Current relay pairing state; the window polls while open. */
-  snapshot(): import('./remote-relay.ts').DesktopRemoteRelaySnapshot
+  snapshot(): import('./remote-relay.ts').DesktopRemoteRelaySnapshot | Promise<import('./remote-relay.ts').DesktopRemoteRelaySnapshot>
   /** Mint a fresh pairing, dropping the previous link. */
   regenerate?(): void
   /** Start the dormant relay session (opt-in per app run). */

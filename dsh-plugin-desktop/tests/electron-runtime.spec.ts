@@ -2404,6 +2404,10 @@ describe('Electron desktop runtime', () => {
       destinationPath: '/tmp/Downloads/DSH-Desktop-2.1.0-mac.dmg',
       request: expect.any(Function),
       signal: controller.signal,
+      endpoints: expect.objectContaining({
+        darwin: expect.stringContaining('DSH-Desktop-mac-latest.dmg'),
+        win32: expect.stringContaining('DSH-Desktop-windows-latest.exe'),
+      }),
     })
     expect(electron.shell.openPath).toHaveBeenCalledWith('/tmp/DSH-Desktop-2.1.0-mac.dmg')
     expect(updater.record).toHaveBeenCalledWith('/tmp/dsh-desktop-user-data', {

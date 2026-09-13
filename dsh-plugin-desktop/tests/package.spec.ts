@@ -64,7 +64,7 @@ const workspaceManifest = JSON.parse(readFileSync(new URL('package.json', worksp
 }
 const ciWorkflow = readFileSync(new URL('.github/workflows/ci.yml', workspaceRoot), 'utf8')
 const main = readFileSync(new URL('src/main.ts', packageRoot), 'utf8')
-const runtimeVersion = '0.1.2-rc.1'
+const runtimeVersion = '0.1.5-rc.1'
 const dshResolution = (name: string): unknown =>
   workspaceManifest.resolutions?.[`${name}@npm:${runtimeVersion}`]
 
@@ -405,7 +405,15 @@ describe('published package surface', () => {
   })
 
   it('ships isolated Host and chrome build outputs in stable', () => {
-    for (const path of ['lib/host-process-entry.js', 'lib/compatibility-preload.cjs', 'lib/native-ui/compatibility-chrome.html']) {
+    const config = readFileSync(new URL('tsdown.config.ts', packageRoot), 'utf8')
+    const nativeUi = readFileSync(new URL('vite.native-ui.config.ts', packageRoot), 'utf8')
+    expect(config).toContain("'host-process-entry': 'src/host-process-entry.ts'")
+    expect(nativeUi).toContain('compatibility-chrome')
+    for (const path of [
+      'src/host-process-entry.ts',
+      'src/compatibility-preload.ts',
+      'src/native-ui/compatibility-chrome.html',
+    ]) {
       expect(existsSync(new URL(path, packageRoot))).toBe(true)
     }
   })
@@ -747,7 +755,7 @@ describe('published package surface', () => {
 
   it('fixes the installed application identity', () => {
     expect(workspaceManifest.version).toBeUndefined()
-    expect(manifest.version).toBe('2.0.26')
+    expect(manifest.version).toBe('2.0.27')
     expect(manifest.build?.productName).toBe('DSH Desktop')
     expect(manifest.build?.appId).toBe('ai.deepseek.dsh.desktop')
     expect(manifest.build?.asar).toEqual({ smartUnpack: true })

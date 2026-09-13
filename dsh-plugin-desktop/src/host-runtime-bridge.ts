@@ -93,6 +93,7 @@ export function createHostRuntime(rpc: HostRpc, snapshot: RuntimeSnapshot): Desk
     show() { void send('native:show') },
     notifyAttention(value) { void send('native:notifyAttention', [value]) },
     openTerminal() { void send('native:openTerminal') },
+    openExternal(url) { void send('native:openExternal', [url]) },
     reloadRenderer() { void send('native:reloadRenderer') },
     toggleDeveloperTools() { void send('native:toggleDeveloperTools') },
     exportDiagnostics: () => send('native:exportDiagnostics'),
@@ -111,6 +112,15 @@ export function createHostRuntime(rpc: HostRpc, snapshot: RuntimeSnapshot): Desk
       })
       void send('native:openProfileCreateWindow', [callback.id])
     },
+    openRemotePairingWindow(options) {
+      const callback = callbacks({
+        snapshot: () => options.snapshot(),
+        regenerate: () => options.regenerate?.(),
+        enable: () => options.enable?.(),
+      })
+      void send('native:openRemotePairingWindow', [callback.id])
+    },
+    openModelDiagnosticsWindow() { void send('native:openModelDiagnosticsWindow') },
   }
   return runtime
 }
@@ -124,8 +134,8 @@ export function bindNativeRuntime(rpc: HostRpc, runtime: DesktopRuntime): () => 
   const handle = (name: string, fn: (args: any[], signal: AbortSignal) => unknown) => { releases.push(rpc.handle(name, fn)) }
   const callback = (method: string, args: unknown[] = []) => rpc.call(method, args)
   const report = (promise: Promise<unknown>) => { void promise.catch(error => process.stderr.write(`${String(error)}\n`)) }
-  for (const method of ['show', 'notifyAttention', 'openTerminal', 'reloadRenderer', 'toggleDeveloperTools',
-    'exportDiagnostics', 'pickDirectory', 'validateDirectory', 'reportRendererBoot', 'setLocalePreference',
+  for (const method of ['show', 'notifyAttention', 'openTerminal', 'openExternal', 'reloadRenderer', 'toggleDeveloperTools',
+    'exportDiagnostics', 'openModelDiagnosticsWindow', 'pickDirectory', 'validateDirectory', 'reportRendererBoot', 'setLocalePreference',
     'setThemeSource', 'prepareToQuit'] as const) {
     handle(`native:${method}`, args => (runtime[method] as (...args: any[]) => unknown).apply(runtime, args))
   }
@@ -135,6 +145,12 @@ export function bindNativeRuntime(rpc: HostRpc, runtime: DesktopRuntime): () => 
   }
   handle('native:openProfileCreateWindow', ([id]) => runtime.openProfileCreateWindow({
     onSubmit: name => callback(`${id}:submit`, [name]), onCancel: () => report(callback(`${id}:cancel`)),
+  }))
+  handle('native:openRemotePairingWindow', ([id]) => runtime.openRemotePairingWindow({
+    locale: () => runtime.locale,
+    snapshot: () => callback(`${id}:snapshot`) as unknown as Promise<import('./remote-relay.ts').DesktopRemoteRelaySnapshot>,
+    regenerate: () => { report(callback(`${id}:regenerate`)) },
+    enable: () => { report(callback(`${id}:enable`)) },
   }))
   handle('shell:schedule', ([id, data, locale, theme, remoteControl]) => {
     if (shells.has(id)) throw new Error('Duplicate Host shell')

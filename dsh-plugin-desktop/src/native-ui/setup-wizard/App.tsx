@@ -47,6 +47,7 @@ export type DesktopSetupWizardStep =
   | 'welcome'
   | 'mode'
   | 'material'
+  | 'aa'
   | 'market'
   | 'notifications'
   | 'browser'
@@ -57,6 +58,7 @@ export const DESKTOP_SETUP_WIZARD_STEPS = Object.freeze([
   'mode',
   'material',
   'market',
+  'aa',
   'notifications',
   'browser',
   'success',
@@ -445,6 +447,19 @@ export function SetupWizardStepPage({
 }): JSX.Element {
   if (step === 'mode') return <Page step={step} subtitle={copy.presentationBody} title={copy.presentationTitle}><ModeOptions copy={copy} input={input} selection={selection} update={update} /></Page>
   if (step === 'material') return <Page step={step} subtitle={copy.windowMaterialBody} title={copy.windowMaterial}><MaterialOptions copy={copy} input={input} selection={selection} update={update} /></Page>
+  if (step === 'aa') return <Page step={step} subtitle={copy.aaIntro} title={copy.aaTitle}>
+    <RadioGroup aria-label={copy.aaTitle} name="setup-aa" value={String(selection.aaEnabled === true)}
+      onValueChange={value => { if (value === 'true' || value === 'false') update({ ...selection, aaEnabled: value === 'true' }) }}>
+      {[false, true].map(enabled => <Choice key={String(enabled)} id={`setup-aa-${String(enabled)}`}
+        value={String(enabled)} selected={(selection.aaEnabled === true) === enabled}
+        title={enabled ? copy.aaEnabled : copy.aaDisabled} body={enabled ? copy.aaEnabledBody : copy.aaDisabledBody} />)}
+    </RadioGroup>
+    {selection.aaEnabled === true && <aside className="mt-4 space-y-2 rounded-xl border bg-muted/30 p-4" role="status">
+      <h2 className="text-sm font-semibold">{copy.aaNextTitle}</h2>
+      <p className="text-sm leading-relaxed text-muted-foreground">{copy.aaNextBody}</p>
+      <p className="text-xs leading-relaxed text-muted-foreground">{copy.aaNextDesktop}</p>
+    </aside>}
+  </Page>
   if (step === 'market') return <Page step={step} subtitle={copy.marketBody} title={copy.marketTitle}><MarketOptions copy={copy} selection={selection} update={update} /></Page>
   if (step === 'notifications') return <Page step={step} subtitle={copy.notificationsBody} title={copy.notificationsTitle}><NotificationOptions copy={copy} notifications={selection.notifications} update={notifications => { update({ ...selection, notifications }) }} /></Page>
   if (step === 'browser') return <Page step={step} subtitle={copy.browserBody} title={copy.browserTitle}><BrowserOptions copy={copy} requestBrowserAccess={requestBrowserAccess} requestExposure={requestExposure} selection={selection} /></Page>
@@ -492,11 +507,7 @@ export function SetupWizardWelcome({
     <div className="flex w-full max-w-xl flex-col items-stretch text-left">
       <div className="flex flex-wrap items-end gap-x-2 gap-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">{copy.welcomeTitle}</h1>
-        <Badge
-          className="mb-0.5 px-1.5 py-0 text-[10px] leading-4"
-          data-beta-placement="title-bottom-right"
-          variant="secondary"
-        >{copy.beta} · v{appVersion}</Badge>
+        <Badge className="mb-0.5 px-1.5 py-0 text-[10px] leading-4" variant="secondary">v{appVersion}</Badge>
       </div>
       <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{copy.welcomeBody}</p>
       <Card className="mt-7 w-full text-left">

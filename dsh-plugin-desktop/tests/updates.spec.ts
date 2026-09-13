@@ -123,10 +123,14 @@ async function createHarness(options: {
     webServer: {
       port: 43120,
       register: (registered: WebRoute) => {
-        route = registered
+        if (route === undefined || registered.path === '/api/desktop/update/check') route = registered
         return () => {}
       },
     },
+    connection: { requestRejection },
+    settings: { get: () => ({ autoUpdateCheck: true }) },
+    on: () => () => {},
+    provide: () => {},
     logger: { info: () => undefined, warn: (...args: unknown[]) => { warnings.push(args) } },
     effect: (register: () => (() => void | Promise<void>)) => {
       disposer = register()
@@ -191,7 +195,7 @@ describe('desktop update Host plugin', () => {
   })
 
   it('exposes the packaged 60-second and six-hour background policy', () => {
-    expect(inject).toEqual(['desktopRuntime', 'webServer', 'connection'])
+    expect(inject).toEqual(['desktopRuntime', 'webServer', 'connection', 'settings'])
     expect(Config({} as UpdateConfig)).toEqual({
       enabled: true,
       initialDelayMs: 60_000,

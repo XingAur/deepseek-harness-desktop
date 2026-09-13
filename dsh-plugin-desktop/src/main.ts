@@ -150,6 +150,7 @@ import {
   migrateDesktopBrowserAccessSettings,
   migrateDesktopWindowMaterialSettings,
   readDesktopSetupWizardSettings,
+  sameDesktopSetupWizardSettings,
   updateDesktopSetupWizardSettings,
   type DesktopSetupWizardSettings,
 } from './setup-wizard-settings.ts'
@@ -382,16 +383,16 @@ function setupSettingsWithProfilePreferences(
   })
 }
 
-/** Mirror only the Profile-owned settings leaves into the exact prepared document. */
+/** Mirror only the Profile-owned settings leaves and report a semantic change. */
 async function mirrorDesktopProfilePreferences(
   settingsDocument: string,
   preferences: DesktopProfilePreferences,
-): Promise<void> {
+): Promise<boolean> {
   const current = readDesktopSetupWizardSettings(settingsDocument)
-  await updateDesktopSetupWizardSettings(
-    settingsDocument,
-    setupSettingsWithProfilePreferences(current, preferences),
-  )
+  const next = setupSettingsWithProfilePreferences(current, preferences)
+  if (sameDesktopSetupWizardSettings(current, next)) return false
+  await updateDesktopSetupWizardSettings(settingsDocument, next)
+  return true
 }
 
 /** Start one Electron process and leave lifetime to the mounted desktop plugin. */
@@ -1226,9 +1227,10 @@ async function start(): Promise<void> {
     } else {
       // Existing Profile state is the source of truth. Mirror it only after the
       // first prepare has resolved this Profile's exact settings document.
-      await mirrorDesktopProfilePreferences(prepared.settingsDocument, profilePreferences)
+      const profileSettingsChanged = await mirrorDesktopProfilePreferences(prepared.settingsDocument, profilePreferences)
+      let windowMaterialMigrated = false
       try {
-        await migrateDesktopWindowMaterialSettings(prepared.settingsDocument)
+        windowMaterialMigrated = await migrateDesktopWindowMaterialSettings(prepared.settingsDocument)
       } catch (cause) {
         // Keep retrying the device-owned Acrylic cleanup on later launches,
         // even after this Profile has completed its one-time preference import.
@@ -1488,8 +1490,43 @@ async function start(): Promise<void> {
             prepared.profile.dir,
             next,
           )
-        }
-        hostCtx.effect(
+          currentProfilePreferences = stored
+          return stored
+        })
+        profilePreferencesWriteTail = write.then(() => undefined, () => undefined)
+        return write
+      }
+      const flushProfilePreferencesWrites = async (): Promise<void> => {
+        profilePreferencesStopping = true
+        await profilePreferencesWriteTail
+      }
+      startupStage = 'host-boot'
+      lifecycleRecorder.transitionStartupStage(startupStage)
+      const releasePackageResolver = installProfilePackageResolver(prepared.bareModuleBaseUrl)
+      const ctx = await boot(
+        BIN_NAME,
+        prepared.rootConfig,
+        prepared.patches,
+        async (hostCtx) => {
+          // Keep Host imports and browser bundle discovery on the same public
+          // profile-overlay resolver used by packaged Electron.
+          hostCtx.loader.internal = undefined
+          generation.bindHost(hostCtx)
+          hostCtx.effect(
+            () => async () => { await flushProfilePreferencesWrites() },
+            'dsh-plugin-desktop: flush Profile preference writes',
+          )
+          hostCtx.effect(
+            () => releasePnpmRuntime,
+            'dsh-plugin-desktop: packaged pnpm runtime PATH',
+          )
+          if (dshRuntime !== undefined) {
+            hostCtx.effect(
+              () => releaseDshRuntime,
+              'dsh-plugin-desktop: packaged dsh runtime PATH',
+            )
+          }
+          hostCtx.effect(
           () => releasePackageResolver,
           'dsh-plugin-desktop: profile package resolution',
         )
@@ -1530,15 +1567,8 @@ async function start(): Promise<void> {
             statePath: pluginManagementStatePath,
             installAnchor: desktopInstallAnchor(),
           })
-          if (prepared.market.effective === 'community-market') {
-            await hostCtx.plugin(DesktopPluginsService, {
-              profileName: activeProfileName,
-              homeDir,
-              statePath: pluginManagementStatePath,
-              installAnchor: desktopInstallAnchor(),
-            })
-          }
-          if (logSink !== undefined) {
+        }
+        if (logSink !== undefined) {
             fileExporter = new FileExporter(logSink)
             hostCtx.logger.exporter(fileExporter)
           }
@@ -1575,6 +1605,16 @@ async function start(): Promise<void> {
             },
             persistSelection: name => { selectDesktopProfile(selectionStatePath, homeDir, name) },
             requestRestart: () => runtime.requestRestart(),
+          })
+        let pendingSettingsRestart: ReturnType<typeof setImmediate> | undefined
+        const scheduleSettingsRestart = (): void => {
+          pendingSettingsRestart ??= setImmediate(() => {
+            pendingSettingsRestart = undefined
+            void runtime.requestRestart().catch((cause: unknown) => {
+              hostCtx.logger.error(
+                `${BIN_NAME}: failed to restart after Desktop setting change: ${cause instanceof Error ? cause.message : String(cause)}`,
+              )
+            })
           })
         }
         hostCtx.effect(() => () => {
@@ -1682,77 +1722,19 @@ async function start(): Promise<void> {
                 `${BIN_NAME}: failed to restart in recovery mode: ${cause instanceof Error ? cause.message : String(cause)}`,
               )
             })
-          }
-          hostCtx.effect(() => () => {
-            if (pendingSettingsRestart !== undefined) clearImmediate(pendingSettingsRestart)
-            pendingSettingsRestart = undefined
-          }, 'dsh-plugin-desktop: pending Desktop settings restart')
-          const readMarket = () => desktopMarketSnapshotWithEffective(
-            desktopProfileMarketSnapshot(currentProfilePreferences.market),
-            prepared.market.effective,
-          )
-          hostCtx.provide('desktopSettingsController', new DesktopSettingsController({
-            profiles: hostCtx.desktopProfiles,
-            readMarket,
-            readAa: () => ({ requested: currentProfilePreferences.aaEnabled === true, effective: prepared.aaEnabled }),
-            selectAa: async enabled => {
-              await enqueueProfilePreferencesWrite(current => desktopProfilePreferencesFromSettings(
-                current,
-                current.notifications,
-                current.market,
-                enabled,
-              ))
-            },
-            readWeb: () => {
-              const lan = lanHttps.snapshot()
-              const lanOrigins = lan.state === 'ready' && lan.actualPort !== null
-                ? desktopLanBrowserUrls(lan.actualPort, lan.addresses)
-                : []
-              return {
-                localUrl: hostCtx.connection.authenticatedUrl(
-                  desktopLoopbackBrowserUrl(hostCtx.webServer.port),
-                ),
-                lanUrls: lanOrigins.map(url => hostCtx.connection.authenticatedUrl(url)),
-                lanState: lan.state,
-                lanError: lan.errorCode,
-                lanCaFingerprint: lan.caFingerprint,
-                lanCaUrls: lanOrigins.map((origin) => {
-                  return new URL(DESKTOP_LAN_HTTPS_CA_PATH, origin).href
-                }),
-              }
-            },
-            selectMarket: async provider => {
-              await enqueueProfilePreferencesWrite(current => desktopProfilePreferencesFromSettings(
-                current,
-                current.notifications,
-                provider,
-                current.aaEnabled === true,
-              ))
-              return desktopMarketSnapshotWithEffective(
-                await selectDesktopMarketProvider(marketUserDataDir, provider),
-                prepared.market.effective,
-              )
-            },
-            scheduleRestart: scheduleSettingsRestart,
-            scheduleRecoveryRestart: () => {
-              void runtime.requestRecoveryRestart().catch((cause: unknown) => {
-                hostCtx.logger.error(
-                  `${BIN_NAME}: failed to restart in recovery mode: ${cause instanceof Error ? cause.message : String(cause)}`,
-                )
-              })
-            },
-            openTerminal: () => { runtime.openTerminal() },
-            reloadRenderer: () => { runtime.reloadRenderer() },
-            toggleDeveloperTools: () => { runtime.toggleDeveloperTools() },
-            exportDiagnostics: () => runtime.exportDiagnostics(),
-          }))
-          provideCmdline(hostCtx, {
-            args: [
-              '--port',
-              String(prepared.port),
-            ],
-            exit: requestQuit,
-          })
+          },
+          openTerminal: () => { runtime.openTerminal() },
+          reloadRenderer: () => { runtime.reloadRenderer() },
+          toggleDeveloperTools: () => { runtime.toggleDeveloperTools() },
+          exportDiagnostics: () => runtime.exportDiagnostics(),
+        }))
+        provideCmdline(hostCtx, {
+          args: [
+            '--port',
+            String(prepared.port),
+          ],
+          exit: requestQuit,
+        })
         },
         prepared.bareModuleBaseUrl,
       ).catch((cause: unknown) => {
