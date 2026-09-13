@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, LoaderCircle, Moon, MoreHorizontal, PencilLine, Plus, ShieldAlert, Sparkles, SquareTerminal, Sun } from 'lucide-react'
+import { ArrowDown, ArrowLeft, LoaderCircle, Moon, MoreHorizontal, PencilLine, Plus, ShieldAlert, Sparkles, SquareTerminal, Sun } from 'lucide-react'
 import { copyFor, formatTokens, relativeTime, workspaceLabel } from './copy.ts'
 import { ThinkingRow, TranscriptView } from './Transcript.tsx'
 import { ContextSheet, ModelSheet, PermissionSheet, RenameSheet, Sheet } from './Sheets.tsx'
@@ -12,6 +12,8 @@ import type { ModelCatalog, ModelSelectionValue, PermissionOption, PermissionPre
 const API = (name: string) => new URL(`../api/desktop/mobile/${name}`, window.location.href).href
 const TOKEN_EXCHANGE = (token: string) => new URL(`../?token=${encodeURIComponent(token)}`, window.location.href).href
 const POLL_MS = 2_500
+/** Within this distance of the bottom the view still auto-follows new lines. */
+const NEAR_BOTTOM_PX = 120
 const THEME_KEY = 'dsh-mobile-theme'
 const CLIENT_KEY = 'dsh-mobile-client'
 
@@ -96,6 +98,10 @@ export function MobileApp(): JSX.Element {
   const bootstrapped = useRef(false)
   const composer = useRef<HTMLInputElement | null>(null)
   const scroller = useRef<HTMLDivElement | null>(null)
+  /** True while the transcript is scrolled near the bottom; polled updates
+   * only auto-follow when this holds, so reading history is not yanked away. */
+  const pinned = useRef(true)
+  const [atBottom, setAtBottom] = useState(true)
   const lastPanelTab = useRef<PanelTab>('plan')
 
   // Manual theme: an explicit choice persists and overrides the system scheme.
@@ -250,6 +256,8 @@ export function MobileApp(): JSX.Element {
   // so the effort pill renders immediately, not only after opening the model
   // sheet once.
   useEffect(() => {
+    pinned.current = true
+    setAtBottom(true)
     if (view.kind === 'session') {
       void pollTranscript(view.id)
       void pollSessionInfo(view.id)
@@ -262,10 +270,27 @@ export function MobileApp(): JSX.Element {
     }
   }, [view, pollTranscript, pollSessionInfo, ensurePresetOptions, ensureCatalog])
 
-  // Keep the chat pinned to the newest line.
+  const onScrollerScroll = useCallback((): void => {
+    const el = scroller.current
+    if (el === null) return
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX
+    pinned.current = nearBottom
+    setAtBottom(nearBottom)
+  }, [])
+
+  const jumpToLatest = useCallback((): void => {
+    const el = scroller.current
+    if (el === null) return
+    pinned.current = true
+    setAtBottom(true)
+    el.scrollTop = el.scrollHeight
+  }, [])
+
+  // Follow the newest line only while the user is (or just chose to be) at the
+  // bottom; otherwise the 2.5s poll would keep snapping history reading away.
   useEffect(() => {
     const el = scroller.current
-    if (el !== null) el.scrollTop = el.scrollHeight
+    if (el !== null && pinned.current) el.scrollTop = el.scrollHeight
   }, [transcript, sent])
 
   const openSession = (id: string): void => {
@@ -285,6 +310,7 @@ export function MobileApp(): JSX.Element {
         await poll()
         if (typeof created.sessionId === 'string') {
           setView({ kind: 'session', id: created.sessionId })
+          pinned.current = true
           setSent(Date.now())
           void pollTranscript(created.sessionId)
         }
@@ -302,6 +328,7 @@ export function MobileApp(): JSX.Element {
     if (busy) return
     setBusy(true)
     setDraft('')
+    pinned.current = true
     setSent(Date.now())
     const sentImages = attachments
     setAttachments([])
@@ -547,18 +574,25 @@ export function MobileApp(): JSX.Element {
           </div>
         : null}
 
-      <div className="flex-1 overflow-y-auto px-3 py-4" ref={scroller}>
-        {isNew && transcript.length === 0
-          ? <div className="pt-20 text-center">
-              <Sparkles aria-hidden className="mx-auto size-8 text-muted-foreground/40" />
-              <p className="mx-6 mt-3 text-sm leading-6 text-muted-foreground">{copy.promptPlaceholder}</p>
-            </div>
-          : null}
-        {!isNew && transcript.length === 0
-          ? <p className="pt-16 text-center text-sm text-muted-foreground">{copy.emptyTranscript}</p>
-          : null}
-        <TranscriptView copy={copy} items={transcript} />
-        {waiting ? <ThinkingRow label={copy.thinking} /> : null}
+      <div className="relative min-h-0 flex-1">
+        <div className="absolute inset-0 overflow-y-auto px-3 py-4" onScroll={onScrollerScroll} ref={scroller}>
+          {isNew && transcript.length === 0
+            ? <div className="pt-20 text-center">
+                <Sparkles aria-hidden className="mx-auto size-8 text-muted-foreground/40" />
+                <p className="mx-6 mt-3 text-sm leading-6 text-muted-foreground">{copy.promptPlaceholder}</p>
+              </div>
+            : null}
+          {!isNew && transcript.length === 0
+            ? <p className="pt-16 text-center text-sm text-muted-foreground">{copy.emptyTranscript}</p>
+            : null}
+          <TranscriptView copy={copy} items={transcript} />
+          {waiting ? <ThinkingRow label={copy.thinking} /> : null}
+        </div>
+        {atBottom || transcript.length === 0
+          ? null
+          : <button aria-label={copy.jumpLatest} className="absolute bottom-2 left-1/2 z-20 flex size-9 -translate-x-1/2 items-center justify-center rounded-full border border-border/70 bg-card text-muted-foreground shadow-lg active:bg-muted" onClick={jumpToLatest} type="button">
+              <ArrowDown aria-hidden className="size-4" />
+            </button>}
       </div>
 
       <Composer
