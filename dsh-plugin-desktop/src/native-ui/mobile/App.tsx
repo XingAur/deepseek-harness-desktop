@@ -54,6 +54,22 @@ async function postJson(name: string, body: Record<string, unknown>): Promise<Re
   })
 }
 
+/** Polls while the link is held by another device; auto-enters once it frees. */
+function InUseRetry({ onFree }: { readonly onFree: () => Promise<void> }): JSX.Element {
+  const [waiting, setWaiting] = useState(true)
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'hidden') return
+      setWaiting(true)
+      void onFree().finally(() => { setWaiting(false) })
+    }, 5_000)
+    return () => { window.clearInterval(timer) }
+  }, [onFree])
+  return <p className="flex items-center gap-2 text-xs text-muted-foreground">
+    {waiting ? <LoaderCircle aria-hidden className="size-3.5 animate-spin" /> : null}
+  </p>
+}
+
 export function MobileApp(): JSX.Element {
   const copy = copyFor()
   const [phase, setPhase] = useState<Phase>('bootstrapping')
@@ -373,7 +389,7 @@ export function MobileApp(): JSX.Element {
     if (view.kind !== 'session') return
     setActing(true)
     try {
-      const response = await postJson('select-model', { ...selection })
+      const response = await postJson('select-model', { sessionId: view.id, ...selection })
       setFlash(response.ok ? copy.decisionRecorded : `${copy.actionFailed}(${String(response.status)})`)
       if (response.ok) setSheet(null)
       if (view.kind === 'session') await pollSessionInfo(view.id)
@@ -430,6 +446,7 @@ export function MobileApp(): JSX.Element {
     return <main className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center gap-4 bg-background px-6 text-center text-foreground">
       <ShieldAlert aria-hidden className="size-8 text-orange-500/70" />
       <p className="text-sm text-muted-foreground">{copy.linkInUse}</p>
+      <InUseRetry onFree={async () => { await poll() }} />
     </main>
   }
 

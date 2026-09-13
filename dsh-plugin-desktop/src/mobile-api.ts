@@ -24,11 +24,12 @@ export interface MobileApiOptions {
   /** Presence sink stamped on every poll so the shell can tint its phone entry. */
   readonly presence: { lastSeen: number }
   /**
-   * Single-device binding for the pairing: the first mobile client id to
-   * present itself owns the link until the pairing is regenerated; any other
-   * client id is rejected so one link can never drive two web sessions.
+   * Single-device binding for the pairing: at most one mobile client may be
+   * online at a time. A client that stops polling (page closed, backgrounded)
+   * releases the link after a short grace period, and the next device takes
+   * over — regenerating the pairing is only for invalidating the link itself.
    */
-  readonly clientBinding: { clientId: string | null }
+  readonly clientBinding: { clientId: string | null; lastSeen: number }
 }
 
 /** One +/- count pair for a file a write/edit tool changed. */
@@ -76,6 +77,8 @@ const MAX_DIFFS_PER_CALL = 8
 const MAX_DIFF_LINES_PER_SIDE = 200
 const IMAGE_MEDIA_TYPES: ReadonlySet<string> = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
 const MAX_IMAGES_PER_PROMPT = 4
+/** How long an idle bound client holds the link before another device may take over. */
+const CLIENT_TAKEOVER_MS = 15_000
 
 /** Session summary fields the mobile page consumes; kept deliberately narrow. */
 interface MobileSessionRow {
@@ -713,14 +716,21 @@ export function registerMobileApi(options: MobileApiOptions): void {
       res.end(rejection === 401 ? 'unauthorized' : 'forbidden')
       return true
     }
-    // Single-device binding: the first client id owns this pairing.
+    // Single-device session: at most one client online; a silent bound client
+    // releases the link after the grace period so the next device can take over.
     const header = req.headers['x-dsh-mobile-client']
     const client = typeof header === 'string' && header !== '' ? header : ''
     if (client !== '') {
-      if (options.clientBinding.clientId === null) {
-        options.clientBinding.clientId = client
-      } else if (options.clientBinding.clientId !== client) {
-        ctx.logger.warn('dsh-plugin-desktop: mobile link already bound to another device; rejecting')
+      const binding = options.clientBinding
+      const idle = Date.now() - binding.lastSeen > CLIENT_TAKEOVER_MS
+      if (binding.clientId === null || binding.clientId === client || idle) {
+        if (binding.clientId !== null && binding.clientId !== client) {
+          ctx.logger.info('dsh-plugin-desktop: mobile link taken over by a new device after idle')
+        }
+        binding.clientId = client
+        binding.lastSeen = Date.now()
+      } else {
+        ctx.logger.warn(`dsh-plugin-desktop: mobile link held by another online device; rejecting url=${req.url ?? ''}`)
         res.writeHead(403, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
         res.end('{"error":"link-in-use"}\n')
         return true
