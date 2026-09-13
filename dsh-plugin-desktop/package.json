@@ -428,6 +428,22 @@
         "dir"
       ],
       "icon": "build/app-icon.png"
+    },
+    "nsis": {
+      "include": "installer.nsh",
+      "installerIcon": "build/app-icon.ico",
+      "license": "THIRD_PARTY_NOTICES.md",
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "differentialPackage": false,
+      "shortcutName": "DSH Desktop",
+      "uninstallerIcon": "build/app-icon.ico",
+      "useZip": false,
+      "artifactName": "DSH-Desktop-${version}-${arch}-Setup.${ext}"
     }
   }
 }

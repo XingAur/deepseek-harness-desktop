@@ -803,6 +803,21 @@ describe('published package surface', () => {
       'lib/**',
       'package.json',
       '!node_modules/node-pty/build/**',
+      // Slimming excludes: development artifacts never needed at runtime.
+      '!**/*.map',
+      '!**/*.d.ts',
+      '!**/*.test.js',
+      '!**/*.spec.js',
+      '!**/*.test-d.ts',
+      '!**/__tests__/**',
+      '!**/test/**',
+      '!**/tests/**',
+      '!**/examples/**',
+      '!**/example/**',
+      '!**/*.md',
+      '!**/*.markdown',
+      '!**/.github/**',
+      '!**/.vscode/**',
     ])
     expect(manifest.build?.mac?.icon).toBe('build/app-icon-mac.png')
     expect(manifest.build?.mac?.mergeASARs).toBe(false)

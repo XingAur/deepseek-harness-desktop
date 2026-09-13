@@ -624,12 +624,12 @@ function authorityOf(url: string): string | null {
  * Mutating methods must be same-origin. The SameSite=Strict cookie is the
  * primary CSRF defense (it is never sent on cross-site requests); the Origin
  * check is a second lock for browsers that always send it. Embedded webviews
- * (WeChat, some system browsers) omit the Origin header entirely, so an
- * absent Origin is allowed through and only a mismatched Origin is rejected.
+ * (WeChat, some system browsers) omit the Origin header or send the literal
+ * "null", so both forms pass; only a mismatched Origin authority is rejected.
  */
 function sameOriginMutatingRequest(req: IncomingMessage): boolean {
   const origin = req.headers.origin
-  if (typeof origin !== 'string' || origin === '') return true
+  if (typeof origin !== 'string' || origin === '' || origin === 'null') return true
   const host = req.headers.host
   const originAuthority = authorityOf(origin)
   return originAuthority !== null && originAuthority === (host ?? '')
@@ -660,14 +660,16 @@ function requireController(ctx: Context, res: ServerResponse): SessionController
   return controller
 }
 
-/** Shared POST-route preamble: method, CSRF, and body parsing. */
-async function readMutatingBody(req: IncomingMessage, res: ServerResponse, limitBytes: number = MAX_BODY_BYTES): Promise<Record<string, unknown> | null> {
+/** Shared POST-route preamble: method, CSRF, and body parsing. Rejections are
+ * logged so a webview-specific 403 is diagnosable from the desktop log. */
+async function readMutatingBody(req: IncomingMessage, res: ServerResponse, limitBytes: number = MAX_BODY_BYTES, log?: (message: string) => void): Promise<Record<string, unknown> | null> {
   if (req.method !== 'POST') {
     res.writeHead(405, { allow: 'POST', 'cache-control': 'no-store' })
     res.end('method not allowed')
     return null
   }
   if (!sameOriginMutatingRequest(req)) {
+    log?.(`dsh-plugin-desktop: mobile POST rejected as cross-origin: origin=${String(req.headers.origin)} host=${String(req.headers.host)} url=${req.url ?? ''}`)
     res.writeHead(403, { 'cache-control': 'no-store' })
     res.end('forbidden')
     return null
@@ -877,7 +879,7 @@ export function registerMobileApi(options: MobileApiOptions): void {
     path: '/api/desktop/mobile/create',
     handler: (req, res) => {
       if (reject(req, res)) return
-      void readMutatingBody(req, res, MAX_PROMPT_BODY_BYTES).then(async body => {
+      void readMutatingBody(req, res, MAX_PROMPT_BODY_BYTES, ctx.logger.warn.bind(ctx.logger)).then(async body => {
         if (body === null) return
         const controller = requireController(ctx, res)
         if (controller === undefined) return
@@ -911,7 +913,7 @@ export function registerMobileApi(options: MobileApiOptions): void {
     path: '/api/desktop/mobile/prompt',
     handler: (req, res) => {
       if (reject(req, res)) return
-      void readMutatingBody(req, res, MAX_PROMPT_BODY_BYTES).then(async body => {
+      void readMutatingBody(req, res, MAX_PROMPT_BODY_BYTES, ctx.logger.warn.bind(ctx.logger)).then(async body => {
         if (body === null) return
         const controller = requireController(ctx, res)
         if (controller === undefined) return
@@ -938,7 +940,7 @@ export function registerMobileApi(options: MobileApiOptions): void {
     path: '/api/desktop/mobile/cancel',
     handler: (req, res) => {
       if (reject(req, res)) return
-      void readMutatingBody(req, res).then(async body => {
+      void readMutatingBody(req, res, MAX_BODY_BYTES, ctx.logger.warn.bind(ctx.logger)).then(async body => {
         if (body === null) return
         const controller = requireController(ctx, res)
         if (controller === undefined) return
@@ -958,7 +960,7 @@ export function registerMobileApi(options: MobileApiOptions): void {
     path: '/api/desktop/mobile/select-model',
     handler: (req, res) => {
       if (reject(req, res)) return
-      void readMutatingBody(req, res).then(async body => {
+      void readMutatingBody(req, res, MAX_BODY_BYTES, ctx.logger.warn.bind(ctx.logger)).then(async body => {
         if (body === null) return
         const controller = requireController(ctx, res)
         if (controller === undefined || typeof controller.selectModel !== 'function') {
@@ -985,7 +987,7 @@ export function registerMobileApi(options: MobileApiOptions): void {
     path: '/api/desktop/mobile/permission',
     handler: (req, res) => {
       if (reject(req, res)) return
-      void readMutatingBody(req, res).then(async body => {
+      void readMutatingBody(req, res, MAX_BODY_BYTES, ctx.logger.warn.bind(ctx.logger)).then(async body => {
         if (body === null) return
         const controller = requireController(ctx, res)
         if (controller === undefined || typeof controller.resolveAgent !== 'function') {
@@ -1020,7 +1022,7 @@ export function registerMobileApi(options: MobileApiOptions): void {
     path: '/api/desktop/mobile/queue-remove',
     handler: (req, res) => {
       if (reject(req, res)) return
-      void readMutatingBody(req, res).then(async body => {
+      void readMutatingBody(req, res, MAX_BODY_BYTES, ctx.logger.warn.bind(ctx.logger)).then(async body => {
         if (body === null) return
         const controller = requireController(ctx, res)
         if (controller === undefined || typeof controller.updateQueue !== 'function') {
@@ -1044,7 +1046,7 @@ export function registerMobileApi(options: MobileApiOptions): void {
     path: '/api/desktop/mobile/rename',
     handler: (req, res) => {
       if (reject(req, res)) return
-      void readMutatingBody(req, res).then(async body => {
+      void readMutatingBody(req, res, MAX_BODY_BYTES, ctx.logger.warn.bind(ctx.logger)).then(async body => {
         if (body === null) return
         const controller = requireController(ctx, res)
         if (controller === undefined || typeof controller.rename !== 'function') {
@@ -1068,7 +1070,7 @@ export function registerMobileApi(options: MobileApiOptions): void {
     path: '/api/desktop/mobile/compact',
     handler: (req, res) => {
       if (reject(req, res)) return
-      void readMutatingBody(req, res).then(async body => {
+      void readMutatingBody(req, res, MAX_BODY_BYTES, ctx.logger.warn.bind(ctx.logger)).then(async body => {
         if (body === null) return
         const controller = requireController(ctx, res)
         if (controller === undefined || typeof controller.resolveAgent !== 'function') {
@@ -1136,7 +1138,7 @@ export function registerMobileApi(options: MobileApiOptions): void {
       path,
       handler: (req, res) => {
         if (reject(req, res)) return
-        void readMutatingBody(req, res).then(body => {
+        void readMutatingBody(req, res, MAX_BODY_BYTES, ctx.logger.warn.bind(ctx.logger)).then(body => {
           if (body === null) return
           const key = body.key
           if (typeof key !== 'string' || key === '') {

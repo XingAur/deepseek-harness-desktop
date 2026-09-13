@@ -319,10 +319,10 @@ export function MobileApp(): JSX.Element {
       const response = await postJson('approve', { key, action })
       if (response.ok) setFlash(copy.decisionRecorded)
       else if (response.status === 409) setFlash(copy.decisionConflict)
-      else setFlash(copy.actionFailed)
+      else setFlash(`${copy.actionFailed}(${String(response.status)})`)
       await poll()
     } catch {
-      setFlash(copy.actionFailed)
+      setFlash(`${copy.actionFailed}(网络)`)
     } finally {
       setActing(false)
     }
@@ -335,10 +335,10 @@ export function MobileApp(): JSX.Element {
       const response = await postJson('answer', { key, answers })
       if (response.ok) setFlash(copy.decisionRecorded)
       else if (response.status === 409) setFlash(copy.decisionConflict)
-      else setFlash(copy.actionFailed)
+      else setFlash(`${copy.actionFailed}(${String(response.status)})`)
       await poll()
     } catch {
-      setFlash(copy.actionFailed)
+      setFlash(`${copy.actionFailed}(网络)`)
     } finally {
       setActing(false)
     }
@@ -350,7 +350,7 @@ export function MobileApp(): JSX.Element {
       await postJson('queue-remove', { sessionId: view.id, itemId })
       await pollSessionInfo(view.id)
     } catch {
-      setFlash(copy.actionFailed)
+      setFlash(`${copy.actionFailed}(网络)`)
     }
   }
 
@@ -359,11 +359,11 @@ export function MobileApp(): JSX.Element {
     setActing(true)
     try {
       const response = await postJson('permission', { sessionId: view.id, preset })
-      setFlash(response.ok ? copy.decisionRecorded : copy.actionFailed)
+      setFlash(response.ok ? copy.decisionRecorded : `${copy.actionFailed}(${String(response.status)})`)
       if (response.ok) setSheet(null)
       if (view.kind === 'session') await pollSessionInfo(view.id)
     } catch {
-      setFlash(copy.actionFailed)
+      setFlash(`${copy.actionFailed}(网络)`)
     } finally {
       setActing(false)
     }
@@ -374,11 +374,11 @@ export function MobileApp(): JSX.Element {
     setActing(true)
     try {
       const response = await postJson('select-model', { ...selection })
-      setFlash(response.ok ? copy.decisionRecorded : copy.actionFailed)
+      setFlash(response.ok ? copy.decisionRecorded : `${copy.actionFailed}(${String(response.status)})`)
       if (response.ok) setSheet(null)
       if (view.kind === 'session') await pollSessionInfo(view.id)
     } catch {
-      setFlash(copy.actionFailed)
+      setFlash(`${copy.actionFailed}(网络)`)
     } finally {
       setActing(false)
     }
@@ -389,11 +389,11 @@ export function MobileApp(): JSX.Element {
     setActing(true)
     try {
       const response = await postJson('compact', { sessionId: view.id })
-      setFlash(response.ok ? copy.compactDone : copy.actionFailed)
+      setFlash(response.ok ? copy.compactDone : `${copy.actionFailed}(${String(response.status)})`)
       setSheet(null)
       await poll()
     } catch {
-      setFlash(copy.actionFailed)
+      setFlash(`${copy.actionFailed}(网络)`)
     } finally {
       setActing(false)
     }
@@ -404,11 +404,11 @@ export function MobileApp(): JSX.Element {
     setActing(true)
     try {
       const response = await postJson('rename', { sessionId: view.id, title })
-      setFlash(response.ok ? copy.decisionRecorded : copy.actionFailed)
+      setFlash(response.ok ? copy.decisionRecorded : `${copy.actionFailed}(${String(response.status)})`)
       if (response.ok) setSheet(null)
       await poll()
     } catch {
-      setFlash(copy.actionFailed)
+      setFlash(`${copy.actionFailed}(网络)`)
     } finally {
       setActing(false)
     }
