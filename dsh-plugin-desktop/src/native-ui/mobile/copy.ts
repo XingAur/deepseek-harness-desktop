@@ -27,6 +27,11 @@ export interface MobileCopy {
   readonly renameSave: string
   readonly compact: string
   readonly compactDone: string
+  readonly showAllDetails: string
+  readonly keyInfoOnly: string
+  readonly themeToDark: string
+  readonly themeToLight: string
+  readonly sidePanel: string
   readonly reasoning: string
   readonly reasoningDone: string
   readonly toolRunning: string
@@ -110,6 +115,11 @@ const COPY = {
     renameSave: 'Save',
     compact: 'Compact context',
     compactDone: 'Compaction requested',
+    showAllDetails: 'Show all details',
+    keyInfoOnly: 'Key info only',
+    themeToDark: 'Dark mode',
+    themeToLight: 'Light mode',
+    sidePanel: 'Side panel',
     reasoning: 'Thinking',
     reasoningDone: 'Thought',
     toolRunning: 'Working',
@@ -187,6 +197,11 @@ const COPY = {
     renameSave: '保存',
     compact: '压缩上下文',
     compactDone: '已请求压缩',
+    showAllDetails: '全部显示',
+    keyInfoOnly: '只显示关键信息',
+    themeToDark: '深色模式',
+    themeToLight: '浅色模式',
+    sidePanel: '侧面板',
     reasoning: '思考',
     reasoningDone: '思考',
     toolRunning: '执行中',

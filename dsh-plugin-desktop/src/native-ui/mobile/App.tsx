@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowDown, ArrowLeft, LoaderCircle, Moon, MoreHorizontal, PencilLine, Plus, ShieldAlert, Sparkles, SquareTerminal, Sun } from 'lucide-react'
+import { ArrowDown, ArrowLeft, Check, Eye, ListFilter, LoaderCircle, Moon, MoreHorizontal, PencilLine, Plus, ShieldAlert, Sparkles, SquareTerminal, Sun } from 'lucide-react'
 import { copyFor, formatTokens, relativeTime, workspaceLabel } from './copy.ts'
 import { ThinkingRow, TranscriptView } from './Transcript.tsx'
 import { ContextSheet, ModelSheet, PermissionSheet, RenameSheet, Sheet } from './Sheets.tsx'
@@ -16,6 +16,7 @@ const POLL_MS = 2_500
 const NEAR_BOTTOM_PX = 120
 const THEME_KEY = 'dsh-mobile-theme'
 const CLIENT_KEY = 'dsh-mobile-client'
+const DETAIL_MODE_KEY = 'dsh-mobile-detail-mode'
 
 /** One stable id per browser profile: the host binds the pairing link to the
  * first client it sees and rejects every other device until regeneration. */
@@ -33,6 +34,9 @@ const CLIENT_ID: string = (() => {
 type Phase = 'bootstrapping' | 'expired' | 'in-use' | 'loading' | 'ready' | 'error'
 type View = { kind: 'list' } | { kind: 'session'; id: string } | { kind: 'new' }
 type ThemeMode = 'light' | 'dark'
+/** Key-info mode trims the timeline to chat bubbles + todos, hiding
+ * reasoning and tool rows; details stay reachable via the side panel. */
+type DetailMode = 'all' | 'key'
 type SheetKind = 'menu' | 'permission' | 'model' | 'effort' | 'context' | 'rename' | null
 
 async function apiCall(input: string, init?: RequestInit): Promise<Response> {
@@ -94,6 +98,8 @@ export function MobileApp(): JSX.Element {
   const [flash, setFlash] = useState<string | null>(null)
   const [theme, setTheme] = useState<ThemeMode>(() =>
     window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+  const [detailMode, setDetailMode] = useState<DetailMode>(() =>
+    window.localStorage.getItem(DETAIL_MODE_KEY) === 'key' ? 'key' : 'all')
   const [now, setNow] = useState(() => Date.now())
   const bootstrapped = useRef(false)
   const composer = useRef<HTMLInputElement | null>(null)
@@ -123,6 +129,10 @@ export function MobileApp(): JSX.Element {
     setTheme(next)
     window.localStorage.setItem(THEME_KEY, next)
     applyManualThemeClass(next)
+  }
+  const selectDetailMode = (mode: DetailMode): void => {
+    setDetailMode(mode)
+    window.localStorage.setItem(DETAIL_MODE_KEY, mode)
   }
 
   useEffect(() => {
@@ -514,6 +524,11 @@ export function MobileApp(): JSX.Element {
       : running || (sent > 0 && Date.now() - sent < 120_000 && busy)
     const send = isNew ? createTask : sendToSession
     const viewInterruptions = isNew ? [] : interruptions.filter(item => item.sessionId === null || item.sessionId === view.id)
+    // Key-info mode trims reasoning/tool rows from the timeline; the empty-state
+    // checks and the side panel below still use the unfiltered transcript.
+    const visibleItems = detailMode === 'key'
+      ? transcript.filter(item => item.kind !== 'reasoning' && item.kind !== 'tool')
+      : transcript
     // Current values prefer the log-derived facts: the control projection only
     // covers live sessions reliably, the durable log covers every session.
     const permissionCurrentValue = sessionInfo?.permissions?.currentValue
@@ -557,14 +572,6 @@ export function MobileApp(): JSX.Element {
               </button>
             : null}
         </div>
-        {!isNew
-          ? <button aria-label={copy.openPanel} className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground active:bg-muted" onClick={() => { setPanel(lastPanelTab.current) }} type="button">
-              <SquareTerminal aria-hidden className="size-4.5" />
-            </button>
-          : null}
-        <button aria-label={copy.toggleTheme} className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground active:bg-muted" onClick={toggleTheme} type="button">
-          {theme === 'dark' ? <Sun aria-hidden className="size-4.5" /> : <Moon aria-hidden className="size-4.5" />}
-        </button>
       </header>
 
       {viewInterruptions.length > 0
@@ -585,7 +592,7 @@ export function MobileApp(): JSX.Element {
           {!isNew && transcript.length === 0
             ? <p className="pt-16 text-center text-sm text-muted-foreground">{copy.emptyTranscript}</p>
             : null}
-          <TranscriptView copy={copy} items={transcript} />
+          <TranscriptView copy={copy} items={visibleItems} />
           {waiting ? <ThinkingRow label={copy.thinking} /> : null}
         </div>
         {atBottom || transcript.length === 0
@@ -622,8 +629,28 @@ export function MobileApp(): JSX.Element {
       {sheet === 'menu' && view.kind === 'session'
         ? <Sheet onClose={() => { setSheet(null) }} title={copy.sessionMenu}>
             <div className="flex flex-col gap-1.5 pb-2">
+              <button className="flex w-full items-center gap-3 rounded-xl border border-border/70 bg-card px-3.5 py-3 text-left text-sm font-medium text-foreground active:bg-muted/70" onClick={() => { selectDetailMode('all'); setSheet(null) }} type="button">
+                <Eye aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+                {copy.showAllDetails}
+                {detailMode === 'all' ? <Check aria-hidden className="ml-auto size-4 shrink-0 text-primary" /> : null}
+              </button>
+              <button className="flex w-full items-center gap-3 rounded-xl border border-border/70 bg-card px-3.5 py-3 text-left text-sm font-medium text-foreground active:bg-muted/70" onClick={() => { selectDetailMode('key'); setSheet(null) }} type="button">
+                <ListFilter aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+                {copy.keyInfoOnly}
+                {detailMode === 'key' ? <Check aria-hidden className="ml-auto size-4 shrink-0 text-primary" /> : null}
+              </button>
+              <div aria-hidden className="h-px bg-border/60" />
+              <button className="flex w-full items-center gap-3 rounded-xl border border-border/70 bg-card px-3.5 py-3 text-left text-sm font-medium text-foreground active:bg-muted/70" onClick={() => { toggleTheme(); setSheet(null) }} type="button">
+                {theme === 'dark' ? <Sun aria-hidden className="size-4 shrink-0 text-muted-foreground" /> : <Moon aria-hidden className="size-4 shrink-0 text-muted-foreground" />}
+                {theme === 'dark' ? copy.themeToLight : copy.themeToDark}
+              </button>
+              <button className="flex w-full items-center gap-3 rounded-xl border border-border/70 bg-card px-3.5 py-3 text-left text-sm font-medium text-foreground active:bg-muted/70" onClick={() => { setSheet(null); setPanel(lastPanelTab.current) }} type="button">
+                <SquareTerminal aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+                {copy.sidePanel}
+              </button>
+              <div aria-hidden className="h-px bg-border/60" />
               <button className="flex w-full items-center gap-3 rounded-xl border border-border/70 bg-card px-3.5 py-3 text-left text-sm font-medium text-foreground active:bg-muted/70" onClick={() => { setSheet('rename') }} type="button">
-                <PencilLine aria-hidden className="size-4 text-muted-foreground" />
+                <PencilLine aria-hidden className="size-4 shrink-0 text-muted-foreground" />
                 {copy.rename}
               </button>
               <button className="flex w-full items-center gap-3 rounded-xl border border-border/70 bg-card px-3.5 py-3 text-left text-sm font-medium text-foreground active:bg-muted/70" disabled={acting} onClick={() => { void doCompact() }} type="button">
