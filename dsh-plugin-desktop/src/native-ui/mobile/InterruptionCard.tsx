@@ -17,21 +17,21 @@ function ApprovalCard({ record, copy, busy, onDecide }: {
   readonly busy: boolean
   readonly onDecide: (key: string, action: 'allow' | 'reject' | 'delegate') => void
 }): ReactNode {
-  return <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-3">
-    <p className="flex items-center gap-2 text-[13px] font-semibold text-amber-600 dark:text-amber-400">
-      <ShieldQuestion aria-hidden className="size-4 shrink-0" />
+  return <div className="rounded-xl border border-border/70 bg-card px-3.5 py-3 shadow-sm">
+    <p className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
+      <ShieldQuestion aria-hidden className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
       {copy.interruptionApproval}
-      <span className="min-w-0 flex-1 truncate font-mono text-xs font-normal opacity-80">{record.toolName}</span>
+      <span className="min-w-0 flex-1 truncate font-mono text-xs font-normal text-muted-foreground">{record.toolName}</span>
     </p>
     {record.reason !== null && record.reason !== '' ? <p className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-foreground/80">{record.reason}</p> : null}
     {record.delegated
       ? <p className="mt-2 text-xs font-medium text-muted-foreground">{copy.interruptionDelegated}</p>
       : <div className="mt-2.5 flex gap-2">
-          <button className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 text-xs font-semibold text-white shadow-sm active:scale-[0.98] disabled:opacity-50" disabled={busy} onClick={() => { onDecide(record.key, 'allow') }} type="button">
+          <button className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary text-xs font-semibold text-primary-foreground shadow-sm active:scale-[0.98] disabled:opacity-50" disabled={busy} onClick={() => { onDecide(record.key, 'allow') }} type="button">
             {busy ? <LoaderCircle aria-hidden className="size-3.5 animate-spin" /> : <Check aria-hidden className="size-3.5" />}
             {copy.allow}
           </button>
-          <button className="flex h-9 flex-1 items-center justify-center rounded-lg bg-red-500/90 text-xs font-semibold text-white shadow-sm active:scale-[0.98] disabled:opacity-50" disabled={busy} onClick={() => { onDecide(record.key, 'reject') }} type="button">
+          <button className="flex h-9 flex-1 items-center justify-center rounded-lg bg-destructive text-xs font-semibold text-white shadow-sm active:scale-[0.98] disabled:opacity-50" disabled={busy} onClick={() => { onDecide(record.key, 'reject') }} type="button">
             {copy.reject}
           </button>
         </div>}
@@ -127,7 +127,7 @@ function QuestionCard({ record, copy, busy, onAnswer }: {
   const [custom, setCustom] = useState<Record<string, string>>(() => Object.fromEntries(questions.map(question => [question.id, ''])))
   const ready = questions.every(question => (selected[question.id]?.length ?? 0) > 0 || custom[question.id] !== undefined && custom[question.id] !== '')
   if (record.delegated) {
-    return <div className="rounded-xl border border-border/60 bg-muted/40 px-3.5 py-3">
+    return <div className="rounded-xl border border-border/70 bg-card px-3.5 py-3 shadow-sm">
       <p className="flex items-center gap-2 text-[13px] font-semibold text-muted-foreground">
         <CircleHelp aria-hidden className="size-4 shrink-0" />
         {copy.interruptionQuestion}
@@ -135,7 +135,7 @@ function QuestionCard({ record, copy, busy, onAnswer }: {
       <p className="mt-1.5 text-xs font-medium text-muted-foreground">{copy.interruptionDelegated}</p>
     </div>
   }
-  return <div className="rounded-xl border border-primary/40 bg-primary/5 px-3.5 py-3">
+  return <div className="rounded-xl border border-border/70 bg-card px-3.5 py-3 shadow-sm">
     <p className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
       <CircleHelp aria-hidden className="size-4 shrink-0 text-primary" />
       {questions.some(question => question.intent?.kind === 'plan-review') ? copy.planReview : copy.interruptionQuestion}
