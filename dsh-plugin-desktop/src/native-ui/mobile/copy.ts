@@ -59,6 +59,7 @@ export interface MobileCopy {
   readonly interruptionApproval: string
   readonly interruptionQuestion: string
   readonly interruptionDelegated: string
+  readonly pendingMore: string
   readonly allow: string
   readonly reject: string
   readonly answerOnDesktop: string
@@ -147,6 +148,7 @@ const COPY = {
     interruptionApproval: 'Approval needed',
     interruptionQuestion: 'Question for you',
     interruptionDelegated: 'Answered on the desktop',
+    pendingMore: '+{n} more pending…',
     allow: 'Allow',
     reject: 'Reject',
     answerOnDesktop: 'Answer on desktop',
@@ -229,6 +231,7 @@ const COPY = {
     interruptionApproval: '等待批准',
     interruptionQuestion: '需要你选择',
     interruptionDelegated: '已转桌面端处理',
+    pendingMore: '+ 还有 {n} 个待处理…',
     allow: '允许',
     reject: '拒绝',
     answerOnDesktop: '桌面端处理',

@@ -575,9 +575,11 @@ export function MobileApp(): JSX.Element {
       </header>
 
       {viewInterruptions.length > 0
-        ? <div className="flex flex-col gap-2 px-3 pt-3">
-            {viewInterruptions.slice(0, 3).map(record => <InterruptionCard busy={acting} copy={copy} key={record.key} onAnswer={answerInterruption} onDecide={decideInterruption} record={record} />)}
-            {viewInterruptions.length > 3 ? <p className="px-1 text-xs text-muted-foreground">+{String(viewInterruptions.length - 3)}</p> : null}
+        ? <div className="flex max-h-[55vh] max-h-[55dvh] shrink-0 flex-col gap-2 overflow-y-auto overscroll-contain px-3 pt-3">
+            <InterruptionCard busy={acting} copy={copy} onAnswer={answerInterruption} onDecide={decideInterruption} record={viewInterruptions[0]} />
+            {viewInterruptions.length > 1
+              ? <p className="px-1 text-xs text-muted-foreground">{copy.pendingMore.replace('{n}', String(viewInterruptions.length - 1))}</p>
+              : null}
           </div>
         : null}
 
