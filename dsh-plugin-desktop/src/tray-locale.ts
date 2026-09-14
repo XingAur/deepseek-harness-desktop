@@ -6,6 +6,8 @@ import { desktopRecoveryCopy } from './recovery-copy.ts'
 export type DesktopTrayLabelKey =
   | 'addProfile'
   | 'checkForUpdates'
+  | 'modelDiagnostics'
+  | 'remoteControl'
   | 'checkingForUpdates'
   | 'downloadingUpdate'
   | 'enterSafeMode'
@@ -15,8 +17,6 @@ export type DesktopTrayLabelKey =
   | 'openTerminal'
   | 'profile'
   | 'quit'
-  | 'remoteControl'
-  | 'modelDiagnostics'
   | 'shellMode'
   | 'advanced'
   | 'compatibility'
@@ -29,6 +29,8 @@ const labels: Record<DesktopLocale, Record<DesktopTrayLabelKey, (value: string) 
   en: {
     addProfile: () => 'New Profile…',
     checkForUpdates: () => 'Check for Updates…',
+    remoteControl: () => 'Remote Control…',
+    modelDiagnostics: () => 'Model Diagnostics…',
     checkingForUpdates: () => 'Checking for Updates…',
     downloadingUpdate: version => `Downloading DSH Desktop ${version}…`,
     enterSafeMode: () => 'Enter Safe Mode…',
@@ -37,8 +39,6 @@ const labels: Record<DesktopLocale, Record<DesktopTrayLabelKey, (value: string) 
     openDesktop: productName => `Open ${productName}`,
     openTerminal: () => 'Open DSH Terminal',
     profile: profileName => `Profile: ${profileName}`,
-    remoteControl: () => 'Remote Control…',
-    modelDiagnostics: () => 'Model Diagnostics…',
     quit: () => 'Quit',
     shellMode: mode => `Mode: ${mode}`,
     advanced: () => 'Enhanced Mode',
@@ -51,6 +51,8 @@ const labels: Record<DesktopLocale, Record<DesktopTrayLabelKey, (value: string) 
   zh: {
     addProfile: () => '新建 Profile…',
     checkForUpdates: () => '检查更新…',
+    remoteControl: () => '远程控制…',
+    modelDiagnostics: () => '模型诊断…',
     checkingForUpdates: () => '正在检查更新…',
     downloadingUpdate: version => `正在下载 DSH Desktop ${version}…`,
     enterSafeMode: () => '进入安全模式…',
@@ -59,8 +61,6 @@ const labels: Record<DesktopLocale, Record<DesktopTrayLabelKey, (value: string) 
     openDesktop: productName => `打开 ${productName}`,
     openTerminal: () => '打开 DSH 终端',
     profile: profileName => `Profile：${profileName}`,
-    remoteControl: () => '远程控制…',
-    modelDiagnostics: () => '模型诊断…',
     quit: () => '退出',
     shellMode: mode => `模式：${mode}`,
     advanced: () => '增强模式',
@@ -110,14 +110,14 @@ const restartConfirmationCopy: Record<DesktopLocale, Record<'normal' | 'recovery
     normal: {
       title: 'Restart DSH Desktop',
       message: 'Restart DSH Desktop now?',
-      detail: 'Running operations and unsent input may be interrupted. Saved settings will not be lost.',
+      detail: 'Running operations may be interrupted, and unsent content may be lost. Saved settings will be kept.',
       confirm: 'Restart',
       cancel: 'Cancel',
     },
     recovery: {
       title: 'Restart in Recovery Mode',
       message: 'Restart DSH Desktop in Recovery Mode?',
-      detail: 'The next launch opens the recovery assistant before the Profile and plugin Host start. Running operations and unsent input may be interrupted.',
+      detail: 'The app will open the recovery assistant before loading the current Profile and plugins. Running operations may be interrupted, and unsent content may be lost.',
       confirm: 'Restart in Recovery Mode',
       cancel: 'Cancel',
     },
@@ -126,14 +126,14 @@ const restartConfirmationCopy: Record<DesktopLocale, Record<'normal' | 'recovery
     normal: {
       title: '重启 DSH Desktop',
       message: '现在重启 DSH Desktop？',
-      detail: '正在运行的操作和未发送的输入可能会中断，已保存的设置不会丢失。',
-      confirm: '重启',
+      detail: '正在运行的操作可能中断，未发送的内容可能丢失。已保存的设置会保留。',
+      confirm: '重启应用',
       cancel: '取消',
     },
     recovery: {
       title: '重启到恢复模式',
       message: '重启 DSH Desktop 并进入恢复模式？',
-      detail: '下次启动会在 Profile 和插件 Host 运行前打开恢复助手。正在运行的操作和未发送的输入可能会中断。',
+      detail: '应用将先打开恢复助手，暂不加载当前 Profile 和插件。正在运行的操作可能中断，未发送的内容可能丢失。',
       confirm: '重启到恢复模式',
       cancel: '取消',
     },
