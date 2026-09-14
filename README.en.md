@@ -5,15 +5,16 @@ A **personally customized** Electron desktop client built on
 Harness local web UI, Host services, and plugin system into a native desktop
 app, and layers remote-control and model tooling on top.
 
-- Upstream chain: anywhere-labs/deepseek-harness-desktop → LiuYuMiao-M/dsh-desktop
-  → this repository (XingAur/deepseek-harness-desktop); evolves independently
+- Upstream chain: built on [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) and
+  evolving independently; community branches (anywhere-labs, XingAur) are consulted for
+  improvements on demand, not treated as a long-term upstream
 - Personal use first; no official support is offered. Installers are built and
   published by this repository's GitHub Actions
 - [中文](README.md) · English
 
 ## Downloads
 
-Grab them from [GitHub Releases](https://github.com/XingAur/deepseek-harness-desktop/releases/latest):
+Grab them from [GitHub Releases](https://github.com/LiuYuMiao-M/dsh-desktop/releases/latest):
 
 | Platform | File | Notes |
 | --- | --- | --- |

@@ -7,19 +7,19 @@
 
 DSH Desktop is a local-first, open-source desktop application. This policy explains what information the official DSH Desktop distribution and official online services process, why they process it, who receives it, and what choices you have.
 
-In this policy, “we” means the **Anywhere Labs project maintainer team** that maintains and publishes the official DSH Desktop distribution under the [`anywhere-labs`](https://github.com/anywhere-labs) GitHub organization and operates the official `dshdesktop.cn` services. DSH Desktop is an independent community project and has no affiliation, partnership, authorization, or endorsement relationship with DeepSeek.
+In this policy, “we” means the **maintainer of the LiuYuMiao-M/dsh-desktop personal fork**. This fork is built on DeepSeek Harness and evolves independently; it has no affiliation, partnership, authorization, or endorsement relationship with the upstream community branches (anywhere-labs, XingAur), other forks, or DeepSeek.
 
-For privacy questions or rights requests, email [t4wefan@qq.com](mailto:t4wefan@qq.com). Do not put installation identifiers, logs, credentials, or other private information in a public GitHub Issue.
+For privacy questions or rights requests, use [GitHub Issues](https://github.com/LiuYuMiao-M/dsh-desktop/issues) or the contact listed on the repository page. Do not put installation identifiers, logs, credentials, or other private information in a public issue.
 
 ## 1. Scope
 
 This policy applies to:
 
-- DSH Desktop provided through the [official GitHub repository](https://github.com/anywhere-labs/dsh-desktop) and official release channels;
-- the official website, version-check service, and download redirects under `https://www.dshdesktop.cn/`; and
+- DSH Desktop provided through [this fork's GitHub repository](https://github.com/LiuYuMiao-M/dsh-desktop) and release channels built by this repository's GitHub Actions;
+- this fork's self-hosted update service (version-check and installer-download endpoints, configured in `dsh-plugin-desktop/src/fork-update-source.ts`); and
 - privacy requests, support email, or issue reports that you voluntarily send to the project maintainers.
 
-This policy does not control processing performed by third-party forks, modified builds, third-party distributors, model providers, plugins, marketplace sources, or package services. If a third-party build still calls the hard-coded official `dshdesktop.cn` endpoints, this policy applies to the information those official endpoints actually receive, but not to other processing by that build or its distributor.
+This policy does not control processing performed by other forks, modified builds, third-party distributors, model providers, plugins, marketplace sources, or package services.
 
 ## 2. Summary
 
@@ -37,7 +37,7 @@ This policy does not control processing performed by third-party forks, modified
 Packaged macOS and Windows applications request the following endpoint about 60 seconds after startup by default:
 
 ```text
-GET https://www.dshdesktop.cn/api/desktop/version
+GET <configured version-check endpoint; this fork uses its self-hosted update service>
 ```
 
 Another check occurs about six hours after each completed check. You can also select **Check for Updates** manually. Development runs, unpackaged launches, and Linux do not currently use this packaged automatic-update flow.
@@ -87,7 +87,7 @@ We do not use the installation UUID for advertising profiles or cross-service tr
 
 | Scenario | Trigger | Information that may be processed | Purpose and recipients |
 | --- | --- | --- | --- |
-| Installer download | You click a download or confirm a download after an update is found | IP address, time, standard network metadata, and the platform shown by the `/mac` or `/windows` path | `dshdesktop.cn`, its hosting service, and the final download host use this information to deliver the file, protect the service, and measure download service usage. Desktop does not add the installation UUID to the download request. |
+| Installer download | You click a download or confirm a download after an update is found | IP address, time, standard network metadata, and the platform shown by the `/mac` or `/windows` path | This fork's self-hosted update service and its hosting/network infrastructure use this information to deliver the file, protect the service, and measure download service usage. Desktop does not add the installation UUID to the download request. |
 | Website visit | You open the website in a browser | IP address, time, browser and device network metadata, and the requested page | Website hosting and network infrastructure use it to deliver the page, protect the service, and diagnose failures. |
 | GitHub Issue, discussion, or contribution | You submit it | Account details, text, attachments, code, and metadata that you make public | GitHub and the project maintainers use it to process issues, contributions, and community communications. Public submissions are publicly visible. |
 | Email and support material | You send it | Email address, message, attachments, and diagnostics or environment details that you choose to provide | [QQ Mail](https://mail.qq.com/), your sending provider, and the project maintainers use it to deliver and respond to the message, investigate problems, and retain necessary correspondence. |
@@ -201,7 +201,7 @@ No measure provides absolute security. Third-party plugins, privileged local pro
 
 ## 11. Your choices and rights
 
-Depending on applicable law, you may have rights to access, copy, correct, delete, or restrict processing of personal data; withdraw consent; object to particular processing; receive a portable copy; and complain to a supervisory authority. Contact [t4wefan@qq.com](mailto:t4wefan@qq.com). To locate version-service records, we may ask you to provide your local installation UUID privately. Do not publish it.
+Depending on applicable law, you may have rights to access, copy, correct, delete, or restrict processing of personal data; withdraw consent; object to particular processing; receive a portable copy; and complain to a supervisory authority. Contact us via the channels listed above. To locate version-service records, we may ask you to provide your local installation UUID privately. Do not publish it.
 
 We cannot remotely delete files on your device. You can remove relevant local data while the application is closed; deleting the installation UUID causes a new value to be generated at the next launch. Data that has already been irreversibly aggregated or can no longer be linked to you may not be recoverable or individually deletable.
 

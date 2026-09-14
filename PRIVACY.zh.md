@@ -7,19 +7,19 @@
 
 DSH Desktop 是一个本地优先的开源桌面应用。本政策说明 DSH Desktop 官方版本及官方在线服务会处理哪些信息、为什么处理、信息会发送给谁，以及您可以如何作出选择。
 
-本政策中的“我们”指在 GitHub 组织 [`anywhere-labs`](https://github.com/anywhere-labs) 下维护和发布 DSH Desktop 官方版本、并运营 `dshdesktop.cn` 官方服务的 **Anywhere Labs 项目维护团队**。项目是独立的社区开源项目，与 DeepSeek 不存在隶属、合作、授权或背书关系。
+本政策中的“我们”指 **LiuYuMiao-M/dsh-desktop 个人定制版（fork）的维护者**。本 fork 基于 DeepSeek Harness 独立演进，与上游社区分支（anywhere-labs、XingAur 等）及 DeepSeek 不存在隶属、合作、授权或背书关系。
 
-隐私问题或权利请求请发送至 [t4wefan@qq.com](mailto:t4wefan@qq.com)。请不要在公开 GitHub Issue 中提交安装标识、日志、凭据或其他私密信息。
+隐私问题或权利请求请通过 [GitHub Issue](https://github.com/LiuYuMiao-M/dsh-desktop/issues) 联系（不要在公开 Issue 中提交私密信息），或通过仓库主页公布的联系方式。请不要在公开 GitHub Issue 中提交安装标识、日志、凭据或其他私密信息。
 
 ## 1. 适用范围
 
 本政策适用于：
 
-- 我们通过 [官方 GitHub 仓库](https://github.com/anywhere-labs/dsh-desktop)及官方发布渠道提供的 DSH Desktop；
-- `https://www.dshdesktop.cn/` 下的官方网页、版本检查和下载跳转服务；
+- 我们通过 [本 fork 的 GitHub 仓库](https://github.com/LiuYuMiao-M/dsh-desktop)及本仓库 GitHub Actions 构建的发布渠道提供的 DSH Desktop；
+- 本 fork 配置的自托管更新服务（版本检查与安装包下载端点，见仓库内 `dsh-plugin-desktop/src/fork-update-source.ts`）；
 - 您主动发送给项目维护团队的隐私请求、支持邮件或问题报告。
 
-第三方 Fork、自行修改的构建、第三方分发渠道、模型服务商、插件、插件市场来源及软件包服务各自的处理行为不由本政策控制。如果第三方构建仍访问硬编码的 `dshdesktop.cn` 官方端点，本政策仍适用于该官方端点实际收到的信息，但不适用于第三方构建或分发者的其他处理行为。
+其他 Fork、自行修改的构建、第三方分发渠道、模型服务商、插件、插件市场来源及软件包服务各自的处理行为不由本政策控制。
 
 ## 2. 摘要
 
@@ -37,7 +37,7 @@ DSH Desktop 是一个本地优先的开源桌面应用。本政策说明 DSH Des
 打包后的 macOS 和 Windows 应用默认在启动约 60 秒后请求：
 
 ```text
-GET https://www.dshdesktop.cn/api/desktop/version
+GET <配置的版本检查端点，本 fork 为自托管更新服务>
 ```
 
 此后，每次检查完成约 6 小时后会再次检查。您也可以手动选择“检查更新”。开发运行、未打包启动和 Linux 当前不会执行这套打包版自动更新流程。
@@ -87,7 +87,7 @@ GET https://www.dshdesktop.cn/api/desktop/version
 
 | 场景 | 触发方式 | 可能处理的信息 | 目的及接收方 |
 | --- | --- | --- | --- |
-| 安装包下载 | 您点击下载，或在发现新版本后确认下载 | IP 地址、时间、标准网络元数据，以及 `/mac` 或 `/windows` 路径所表示的平台 | `dshdesktop.cn`、其托管服务和最终下载承载方用于交付文件、安全防护和下载服务统计。下载请求不会由 Desktop 添加安装 UUID。 |
+| 安装包下载 | 您点击下载，或在发现新版本后确认下载 | IP 地址、时间、标准网络元数据，以及 `/mac` 或 `/windows` 路径所表示的平台 | 本 fork 的自托管更新服务及其托管/网络基础设施用于交付文件、安全防护和下载服务统计。下载请求不会由 Desktop 添加安装 UUID。 |
 | 访问官网 | 您在浏览器中打开官网 | IP 地址、时间、浏览器/设备网络元数据，以及您请求的页面 | 官网托管和网络基础设施用于提供页面、安全防护和故障排查。 |
 | GitHub Issue、讨论或贡献 | 您主动提交 | 您公开提交的账号信息、文字、附件、代码及元数据 | GitHub 和项目维护团队用于处理问题、贡献及社区沟通。公开提交会公开可见。 |
 | 邮件与支持资料 | 您主动发送 | 邮箱地址、邮件内容、附件，以及您选择提供的诊断或环境信息 | [QQ 邮箱](https://mail.qq.com/)、您的发件服务商和项目维护团队用于传递和回复邮件、排查问题及保存必要的沟通记录。 |
@@ -201,7 +201,7 @@ Vercel、Upstash、GitHub、npm、ModelScope、模型供应商及社区来源可
 
 ## 11. 您的选择和权利
 
-根据适用法律，您可能有权请求查阅、复制、更正、删除或限制处理个人信息，撤回同意，反对特定处理，获取可携带副本，以及向主管机构投诉。请通过 [t4wefan@qq.com](mailto:t4wefan@qq.com) 联系我们。为定位版本服务中的记录，我们可能请您私下提供本机安装 UUID；请勿公开发布该值。
+根据适用法律，您可能有权请求查阅、复制、更正、删除或限制处理个人信息，撤回同意，反对特定处理，获取可携带副本，以及向主管机构投诉。请通过 [GitHub Issue](https://github.com/LiuYuMiao-M/dsh-desktop/issues) 或仓库主页公布的联系方式联系我们。为定位版本服务中的记录，我们可能请您私下提供本机安装 UUID；请勿公开发布该值。
 
 我们无法从远程替您删除本机文件。您可以在应用关闭后删除相应本地数据；删除安装 UUID 会在下次启动时生成新值。已经不可逆汇总或无法再关联到您的数据，可能无法恢复或单独删除。
 

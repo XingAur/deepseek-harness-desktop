@@ -4,7 +4,7 @@ Thank you for wanting to contribute to DSH Desktop. This is a community project 
 
 ## Regular users: use, report, and spread the word
 
-- Report problems or odd behavior in an [issue](https://github.com/anywhere-labs/deepseek-harness-desktop/issues): include your operating system (macOS / Windows), application version, and reproduction steps.
+- Report problems or odd behavior in an [issue](https://github.com/LiuYuMiao-M/dsh-desktop/issues): include your operating system (macOS / Windows), application version, and reproduction steps.
 - Feature ideas and improvement suggestions are welcome as issues too.
 - Join the [community channels](README.en.md#community) (WeChat group, QQ group, Discord) and help other users.
 - Write tutorials or experience posts, or help improve and translate the documentation.
@@ -48,7 +48,7 @@ corepack yarn dev     # launch the application when a graphical session is avail
 
 ## Join the technical team
 
-If you would like to join our technical team, contact us at [t4wefan@qq.com](mailto:t4wefan@qq.com).
+This is a personal fork and does not accept team-join requests; feel free to reach out via [GitHub Issues](https://github.com/LiuYuMiao-M/dsh-desktop/issues).
 
 ## Code of conduct
 
