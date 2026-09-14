@@ -2,6 +2,7 @@
 
 import { execFileSync } from 'node:child_process'
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -10,13 +11,14 @@ import {
 } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { dirname, join } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { rgPath } from '@vscode/ripgrep'
 import AdmZip from 'adm-zip'
 import { discoverPresets, SHIPPED_PRESET_ROOT } from '@deepseek-ai/dsh-agent-presets'
 import { exportDiagnosticsZip } from './diagnostic-export.ts'
 import { installProfilePackageResolver } from './module-resolution.ts'
+import { verifyBundledSkills } from './packaged-filesystem-smoke.ts'
 
 const OK_MARKER = 'DSH_PACKAGED_RUNTIME_OK'
 
@@ -210,5 +212,30 @@ try {
 
 await smokeDiagnosticExportWorker()
 await smokeAgentPresetRoster()
+await smokeBundledSkills()
+
+/**
+ * Copy the sealed skill subtree to a real directory and run the full skill
+ * discovery smoke against it. RunAsNode can read asar files through Electron's
+ * fs patch, but `dsh-fs-local` metadata semantics expect a physical tree; the
+ * copy keeps the check honest under either asar strategy while still failing
+ * when the packaged app omits or truncates the shipped skills.
+ */
+async function smokeBundledSkills(): Promise<void> {
+  const presetsSource = fileURLToPath(new URL(
+    'node_modules/@deepseek-ai/dsh-agent-presets/presets',
+    new URL('./', installAnchor),
+  ))
+  assert(existsSync(presetsSource), `shipped presets subtree is missing: ${presetsSource}`)
+  const root = mkdtempSync(join(tmpdir(), 'dsh-packaged-skills-'))
+  try {
+    const presetsDestination = join(root, 'node_modules', '@deepseek-ai', 'dsh-agent-presets', 'presets')
+    mkdirSync(dirname(presetsDestination), { recursive: true })
+    cpSync(presetsSource, presetsDestination, { recursive: true })
+    await verifyBundledSkills(root)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}
 
 process.stdout.write(OK_MARKER)
