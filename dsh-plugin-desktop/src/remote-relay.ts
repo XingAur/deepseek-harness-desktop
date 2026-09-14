@@ -110,6 +110,30 @@ export function applyRemoteRelay(ctx: Context, options: RemoteRelayOptions): voi
     return typeof request.agent?.session?.id === 'string' ? request.agent.session.id : null
   }
 
+  /**
+   * Replace the turn signal on a shared waterfall request with one we control
+   * before delegating down the chain. The desktop popup (a PendingApproval on
+   * the client) listens to `request.signal`, so aborting the gate dismisses a
+   * popup the phone has already answered; the turn's own signal stays wired
+   * through so runtime aborts still cancel both sides.
+   */
+  function gateDesktopAsk(request: { signal?: AbortSignal }): { abortPhoneWin(): void } {
+    const turnSignal = request.signal
+    const gate = new AbortController()
+    if (turnSignal !== undefined) {
+      if (turnSignal.aborted) gate.abort(turnSignal.reason)
+      else {
+        turnSignal.addEventListener('abort', () => { gate.abort(turnSignal.reason) }, { once: true })
+      }
+    }
+    request.signal = gate.signal
+    return {
+      abortPhoneWin(): void {
+        if (!gate.signal.aborted) gate.abort(new Error('answered on the phone'))
+      },
+    }
+  }
+
   type ApprovalWaterfall = {
     on(name: 'approval/request', listener: (request: {
       agent?: { session?: { id?: unknown } }
@@ -122,7 +146,12 @@ export function applyRemoteRelay(ctx: Context, options: RemoteRelayOptions): voi
   ctx.effect(() => (ctx as unknown as ApprovalWaterfall).on(
     'approval/request',
     (request, next) => {
-      // Desktop keeps its popup: delegate down the chain right away.
+      // The desktop leg runs on a gate we own: when the phone answers first
+      // we abort it so the desktop popup dismisses itself instead of
+      // lingering until the turn ends. The turn's own signal stays wired
+      // through, so a runtime abort still cancels both sides. Gate before
+      // next() — the forwarder reads request.signal synchronously.
+      const gate = gateDesktopAsk(request)
       const desktop: Promise<string> = typeof next === 'function'
         ? Promise.resolve(next())
         : Promise.resolve('unavailable')
@@ -144,6 +173,7 @@ export function applyRemoteRelay(ctx: Context, options: RemoteRelayOptions): voi
           }
           void handle.settled.then(settlement => {
             if (settlement.kind === 'phone-decision') {
+              gate.abortPhoneWin()
               finish(() => { resolve(settlement.decision === 'allow' ? 'allowed-once' : 'rejected') })
             } else if (settlement.kind === 'abort') {
               finish(() => { resolve('cancelled') })
@@ -180,7 +210,9 @@ export function applyRemoteRelay(ctx: Context, options: RemoteRelayOptions): voi
         // Not phone-renderable (empty or oversized): the desktop keeps it.
         return typeof next === 'function' ? Promise.resolve(next()) : Promise.reject(new Error('no user-questions answerer accepted the request'))
       }
-      // Desktop keeps its dialog: delegate down the chain right away.
+      // Same gate as the approval hold: aborting it after a phone answer
+      // dismisses the desktop question dialog.
+      const gate = gateDesktopAsk(request)
       const desktop = typeof next === 'function' ? Promise.resolve(next()) : undefined
       const handle = interruptions.hold({
         sessionId: sessionKeyOf(request),
@@ -199,6 +231,7 @@ export function applyRemoteRelay(ctx: Context, options: RemoteRelayOptions): voi
         }
         void handle.settled.then(settlement => {
           if (settlement.kind === 'phone-answer') {
+            gate.abortPhoneWin()
             finish(() => { resolve({ answers: settlement.answers }) })
           } else if (settlement.kind === 'abort') {
             finish(() => { reject(new Error('question aborted before either side answered')) })
