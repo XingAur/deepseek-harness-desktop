@@ -6,7 +6,7 @@ import { ContextSheet, ModelSheet, PermissionSheet, RenameSheet, Sheet } from '.
 import { InterruptionCard, type AnswerDraft } from './InterruptionCard.tsx'
 import { Composer, type ComposerAttachment } from './Composer.tsx'
 import { SidePanel, type PanelTab } from './SidePanel.tsx'
-import type { ModelCatalog, ModelSelectionValue, PermissionOption, PermissionPresetsResponse, SessionFacts, SessionInfo, SessionRow, StateResponse, TranscriptItem, TranscriptResponse } from './types.ts'
+import type { InterruptionRecord, ModelCatalog, ModelSelectionValue, PermissionOption, PermissionPresetsResponse, SessionFacts, SessionInfo, SessionRow, StateResponse, TranscriptItem, TranscriptResponse } from './types.ts'
 
 /** Relative bases survive both loopback (/mobile/) and relay (/r/<pair>/mobile/) hosting. */
 const API = (name: string) => new URL(`../api/desktop/mobile/${name}`, window.location.href).href
@@ -524,6 +524,9 @@ export function MobileApp(): JSX.Element {
       : running || (sent > 0 && Date.now() - sent < 120_000 && busy)
     const send = isNew ? createTask : sendToSession
     const viewInterruptions = isNew ? [] : interruptions.filter(item => item.sessionId === null || item.sessionId === view.id)
+    // Interruptions answer one at a time, like the desktop waterfall: the
+    // first card shows, the next takes its place once this one settles.
+    const activeInterruption: InterruptionRecord | undefined = viewInterruptions[0]
     // Key-info mode trims reasoning/tool rows from the timeline; the empty-state
     // checks and the side panel below still use the unfiltered transcript.
     const visibleItems = detailMode === 'key'
@@ -574,9 +577,9 @@ export function MobileApp(): JSX.Element {
         </div>
       </header>
 
-      {viewInterruptions.length > 0
+      {activeInterruption !== undefined
         ? <div className="flex max-h-[55vh] max-h-[55dvh] shrink-0 flex-col gap-2 overflow-y-auto overscroll-contain px-3 pt-3">
-            <InterruptionCard busy={acting} copy={copy} onAnswer={answerInterruption} onDecide={decideInterruption} record={viewInterruptions[0]} />
+            <InterruptionCard busy={acting} copy={copy} onAnswer={answerInterruption} onDecide={decideInterruption} record={activeInterruption} />
             {viewInterruptions.length > 1
               ? <p className="px-1 text-xs text-muted-foreground">{copy.pendingMore.replace('{n}', String(viewInterruptions.length - 1))}</p>
               : null}
@@ -738,9 +741,11 @@ export function MobileApp(): JSX.Element {
         </span>
       </div>
       {interruptions.length > 0
-        ? <div className="flex flex-col gap-2 px-4 pb-3">
-            {interruptions.slice(0, 2).map(record => <InterruptionCard busy={acting} copy={copy} key={record.key} onAnswer={answerInterruption} onDecide={decideInterruption} record={record} />)}
-            {interruptions.length > 2 ? <p className="px-1 text-xs text-muted-foreground">+{String(interruptions.length - 2)}</p> : null}
+        ? <div className="flex max-h-[55vh] max-h-[55dvh] shrink-0 flex-col gap-2 overflow-y-auto overscroll-contain px-4 pb-3">
+            <InterruptionCard busy={acting} copy={copy} onAnswer={answerInterruption} onDecide={decideInterruption} record={interruptions[0]!} />
+            {interruptions.length > 1
+              ? <p className="px-1 text-xs text-muted-foreground">{copy.pendingMore.replace('{n}', String(interruptions.length - 1))}</p>
+              : null}
           </div>
         : null}
     </header>
