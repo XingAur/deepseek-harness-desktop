@@ -66,7 +66,7 @@ jobs:
             ${{ matrix.workspace }}/dist/*.exe
             ${{ matrix.workspace }}/dist/*.zip
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 1
 
   # 与 release-windows 同构的 macOS 链:完整 mac 门禁(check:mac-package)后产出
   # 通用(unsigned)DMG。签名与公证仍是在有凭据机器上的手工步骤。
@@ -107,7 +107,7 @@ jobs:
           path: |
             ${{ matrix.workspace }}/dist/mac-smoke/*.dmg
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 1
 
   publish:
     needs: [release-windows, release-macos]
