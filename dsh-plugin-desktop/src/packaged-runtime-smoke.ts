@@ -2,10 +2,11 @@
 
 import { execFileSync } from 'node:child_process'
 import {
-  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
@@ -231,10 +232,23 @@ async function smokeBundledSkills(): Promise<void> {
   try {
     const presetsDestination = join(root, 'node_modules', '@deepseek-ai', 'dsh-agent-presets', 'presets')
     mkdirSync(dirname(presetsDestination), { recursive: true })
-    cpSync(presetsSource, presetsDestination, { recursive: true })
+    copyAsarTree(presetsSource, presetsDestination)
     await verifyBundledSkills(root)
   } finally {
     rmSync(root, { recursive: true, force: true })
+  }
+}
+
+/** Recursive copy built only on the read primitives Electron's asar fs patch
+ * covers: cpSync recurses through unpatched internals and reports ENOENT for
+ * an asar source even though every entry exists. */
+function copyAsarTree(source: string, destination: string): void {
+  mkdirSync(destination, { recursive: true })
+  for (const entry of readdirSync(source, { withFileTypes: true })) {
+    const from = join(source, entry.name)
+    const to = join(destination, entry.name)
+    if (entry.isDirectory()) copyAsarTree(from, to)
+    else if (entry.isFile()) writeFileSync(to, readFileSync(from))
   }
 }
 
