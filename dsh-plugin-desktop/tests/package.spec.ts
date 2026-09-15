@@ -816,6 +816,7 @@ describe('published package surface', () => {
       '!**/example/**',
       '!**/*.md',
       '!**/*.markdown',
+      'node_modules/@deepseek-ai/dsh-agent-presets/presets/**',
       '!**/.github/**',
       '!**/.vscode/**',
     ])
