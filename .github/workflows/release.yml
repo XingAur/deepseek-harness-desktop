@@ -1,9 +1,11 @@
 name: Release
 
 # 手动触发(可在 Actions 页面选分支)或推送 v* 标签触发:
-# Windows: 两变体完整门禁后产出 NSIS 安装包与便携版。
-# macOS: 两变体完整门禁后产出通用(unsigned) DMG。
-# 然后创建或更新 GitHub Release 并上传安装包。
+# Windows: 完整门禁后产出 NSIS 安装包与便携版。
+# macOS: 完整门禁后产出通用(unsigned) DMG。
+# 产物不经 Actions artifacts(账号存储配额会挡住上传),而是由各构建 job
+# 直接上传到先建好的草稿 Release;publish 仅把草稿转正,deploy 从 Release
+# 下载资产同步自建更新服务器。
 on:
   workflow_dispatch:
     inputs:
@@ -22,9 +24,46 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # 解析标签并确保草稿 Release 存在;构建 job 向它直传资产。
+  prepare-release:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.name }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "name=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=v$(node -p "require('./dsh-plugin-desktop/package.json').version")" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG"; then
+            gh release create "$TAG" --draft --target "$GITHUB_SHA" \
+              --title "DSH Desktop $TAG" \
+              --notes "Windows 安装包(NSIS Setup)与便携版(Portable zip)、macOS 通用 DMG(未签名)。
+
+          本 Release 由 Release workflow 构建并上传:完整打包门禁(check:win-package / check:mac-package)通过后才产出。macOS 签名与公证为手工步骤,DMG 首次打开需在系统设置中允许。"
+          fi
+
   # 与 ci.yml 的 desktop-windows 相同的门禁链(check:win-package + dist),
-  # 差别仅在产物保留:这里的 exe/zip 会进入 GitHub Release。
+  # 差别仅在产物去向:这里的 exe/zip 直传草稿 Release。
   release-windows:
+    needs: [prepare-release]
     runs-on: windows-latest
     strategy:
       fail-fast: false
@@ -58,19 +97,30 @@ jobs:
         env:
           DSH_PACKAGE_CHECK_ALREADY_RAN: '1'
         run: yarn workspace ${{ matrix.workspace }} dist:win-portable
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-build-${{ matrix.workspace }}
-          path: |
-            ${{ matrix.workspace }}/dist/*.exe
-            ${{ matrix.workspace }}/dist/*.zip
-          if-no-files-found: error
-          retention-days: 1
+      - name: Upload installers to the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare-release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          find "${{ matrix.workspace }}/dist" -maxdepth 1 -type f \( -name '*.exe' -o -name '*.zip' \) -print0 |
+          while IFS= read -r -d '' file; do
+            base=$(basename "$file")
+            case "$base" in
+              DSH-Desktop-Beta-*) prefix="beta-" ;;
+              *) prefix="stable-" ;;
+            esac
+            cp "$file" "release/${prefix}${base}"
+          done
+          ls -l release
+          gh release upload "$TAG" release/* --clobber
 
   # 与 release-windows 同构的 macOS 链:完整 mac 门禁(check:mac-package)后产出
-  # 通用(unsigned)DMG。签名与公证仍是在有凭据机器上的手工步骤。
+  # 通用(unsigned)DMG,直传草稿 Release。签名与公证仍是在有凭据机器上的手工步骤。
   release-macos:
+    needs: [prepare-release]
     runs-on: macos-latest
     strategy:
       fail-fast: false
@@ -100,46 +150,15 @@ jobs:
         env:
           DSH_PACKAGE_CHECK_ALREADY_RAN: '1'
         run: yarn workspace ${{ matrix.workspace }} dist:mac-smoke
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-build-mac-${{ matrix.workspace }}
-          path: |
-            ${{ matrix.workspace }}/dist/mac-smoke/*.dmg
-          if-no-files-found: error
-          retention-days: 1
-
-  publish:
-    needs: [release-windows, release-macos]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - name: Resolve release tag
-        id: tag
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            echo "name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-          elif [ -n "${{ github.event.inputs.tag }}" ]; then
-            echo "name=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "name=v$(node -p "require('./dsh-plugin-desktop/package.json').version")" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          merge-multiple: true
-          pattern: release-build-*
-      - name: Collect installer assets
+      - name: Upload DMG to the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare-release.outputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p release
-          find artifacts -type f \( -name '*.exe' -o -name '*.zip' -o -name '*.dmg' \) -print0 |
+          find "${{ matrix.workspace }}/dist/mac-smoke" -type f -name '*.dmg' -print0 |
           while IFS= read -r -d '' file; do
             base=$(basename "$file")
             case "$base" in
@@ -149,27 +168,26 @@ jobs:
             cp "$file" "release/${prefix}${base}"
           done
           ls -l release
-      - name: Create or update GitHub Release
-        shell: bash
+          gh release upload "$TAG" release/* --clobber
+
+  # 两个平台的资产都到齐后,把草稿转正。
+  publish:
+    needs: [prepare-release, release-windows, release-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the draft release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.tag.outputs.name }}
-        run: |
-          set -euo pipefail
-          if ! gh release view "$TAG"; then
-            gh release create "$TAG" --target "$GITHUB_SHA" \
-              --title "DSH Desktop $TAG" \
-              --notes "Windows 安装包(NSIS Setup)与便携版(Portable zip)、macOS 通用 DMG(未签名)。
-
-          本 Release 由 Release workflow 构建并上传:完整打包门禁(check:win-package / check:mac-package)通过后才产出。macOS 签名与公证为手工步骤,DMG 首次打开需在系统设置中允许。"
-          fi
-          gh release upload "$TAG" release/* --clobber
+          TAG: ${{ needs.prepare-release.outputs.tag }}
+        shell: bash
+        run: gh release edit "$TAG" --draft=false
 
   # 把 stable 安装包与版本清单同步到自建更新服务器(国内直连,应用内检查更新
   # 与下载都指向它)。SSH 私钥经 UPDATE_SERVER_* secrets 注入,仅此任务可见。
   # 未配置 UPDATE_SERVER_* secrets 的仓库(如下游 fork)自动跳过,不部署也不报错。
+  # 资产从已发布的 Release 下载,不经 Actions artifacts。
   deploy-updates:
-    needs: [publish]
+    needs: [prepare-release, publish]
     runs-on: ubuntu-latest
     env:
       UPDATE_HOST: ${{ secrets.UPDATE_SERVER_HOST }}
@@ -177,12 +195,19 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          merge-multiple: true
-          pattern: release-build-*
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare-release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          if ! gh release download "$TAG" --dir artifacts \
+              --pattern 'stable-*-x64-Setup.exe' --pattern 'stable-*.dmg'; then
+            echo 'release assets not found'; exit 1
+          fi
+          ls -l artifacts
       - name: Upload installers to the update server
         if: ${{ env.UPDATE_HOST != '' }}
         env:
