@@ -178,6 +178,7 @@ jobs:
       - name: Publish the draft release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.prepare-release.outputs.tag }}
         shell: bash
         run: gh release edit "$TAG" --draft=false
