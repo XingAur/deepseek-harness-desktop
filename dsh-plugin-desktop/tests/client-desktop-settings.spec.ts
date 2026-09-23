@@ -25,7 +25,9 @@ import { DesktopTerminalSettingsAction } from '../src/client/DesktopTerminalSett
 import { DesktopSkillsSection } from '../src/client/DesktopSkillsSection.tsx'
 import { DesktopMcpSection } from '../src/client/DesktopMcpSection.tsx'
 import { DesktopProviderCardExtras } from '../src/client/DesktopProviderCardExtras.tsx'
+import { DesktopAccountsSection } from '../src/client/DesktopAccountsSection.tsx'
 import { DesktopProxySection } from '../src/client/DesktopProxySection.tsx'
+import { DesktopSchedulerSection } from '../src/client/DesktopSchedulerSection.tsx'
 import {
   createDesktopSettingsApi,
   desktopSettingsPaths,
@@ -41,7 +43,9 @@ import {
   DESKTOP_SHELL_SETTINGS_NAMESPACE,
   DESKTOP_SKILLS_LOCALE_NAMESPACE,
   DESKTOP_MCP_LOCALE_NAMESPACE,
+  DESKTOP_ACCOUNTS_LOCALE_NAMESPACE,
   DESKTOP_PROXY_LOCALE_NAMESPACE,
+  DESKTOP_SCHEDULER_LOCALE_NAMESPACE,
   persistDesktopModeSelection,
 } from '../src/client/desktop-settings.ts'
 import { en, zh, type DesktopSettingsLocaleKey } from '../src/client/desktop-settings-locales.ts'
@@ -678,7 +682,21 @@ describe('Desktop settings Slot registration', () => {
     })
     expect(piAiCardComponent).toBe(DesktopProviderCardExtras)
 
-    const [proxyOptions, proxyComponent] = register.mock.calls[4] as unknown as [
+    const [accountsOptions, accountsComponent] = register.mock.calls[4] as unknown as [
+      { id: string; order: number; locale: string; label: () => string; inject: () => Record<string, unknown> },
+      unknown,
+    ]
+    expect(accountsOptions).toMatchObject({
+      name: 'settings.section',
+      id: 'accounts',
+      order: 96,
+      locale: DESKTOP_ACCOUNTS_LOCALE_NAMESPACE,
+    })
+    expect(accountsOptions.label()).toBe(`${DESKTOP_ACCOUNTS_LOCALE_NAMESPACE}:nav`)
+    expect(accountsOptions.inject()).toMatchObject({ api: expect.any(Object) })
+    expect(accountsComponent).toBe(DesktopAccountsSection)
+
+    const [proxyOptions, proxyComponent] = register.mock.calls[5] as unknown as [
       { id: string; order: number; locale: string; label: () => string; inject: () => Record<string, unknown> },
       unknown,
     ]
@@ -692,7 +710,20 @@ describe('Desktop settings Slot registration', () => {
     expect(proxyOptions.inject()).toMatchObject({ api: expect.any(Object) })
     expect(proxyComponent).toBe(DesktopProxySection)
 
-    const [options, component] = register.mock.calls[5] as unknown as [
+    const [schedulerOptions, schedulerComponent] = register.mock.calls[6] as unknown as [
+      { id: string; order: number; locale: string; label: () => string; inject: () => Record<string, unknown> },
+      unknown,
+    ]
+    expect(schedulerOptions).toMatchObject({
+      name: 'settings.section',
+      id: 'scheduler',
+      order: 97,
+      locale: DESKTOP_SCHEDULER_LOCALE_NAMESPACE,
+    })
+    expect(schedulerOptions.label()).toBe(`${DESKTOP_SCHEDULER_LOCALE_NAMESPACE}:nav`)
+    expect(schedulerComponent).toBe(DesktopSchedulerSection)
+
+    const [options, component] = register.mock.calls[7] as unknown as [
       { id: string; order: number; locale: string; label: () => string; inject: () => Record<string, unknown> },
       unknown,
     ]
@@ -711,7 +742,7 @@ describe('Desktop settings Slot registration', () => {
     })
     expect(component).toBe(DesktopSettingsSection)
 
-    const [actionOptions, actionComponent] = register.mock.calls[6] as unknown as [
+    const [actionOptions, actionComponent] = register.mock.calls[8] as unknown as [
       { id: string; order: number; locale: string; inject: () => Record<string, unknown> },
       unknown,
     ]

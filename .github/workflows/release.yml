@@ -36,15 +36,21 @@ jobs:
       - name: Resolve release tag
         id: tag
         shell: bash
+        env:
+          TAG_INPUT: ${{ github.event.inputs.tag }}
         run: |
           set -euo pipefail
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            echo "name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-          elif [ -n "${{ github.event.inputs.tag }}" ]; then
-            echo "name=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          expected="v$(node -p "require('./dsh-plugin-desktop/package.json').version")"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            tag="${GITHUB_REF#refs/tags/}"
           else
-            echo "name=v$(node -p "require('./dsh-plugin-desktop/package.json').version")" >> "$GITHUB_OUTPUT"
+            tag="${TAG_INPUT:-$expected}"
           fi
+          if [ "$tag" != "$expected" ]; then
+            echo "Release tag must match package version: $expected" >&2
+            exit 1
+          fi
+          echo "name=$tag" >> "$GITHUB_OUTPUT"
       - name: Create draft release
         env:
           GH_TOKEN: ${{ github.token }}

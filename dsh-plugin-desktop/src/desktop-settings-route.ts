@@ -8,6 +8,10 @@ import type { DesktopSettingsPostResponse } from './desktop-settings-controller.
 import { detectLocalOutboundProxy } from './desktop-proxy-detect.ts'
 import { DESKTOP_PROXY_TEST_CODES, testDesktopModelProxy } from './desktop-proxy-test.ts'
 import type {
+  DesktopAccountsListResponse,
+  DesktopAccountsMutationRequest,
+  DesktopAccountsMutationResponse,
+  DesktopModelSyncResponse,
   DesktopUpdateStateResponse,
   DesktopMcpTestRequest,
   DesktopMarketSelectRequest,
@@ -20,6 +24,8 @@ import type {
   DesktopProxyTestResponse,
   DesktopSettingsErrorResponse,
 } from './desktop-settings-contract.ts'
+import { isCredentialKeySegment } from '@deepseek-ai/dsh-credentials'
+import { DesktopAccountUnknownError } from './desktop-model-accounts.ts'
 
 const MAX_SETTINGS_BODY_BYTES = 16 * 1024
 
@@ -747,6 +753,182 @@ export async function handleDesktopDiagnosticsExportRequest(
     reportError('export diagnostics', cause)
     finishJson(res, 500, error('diagnostics could not be exported'))
   }
+}
+
+/** Upper bound for one model-account listing; a stuck credential lock must surface, not spin the UI forever. */
+const ACCOUNTS_LIST_TIMEOUT_MS = 5_000
+
+/** Serve the renderer-safe model-account listing; payloads never appear. */
+export async function handleDesktopAccountsListRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  expectedOrigin: string,
+  controller: DesktopSettingsController,
+  reportError: (operation: string, cause: unknown) => void = () => {},
+): Promise<void> {
+  if (req.method !== 'GET') return finishJson(res, 405, error('method not allowed'), 'GET')
+  if (!isSameOriginLoopbackRequest(req, expectedOrigin, false)) {
+    return finishJson(res, 403, error('forbidden'))
+  }
+  let timeout: NodeJS.Timeout | undefined
+  try {
+    const listing = await Promise.race([
+      controller.listAccounts(),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => { reject(new Error('model account listing timed out (credential store busy or blocked)')) },
+          ACCOUNTS_LIST_TIMEOUT_MS,
+        )
+      }),
+    ])
+    finishJson(res, 200, listing satisfies DesktopAccountsListResponse)
+  } catch (cause) {
+    reportError('list model accounts', cause)
+    finishJson(res, 500, error('model accounts unavailable'))
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+/** Upper bound for one whole-catalog sync run; providers time out individually. */
+const MODEL_SYNC_TIMEOUT_MS = 60_000
+
+/** Run one live model-catalog sync and return its renderer-safe outcome. */
+export async function handleDesktopModelSyncRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  expectedOrigin: string,
+  controller: DesktopSettingsController,
+  reportError: (operation: string, cause: unknown) => void = () => {},
+): Promise<void> {
+  if (req.method !== 'POST') return finishJson(res, 405, error('method not allowed'), 'POST')
+  if (!isSameOriginLoopbackRequest(req, expectedOrigin, true)) {
+    return finishJson(res, 403, error('forbidden'))
+  }
+  let timeout: NodeJS.Timeout | undefined
+  try {
+    const outcome = await Promise.race([
+      controller.syncModels(),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => { reject(new Error('model catalog sync timed out')) }, MODEL_SYNC_TIMEOUT_MS)
+      }),
+    ])
+    finishJson(res, 200, outcome satisfies DesktopModelSyncResponse)
+  } catch (cause) {
+    reportError('sync model catalogs', cause)
+    finishJson(res, 500, error('model catalog sync failed'))
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+/**
+ * Validate one model-account mutation body: an exact `{ provider }` record,
+ * or `{ provider, account }` for the endpoints that address a saved slot.
+ * @param value - the parsed request body.
+ * @param requireAccount - whether the saved slot id is required.
+ * @returns the validated request, or the failure reason.
+ */
+function parseAccountsMutation(
+  value: unknown,
+  requireAccount: boolean,
+): DesktopAccountsMutationRequest | string {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return 'invalid model account request'
+  }
+  const record = value as Record<string, unknown>
+  const keys = Object.keys(record).sort()
+  const expected = requireAccount ? ['account', 'provider'] : ['provider']
+  if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
+    return 'invalid model account request'
+  }
+  if (typeof record.provider !== 'string' || !isCredentialKeySegment(record.provider)) {
+    return 'invalid model account provider'
+  }
+  const account = record.account
+  if (requireAccount) {
+    if (typeof account !== 'string' || !isCredentialKeySegment(account)) return 'invalid model account slot'
+    return { provider: record.provider, account }
+  }
+  if (account !== undefined) return 'invalid model account request'
+  return { provider: record.provider }
+}
+
+/** Run one model-account mutation and map unknown addresses onto 404. */
+async function finishAccountMutation(
+  req: IncomingMessage,
+  res: ServerResponse,
+  expectedOrigin: string,
+  operation: string,
+  run: (request: DesktopAccountsMutationRequest) => Promise<DesktopAccountsMutationResponse>,
+  reportError: (operation: string, cause: unknown) => void,
+  requireAccount: boolean,
+): Promise<void> {
+  if (req.method !== 'POST') return finishJson(res, 405, error('method not allowed'), 'POST')
+  if (!isSameOriginLoopbackRequest(req, expectedOrigin, true)) {
+    return finishJson(res, 403, error('forbidden'))
+  }
+  const body = await parsePostBody(req, res)
+  if (body === INVALID_BODY) return
+  const parsed = parseAccountsMutation(body, requireAccount)
+  if (typeof parsed === 'string') return finishJson(res, 400, error(parsed))
+  try {
+    finishJson(res, 200, await run(parsed))
+  } catch (cause) {
+    if (cause instanceof DesktopAccountUnknownError) {
+      return finishJson(res, 404, error(cause.message))
+    }
+    reportError(operation, cause)
+    finishJson(res, 500, error('model account operation failed'))
+  }
+}
+
+/** Start one background native sign-in that joins the account library. */
+export async function handleDesktopAccountsAddRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  expectedOrigin: string,
+  controller: DesktopSettingsController,
+  reportError: (operation: string, cause: unknown) => void = () => {},
+): Promise<void> {
+  await finishAccountMutation(req, res, expectedOrigin, 'add model account',
+    request => controller.addModelAccount(request.provider), reportError, false)
+}
+
+/** Activate one saved account and demote the active one into its slot. */
+export async function handleDesktopAccountsSwitchRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  expectedOrigin: string,
+  controller: DesktopSettingsController,
+  reportError: (operation: string, cause: unknown) => void = () => {},
+): Promise<void> {
+  await finishAccountMutation(req, res, expectedOrigin, 'switch model account',
+    request => controller.switchModelAccount(request.provider, request.account ?? ''), reportError, true)
+}
+
+/** Delete one saved account from the library. */
+export async function handleDesktopAccountsRemoveRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  expectedOrigin: string,
+  controller: DesktopSettingsController,
+  reportError: (operation: string, cause: unknown) => void = () => {},
+): Promise<void> {
+  await finishAccountMutation(req, res, expectedOrigin, 'remove model account',
+    request => controller.removeModelAccount(request.provider, request.account ?? ''), reportError, true)
+}
+
+/** Delete the active credential of one provider. */
+export async function handleDesktopAccountsLogoutRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  expectedOrigin: string,
+  controller: DesktopSettingsController,
+  reportError: (operation: string, cause: unknown) => void = () => {},
+): Promise<void> {
+  await finishAccountMutation(req, res, expectedOrigin, 'sign out model account',
+    request => controller.logoutModelAccount(request.provider), reportError, false)
 }
 
 export const desktopSettingsRouteConstants = Object.freeze({

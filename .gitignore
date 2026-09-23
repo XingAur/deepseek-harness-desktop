@@ -24,3 +24,9 @@ dsh-community-market/lib/
 dist-local*/
 dist-e2e/
 dist2/
+
+# Local skill workspaces and extracted history data (not product code)
+.dsh/
+ecommerce-automation/
+dfhis-history/
+scripts/extract_dfhis_history.py

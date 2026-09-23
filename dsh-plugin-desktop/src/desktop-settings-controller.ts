@@ -7,6 +7,9 @@ import type {
 import type { DesktopProfileSummary } from './profile-manager.ts'
 import type { DesktopProfiles } from './profile-service.ts'
 import type {
+  DesktopAccountsListResponse,
+  DesktopAccountsMutationResponse,
+  DesktopModelSyncResponse,
   DesktopMarketSelectResponse,
   DesktopDeveloperToolsToggleResponse,
   DesktopDiagnosticsExportResponse,
@@ -68,6 +71,18 @@ export interface DesktopSettingsControllerBootstrap {
   writeMcp?(servers: readonly DesktopMcpServerState[]): Promise<void>
   /** Probe one MCP row with a real handshake; absent when MCP is not mounted. */
   probeMcp?(input: DesktopMcpTestRequest): Promise<DesktopMcpTestResponse>
+  /** Read the model-account library; absent when no credentials service is mounted. */
+  readAccounts?(): Promise<DesktopAccountsListResponse>
+  /** Start one background native sign-in that joins the model-account library. */
+  addModelAccount?(provider: string): void
+  /** Activate one saved account, demoting the active one into its slot. */
+  switchModelAccount?(provider: string, account: string): Promise<string>
+  /** Delete one saved account from the model-account library. */
+  removeModelAccount?(provider: string, account: string): Promise<string>
+  /** Delete the active credential of one provider. */
+  logoutModelAccount?(provider: string): Promise<void>
+  /** Sync live provider model catalogs into settings; absent when unmounted. */
+  syncModels?(): Promise<DesktopModelSyncResponse>
 }
 
 /** A persisted response plus work that must run only after `res.end()`. */
@@ -256,6 +271,74 @@ export class DesktopSettingsController {
       throw new Error('desktop MCP state is not mounted')
     }
     return this.bootstrap.probeMcp(request)
+  }
+
+  /** Read the model-account library, or an unavailable projection when not mounted. */
+  async listAccounts(): Promise<DesktopAccountsListResponse> {
+    if (this.bootstrap.readAccounts === undefined) {
+      return Object.freeze({ available: false, providers: Object.freeze([]) })
+    }
+    const value = await this.bootstrap.readAccounts()
+    return Object.freeze({
+      available: value.available,
+      providers: Object.freeze(value.providers.map(provider => Object.freeze({
+        ...provider,
+        saved: Object.freeze([...provider.saved]),
+      }))),
+    })
+  }
+
+  /**
+   * Start one background native OAuth sign-in that joins the library; the
+   * native dialogs report the outcome while the renderer polls the listing.
+   */
+  async addModelAccount(provider: string): Promise<DesktopAccountsMutationResponse> {
+    if (this.bootstrap.addModelAccount === undefined) {
+      throw new Error('model accounts are not mounted')
+    }
+    this.bootstrap.addModelAccount(provider)
+    return Object.freeze({ accepted: true, restartRecommended: false })
+  }
+
+  /** Activate one saved account; the launcher recommends a restart afterwards. */
+  async switchModelAccount(provider: string, account: string): Promise<DesktopAccountsMutationResponse> {
+    if (this.bootstrap.switchModelAccount === undefined) {
+      throw new Error('model accounts are not mounted')
+    }
+    await this.bootstrap.switchModelAccount(provider, account)
+    return Object.freeze({ accepted: true, restartRecommended: true })
+  }
+
+  /** Delete one saved account from the library. */
+  async removeModelAccount(provider: string, account: string): Promise<DesktopAccountsMutationResponse> {
+    if (this.bootstrap.removeModelAccount === undefined) {
+      throw new Error('model accounts are not mounted')
+    }
+    await this.bootstrap.removeModelAccount(provider, account)
+    return Object.freeze({ accepted: true, restartRecommended: false })
+  }
+
+  /** Delete the active credential; the launcher recommends a restart afterwards. */
+  async logoutModelAccount(provider: string): Promise<DesktopAccountsMutationResponse> {
+    if (this.bootstrap.logoutModelAccount === undefined) {
+      throw new Error('model accounts are not mounted')
+    }
+    await this.bootstrap.logoutModelAccount(provider)
+    return Object.freeze({ accepted: true, restartRecommended: true })
+  }
+
+  /** Sync live model catalogs into provider settings; absent when not mounted. */
+  async syncModels(): Promise<DesktopModelSyncResponse> {
+    if (this.bootstrap.syncModels === undefined) {
+      return Object.freeze({ results: [] })
+    }
+    const value = await this.bootstrap.syncModels()
+    return Object.freeze({
+      results: Object.freeze(value.results.map(result => Object.freeze({
+        ...result,
+        discovered: Object.freeze([...result.discovered]),
+      }))),
+    })
   }
 
   /** Acknowledge the renderer before queueing an orderly Desktop relaunch. */

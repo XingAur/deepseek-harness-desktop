@@ -89,6 +89,10 @@ desktop sidebar surface 会把上游 sidebar-fill token 局部设为透明，因
 
 在 macOS 上，增强窗口恢复最初的 hidden-inset 几何：红绿灯位于 `x=16, y=16`，内容使用紧凑的 20 CSS 像素 inset，原生拖拽区域为 32 CSS 像素。其 90 CSS 像素收起列会把官方 56 像素 rail 居中放在该紧凑 inset 下方，并继续支持可选的原生 `sidebar` vibrancy。按钮、链接、输入框、可编辑字段、菜单、标签页、开关、对话框与显式 `.dshDesktopNoDrag` contribution 会通过精确的 `app-region: no-drag` 排除规则保持可交互。在 Windows 上，官方 sidebar 保持兼容模式几何：收起 56 像素、默认展开 280 像素，并沿用相同的上游过渡行为；透明 surface 会透出当前系统支持且用户选择的材质。增强窗口保留最初的 32 CSS 像素内部 caption row 与原生 overlay 控件；这套几何与兼容/扩展模式的 36 像素独立 frame 无关。Linux 会拒绝增强模式，而不会静默降级到与持久化设置不同的呈现。
 
+## 复制上下文到其他 AI
+
+所有 Desktop 模式的当前会话标题栏都提供“复制上下文到其他 AI”。操作先显示可编辑预览，只包含最近已加载、以追加方式记录的用户和助手文本（最多 30 条、12,000 个文本字符）；不会包含注入指令、工具调用、推理、附件或替换记录。历史不完整时会提示，用户必须检查并明确点击复制，才能粘贴到其他产品。这不是深度链接，不会授予外部产品 DSH 访问权，也不能转移原生会话状态或工具。
+
 ## 开发
 
 该包由仓库根目录的 Yarn workspace 管理。相邻的 `deepseek-harness/` checkout 仍是独立的上游 pnpm 项目，不属于 Yarn workspace。请从仓库根目录安装并验证 DSH Desktop：

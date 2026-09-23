@@ -23,6 +23,7 @@ export default defineConfig({
         recovery: resolve(uiRoot, 'recovery.html'),
         'profile-create': resolve(uiRoot, 'profile-create.html'),
         'remote-pairing': resolve(uiRoot, 'remote-pairing.html'),
+        'task-editor': resolve(uiRoot, 'task-editor.html'),
         mobile: resolve(uiRoot, 'mobile.html'),
         'model-diagnostics': resolve(uiRoot, 'model-diagnostics.html'),
         'profile-selector': resolve(uiRoot, 'profile-selector.html'),

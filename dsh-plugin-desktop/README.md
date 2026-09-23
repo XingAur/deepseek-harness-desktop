@@ -89,6 +89,10 @@ The desktop sidebar surface scopes the upstream sidebar-fill token to transparen
 
 On macOS the enhanced window uses its original hidden-inset geometry: traffic lights at `x=16, y=16`, a compact 20 CSS-pixel content inset, and a 32 CSS-pixel native drag region. Its 90 CSS-pixel collapsed column centers the official 56-pixel rail below that compact inset, while optional native `sidebar` vibrancy remains available. Buttons, links, inputs, editable fields, menus, tabs, switches, dialogs, and explicit `.dshDesktopNoDrag` contributions remain interactive through precise `app-region: no-drag` exclusions. On Windows the official sidebar keeps compatibility geometry: 56 pixels collapsed, 280 pixels by default when expanded, and the same upstream transition behavior, while its transparent surface reveals the selected supported material. The enhanced window keeps its original 32 CSS-pixel internal caption row and native overlay controls; this geometry is independent from the 36-pixel compatibility/extended frame. Linux rejects enhanced mode rather than silently falling back to a presentation different from the persisted setting.
 
+## Copy context to another AI
+
+The active Session header offers **Copy context for another AI** in all Desktop modes. It opens an editable preview of recent loaded, appended human and assistant text (at most 30 messages and 12,000 text characters). It omits injected instructions, tool calls, reasoning, attachments, and replacement records. A warning marks incomplete history; the user must review and explicitly copy the text before pasting it elsewhere. This is not a deep link, does not grant access to DSH, and cannot carry native Session state or tools into another AI product.
+
 ## Development
 
 This package is managed by the Yarn workspace at the repository root. The sibling `deepseek-harness/` checkout remains an independent upstream pnpm project and is not part of the Yarn workspace. Install and verify DSH Desktop from the repository root:

@@ -148,6 +148,9 @@ try {
     show() {},
     async requestRestart() {},
     prepareToQuit() {},
+    registerTrayItem() {
+      return { dispose() {} }
+    },
   }
   ctx = await boot(
     BIN_NAME,

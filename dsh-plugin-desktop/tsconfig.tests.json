@@ -7,8 +7,10 @@
   },
   "include": ["scripts/**/*.ts", "src/*.ts", "tests/**/*.ts", "tests/**/*.tsx"],
   "exclude": [
+    "tests/client-accounts-settings.spec.ts",
     "tests/client-boot-health.spec.ts",
     "tests/client-desktop-settings.spec.ts",
+    "tests/client-scheduler-entry.spec.ts",
     "tests/client-proxy-settings.spec.ts",
     "tests/client-environment.spec.ts",
     "tests/client-layout-service.spec.ts",

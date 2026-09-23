@@ -17,6 +17,7 @@ export default defineConfig([
       profiles: 'src/profiles.ts',
       diagnostics: 'src/diagnostics.ts',
       notifications: 'src/notifications.ts',
+      scheduler: 'src/scheduler/index.ts',
       'diagnostic-export-worker': 'src/diagnostic-export-worker.ts',
       'packaged-runtime-smoke': 'src/packaged-runtime-smoke.ts',
       runtime: 'src/runtime.ts',
@@ -40,6 +41,7 @@ export default defineConfig([
     dts: false,
     clean: false,
     sourcemap: true,
+    external: ['@earendil-works/pi-ai/providers/all'],
   },
   {
     name: `${PACKAGE_NAME}/bin`,

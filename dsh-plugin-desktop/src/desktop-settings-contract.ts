@@ -352,6 +352,85 @@ export interface DesktopUpdateDownloadResponse {
   readonly accepted: boolean
 }
 
+/** Stable API path listing every provider's active and saved model accounts. */
+export const DESKTOP_ACCOUNTS_LIST_PATH = '/api/desktop/accounts'
+
+/** Stable API path starting one native OAuth sign-in that joins the account library. */
+export const DESKTOP_ACCOUNTS_ADD_PATH = '/api/desktop/accounts/add'
+
+/** Stable API path activating one saved account. */
+export const DESKTOP_ACCOUNTS_SWITCH_PATH = '/api/desktop/accounts/switch'
+
+/** Stable API path deleting one saved account. */
+export const DESKTOP_ACCOUNTS_REMOVE_PATH = '/api/desktop/accounts/remove'
+
+/** Stable API path deleting the active credential of one provider. */
+export const DESKTOP_ACCOUNTS_LOGOUT_PATH = '/api/desktop/accounts/logout'
+
+/** One saved (not active) account, addressed by its library slot id. */
+export interface DesktopModelAccountView {
+  /** Library slot id, such as `xai-acct-1`; the mutation address. */
+  readonly id: string
+  /** Best-effort display label; derived from the grant, never stored. */
+  readonly label: string
+}
+
+/** Renderer-safe projection of one provider's model accounts. */
+export interface DesktopAccountsProviderView {
+  /** The catalog provider route, such as `xai`. */
+  readonly provider: string
+  /** Provider display label from the authorization flow when mounted. */
+  readonly label: string
+  /** Display label of the active account, or `null` while signed out. */
+  readonly activeLabel: string | null
+  /** Whether an OAuth sign-in attempt for this provider is running. */
+  readonly inFlight: boolean
+  /** Saved accounts waiting in the library, ordered by slot number. */
+  readonly saved: readonly DesktopModelAccountView[]
+}
+
+/** Renderer-safe model-account listing; payloads and tokens never appear. */
+export interface DesktopAccountsListResponse {
+  /** Whether the running composition mounts the model-account capability. */
+  readonly available: boolean
+  readonly providers: readonly DesktopAccountsProviderView[]
+}
+
+/** Exact body accepted by every model-account mutation endpoint. */
+export interface DesktopAccountsMutationRequest {
+  /** The catalog provider route, such as `xai`. */
+  readonly provider: string
+  /** The saved slot id; required by switch and remove, absent for add and logout. */
+  readonly account?: string
+}
+
+/** Renderer-safe outcome of one model-account mutation. */
+export interface DesktopAccountsMutationResponse {
+  readonly accepted: boolean
+  /** Whether the launcher recommends an orderly restart after this change. */
+  readonly restartRecommended: boolean
+}
+
+/** Stable API path syncing live model catalogs into settings. */
+export const DESKTOP_MODEL_SYNC_PATH = '/api/desktop/models/sync'
+
+/** Renderer-safe outcome of one provider's live catalog sync. */
+export interface DesktopModelSyncProviderResult {
+  /** The catalog provider route, such as `xai`. */
+  readonly provider: string
+  /** `ok` when the listing merged, `error` on failure, `skipped` when idle. */
+  readonly status: 'ok' | 'error' | 'skipped'
+  /** Model ids newly added to the route's settings profile. */
+  readonly discovered: readonly string[]
+  /** Failure or skip reason, renderer-safe. */
+  readonly detail?: string
+}
+
+/** Renderer-safe outcome of one whole-catalog sync run. */
+export interface DesktopModelSyncResponse {
+  readonly results: readonly DesktopModelSyncProviderResult[]
+}
+
 export interface DesktopSettingsErrorResponse {
   readonly error: string
 }

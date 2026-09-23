@@ -3,18 +3,22 @@
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
+import { DesktopAccountsSection } from './DesktopAccountsSection.tsx'
 import { DesktopMcpSection } from './DesktopMcpSection.tsx'
 import { DesktopProviderCardExtras } from './DesktopProviderCardExtras.tsx'
 import { DesktopProxySection } from './DesktopProxySection.tsx'
+import { DesktopSchedulerSection } from './DesktopSchedulerSection.tsx'
 import { DesktopSettingsSection, type DesktopNotificationSettings, type DesktopShellSettings } from './DesktopSettingsSection.tsx'
 import { DesktopSkillsSection } from './DesktopSkillsSection.tsx'
 import { DesktopTerminalSettingsAction } from './DesktopTerminalSettingsAction.tsx'
 import { createDesktopSettingsApi } from './desktop-settings-api.ts'
+import { en as accountsEn, zh as accountsZh, type DesktopAccountsLocaleKey } from './desktop-accounts-locales.ts'
 import { en, zh, type DesktopSettingsLocaleKey } from './desktop-settings-locales.ts'
 import { en as skillsEn, zh as skillsZh, type DesktopSkillsLocaleKey } from './desktop-skills-locales.ts'
 import { en as mcpEn, zh as mcpZh, type DesktopMcpLocaleKey } from './desktop-mcp-locales.ts'
 import { en as modelEn, zh as modelZh, type DesktopModelLocaleKey } from './desktop-model-locales.ts'
 import { en as proxyEn, zh as proxyZh, type DesktopProxyLocaleKey } from './desktop-proxy-locales.ts'
+import { en as schedulerEn, zh as schedulerZh, type DesktopSchedulerLocaleKey } from './desktop-scheduler-locales.ts'
 import { installDesktopSettingsStyles } from './desktop-settings-styles.ts'
 import type { DesktopClientEnvironment } from './environment.ts'
 
@@ -30,8 +34,14 @@ export const DESKTOP_MCP_LOCALE_NAMESPACE = 'desktop.mcp'
 /** Locale namespace owned by the Desktop Model settings page. */
 export const DESKTOP_MODEL_LOCALE_NAMESPACE = 'desktop.model'
 
+/** Locale namespace owned by the Desktop model-account settings page. */
+export const DESKTOP_ACCOUNTS_LOCALE_NAMESPACE = 'desktop.accounts'
+
 /** Locale namespace owned by the Desktop proxy settings page. */
 export const DESKTOP_PROXY_LOCALE_NAMESPACE = 'desktop.proxy'
+
+/** Locale namespace owned by the Desktop scheduler settings page. */
+export const DESKTOP_SCHEDULER_LOCALE_NAMESPACE = 'desktop.scheduler'
 
 /** Host settings namespaces bound through the standard client settings service. */
 export const DESKTOP_SHELL_SETTINGS_NAMESPACE = 'dsh-desktop'
@@ -76,8 +86,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'desktop.mcp': DesktopMcpLocaleKey
     /** Desktop-only Model settings page copy. */
     'desktop.model': DesktopModelLocaleKey
+    /** Desktop-only model-account settings page copy. */
+    'desktop.accounts': DesktopAccountsLocaleKey
     /** Desktop-only Proxy settings page copy. */
     'desktop.proxy': DesktopProxyLocaleKey
+    /** Desktop-only scheduler settings page copy. */
+    'desktop.scheduler': DesktopSchedulerLocaleKey
   }
 }
 
@@ -97,7 +111,9 @@ export function applyDesktopSettings(
   const skillsT = ctx.locale.bind(DESKTOP_SKILLS_LOCALE_NAMESPACE)
   const mcpT = ctx.locale.bind(DESKTOP_MCP_LOCALE_NAMESPACE)
   const modelT = ctx.locale.bind(DESKTOP_MODEL_LOCALE_NAMESPACE)
+  const accountsT = ctx.locale.bind(DESKTOP_ACCOUNTS_LOCALE_NAMESPACE)
   const proxyT = ctx.locale.bind(DESKTOP_PROXY_LOCALE_NAMESPACE)
+  const schedulerT = ctx.locale.bind(DESKTOP_SCHEDULER_LOCALE_NAMESPACE)
   const setMode = async (mode: DesktopShellSettings['mode']): Promise<void> => {
     await persistDesktopModeSelection(desktopSettings, mode)
   }
@@ -119,8 +135,16 @@ export function applyDesktopSettings(
     'dsh-plugin-desktop: model settings dictionaries',
   )
   ctx.effect(
+    () => ctx.locale.register(DESKTOP_ACCOUNTS_LOCALE_NAMESPACE, { zh: accountsZh, en: accountsEn }),
+    'dsh-plugin-desktop: account settings dictionaries',
+  )
+  ctx.effect(
     () => ctx.locale.register(DESKTOP_PROXY_LOCALE_NAMESPACE, { zh: proxyZh, en: proxyEn }),
     'dsh-plugin-desktop: proxy settings dictionaries',
+  )
+  ctx.effect(
+    () => ctx.locale.register(DESKTOP_SCHEDULER_LOCALE_NAMESPACE, { zh: schedulerZh, en: schedulerEn }),
+    'dsh-plugin-desktop: scheduler settings dictionaries',
   )
   ctx.effect(
     () => installDesktopSettingsStyles(),
@@ -157,12 +181,28 @@ export function applyDesktopSettings(
   }, DesktopProviderCardExtras as never))
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
+    id: 'accounts',
+    order: 96,
+    label: () => accountsT('nav'),
+    locale: DESKTOP_ACCOUNTS_LOCALE_NAMESPACE,
+    inject: () => ({ api }),
+  }, DesktopAccountsSection))
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
     id: 'proxy',
     order: 98,
     label: () => proxyT('nav'),
     locale: DESKTOP_PROXY_LOCALE_NAMESPACE,
     inject: () => ({ api, desktopSettings }),
   }, DesktopProxySection))
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: 'scheduler',
+    order: 97,
+    label: () => schedulerT('nav'),
+    locale: DESKTOP_SCHEDULER_LOCALE_NAMESPACE,
+    inject: () => ({}),
+  }, DesktopSchedulerSection))
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
     id: 'desktop',
