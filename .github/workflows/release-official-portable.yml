@@ -57,6 +57,9 @@ jobs:
           test "$RELEASE_TAG" = "$expected" || { echo "release_tag must equal $expected" >&2; exit 1; }
           if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' >/tmp/release-draft 2>/dev/null; then
             test "$(cat /tmp/release-draft)" = true || { echo 'existing release is already published' >&2; exit 1; }
+            gh api "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" --method PATCH -f sha="$GITHUB_SHA" -F force=true >/dev/null
+            release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --jq '.id')
+            gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --method PATCH -f target_commitish="$GITHUB_SHA" >/dev/null
           else
             gh release create "$RELEASE_TAG" --draft --prerelease --target "$GITHUB_SHA" \
               --title "Official DSH Portable $BUILD_VERSION" \
