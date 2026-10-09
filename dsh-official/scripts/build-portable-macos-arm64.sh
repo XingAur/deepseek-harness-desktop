@@ -73,13 +73,35 @@ if [[ -d "$ASAR.unpacked" ]]; then "$NODE_BIN" "$ROOT/scripts/sanitize-portable-
 /usr/bin/codesign --verify --deep --strict "$APP"
 
 ZIP="$DIST/deepseek-harness-overlay-${BUILD_VERSION}-mac-arm64-adhoc-manual.zip"
-rm -f "$ZIP" "$ZIP.sha256" "$ZIP.build.json"
+DMG="$DIST/deepseek-harness-overlay-${BUILD_VERSION}-mac-arm64-adhoc-manual.dmg"
+DMG_STAGE="$STAGE/apps/desktop/.desktop-build/portable-dmg"
+rm -f "$ZIP" "$ZIP.sha256" "$ZIP.build.json" "$DMG" "$DMG.sha256" "$DMG.build.json"
+rm -rf "$DMG_STAGE"
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
-METADATA="$($NODE_BIN "$ROOT/scripts/write-portable-metadata.mjs" "$ZIP" "$STAGE/packages/external/overlay-custom" "$OFFICIAL_SHA" "$OFFICIAL_VERSION" "$BUILD_VERSION" darwin arm64 ad-hoc)"
-SHA256="$(printf '%s\n' "$METADATA" | tail -n 1)"
+(
+  cd "$STAGE/apps/desktop"
+  set -a
+  source .env.macos
+  set +a
+  DSH_DESKTOP_TARGET_PLATFORM=darwin DSH_DESKTOP_TARGET_ARCH=arm64 DSH_DESKTOP_UNSIGNED=1 \
+    $PNPM exec electron-builder --config electron-builder.config.mjs --mac dmg --arm64 --publish never \
+      --prepackaged "$APP" --config.directories.output "$DMG_STAGE" --config.mac.notarize=false
+)
+DMG_COUNT="$(find "$DMG_STAGE" -maxdepth 1 -type f -name '*.dmg' | wc -l | tr -d ' ')"
+if [[ "$DMG_COUNT" != 1 ]]; then
+  echo "portable build: expected exactly one DMG in $DMG_STAGE" >&2
+  exit 1
+fi
+DMG_SOURCE="$(find "$DMG_STAGE" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+mv "$DMG_SOURCE" "$DMG"
+/usr/bin/hdiutil verify "$DMG"
+ZIP_METADATA="$($NODE_BIN "$ROOT/scripts/write-portable-metadata.mjs" "$ZIP" "$STAGE/packages/external/overlay-custom" "$OFFICIAL_SHA" "$OFFICIAL_VERSION" "$BUILD_VERSION" darwin arm64 ad-hoc)"
+DMG_METADATA="$($NODE_BIN "$ROOT/scripts/write-portable-metadata.mjs" "$DMG" "$STAGE/packages/external/overlay-custom" "$OFFICIAL_SHA" "$OFFICIAL_VERSION" "$BUILD_VERSION" darwin arm64 ad-hoc)"
+ZIP_SHA256="$(printf '%s\n' "$ZIP_METADATA" | tail -n 1)"
+DMG_SHA256="$(printf '%s\n' "$DMG_METADATA" | tail -n 1)"
 
 if [[ -n "$(git -C "$OFFICIAL" status --short)" ]] || [[ "$(git -C "$OFFICIAL" rev-parse HEAD)" != "$OFFICIAL_SHA" ]]; then
   echo "portable build: official checkout changed during staging" >&2
   exit 1
 fi
-printf 'portable app: %s\nmanual update ZIP: %s\nSHA-256: %s\n' "$APP" "$ZIP" "$SHA256"
+printf 'portable app: %s\nmanual update ZIP: %s\nZIP SHA-256: %s\ninstaller DMG: %s\nDMG SHA-256: %s\n' "$APP" "$ZIP" "$ZIP_SHA256" "$DMG" "$DMG_SHA256"

@@ -63,7 +63,7 @@ jobs:
           else
             gh release create "$RELEASE_TAG" --draft --prerelease --target "$GITHUB_SHA" \
               --title "Official DSH Portable $BUILD_VERSION" \
-              --notes "Portable DeepSeek Harness based on the locked official source, with the local Overlay and MCP manager bundled. Windows is unsigned and macOS is ad-hoc signed; both use manual updates and are not added to an automatic-update feed."
+              --notes "Portable DeepSeek Harness based on the locked official source, with the local Overlay and MCP manager bundled. macOS provides both a DMG installer and ZIP archive. Windows is unsigned and macOS is ad-hoc signed; both use manual updates and are not added to an automatic-update feed."
           fi
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
@@ -154,7 +154,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(find dsh-official/dist -maxdepth 1 -type f | wc -l | tr -d ' ')" = 3
+          test "$(find dsh-official/dist -maxdepth 1 -type f | wc -l | tr -d ' ')" = 6
           gh release upload "$TAG" dsh-official/dist/* --clobber
 
   publish:
@@ -179,7 +179,11 @@ jobs:
             grep -Fx "$artifact.sha256" <<<"$assets"
             grep -Fx "$artifact.build.json" <<<"$assets"
           done
-          test "$(wc -l <<<"$assets" | tr -d ' ')" = 6
+          dmg="deepseek-harness-overlay-${BUILD_VERSION}-mac-arm64-adhoc-manual.dmg"
+          grep -Fx "$dmg" <<<"$assets"
+          grep -Fx "$dmg.sha256" <<<"$assets"
+          grep -Fx "$dmg.build.json" <<<"$assets"
+          test "$(wc -l <<<"$assets" | tr -d ' ')" = 9
       - name: Publish release
         if: inputs.publish
         env:
