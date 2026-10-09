@@ -154,7 +154,7 @@ replaceOnce(packageTarget,
   "  await execute(['run', 'build:official'], buildEnv, REPOSITORY_ROOT)\n  rmSync(join(REPOSITORY_ROOT, 'packages/external/overlay-custom/lib/types/index.js'), { force: true })\n  await execute(['run', 'release:pack', '--family', 'dsh', '--out', buildPaths.packedDsh, ...packArguments], buildEnv, REPOSITORY_ROOT)")
 replaceOnce(packageTarget,
   "  await execute(['run', 'prepare:dsh', ...(signPrimaryRuntime ? ['--defer-runtime-smoke'] : [])], downloadEnv)",
-  "  await execute(['run', 'prepare:dsh', ...(signPrimaryRuntime ? ['--defer-runtime-smoke'] : [])], downloadEnv)\n  sanitizePortableRuntimeShims(buildPaths.runtime)\n  sanitizePortableTextPaths(buildPaths.runtime, REPOSITORY_ROOT)\n  sanitizePortableTextPaths(join(APP_ROOT, 'lib'), REPOSITORY_ROOT)")
+  "  await execute(['run', 'prepare:dsh', ...(signPrimaryRuntime ? ['--defer-runtime-smoke'] : [])], downloadEnv)\n  sanitizePortableRuntimeShims(buildPaths.runtime)\n  sanitizePortableTextPaths(buildPaths.runtime, REPOSITORY_ROOT)\n  sanitizePortableTextPaths(join(APP_ROOT, 'lib'), REPOSITORY_ROOT)\n  if (process.env.DSH_PORTABLE_SOURCE_ROOT) {\n    sanitizePortableTextPaths(buildPaths.runtime, process.env.DSH_PORTABLE_SOURCE_ROOT)\n    sanitizePortableTextPaths(join(APP_ROOT, 'lib'), process.env.DSH_PORTABLE_SOURCE_ROOT)\n  }")
 replaceOnce(packageTarget,
   "    DSH_DESKTOP_TARGET_ARCH: target.arch,\n  }",
   "    DSH_DESKTOP_TARGET_ARCH: target.arch,\n    DSH_DESKTOP_UNSIGNED: invocation.unsigned ? '1' : '0',\n  }")

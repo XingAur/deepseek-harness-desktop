@@ -30,11 +30,13 @@ export PATH="$(dirname "$NODE_BIN"):/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/s
 export ELECTRON_MIRROR="${ELECTRON_MIRROR:-https://npmmirror.com/mirrors/electron/}"
 export DSH_GITHUB_ASSET_MIRROR="${DSH_GITHUB_ASSET_MIRROR-}"
 export DSH_PORTABLE_ALLOW_MAC_ARM64_CROSS=1
+export DSH_PORTABLE_SOURCE_ROOT="$ROOT"
 (cd "$OVERLAY" && npm ci && npm run bundle:host && npm run bundle:client && npm run check)
 
 rm -rf "$STAGE"
 mkdir -p "$STAGE" "$DIST"
 git -C "$OFFICIAL" archive HEAD | tar -x -C "$STAGE"
+printf 'gitdir: %s\n' "$OFFICIAL/.git" >"$STAGE/.git"
 "$NODE_BIN" "$ROOT/scripts/prepare-portable-stage.mjs" "$STAGE" "$OVERLAY"
 
 (cd "$STAGE" && $PNPM install --no-frozen-lockfile)

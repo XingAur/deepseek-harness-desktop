@@ -34,6 +34,7 @@ if ($OfficialSha -ne $Lock.commit -or $OfficialVersion -ne $Lock.version) {
 if (-not $BuildVersion) { $BuildVersion = "$OfficialVersion.$(Get-Date -Format yyyyMMdd).1" }
 if (-not $env:ELECTRON_MIRROR) { $env:ELECTRON_MIRROR = 'https://npmmirror.com/mirrors/electron/' }
 if (-not (Test-Path Env:DSH_GITHUB_ASSET_MIRROR)) { $env:DSH_GITHUB_ASSET_MIRROR = '' }
+$env:DSH_PORTABLE_SOURCE_ROOT = $Root
 
 Invoke-Checked npm @('ci') $Overlay
 Invoke-Checked npm @('run', 'bundle:host') $Overlay
@@ -47,6 +48,8 @@ try {
   Invoke-Checked git @('-C', $Official, 'archive', '-o', $Archive, 'HEAD') $Root
   Invoke-Checked tar.exe @('-xf', $Archive, '-C', $Stage) $Root
 } finally { Remove-Item $Archive -Force -ErrorAction SilentlyContinue }
+$GitDirectory = (Join-Path $Official '.git').Replace('\', '/')
+Set-Content (Join-Path $Stage '.git') "gitdir: $GitDirectory" -Encoding utf8NoBOM
 Invoke-Checked node @((Join-Path $Root 'scripts/prepare-portable-stage.mjs'), $Stage, $Overlay) $Root
 Invoke-Checked corepack @('pnpm', 'install', '--no-frozen-lockfile') $Stage
 Invoke-Checked corepack @('pnpm', 'run', 'bundle:host') (Join-Path $Stage 'packages/external/overlay-custom')
