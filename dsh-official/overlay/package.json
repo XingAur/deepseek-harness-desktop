@@ -18,8 +18,8 @@
   },
   "scripts": {
     "check": "node --experimental-strip-types --test scripts/check.ts",
-    "bundle:client": "esbuild src/client/index.ts --bundle --format=cjs --outfile=lib/client.js --jsx=automatic --external:react --external:react/jsx-runtime --external:react-dom --external:@deepseek-ai/cordis --external:@deepseek-ai/dsh-client-ui-slots --external:@deepseek-ai/dsh-client-ui-settings-models --external:@deepseek-ai/dsh-client-ui-settings-models/client --external:@deepseek-ai/dsh-client-ui-sidebar --external:@deepseek-ai/dsh-client-ui-sidebar/client --external:@deepseek-ai/dsh-client-ui-settings --external:@deepseek-ai/dsh-client-ui-settings/client --banner:js='window.__ModuleLoader__.load({id:\"dsh-overlay-custom\",factory:(require)=>{var module={exports:{}};var exports=module.exports;' --footer:js='return module.exports;}});'",
-    "bundle:host": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=lib/index.js --packages=external",
+    "bundle:client": "node scripts/bundle.mjs client",
+    "bundle:host": "node scripts/bundle.mjs host",
     "bundle": "pnpm run bundle:host && pnpm run bundle:client"
   },
   "dsh": {

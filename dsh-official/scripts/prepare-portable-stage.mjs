@@ -40,7 +40,6 @@ delete overlayManifest.private
 overlayManifest.description = 'Portable custom features for the local DeepSeek Harness desktop build'
 overlayManifest.files = ['cordis.patch.yml', 'public', 'lib']
 overlayManifest.dependencies = { ...overlayManifest.dependencies, '@deepseek-ai/dsh-mcp-client': 'workspace:*' }
-overlayManifest.scripts['bundle:client'] = overlayManifest.scripts['bundle:client'].replace('id:"dsh-overlay-custom"', 'id:"@deepseek-ai/dsh-overlay-custom"')
 writeJson(overlayManifestPath, overlayManifest)
 mkdirSync(join(stagedOverlay, 'lib', 'types'), { recursive: true })
 writeFileSync(join(stagedOverlay, 'lib', 'types', 'index.js'), "export * from '../../src/index.ts'\n")
