@@ -11,7 +11,8 @@ $Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $Official = Join-Path $Root 'deepseek-harness'
 $Overlay = Join-Path $Root 'overlay'
 $Lock = Get-Content (Join-Path $Root 'official-lock.json') -Raw | ConvertFrom-Json
-$Stage = Join-Path $Root '.portable-stage/windows-x64'
+$StageBase = if ($env:DSH_PORTABLE_STAGE_ROOT) { $env:DSH_PORTABLE_STAGE_ROOT } elseif ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { Join-Path $Root '.portable-stage' }
+$Stage = Join-Path $StageBase 'dsh-win-x64'
 $Dist = Join-Path $Root 'dist'
 
 function Invoke-Checked {
