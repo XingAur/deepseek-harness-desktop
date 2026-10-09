@@ -29,6 +29,7 @@ BUILD_VERSION="${DSH_PORTABLE_BUILD_VERSION:-${OFFICIAL_VERSION}.$(TZ=Asia/Shang
 export PATH="$(dirname "$NODE_BIN"):/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export ELECTRON_MIRROR="${ELECTRON_MIRROR:-https://npmmirror.com/mirrors/electron/}"
 export DSH_GITHUB_ASSET_MIRROR="${DSH_GITHUB_ASSET_MIRROR-}"
+export DSH_PORTABLE_ALLOW_MAC_ARM64_CROSS=1
 (cd "$OVERLAY" && npm ci && npm run bundle:host && npm run bundle:client && npm run check)
 
 rm -rf "$STAGE"

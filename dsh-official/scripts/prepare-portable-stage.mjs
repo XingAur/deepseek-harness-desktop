@@ -162,6 +162,9 @@ replaceOnce(packageTarget,
   "  if (values.unsigned && name !== 'win-x64') throw new Error('desktop package: --unsigned requires win-x64')",
   "  if (values.unsigned && name !== 'win-x64' && name !== 'mac-arm64') throw new Error('desktop package: --unsigned requires win-x64 or mac-arm64')")
 replaceOnce(packageTarget,
+  "  if (name === 'mac-arm64' && hostArch !== 'arm64') {\n    throw new Error('desktop package: mac-arm64 requires an Apple Silicon build host')\n  }",
+  "  if (name === 'mac-arm64' && hostArch !== 'arm64' && process.env.DSH_PORTABLE_ALLOW_MAC_ARM64_CROSS !== '1') {\n    throw new Error('desktop package: mac-arm64 requires an Apple Silicon build host')\n  }")
+replaceOnce(packageTarget,
   "    if (target.platform === 'darwin') {\n      const settings = resolveMacOSPackageSettings(environment)",
   "    if (target.platform === 'darwin' && !invocation.unsigned) {\n      const settings = resolveMacOSPackageSettings(environment)")
 replaceOnce(packageTarget,

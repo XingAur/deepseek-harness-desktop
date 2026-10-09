@@ -33,7 +33,7 @@ pwsh -File dsh-official/scripts/build-portable-windows-x64.ps1           # Windo
 
 便携构建产物写入 `dsh-official/dist/`，包含 ZIP、SHA-256 文件和构建来源记录。macOS 包仅做 ad-hoc 签名，没有付费 Developer ID 签名或公证；首次打开可能需要 Finder 右键“打开”，或在确认 ZIP 来源后执行 `xattr -dr com.apple.quarantine '/Applications/DeepSeek Harness.app'`。Windows 包未签名，首次启动可能显示 SmartScreen，解压后入口为 `DeepSeek Harness.exe`。两种包都使用手工更新，不得放入官方自动更新 feed。
 
-GitHub Actions 的 `Release Official DSH Portable` 工作流从 `official-lock.json` 获取官网仓库和提交，在原生 Windows x64 与 macOS ARM64 runner 上分别构建，然后把 ZIP、校验文件和构建记录直接上传到独立的 `official-v*` GitHub Release。工作流不需要 Apple 或 Windows 付费签名凭据；正式发布的 Release 会标记为 prerelease，避免被误认为官网签名发行版。
+GitHub Actions 的 `Release Official DSH Portable` 工作流从 `official-lock.json` 获取官网仓库和提交，在 Windows x64 与 macOS runner 上分别构建 Windows x64 和 macOS ARM64 包，然后把 ZIP、校验文件和构建记录直接上传到独立的 `official-v*` GitHub Release。工作流不需要 Apple 或 Windows 付费签名凭据；正式发布的 Release 会标记为 prerelease，避免被误认为官网签名发行版。
 
 GitHub 直连不可用时，可显式选择可信的加速地址：`DSH_OFFICIAL_FETCH_URL=<git-url> bash dsh-official/scripts/update-official.sh`。更新仍写入 `origin/master` 并只接受快进。
 

@@ -110,7 +110,7 @@ jobs:
 
   build-macos:
     needs: prepare
-    runs-on: macos-15-arm64
+    runs-on: macos-15
     timeout-minutes: 120
     permissions:
       contents: write
@@ -124,8 +124,8 @@ jobs:
           cache: npm
           cache-dependency-path: dsh-official/overlay/package-lock.json
       - run: corepack enable
-      - name: Require Apple Silicon runner
-        run: node -e "if (process.platform !== 'darwin' || process.arch !== 'arm64') process.exit(1)"
+      - name: Require macOS runner
+        run: node -e "if (process.platform !== 'darwin') process.exit(1)"
       - name: Check out locked official source
         shell: bash
         run: |
