@@ -177,11 +177,11 @@ test('phone page only calls routes the overlay host registers', () => {
 })
 
 test('does not move the 2.0.x harness pin', () => {
-  const pin = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
-    cwd: join(overlayRoot, '..', '..', 'deepseek-harness'),
+  const row = execFileSync('git', ['ls-tree', 'HEAD', 'deepseek-harness'], {
+    cwd: join(overlayRoot, '..', '..'),
     encoding: 'utf8',
   }).trim()
-  assert.equal(pin, '82a5fd61a7')
+  assert.match(row, /^160000 commit 82a5fd61a7[0-9a-f]+\tdeepseek-harness$/u)
 })
 
 test('oauth login keys stay on the official llm-pi-ai record addresses', () => {
