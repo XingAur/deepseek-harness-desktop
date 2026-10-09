@@ -58,7 +58,17 @@ if [[ ! -d "$APP" ]]; then
   echo "portable build: expected app missing: $APP" >&2
   exit 1
 fi
-"$NODE_BIN" "$ROOT/scripts/verify-portable-paths.mjs" "$APP/Contents/Resources" "$ROOT"
+ASAR="$APP/Contents/Resources/app.asar"
+ASAR_CLI="$STAGE/node_modules/.pnpm/node_modules/.bin/asar"
+ASAR_TREE="$STAGE/.asar-sanitize"
+rm -rf "$ASAR_TREE"
+"$ASAR_CLI" extract "$ASAR" "$ASAR_TREE"
+"$NODE_BIN" "$ROOT/scripts/sanitize-portable-paths.mjs" "$ASAR_TREE" "$ROOT" "$STAGE"
+"$ASAR_CLI" pack "$ASAR_TREE" "$ASAR.sanitized"
+mv "$ASAR.sanitized" "$ASAR"
+rm -rf "$ASAR_TREE"
+if [[ -d "$ASAR.unpacked" ]]; then "$NODE_BIN" "$ROOT/scripts/sanitize-portable-paths.mjs" "$ASAR.unpacked" "$ROOT" "$STAGE"; fi
+"$NODE_BIN" "$ROOT/scripts/verify-portable-paths.mjs" "$APP/Contents/Resources" "$ROOT" "$STAGE"
 /usr/bin/codesign --force --deep --sign - --preserve-metadata=entitlements,requirements,flags "$APP"
 /usr/bin/codesign --verify --deep --strict "$APP"
 

@@ -75,6 +75,17 @@ $Resources = Join-Path $App 'resources'
 if (-not (Test-Path (Join-Path $App 'DeepSeek Harness.exe')) -or -not (Test-Path (Join-Path $Resources 'app.asar'))) {
   throw "portable build: expected unpacked application missing: $App"
 }
+$Asar = Join-Path $Resources 'app.asar'
+$AsarCommand = Join-Path $Stage 'node_modules/.pnpm/node_modules/.bin/asar.cmd'
+$AsarTree = Join-Path $Stage '.asar-sanitize'
+Remove-Item $AsarTree -Recurse -Force -ErrorAction SilentlyContinue
+Invoke-Checked $AsarCommand @('extract', $Asar, $AsarTree) $Stage
+Invoke-Checked node @((Join-Path $Root 'scripts/sanitize-portable-paths.mjs'), $AsarTree, $Root, $Stage) $Root
+Invoke-Checked $AsarCommand @('pack', $AsarTree, "$Asar.sanitized") $Stage
+Move-Item "$Asar.sanitized" $Asar -Force
+Remove-Item $AsarTree -Recurse -Force
+$AsarUnpacked = "$Asar.unpacked"
+if (Test-Path $AsarUnpacked) { Invoke-Checked node @((Join-Path $Root 'scripts/sanitize-portable-paths.mjs'), $AsarUnpacked, $Root, $Stage) $Root }
 Invoke-Checked node @((Join-Path $Root 'scripts/verify-portable-paths.mjs'), $Resources, $Root, $Stage) $Root
 
 $Zip = Join-Path $Dist "deepseek-harness-overlay-$BuildVersion-win-x64-unsigned-manual.zip"
