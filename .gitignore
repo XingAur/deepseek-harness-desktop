@@ -25,6 +25,13 @@ dist-local*/
 dist-e2e/
 dist2/
 
+# Isolated official master checkout for the overlay line (not the 2.0.x pin)
+dsh-official/deepseek-harness/
+dsh-official/.cache/
+dsh-official/.portable-stage/
+dsh-official/dist/
+.pnpm-store/
+
 # Local skill workspaces and extracted history data (not product code)
 .dsh/
 ecommerce-automation/

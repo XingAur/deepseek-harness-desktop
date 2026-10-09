@@ -1,0 +1,4 @@
+# Loaded by the official desktop profile. Do not patch apps/desktop source.
+- insert:
+    - id: overlay-custom
+      name: dsh-overlay-custom
