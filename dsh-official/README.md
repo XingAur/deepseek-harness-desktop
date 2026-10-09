@@ -9,7 +9,7 @@
 
 以后换官网版本只允许：
 
-1. 首次用 `bash dsh-official/scripts/bootstrap.sh` 克隆官网 `master`；以后只运行 `bash dsh-official/scripts/update-official.sh` 快进到官网最新提交
+1. 首次用 `bash dsh-official/scripts/bootstrap.sh` 克隆官网 `master`；以后只运行 `bash dsh-official/scripts/update-official.sh` 快进到官网最新提交；准备发行时把已验证提交和版本写入 `official-lock.json`，本地与 GitHub 远程构建都只接受该锁定版本
 2. 先退出 Harness Dev；更新脚本只接受干净工作树和 `--ff-only` 快进，**不准**在官方树里改文件、打补丁、cherry-pick 你的功能
 3. 定制只在 `dsh-official/overlay/` 和 `dsh-official/scripts/`
 4. 仓库根上的 `deepseek-harness`（2.0.x pin `82a5fd61a7`）**不准动**
@@ -27,10 +27,13 @@ bash dsh-official/scripts/bootstrap.sh          # 首次克隆官网 master
 bash dsh-official/scripts/update-official.sh    # 以后快进更新、安装依赖并构建
 bash dsh-official/scripts/start-official.sh     # 启动已有构建
 DSH_HOME=$HOME/.dsh-official-dev bash dsh-official/scripts/install-overlay.sh # 仅源码开发
-bash dsh-official/scripts/build-portable-macos-arm64.sh                   # 手工更新 ZIP
+bash dsh-official/scripts/build-portable-macos-arm64.sh                   # macOS ARM64 手工更新 ZIP
+pwsh -File dsh-official/scripts/build-portable-windows-x64.ps1           # Windows x64 手工更新 ZIP
 ```
 
-便携构建产物写入 `dsh-official/dist/`，包含 ZIP、SHA-256 文件和构建来源记录。当前 macOS 包仅做本机 ad-hoc 签名，没有付费 Developer ID 签名、公证和自动更新元数据；首次打开可能需要 Finder 右键“打开”，或在确认 ZIP 来源后执行 `xattr -dr com.apple.quarantine '/Applications/DeepSeek Harness.app'`。不要把此 ZIP 放进官方自动更新 feed。
+便携构建产物写入 `dsh-official/dist/`，包含 ZIP、SHA-256 文件和构建来源记录。macOS 包仅做 ad-hoc 签名，没有付费 Developer ID 签名或公证；首次打开可能需要 Finder 右键“打开”，或在确认 ZIP 来源后执行 `xattr -dr com.apple.quarantine '/Applications/DeepSeek Harness.app'`。Windows 包未签名，首次启动可能显示 SmartScreen，解压后入口为 `DeepSeek Harness.exe`。两种包都使用手工更新，不得放入官方自动更新 feed。
+
+GitHub Actions 的 `Release Official DSH Portable` 工作流从 `official-lock.json` 获取官网仓库和提交，在原生 Windows x64 与 macOS ARM64 runner 上分别构建，然后把 ZIP、校验文件和构建记录直接上传到独立的 `official-v*` GitHub Release。工作流不需要 Apple 或 Windows 付费签名凭据；正式发布的 Release 会标记为 prerelease，避免被误认为官网签名发行版。
 
 GitHub 直连不可用时，可显式选择可信的加速地址：`DSH_OFFICIAL_FETCH_URL=<git-url> bash dsh-official/scripts/update-official.sh`。更新仍写入 `origin/master` 并只接受快进。
 

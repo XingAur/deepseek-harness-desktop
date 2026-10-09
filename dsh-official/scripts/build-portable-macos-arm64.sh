@@ -6,6 +6,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OFFICIAL="$ROOT/deepseek-harness"
 OVERLAY="$ROOT/overlay"
+LOCK="$ROOT/official-lock.json"
 STAGE="$ROOT/.portable-stage/macos-arm64"
 DIST="$ROOT/dist"
 NODE_BIN="${NODE_BIN:-$(command -v node)}"
@@ -17,12 +18,18 @@ if [[ -n "$(git -C "$OFFICIAL" status --short)" ]]; then
 fi
 OFFICIAL_SHA="$(git -C "$OFFICIAL" rev-parse HEAD)"
 OFFICIAL_VERSION="$($NODE_BIN -p "require('$OFFICIAL/package.json').version")"
+LOCKED_SHA="$($NODE_BIN -p "require('$LOCK').commit")"
+LOCKED_VERSION="$($NODE_BIN -p "require('$LOCK').version")"
+if [[ "$OFFICIAL_SHA" != "$LOCKED_SHA" || "$OFFICIAL_VERSION" != "$LOCKED_VERSION" ]]; then
+  echo "portable build: official checkout does not match official-lock.json" >&2
+  exit 1
+fi
 BUILD_VERSION="${DSH_PORTABLE_BUILD_VERSION:-${OFFICIAL_VERSION}.$(TZ=Asia/Shanghai date +%Y%m%d).1}"
 
 export PATH="$(dirname "$NODE_BIN"):/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export ELECTRON_MIRROR="${ELECTRON_MIRROR:-https://npmmirror.com/mirrors/electron/}"
-export DSH_GITHUB_ASSET_MIRROR="${DSH_GITHUB_ASSET_MIRROR:-https://ghfast.top}"
-(cd "$OVERLAY" && npm run bundle:host && npm run bundle:client && npm run check)
+export DSH_GITHUB_ASSET_MIRROR="${DSH_GITHUB_ASSET_MIRROR-}"
+(cd "$OVERLAY" && npm ci && npm run bundle:host && npm run bundle:client && npm run check)
 
 rm -rf "$STAGE"
 mkdir -p "$STAGE" "$DIST"
@@ -48,29 +55,15 @@ if [[ ! -d "$APP" ]]; then
   echo "portable build: expected app missing: $APP" >&2
   exit 1
 fi
-if grep -R -I -F -l "$ROOT" "$APP/Contents/Resources" >/dev/null 2>&1; then
-  echo "portable build: staging or workspace path leaked into application resources" >&2
-  exit 1
-fi
+"$NODE_BIN" "$ROOT/scripts/verify-portable-paths.mjs" "$APP/Contents/Resources" "$ROOT"
 /usr/bin/codesign --force --deep --sign - --preserve-metadata=entitlements,requirements,flags "$APP"
 /usr/bin/codesign --verify --deep --strict "$APP"
 
 ZIP="$DIST/deepseek-harness-overlay-${BUILD_VERSION}-mac-arm64-adhoc-manual.zip"
 rm -f "$ZIP" "$ZIP.sha256" "$ZIP.build.json"
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
-SHA256="$(shasum -a 256 "$ZIP" | awk '{print $1}')"
-printf '%s  %s\n' "$SHA256" "$(basename "$ZIP")" >"$ZIP.sha256"
-OVERLAY_HASH="$(find "$STAGE/packages/external/overlay-custom/src" "$STAGE/packages/external/overlay-custom/public" -type f -print0 | sort -z | xargs -0 shasum -a 256 | shasum -a 256 | awk '{print $1}')"
-"$NODE_BIN" - "$ZIP.build.json" "$OFFICIAL_SHA" "$OFFICIAL_VERSION" "$BUILD_VERSION" "$OVERLAY_HASH" "$SHA256" <<'NODE'
-const [path, officialCommit, officialVersion, buildVersion, overlayHash, sha256] = process.argv.slice(2)
-const fs = require('node:fs')
-fs.writeFileSync(path, `${JSON.stringify({
-  artifact: path.split('/').pop().replace('.build.json', ''),
-  officialCommit, officialVersion, buildVersion, overlayHash, sha256,
-  platform: 'darwin', arch: 'arm64', signing: 'ad-hoc', update: 'manual',
-  node: process.version,
-}, null, 2)}\n`)
-NODE
+METADATA="$($NODE_BIN "$ROOT/scripts/write-portable-metadata.mjs" "$ZIP" "$STAGE/packages/external/overlay-custom" "$OFFICIAL_SHA" "$OFFICIAL_VERSION" "$BUILD_VERSION" darwin arm64 ad-hoc)"
+SHA256="$(printf '%s\n' "$METADATA" | tail -n 1)"
 
 if [[ -n "$(git -C "$OFFICIAL" status --short)" ]] || [[ "$(git -C "$OFFICIAL" rev-parse HEAD)" != "$OFFICIAL_SHA" ]]; then
   echo "portable build: official checkout changed during staging" >&2

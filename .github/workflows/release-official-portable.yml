@@ -1,0 +1,186 @@
+name: Release Official DSH Portable
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_version:
+        description: 'Build version beginning with the locked official version'
+        required: true
+        type: string
+      release_tag:
+        description: 'Release tag; must equal official-v<build_version>'
+        required: true
+        type: string
+      publish:
+        description: 'Publish after both platform builds pass; otherwise leave a draft'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: official-portable-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      build_version: ${{ steps.release.outputs.build_version }}
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.23.2
+      - name: Validate version and create draft release
+        id: release
+        shell: bash
+        env:
+          BUILD_VERSION: ${{ inputs.build_version }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          official_version=$(node -p "require('./dsh-official/official-lock.json').version")
+          case "$BUILD_VERSION" in
+            "$official_version".*) ;;
+            *) echo "build_version must begin with $official_version." >&2; exit 1 ;;
+          esac
+          expected="official-v$BUILD_VERSION"
+          test "$RELEASE_TAG" = "$expected" || { echo "release_tag must equal $expected" >&2; exit 1; }
+          if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' >/tmp/release-draft 2>/dev/null; then
+            test "$(cat /tmp/release-draft)" = true || { echo 'existing release is already published' >&2; exit 1; }
+          else
+            gh release create "$RELEASE_TAG" --draft --prerelease --target "$GITHUB_SHA" \
+              --title "Official DSH Portable $BUILD_VERSION" \
+              --notes "Portable DeepSeek Harness based on the locked official source, with the local Overlay and MCP manager bundled. Windows is unsigned and macOS is ad-hoc signed; both use manual updates and are not added to an automatic-update feed."
+          fi
+          echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+
+  build-windows:
+    needs: prepare
+    runs-on: windows-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.23.2
+          cache: npm
+          cache-dependency-path: dsh-official/overlay/package-lock.json
+      - run: corepack enable
+      - name: Check out locked official source
+        shell: pwsh
+        run: |
+          $lock = Get-Content dsh-official/official-lock.json -Raw | ConvertFrom-Json
+          New-Item dsh-official/deepseek-harness -ItemType Directory -Force | Out-Null
+          git -C dsh-official/deepseek-harness init
+          git -C dsh-official/deepseek-harness remote add origin $lock.repository
+          git -C dsh-official/deepseek-harness fetch --depth 1 origin $lock.commit
+          git -C dsh-official/deepseek-harness checkout --detach FETCH_HEAD
+          if ((git -C dsh-official/deepseek-harness rev-parse HEAD).Trim() -ne $lock.commit) { throw 'official commit mismatch' }
+      - name: Build Windows x64 portable ZIP
+        shell: pwsh
+        env:
+          DSH_PORTABLE_BUILD_VERSION: ${{ needs.prepare.outputs.build_version }}
+          DSH_PORTABLE_NPM_REGISTRY: https://registry.npmjs.org
+          DSH_GITHUB_ASSET_MIRROR: ''
+        run: ./dsh-official/scripts/build-portable-windows-x64.ps1
+      - name: Upload Windows assets to draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          test "$(find dsh-official/dist -maxdepth 1 -type f | wc -l | tr -d ' ')" = 3
+          gh release upload "$TAG" dsh-official/dist/* --clobber
+
+  build-macos:
+    needs: prepare
+    runs-on: macos-15-arm64
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.23.2
+          cache: npm
+          cache-dependency-path: dsh-official/overlay/package-lock.json
+      - run: corepack enable
+      - name: Require Apple Silicon runner
+        run: node -e "if (process.platform !== 'darwin' || process.arch !== 'arm64') process.exit(1)"
+      - name: Check out locked official source
+        shell: bash
+        run: |
+          set -euo pipefail
+          repository=$(node -p "require('./dsh-official/official-lock.json').repository")
+          commit=$(node -p "require('./dsh-official/official-lock.json').commit")
+          mkdir -p dsh-official/deepseek-harness
+          git -C dsh-official/deepseek-harness init
+          git -C dsh-official/deepseek-harness remote add origin "$repository"
+          git -C dsh-official/deepseek-harness fetch --depth 1 origin "$commit"
+          git -C dsh-official/deepseek-harness checkout --detach FETCH_HEAD
+          test "$(git -C dsh-official/deepseek-harness rev-parse HEAD)" = "$commit"
+      - name: Build macOS ARM64 portable ZIP
+        env:
+          DSH_PORTABLE_BUILD_VERSION: ${{ needs.prepare.outputs.build_version }}
+          DSH_PORTABLE_NPM_REGISTRY: https://registry.npmjs.org
+          DSH_GITHUB_ASSET_MIRROR: ''
+        run: bash dsh-official/scripts/build-portable-macos-arm64.sh
+      - name: Upload macOS assets to draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find dsh-official/dist -maxdepth 1 -type f | wc -l | tr -d ' ')" = 3
+          gh release upload "$TAG" dsh-official/dist/* --clobber
+
+  publish:
+    needs: [prepare, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Verify release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          BUILD_VERSION: ${{ needs.prepare.outputs.build_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          assets=$(gh release view "$TAG" --json assets --jq '.assets[].name')
+          for platform in win-x64-unsigned-manual mac-arm64-adhoc-manual; do
+            artifact="deepseek-harness-overlay-${BUILD_VERSION}-${platform}.zip"
+            grep -Fx "$artifact" <<<"$assets"
+            grep -Fx "$artifact.sha256" <<<"$assets"
+            grep -Fx "$artifact.build.json" <<<"$assets"
+          done
+          test "$(wc -l <<<"$assets" | tr -d ' ')" = 6
+      - name: Publish release
+        if: inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: gh release edit "$TAG" --draft=false --prerelease

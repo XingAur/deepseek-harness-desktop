@@ -9,6 +9,9 @@ const overlay = resolve(overlayArgument)
 const rootManifest = JSON.parse(readFileSync(join(stage, 'package.json'), 'utf8'))
 const version = rootManifest.version
 if (typeof version !== 'string' || version.length === 0) throw new Error('portable stage: official version is missing')
+const npmRegistry = process.env.DSH_PORTABLE_NPM_REGISTRY?.trim() || 'https://registry.npmjs.org'
+const npmRegistryUrl = new URL(npmRegistry)
+if (npmRegistryUrl.protocol !== 'https:' || npmRegistryUrl.username || npmRegistryUrl.password) throw new Error('portable stage: DSH_PORTABLE_NPM_REGISTRY must be a credential-free HTTPS URL')
 
 function writeJson(path, value) { writeFileSync(path, `${JSON.stringify(value, undefined, 2)}\n`) }
 function replaceOnce(path, before, after) {
@@ -111,20 +114,39 @@ replaceOnce(mainSource, "import { DesktopUpdatePreparationError } from './update
 
 const packageTarget = join(stage, 'apps', 'desktop', 'scripts', 'package-target.ts')
 replaceOnce(packageTarget,
+  "import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'",
+  "import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'")
+replaceOnce(packageTarget,
   "const APP_ROOT = resolve(import.meta.dirname, '..')\n",
   `const APP_ROOT = resolve(import.meta.dirname, '..')
 
 function sanitizePortableRuntimeShims(runtime: string): void {
   for (const relative of ['pnpm/node_modules/.bin', 'primary-runtime/dependencies/pnpm/node_modules/.bin']) {
-    for (const name of ['pnpm', 'pnpx', 'pn', 'pnx']) {
-      const path = join(runtime, relative, name)
+    const directory = join(runtime, relative)
+    for (const name of readdirSync(directory)) {
+      if (!/^(?:pn|pnx|pnpm|pnpx)(?:\\.cmd|\\.ps1)?$/iu.test(name)) continue
+      const path = join(directory, name)
       const source = readFileSync(path, 'utf8')
-      const start = source.indexOf('if [ -z "$NODE_PATH" ]; then\\n')
-      const end = start < 0 ? -1 : source.indexOf('\\nfi\\n', start)
-      if (start < 0 || end < 0) throw new Error(\`portable runtime: unexpected pnpm shim \${path}\`)
-      const sanitized = (source.slice(0, start) + source.slice(end + 4)).replace(/^# cmd-shim-target=.*\\n?/mu, '')
+      const sanitized = source
+        .replace(/^if \\[ -z "\\$NODE_PATH" \\]; then\\r?\\n[\\s\\S]*?^fi\\r?\\n/mu, '')
+        .replace(/^@IF NOT DEFINED NODE_PATH \\(\\r?\\n[\\s\\S]*?^\\) ELSE \\(\\r?\\n[\\s\\S]*?^\\)\\r?\\n/mu, '')
+        .replace(/^if \\(\\$env:NODE_PATH\\) \\{\\r?\\n[\\s\\S]*?^\\} else \\{\\r?\\n[\\s\\S]*?^\\}\\r?\\n/mu, '')
+        .replace(/^# cmd-shim-target=.*\\r?\\n?/mu, '')
+      if (sanitized === source || sanitized.includes('NODE_PATH')) throw new Error(\`portable runtime: unexpected pnpm shim \${path}\`)
       writeFileSync(path, sanitized)
     }
+  }
+}
+function sanitizePortableTextPaths(tree: string, forbidden: string): void {
+  const variants = [...new Set([forbidden, forbidden.replaceAll('\\\\', '/'), forbidden.replaceAll('/', '\\\\')])]
+  for (const entry of readdirSync(tree, { withFileTypes: true })) {
+    const path = join(tree, entry.name)
+    if (entry.isDirectory()) { sanitizePortableTextPaths(path, forbidden); continue }
+    if (!entry.isFile() || !/\\.(?:cjs|css|html|js|json|map|mjs|ts|yaml|yml)$/iu.test(entry.name)) continue
+    const source = readFileSync(path, 'utf8')
+    let sanitized = source
+    for (const value of variants) sanitized = sanitized.replaceAll(value, '<portable-build-root>')
+    if (sanitized !== source) writeFileSync(path, sanitized)
   }
 }
 `)
@@ -133,7 +155,7 @@ replaceOnce(packageTarget,
   "  await execute(['run', 'build:official'], buildEnv, REPOSITORY_ROOT)\n  rmSync(join(REPOSITORY_ROOT, 'packages/external/overlay-custom/lib/types/index.js'), { force: true })\n  await execute(['run', 'release:pack', '--family', 'dsh', '--out', buildPaths.packedDsh, ...packArguments], buildEnv, REPOSITORY_ROOT)")
 replaceOnce(packageTarget,
   "  await execute(['run', 'prepare:dsh', ...(signPrimaryRuntime ? ['--defer-runtime-smoke'] : [])], downloadEnv)",
-  "  await execute(['run', 'prepare:dsh', ...(signPrimaryRuntime ? ['--defer-runtime-smoke'] : [])], downloadEnv)\n  sanitizePortableRuntimeShims(buildPaths.runtime)")
+  "  await execute(['run', 'prepare:dsh', ...(signPrimaryRuntime ? ['--defer-runtime-smoke'] : [])], downloadEnv)\n  sanitizePortableRuntimeShims(buildPaths.runtime)\n  sanitizePortableTextPaths(buildPaths.runtime, REPOSITORY_ROOT)\n  sanitizePortableTextPaths(join(APP_ROOT, 'lib'), REPOSITORY_ROOT)")
 replaceOnce(packageTarget,
   "    DSH_DESKTOP_TARGET_ARCH: target.arch,\n  }",
   "    DSH_DESKTOP_TARGET_ARCH: target.arch,\n    DSH_DESKTOP_UNSIGNED: invocation.unsigned ? '1' : '0',\n  }")
@@ -168,5 +190,7 @@ replaceOnce(smoke, "if (values.unsigned && !windows) throw new Error('desktop sm
 const primaryRuntime = join(stage, 'scripts', 'primary-runtime', 'prepare.ts')
 replaceOnce(primaryRuntime, '    const response = await fetch(url)', "    const mirror = process.env.DSH_GITHUB_ASSET_MIRROR?.replace(/\\/$/u, '')\n    const downloadUrl = mirror && url.startsWith('https://github.com/') ? `${mirror}/${url}` : url\n    const response = await fetch(downloadUrl)")
 
-writeFileSync(join(stage, 'apps', 'desktop', '.env.macos'), `DSH_DESKTOP_APP_ID=com.deepseek.harness.overlay.local\nDSH_DESKTOP_AUTO_UPDATE_ENV=test\nDSH_DESKTOP_NPM_REGISTRY=https://registry.npmmirror.com\nDSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN=https://updates.invalid\nDSH_DESKTOP_MANDATORY_UPDATE_CONFIG='{"allowedAuthOrigins":["https://chat.deepseek.com"]}'\n`)
+const desktopEnvironment = `DSH_DESKTOP_APP_ID=com.deepseek.harness.overlay.local\nDSH_DESKTOP_AUTO_UPDATE_ENV=test\nDSH_DESKTOP_NPM_REGISTRY=${npmRegistryUrl.origin}\nDSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN=https://updates.invalid\nDSH_DESKTOP_MANDATORY_UPDATE_CONFIG='{"allowedAuthOrigins":["https://chat.deepseek.com"]}'\n`
+writeFileSync(join(stage, 'apps', 'desktop', '.env.macos'), desktopEnvironment)
+writeFileSync(join(stage, 'apps', 'desktop', '.env.windows'), desktopEnvironment)
 process.stdout.write(`portable stage prepared: ${stage}\noverlay package: @deepseek-ai/dsh-overlay-custom@${version}\n`)
