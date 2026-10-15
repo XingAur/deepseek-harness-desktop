@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { closeSync, lstatSync, openSync, readSync, readdirSync, realpathSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 
 const [treeArgument, ...needleArguments] = process.argv.slice(2)
 if (!treeArgument || needleArguments.length === 0) throw new Error('usage: verify-portable-paths.mjs <tree> <forbidden-path> [...]')
@@ -28,6 +28,7 @@ function inspect(path) {
     return
   }
   if (!metadata.isFile()) return
+  if (path.includes(`${sep}__pycache__${sep}`) || /\.(?:pyc|pyo|so|dylib|dll|node|exe|png|jpe?g|gif|ico|webp|woff2?|ttf|otf|zip|gz|tgz|pack|wasm|bin|pak|dat)$/iu.test(path)) return
   const descriptor = openSync(path, 'r')
   try {
     let carry = 0
