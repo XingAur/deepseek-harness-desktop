@@ -19,6 +19,7 @@ function inspect(path) {
   if (metadata.isSymbolicLink()) {
     const target = realpathSync(path)
     const normalizedTarget = target.toLowerCase()
+    if (normalizedTarget.startsWith(tree.toLowerCase())) return
     if (forbiddenPaths.some(value => normalizedTarget.startsWith(value.toLowerCase()))) throw new Error(`portable path check: external source link ${path} -> ${target}`)
     return
   }
