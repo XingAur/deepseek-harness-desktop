@@ -14,10 +14,14 @@ const npmRegistryUrl = new URL(npmRegistry)
 if (npmRegistryUrl.protocol !== 'https:' || npmRegistryUrl.username || npmRegistryUrl.password) throw new Error('portable stage: DSH_PORTABLE_NPM_REGISTRY must be a credential-free HTTPS URL')
 
 function writeJson(path, value) { writeFileSync(path, `${JSON.stringify(value, undefined, 2)}\n`) }
-function replaceOnce(path, before, after) {
+function replaceOnce(path, before, after, optional = false) {
   const source = readFileSync(path, 'utf8')
+  if (source.includes(after)) return
   const first = source.indexOf(before)
-  if (first < 0 || source.indexOf(before, first + before.length) >= 0) throw new Error(`portable stage: expected one match in ${path}: ${before.slice(0, 80)}`)
+  if (first < 0 || source.indexOf(before, first + before.length) >= 0) {
+    if (optional && first < 0) return
+    throw new Error(`portable stage: expected one match in ${path}: ${before.slice(0, 80)}`)
+  }
   writeFileSync(path, source.slice(0, first) + after + source.slice(first + before.length))
 }
 
@@ -157,40 +161,46 @@ replaceOnce(packageTarget,
   "  await execute(['run', 'prepare:dsh', ...(signPrimaryRuntime ? ['--defer-runtime-smoke'] : [])], downloadEnv)\n  sanitizePortableRuntimeShims(buildPaths.runtime)\n  sanitizePortableTextPaths(buildPaths.runtime, REPOSITORY_ROOT)\n  sanitizePortableTextPaths(join(APP_ROOT, 'lib'), REPOSITORY_ROOT)\n  if (process.env.DSH_PORTABLE_SOURCE_ROOT) {\n    sanitizePortableTextPaths(buildPaths.runtime, process.env.DSH_PORTABLE_SOURCE_ROOT)\n    sanitizePortableTextPaths(join(APP_ROOT, 'lib'), process.env.DSH_PORTABLE_SOURCE_ROOT)\n  }")
 replaceOnce(packageTarget,
   "    DSH_DESKTOP_TARGET_ARCH: target.arch,\n  }",
-  "    DSH_DESKTOP_TARGET_ARCH: target.arch,\n    DSH_DESKTOP_UNSIGNED: invocation.unsigned ? '1' : '0',\n  }")
+  "    DSH_DESKTOP_TARGET_ARCH: target.arch,\n    DSH_DESKTOP_UNSIGNED: invocation.unsigned ? '1' : '0',\n  }",
+  true)
 replaceOnce(packageTarget,
   "  if (values.unsigned && name !== 'win-x64') throw new Error('desktop package: --unsigned requires win-x64')",
-  "  if (values.unsigned && name !== 'win-x64' && name !== 'mac-arm64') throw new Error('desktop package: --unsigned requires win-x64 or mac-arm64')")
+  "  if (values.unsigned && name !== 'win-x64' && name !== 'mac-arm64') throw new Error('desktop package: --unsigned requires win-x64 or mac-arm64')",
+  true)
 replaceOnce(packageTarget,
   "  if (name === 'mac-arm64' && hostArch !== 'arm64') {\n    throw new Error('desktop package: mac-arm64 requires an Apple Silicon build host')\n  }",
   "  if (name === 'mac-arm64' && hostArch !== 'arm64' && process.env.DSH_PORTABLE_ALLOW_MAC_ARM64_CROSS !== '1') {\n    throw new Error('desktop package: mac-arm64 requires an Apple Silicon build host')\n  }")
 replaceOnce(packageTarget,
   "    if (target.platform === 'darwin') {\n      const settings = resolveMacOSPackageSettings(environment)",
-  "    if (target.platform === 'darwin' && !invocation.unsigned) {\n      const settings = resolveMacOSPackageSettings(environment)")
+  "    if (target.platform === 'darwin' && !invocation.unsigned) {\n      const settings = resolveMacOSPackageSettings(environment)",
+  true)
 replaceOnce(packageTarget,
   "    } else {\n      await packagingStep(run.directory, 'windows-package', () => packageTarget(invocation, environment, run), secrets)\n    }",
-  "    } else {\n      await packagingStep(run.directory, target.platform === 'darwin' ? 'macos-unsigned-package' : 'windows-package', () => packageTarget(invocation, environment, run), secrets)\n    }")
+  "    } else {\n      await packagingStep(run.directory, target.platform === 'darwin' ? 'macos-unsigned-package' : 'windows-package', () => packageTarget(invocation, environment, run), secrets)\n    }",
+  true)
 replaceOnce(packageTarget,
   "    await execute(['exec', 'tsx', 'scripts/smoke-packaged-runtime.ts'], targetEnv)\n    const appPath = join(buildPaths.artifacts, target.arch === 'arm64' ? 'mac-arm64' : 'mac', 'DeepSeek Harness.app')\n    await withMacOSNotarizationProxy(mac?.notarizationProxy,\n      () => notarizeMacOS({ appPath, ...resolveMacOSNotarizationEnvironment(environment) }), undefined, undefined, proxyEvent)",
-  "    await execute(['exec', 'tsx', 'scripts/smoke-packaged-runtime.ts', ...(invocation.unsigned ? ['--unsigned'] : [])], targetEnv)\n    if (!invocation.unsigned) {\n      const appPath = join(buildPaths.artifacts, target.arch === 'arm64' ? 'mac-arm64' : 'mac', 'DeepSeek Harness.app')\n      await withMacOSNotarizationProxy(mac?.notarizationProxy,\n        () => notarizeMacOS({ appPath, ...resolveMacOSNotarizationEnvironment(environment) }), undefined, undefined, proxyEvent)\n    }")
+  "    await execute(['exec', 'tsx', 'scripts/smoke-packaged-runtime.ts', ...(invocation.unsigned ? ['--unsigned'] : [])], targetEnv)\n    if (!invocation.unsigned) {\n      const appPath = join(buildPaths.artifacts, target.arch === 'arm64' ? 'mac-arm64' : 'mac', 'DeepSeek Harness.app')\n      await withMacOSNotarizationProxy(mac?.notarizationProxy,\n        () => notarizeMacOS({ appPath, ...resolveMacOSNotarizationEnvironment(environment) }), undefined, undefined, proxyEvent)\n    }",
+  true)
 
 const builderConfig = join(stage, 'apps', 'desktop', 'scripts', 'electron-builder-config.mjs')
-replaceOnce(builderConfig, "  if (unsigned && resolvedPlatform !== 'win32') throw new Error('desktop package: unsigned builds require Windows')", "  if (unsigned && resolvedPlatform !== 'win32' && resolvedPlatform !== 'darwin') throw new Error('desktop package: unsupported unsigned platform')")
-replaceOnce(builderConfig, "  const macOSSigning = packagesMacOS ? resolveMacOSSigningEnvironment(env) : undefined\n  if (packagesMacOS) resolveMacOSNotarizationEnvironment(env)", "  const macOSSigning = packagesMacOS && !unsigned ? resolveMacOSSigningEnvironment(env) : undefined\n  if (packagesMacOS && !unsigned) resolveMacOSNotarizationEnvironment(env)")
-replaceOnce(builderConfig, "      forceCodeSigning: true,\n      hardenedRuntime: true,", "      forceCodeSigning: !unsigned,\n      hardenedRuntime: !unsigned,")
-replaceOnce(builderConfig, "      notarize: true,\n      target: ['dmg', 'zip'],", "      notarize: !unsigned,\n      target: unsigned ? ['dir'] : ['dmg', 'zip'],")
-replaceOnce(builderConfig, "      sign: true,", "      sign: !unsigned,")
-replaceOnce(builderConfig, "      if (context.electronPlatformName !== 'darwin') return", "      if (context.electronPlatformName !== 'darwin' || unsigned) return")
-replaceOnce(builderConfig, "      if (!artifact.file.endsWith('.dmg')) return", "      if (unsigned || !artifact.file.endsWith('.dmg')) return")
+replaceOnce(builderConfig, "  if (unsigned && resolvedPlatform !== 'win32') throw new Error('desktop package: unsigned builds require Windows')", "  if (unsigned && resolvedPlatform !== 'win32' && resolvedPlatform !== 'darwin') throw new Error('desktop package: unsupported unsigned platform')", true)
+replaceOnce(builderConfig, "  const macOSSigning = packagesMacOS ? resolveMacOSSigningEnvironment(env) : undefined\n  if (packagesMacOS) resolveMacOSNotarizationEnvironment(env)", "  const macOSSigning = packagesMacOS && !unsigned ? resolveMacOSSigningEnvironment(env) : undefined\n  if (packagesMacOS && !unsigned) resolveMacOSNotarizationEnvironment(env)", true)
+replaceOnce(builderConfig, "      forceCodeSigning: true,\n      hardenedRuntime: true,", "      forceCodeSigning: !unsigned,\n      hardenedRuntime: !unsigned,", true)
+replaceOnce(builderConfig, "      notarize: true,\n      target: ['dmg', 'zip'],", "      notarize: !unsigned,\n      target: unsigned ? ['dir'] : ['dmg', 'zip'],", true)
+replaceOnce(builderConfig, "      sign: true,", "      sign: !unsigned,", true)
+replaceOnce(builderConfig, "      if (context.electronPlatformName !== 'darwin') return", "      if (context.electronPlatformName !== 'darwin' || unsigned) return", true)
+replaceOnce(builderConfig, "      if (!artifact.file.endsWith('.dmg')) return", "      if (unsigned || !artifact.file.endsWith('.dmg')) return", true)
 
 const prepareDsh = join(stage, 'apps', 'desktop', 'scripts', 'prepare-dsh.ts')
-replaceOnce(prepareDsh, "    if (process.platform === 'darwin') {", "    if (process.platform === 'darwin' && process.env.DSH_DESKTOP_UNSIGNED !== '1') {")
+replaceOnce(prepareDsh, "    if (process.platform === 'darwin') {", "    if (process.platform === 'darwin' && process.env.DSH_DESKTOP_UNSIGNED !== '1') {", true)
 
 const smoke = join(stage, 'apps', 'desktop', 'scripts', 'smoke-packaged-runtime.ts')
-replaceOnce(smoke, "if (values.unsigned && !windows) throw new Error('desktop smoke: unsigned artifacts require Windows')", "if (values.unsigned && target !== 'win-x64' && target !== 'mac-arm64') throw new Error('desktop smoke: unsupported unsigned target')")
+replaceOnce(smoke, "if (values.unsigned && !windows) throw new Error('desktop smoke: unsigned artifacts require Windows')", "if (values.unsigned && target !== 'win-x64' && target !== 'mac-arm64') throw new Error('desktop smoke: unsupported unsigned target')", true)
 
 const primaryRuntime = join(stage, 'scripts', 'primary-runtime', 'prepare.ts')
-replaceOnce(primaryRuntime, '    const response = await fetch(url)', "    const mirror = process.env.DSH_GITHUB_ASSET_MIRROR?.replace(/\\/$/u, '')\n    const downloadUrl = mirror && url.startsWith('https://github.com/') ? `${mirror}/${url}` : url\n    const response = await fetch(downloadUrl)")
+replaceOnce(primaryRuntime, '    const response = await fetch(url, { signal: AbortSignal.timeout(timeout) })', "    const mirror = process.env.DSH_GITHUB_ASSET_MIRROR?.replace(/\\/$/u, '')\n    const downloadUrl = mirror && url.startsWith('https://github.com/') ? `${mirror}/${url}` : url\n    const response = await fetch(downloadUrl, { signal: AbortSignal.timeout(timeout) })", true)
+replaceOnce(primaryRuntime, '    const response = await fetch(url)', "    const mirror = process.env.DSH_GITHUB_ASSET_MIRROR?.replace(/\\/$/u, '')\n    const downloadUrl = mirror && url.startsWith('https://github.com/') ? `${mirror}/${url}` : url\n    const response = await fetch(downloadUrl)", true)
 
 const desktopEnvironment = `DSH_DESKTOP_APP_ID=com.deepseek.harness.overlay.local\nDSH_DESKTOP_AUTO_UPDATE_ENV=test\nDSH_DESKTOP_NPM_REGISTRY=${npmRegistryUrl.origin}\nDSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN=https://updates.invalid\nDSH_DESKTOP_MANDATORY_UPDATE_CONFIG='{"allowedAuthOrigins":["https://chat.deepseek.com"]}'\n`
 writeFileSync(join(stage, 'apps', 'desktop', '.env.macos'), desktopEnvironment)

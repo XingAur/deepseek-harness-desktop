@@ -63,7 +63,7 @@ jobs:
           else
             gh release create "$RELEASE_TAG" --draft --prerelease --target "$GITHUB_SHA" \
               --title "Official DSH Portable $BUILD_VERSION" \
-              --notes "Portable DeepSeek Harness based on the locked official source, with the local Overlay and MCP manager bundled. macOS provides both a DMG installer and ZIP archive. Windows is unsigned and macOS is ad-hoc signed; both use manual updates and are not added to an automatic-update feed."
+              --notes "Portable DeepSeek Harness based on the locked official source, with the local Overlay and MCP manager bundled. macOS provides a DMG installer and ZIP archive. Windows provides an unsigned NSIS EXE installer and ZIP archive. Windows is unsigned and macOS is ad-hoc signed; both use manual updates and are not added to an automatic-update feed."
           fi
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
@@ -94,7 +94,7 @@ jobs:
           git -C dsh-official/deepseek-harness fetch --depth 1 origin $lock.commit
           git -C dsh-official/deepseek-harness checkout --detach FETCH_HEAD
           if ((git -C dsh-official/deepseek-harness rev-parse HEAD).Trim() -ne $lock.commit) { throw 'official commit mismatch' }
-      - name: Build Windows x64 portable ZIP
+      - name: Build Windows x64 portable ZIP and EXE
         shell: pwsh
         env:
           DSH_PORTABLE_BUILD_VERSION: ${{ needs.prepare.outputs.build_version }}
@@ -108,7 +108,7 @@ jobs:
           TAG: ${{ needs.prepare.outputs.tag }}
         run: |
           set -euo pipefail
-          test "$(find dsh-official/dist -maxdepth 1 -type f | wc -l | tr -d ' ')" = 3
+          test "$(find dsh-official/dist -maxdepth 1 -type f | wc -l | tr -d ' ')" = 6
           gh release upload "$TAG" dsh-official/dist/* --clobber
 
   build-macos:
@@ -141,7 +141,7 @@ jobs:
           git -C dsh-official/deepseek-harness fetch --depth 1 origin "$commit"
           git -C dsh-official/deepseek-harness checkout --detach FETCH_HEAD
           test "$(git -C dsh-official/deepseek-harness rev-parse HEAD)" = "$commit"
-      - name: Build macOS ARM64 portable ZIP
+      - name: Build macOS ARM64 portable DMG and ZIP
         env:
           DSH_PORTABLE_BUILD_VERSION: ${{ needs.prepare.outputs.build_version }}
           DSH_PORTABLE_NPM_REGISTRY: https://registry.npmjs.org
@@ -183,7 +183,11 @@ jobs:
           grep -Fx "$dmg" <<<"$assets"
           grep -Fx "$dmg.sha256" <<<"$assets"
           grep -Fx "$dmg.build.json" <<<"$assets"
-          test "$(wc -l <<<"$assets" | tr -d ' ')" = 9
+          exe="deepseek-harness-overlay-${BUILD_VERSION}-win-x64-unsigned-manual.exe"
+          grep -Fx "$exe" <<<"$assets"
+          grep -Fx "$exe.sha256" <<<"$assets"
+          grep -Fx "$exe.build.json" <<<"$assets"
+          test "$(wc -l <<<"$assets" | tr -d ' ')" = 12
       - name: Publish release
         if: inputs.publish
         env:

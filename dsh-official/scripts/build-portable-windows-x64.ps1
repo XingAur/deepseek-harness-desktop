@@ -89,14 +89,46 @@ if (Test-Path $AsarUnpacked) { Invoke-Checked node @((Join-Path $Root 'scripts/s
 Invoke-Checked node @((Join-Path $Root 'scripts/verify-portable-paths.mjs'), $Resources, $Root, $Stage) $Root
 
 $Zip = Join-Path $Dist "deepseek-harness-overlay-$BuildVersion-win-x64-unsigned-manual.zip"
-Remove-Item $Zip, "$Zip.sha256", "$Zip.build.json" -Force -ErrorAction SilentlyContinue
+$Exe = Join-Path $Dist "deepseek-harness-overlay-$BuildVersion-win-x64-unsigned-manual.exe"
+$ExeStage = Join-Path $Stage 'apps/desktop/.desktop-build/portable-nsis'
+Remove-Item $Zip, "$Zip.sha256", "$Zip.build.json", $Exe, "$Exe.sha256", "$Exe.build.json" -Force -ErrorAction SilentlyContinue
+Remove-Item $ExeStage -Recurse -Force -ErrorAction SilentlyContinue
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 [System.IO.Compression.ZipFile]::CreateFromDirectory($App, $Zip, [System.IO.Compression.CompressionLevel]::Optimal, $false)
 if (-not (Test-Path $Zip) -or (Get-Item $Zip).Length -eq 0) { throw 'portable build: Windows ZIP is empty' }
-Invoke-Checked node @((Join-Path $Root 'scripts/write-portable-metadata.mjs'), $Zip, (Join-Path $Stage 'packages/external/overlay-custom'), $OfficialSha, $OfficialVersion, $BuildVersion, 'win32', 'x64', 'unsigned') $Root
+
+foreach ($line in Get-Content (Join-Path $Stage 'apps/desktop/.env.windows')) {
+  if ($line -notmatch '^([A-Z0-9_]+)=(.*)$') { continue }
+  $value = $Matches[2]
+  if ($value.StartsWith("'") -and $value.EndsWith("'") -and $value.Length -ge 2) {
+    $value = $value.Substring(1, $value.Length - 2)
+  }
+  Set-Item -Path "Env:$($Matches[1])" -Value $value
+}
+$env:DSH_DESKTOP_TARGET_PLATFORM = 'win32'
+$env:DSH_DESKTOP_TARGET_ARCH = 'x64'
+$env:DSH_DESKTOP_UNSIGNED = '1'
+Invoke-Checked powershell @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $Stage 'apps/desktop/scripts/prepare-windows-installer.ps1')) (Join-Path $Stage 'apps/desktop')
+New-Item $ExeStage -ItemType Directory -Force | Out-Null
+Invoke-Checked corepack @(
+  'pnpm', 'exec', 'electron-builder',
+  '--config', 'electron-builder.config.mjs',
+  '--win', 'nsis', '--x64', '--publish', 'never',
+  '--prepackaged', $App,
+  '--config.directories.output', $ExeStage
+) (Join-Path $Stage 'apps/desktop')
+$ExeSource = @(Get-ChildItem $ExeStage -File -Filter '*.exe' | Where-Object { $_.Name -notmatch 'uninstall' })
+if ($ExeSource.Count -ne 1) { throw "portable build: expected exactly one NSIS EXE in $ExeStage" }
+Move-Item $ExeSource[0].FullName $Exe -Force
+if (-not (Test-Path $Exe) -or (Get-Item $Exe).Length -eq 0) { throw 'portable build: Windows EXE is empty' }
+
+$OverlayPackage = Join-Path $Stage 'packages/external/overlay-custom'
+Invoke-Checked node @((Join-Path $Root 'scripts/write-portable-metadata.mjs'), $Zip, $OverlayPackage, $OfficialSha, $OfficialVersion, $BuildVersion, 'win32', 'x64', 'unsigned') $Root
+Invoke-Checked node @((Join-Path $Root 'scripts/write-portable-metadata.mjs'), $Exe, $OverlayPackage, $OfficialSha, $OfficialVersion, $BuildVersion, 'win32', 'x64', 'unsigned') $Root
 
 $FinalStatus = (& git -C $Official status --short) -join "`n"
 $FinalSha = (& git -C $Official rev-parse HEAD).Trim()
 if ($FinalStatus -or $FinalSha -ne $OfficialSha) { throw 'portable build: official checkout changed during staging' }
 Write-Host "portable app: $App"
 Write-Host "manual update ZIP: $Zip"
+Write-Host "installer EXE: $Exe"

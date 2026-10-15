@@ -27,13 +27,13 @@ bash dsh-official/scripts/bootstrap.sh          # 首次克隆官网 master
 bash dsh-official/scripts/update-official.sh    # 以后快进更新、安装依赖并构建
 bash dsh-official/scripts/start-official.sh     # 启动已有构建
 DSH_HOME=$HOME/.dsh-official-dev bash dsh-official/scripts/install-overlay.sh # 仅源码开发
-bash dsh-official/scripts/build-portable-macos-arm64.sh                   # macOS ARM64 手工更新 ZIP
-pwsh -File dsh-official/scripts/build-portable-windows-x64.ps1           # Windows x64 手工更新 ZIP
+bash dsh-official/scripts/build-portable-macos-arm64.sh                   # macOS ARM64 DMG + ZIP
+pwsh -File dsh-official/scripts/build-portable-windows-x64.ps1           # Windows x64 EXE + ZIP
 ```
 
-便携构建产物写入 `dsh-official/dist/`，macOS 同时生成便于安装的 DMG 和备用 ZIP，Windows 生成 ZIP；每个产物都有 SHA-256 文件和构建来源记录。macOS 包仅做 ad-hoc 签名，没有付费 Developer ID 签名或公证；首次打开可能需要 Finder 右键“打开”，或在确认来源后执行 `xattr -dr com.apple.quarantine '/Applications/DeepSeek Harness.app'`。Windows 包未签名，首次启动可能显示 SmartScreen，解压后入口为 `DeepSeek Harness.exe`。两种平台都使用手工更新，不得放入官方自动更新 feed。
+便携构建产物写入 `dsh-official/dist/`，macOS 同时生成便于安装的 DMG 和备用 ZIP，Windows 同时生成 NSIS 安装 EXE 和备用 ZIP；每个产物都有 SHA-256 文件和构建来源记录。macOS 包仅做 ad-hoc 签名，没有付费 Developer ID 签名或公证；首次打开可能需要 Finder 右键“打开”，或在确认来源后执行 `xattr -dr com.apple.quarantine '/Applications/DeepSeek Harness.app'`。Windows 安装包未签名，首次启动可能显示 SmartScreen；EXE 是安装向导，ZIP 解压后入口为 `DeepSeek Harness.exe`。两种平台都使用手工更新，不得放入官方自动更新 feed。
 
-GitHub Actions 的 `Release Official DSH Portable` 工作流从 `official-lock.json` 获取官网仓库和提交，在 Windows x64 与 macOS runner 上分别构建 Windows x64 和 macOS ARM64 包，然后把 ZIP、校验文件和构建记录直接上传到独立的 `official-v*` GitHub Release。工作流不需要 Apple 或 Windows 付费签名凭据；正式发布的 Release 会标记为 prerelease，避免被误认为官网签名发行版。
+GitHub Actions 的 `Release Official DSH Portable` 工作流从 `official-lock.json` 获取官网仓库和提交，在 Windows x64 与 macOS runner 上分别构建 Windows x64（EXE + ZIP）和 macOS ARM64（DMG + ZIP）包，然后把安装包、校验文件和构建记录直接上传到独立的 `official-v*` GitHub Release。工作流不需要 Apple 或 Windows 付费签名凭据；正式发布的 Release 会标记为 prerelease，避免被误认为官网签名发行版。
 
 GitHub 直连不可用时，可显式选择可信的加速地址：`DSH_OFFICIAL_FETCH_URL=<git-url> bash dsh-official/scripts/update-official.sh`。更新仍写入 `origin/master` 并只接受快进。
 
