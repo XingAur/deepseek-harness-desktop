@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { lstatSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 
 const [treeArgument, ...forbiddenArguments] = process.argv.slice(2)
 if (!treeArgument || forbiddenArguments.length === 0) {
@@ -8,7 +8,8 @@ if (!treeArgument || forbiddenArguments.length === 0) {
 }
 const tree = resolve(treeArgument)
 const forbidden = forbiddenArguments.map(value => resolve(value))
-const textFile = /\.(?:cjs|css|html|js|json|map|mjs|ts|txt|yaml|yml)$/iu
+const textFile = /\.(?:cjs|cmd|css|html|js|json|map|mjs|ps1|ts|txt|yaml|yml)$/iu
+const shimFile = /^(?:pn|pnx|pnpm|pnpx)$/iu
 let changed = 0
 
 function variants(value) {
@@ -21,7 +22,7 @@ function sanitize(path) {
     for (const name of readdirSync(path)) sanitize(join(path, name))
     return
   }
-  if (!stat.isFile() || !textFile.test(path)) return
+  if (!stat.isFile() || !(textFile.test(path) || shimFile.test(basename(path)))) return
   const source = readFileSync(path, 'utf8')
   let output = source
   for (const root of forbidden) {

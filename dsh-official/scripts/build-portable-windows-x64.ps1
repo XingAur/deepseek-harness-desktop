@@ -86,6 +86,8 @@ Move-Item "$Asar.sanitized" $Asar -Force
 Remove-Item $AsarTree -Recurse -Force
 $AsarUnpacked = "$Asar.unpacked"
 if (Test-Path $AsarUnpacked) { Invoke-Checked node @((Join-Path $Root 'scripts/sanitize-portable-paths.mjs'), $AsarUnpacked, $Root, $Stage) $Root }
+$Runtime = Join-Path $Resources 'runtime'
+if (Test-Path $Runtime) { Invoke-Checked node @((Join-Path $Root 'scripts/sanitize-portable-paths.mjs'), $Runtime, $Root, $Stage) $Root }
 Invoke-Checked node @((Join-Path $Root 'scripts/verify-portable-paths.mjs'), $Resources, $Root, $Stage) $Root
 
 $Zip = Join-Path $Dist "deepseek-harness-overlay-$BuildVersion-win-x64-unsigned-manual.zip"

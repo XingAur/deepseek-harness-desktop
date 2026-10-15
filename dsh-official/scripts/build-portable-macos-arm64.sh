@@ -68,6 +68,7 @@ rm -rf "$ASAR_TREE"
 mv "$ASAR.sanitized" "$ASAR"
 rm -rf "$ASAR_TREE"
 if [[ -d "$ASAR.unpacked" ]]; then "$NODE_BIN" "$ROOT/scripts/sanitize-portable-paths.mjs" "$ASAR.unpacked" "$ROOT" "$STAGE"; fi
+if [[ -d "$APP/Contents/Resources/runtime" ]]; then "$NODE_BIN" "$ROOT/scripts/sanitize-portable-paths.mjs" "$APP/Contents/Resources/runtime" "$ROOT" "$STAGE"; fi
 "$NODE_BIN" "$ROOT/scripts/verify-portable-paths.mjs" "$APP/Contents/Resources" "$ROOT" "$STAGE"
 /usr/bin/codesign --force --deep --sign - --preserve-metadata=entitlements,requirements,flags "$APP"
 /usr/bin/codesign --verify --deep --strict "$APP"
