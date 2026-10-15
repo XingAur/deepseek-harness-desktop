@@ -118,7 +118,7 @@ replaceOnce(mainSource, "import { DesktopUpdatePreparationError } from './update
 const packageTarget = join(stage, 'apps', 'desktop', 'scripts', 'package-target.ts')
 replaceOnce(packageTarget,
   "import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'",
-  "import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'")
+  "import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'")
 replaceOnce(packageTarget,
   "const APP_ROOT = resolve(import.meta.dirname, '..')\n",
   `const APP_ROOT = resolve(import.meta.dirname, '..')
@@ -126,6 +126,7 @@ replaceOnce(packageTarget,
 function sanitizePortableRuntimeShims(runtime: string): void {
   for (const relative of ['pnpm/node_modules/.bin', 'primary-runtime/dependencies/pnpm/node_modules/.bin']) {
     const directory = join(runtime, relative)
+    if (!existsSync(directory)) continue
     for (const name of readdirSync(directory)) {
       if (!/^(?:pn|pnx|pnpm|pnpx)(?:\\.cmd|\\.ps1)?$/iu.test(name)) continue
       const path = join(directory, name)
