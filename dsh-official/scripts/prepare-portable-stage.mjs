@@ -147,6 +147,32 @@ export function reconcilePortableOverlayProfile(profile: string): void {
 }
 `)
 
+const promptCommands = join(stage, 'packages', 'api', 'session-controller', 'src', 'commands.ts')
+replaceOnce(promptCommands,
+  `        if (hasImage) {
+          const current = this.agents.selectionFor(agent).current
+          const model = await this.ctx.llm.resolveModelInfo(current.provider, current.model)
+          if (model.inputModalities !== undefined && !model.inputModalities.includes('image')) {
+            throw new RemoteError(
+              'session/attachment-invalid',
+              \`Model "\${current.model}" does not support image input.\`,
+              { reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' },
+            )
+          }
+        }
+`,
+  `        // Portable overlay admits images without catalog modality preflight.
+`)
+replaceOnce(promptCommands,
+  `        throw new RemoteError('session/agent-busy', 'prompt rejected', { reason: String(error) })
+`,
+  `        throw new RemoteError(
+          hasImage ? 'session/attachment-invalid' : 'session/agent-busy',
+          error instanceof Error ? error.message : String(error),
+          { reason: String(error) },
+        )
+`)
+
 const mainSource = join(stage, 'apps', 'desktop', 'src', 'main.ts')
 replaceOnce(mainSource, "import { join } from 'node:path'\n", "import { join } from 'node:path'\nimport { homedir } from 'node:os'\n")
 replaceOnce(mainSource, "import { DesktopUpdatePreparationError } from './update-error.ts'\n", "import { DesktopUpdatePreparationError } from './update-error.ts'\n\nif (process.env.DSH_HOME === undefined || process.env.DSH_HOME === '') process.env.DSH_HOME = join(homedir(), '.dsh-official')\n")
