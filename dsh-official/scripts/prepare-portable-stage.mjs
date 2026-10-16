@@ -90,6 +90,38 @@ function stripOverlayRows(value: unknown): unknown[] {
   }
   return result
 }
+function record(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+/** Keep selected live GPT and Grok models resolvable before image admission runs. */
+function reconcileSelectedVisionModel(rows: unknown[]): void {
+  const selected = rows.find(item => record(item).id === 'agent-default-model')
+  const selectedConfig = record(record(selected).config)
+  const provider = selectedConfig.provider
+  const model = selectedConfig.model
+  const xai = provider === 'xai' && typeof model === 'string' && /^grok-[A-Za-z0-9._-]+$/u.test(model)
+  const codex = provider === 'openai-codex' && typeof model === 'string' && /^gpt-[A-Za-z0-9._-]+$/u.test(model)
+  if (!xai && !codex) return
+  let llm = rows.find(item => record(item).id === 'llm-pi-ai')
+  if (llm === undefined) {
+    llm = { id: 'llm-pi-ai', name: '@deepseek-ai/dsh-llm-pi-ai', config: { providers: {} } }
+    rows.push(llm)
+  }
+  const llmRecord = record(llm)
+  const config = record(llmRecord.config)
+  const providers = record(config.providers)
+  const profile = record(providers[provider as string])
+  const models = Array.isArray(profile.models) ? [...profile.models] : []
+  const at = models.findIndex(item => record(item).id === model)
+  const name = xai ? 'Grok ' + (model as string).slice(5).replaceAll('-', ' ') : (model as string).replace(/^gpt-/u, 'GPT-')
+  const descriptor = at < 0 ? { id: model, name, input: ['text', 'image'] }
+    : { ...record(models[at]), input: ['text', 'image'] }
+  if (at < 0) models.push(descriptor)
+  else models[at] = descriptor
+  providers[provider as string] = { ...profile, models }
+  config.providers = providers
+  llmRecord.config = config
+}
 /** Add the bundled overlay and remove development-only file links without touching user settings. */
 export function reconcilePortableOverlayProfile(profile: string): void {
   const manifestPath = join(profile, 'package.json')
@@ -102,7 +134,11 @@ export function reconcilePortableOverlayProfile(profile: string): void {
   manifest.dsh = { ...(manifest.dsh ?? {}), profile: { ...(manifest.dsh?.profile ?? {}), bundles } }
   atomic(manifestPath, JSON.stringify(manifest, undefined, 2) + '\\n')
   const patchPath = join(profile, 'cordis.patch.yml')
-  if (existsSync(patchPath)) atomic(patchPath, dump(stripOverlayRows(load(readFileSync(patchPath, 'utf8'))), { lineWidth: -1 }))
+  if (existsSync(patchPath)) {
+    const rows = stripOverlayRows(load(readFileSync(patchPath, 'utf8')))
+    reconcileSelectedVisionModel(rows)
+    atomic(patchPath, dump(rows, { lineWidth: -1 }))
+  }
   const legacyModule = join(profile, 'node_modules', 'dsh-overlay-custom')
   if (existsSync(legacyModule) && lstatSync(legacyModule).isSymbolicLink()) unlinkSync(legacyModule)
   const lock = join(profile, 'package-lock.json')
