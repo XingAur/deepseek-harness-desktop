@@ -220,6 +220,7 @@ test('model selection roundtrips through the profile patch and keeps siblings', 
     const patch = readFileSync(join(home, 'profiles', 'desktop', 'cordis.patch.yml'), 'utf8')
     assert.match(patch, /id: llm-pi-ai/)
     assert.match(patch, /grok-4\.7/)
+    assert.equal(patch.match(/input:\n\s+- text\n\s+- image/gu)?.length, 3)
     // Invalid ids are rejected without touching the file.
     await assert.rejects(() => writeModelSelection(home, 'xai', ['bad id with spaces']))
   } finally {

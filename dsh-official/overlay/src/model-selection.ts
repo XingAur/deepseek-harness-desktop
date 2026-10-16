@@ -52,6 +52,7 @@ function displayNameFor(id: string, provider: string): string {
 export interface PickerModel {
   readonly id: string
   readonly name: string
+  readonly input?: readonly ('text' | 'image')[]
   readonly reasoningEfforts?: Readonly<Record<string, string | null>>
 }
 
@@ -89,7 +90,7 @@ export function foldPickerModels(provider: string, models: readonly string[]): P
     return [...new Set(models)]
       .filter(id => id.startsWith('grok-') && !XAI_DROP_RE.test(id))
       .sort()
-      .map(id => ({ id, name: displayNameFor(id, provider) }))
+      .map(id => ({ id, name: displayNameFor(id, provider), input: ['text', 'image'] as const }))
   }
   if (provider !== 'openai-codex') {
     return [...new Set(models)].sort().map(id => ({ id, name: displayNameFor(id, provider) }))
@@ -101,7 +102,9 @@ export function foldPickerModels(provider: string, models: readonly string[]): P
     if (sku === null) continue
     byId.set(sku.id, sku)
   }
-  return [...byId.values()].sort((left, right) => left.id.localeCompare(right.id))
+  return [...byId.values()]
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map(entry => ({ ...entry, input: ['text', 'image'] as const }))
 }
 
 /** Map an explicit user selection to picker rows. Does not re-inject the full official catalog. */
@@ -110,7 +113,7 @@ export function profilesForIds(provider: string, models: readonly string[]): Pic
     return [...new Set(models)]
       .filter(id => id.startsWith('grok-') && !XAI_DROP_RE.test(id))
       .sort()
-      .map(id => ({ id, name: displayNameFor(id, provider) }))
+      .map(id => ({ id, name: displayNameFor(id, provider), input: ['text', 'image'] as const }))
   }
   if (provider !== 'openai-codex') {
     return [...new Set(models)].sort().map(id => ({ id, name: displayNameFor(id, provider) }))
@@ -121,7 +124,9 @@ export function profilesForIds(provider: string, models: readonly string[]): Pic
     if (sku === null) continue
     byId.set(sku.id, sku)
   }
-  return [...byId.values()].sort((left, right) => left.id.localeCompare(right.id))
+  return [...byId.values()]
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map(entry => ({ ...entry, input: ['text', 'image'] as const }))
 }
 
 /** Normalize a user-submitted model id list: validate, dedupe, sort, cap. */
@@ -211,6 +216,7 @@ export async function writeModelSelection(home: string, provider: string, models
     models: folded.map(entry => ({
       id: entry.id,
       name: entry.name,
+      ...(entry.input === undefined ? {} : { input: entry.input }),
       ...(entry.reasoningEfforts === undefined ? {} : { reasoningEfforts: entry.reasoningEfforts }),
     })),
   }
