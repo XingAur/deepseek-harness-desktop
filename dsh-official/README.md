@@ -46,7 +46,7 @@ GitHub 直连不可用时，可显式选择可信的加速地址：`DSH_OFFICIAL
 | 云中继 / 侧栏手机连接 / 配对 | overlay 已接隧道、配对 JSON、`/api/desktop/mobile/*`、`/mobile` 静态页（列表/发消息/批准）。origin 读 `DSH_OVERLAY_RELAY_ORIGIN` 或当前 `DSH_HOME/overlay-custom.yaml` 的 `remoteRelayOrigin`，保存一次后持续生效 |
 | 提供商卡片「测试连接 / 拉模型」 | overlay 已接 `/api/desktop/models/probe` + 官方 provider-card slot |
 | Codex / xAI 订阅登录（OAuth） | overlay 调官方 `ctx.authorization.begin`（`llm-pi-ai/openai-codex`、`llm-pi-ai/xai`）；设置卡片上「登录」；**禁止从 ~/.dsh 拷凭据** |
-| 刷新最新模型 + 勾选显示 | overlay：`/api/desktop/models/live`（OAuth 拉线上清单，失败降级为已配置）+ `/api/desktop/models/selection`（勾选写入 `profiles/desktop/cordis.patch.yml`，重启生效）；GPT/Grok 模型同时记录文字与图片输入能力，便携包启动前会补齐当前选中模型，避免图片消息被误报为 `session/agent-busy`；卡片上有绿/红登录状态点 |
+| 刷新最新模型 + 勾选显示 | overlay：`/api/desktop/models/live`（OAuth 拉线上清单，失败降级为已配置）+ `/api/desktop/models/selection`（勾选写入 `profiles/desktop/cordis.patch.yml`，重启生效）；便携包发送图片时不按模型目录预检拦截，未声明图片能力的模型把错误交给提供商返回，而不再误报 `session/agent-busy`；卡片上有绿/红登录状态点 |
 | Codex / xAI 走代理 | overlay undici 按 host 分流（`api.x.ai` / `chatgpt.com` 等）；DeepSeek/智谱直连；配置写当前 `DSH_HOME/overlay-custom.yaml`；设置页底部「模型代理」；样式用官方 `--dsw-*` token |
 | Skills 目录 | overlay 设置页展示当前 preset 的实际技能目录、来源和调用方式；会话输入框继续使用官方 `/` 技能选择器 |
 | MCP 管理 | 每个 MCP 是独立卡片，支持状态、测试、编辑、启停、删除、脱敏 JSON 导出，并支持全量导入/导出；模板包含数据库（PostgreSQL/MySQL/Oracle/SQL Server/SQLite）、云效、GitLab、Playwright、Filesystem、Memory、远程 HTTP；数据库只需选择类型并填写连接参数；敏感值不回显，配置写 `DSH_HOME/overlay-custom.yaml`，重启后挂载官方 `dsh-mcp-client` |

@@ -280,6 +280,13 @@ test('oauth credential reader finds tokens in the active home only', async () =>
   }
 })
 
+test('portable stage admits images without catalog preflight', () => {
+  const prepare = readFileSync(join(overlayRoot, '..', 'scripts', 'prepare-portable-stage.mjs'), 'utf8')
+  assert.match(prepare, /admits images without catalog modality preflight/)
+  assert.match(prepare, /MODEL_DOES_NOT_SUPPORT_IMAGES/)
+  assert.match(prepare, /hasImage \? 'session\/attachment-invalid' : 'session\/agent-busy'/)
+})
+
 test('host model routes cover live fetch and selection persistence', () => {
   const models = readFileSync(join(overlayRoot, 'src', 'models.ts'), 'utf8')
   assert.match(models, /path: '\/api\/desktop\/models\/live'/)
