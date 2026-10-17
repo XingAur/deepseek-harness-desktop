@@ -5,6 +5,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const moduleRoot = process.argv[2]
 if (!moduleRoot) throw new Error('usage: test-repack-portable-asar.mjs <asar-module-root>')
@@ -25,7 +26,7 @@ try {
   await asar.createPackageWithOptions(source, archive, { unpackDir: join('dsh', 'node_modules') })
   asar.extractAll(archive, extracted)
   writeFileSync(join(extracted, ordinaryFile), 'sanitized')
-  execFileSync(process.execPath, [new URL('./repack-portable-asar.mjs', import.meta.url).pathname,
+  execFileSync(process.execPath, [fileURLToPath(new URL('./repack-portable-asar.mjs', import.meta.url)),
     moduleRoot, archive, extracted, 'darwin-arm64'], { stdio: 'inherit' })
   asar.uncache(archive)
   for (const relative of [nodeFile, dylibFile]) {
