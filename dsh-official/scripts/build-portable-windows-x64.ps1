@@ -77,12 +77,12 @@ if (-not (Test-Path (Join-Path $App 'DeepSeek Harness.exe')) -or -not (Test-Path
 }
 $Asar = Join-Path $Resources 'app.asar'
 $AsarCommand = Join-Path $Stage 'node_modules/.pnpm/node_modules/.bin/asar.cmd'
+Invoke-Checked node @((Join-Path $Root 'scripts/test-repack-portable-asar.mjs'), (Join-Path $Stage 'node_modules/.pnpm/node_modules/@electron/asar')) $Root
 $AsarTree = Join-Path $Stage '.asar-sanitize'
 Remove-Item $AsarTree -Recurse -Force -ErrorAction SilentlyContinue
 Invoke-Checked $AsarCommand @('extract', $Asar, $AsarTree) $Stage
 Invoke-Checked node @((Join-Path $Root 'scripts/sanitize-portable-paths.mjs'), $AsarTree, $Root, $Stage) $Root
-Invoke-Checked $AsarCommand @('pack', $AsarTree, "$Asar.sanitized") $Stage
-Move-Item "$Asar.sanitized" $Asar -Force
+Invoke-Checked node @((Join-Path $Root 'scripts/repack-portable-asar.mjs'), (Join-Path $Stage 'node_modules/.pnpm/node_modules/@electron/asar'), $Asar, $AsarTree, 'win32-x64') $Root
 Remove-Item $AsarTree -Recurse -Force
 $AsarUnpacked = "$Asar.unpacked"
 if (Test-Path $AsarUnpacked) { Invoke-Checked node @((Join-Path $Root 'scripts/sanitize-portable-paths.mjs'), $AsarUnpacked, $Root, $Stage) $Root }

@@ -60,12 +60,12 @@ if [[ ! -d "$APP" ]]; then
 fi
 ASAR="$APP/Contents/Resources/app.asar"
 ASAR_CLI="$STAGE/node_modules/.pnpm/node_modules/.bin/asar"
+"$NODE_BIN" "$ROOT/scripts/test-repack-portable-asar.mjs" "$STAGE/node_modules/.pnpm/node_modules/@electron/asar"
 ASAR_TREE="$STAGE/.asar-sanitize"
 rm -rf "$ASAR_TREE"
 "$ASAR_CLI" extract "$ASAR" "$ASAR_TREE"
 "$NODE_BIN" "$ROOT/scripts/sanitize-portable-paths.mjs" "$ASAR_TREE" "$ROOT" "$STAGE"
-"$ASAR_CLI" pack "$ASAR_TREE" "$ASAR.sanitized"
-mv "$ASAR.sanitized" "$ASAR"
+"$NODE_BIN" "$ROOT/scripts/repack-portable-asar.mjs" "$STAGE/node_modules/.pnpm/node_modules/@electron/asar" "$ASAR" "$ASAR_TREE" darwin-arm64
 rm -rf "$ASAR_TREE"
 if [[ -d "$ASAR.unpacked" ]]; then "$NODE_BIN" "$ROOT/scripts/sanitize-portable-paths.mjs" "$ASAR.unpacked" "$ROOT" "$STAGE"; fi
 if [[ -d "$APP/Contents/Resources/runtime" ]]; then "$NODE_BIN" "$ROOT/scripts/sanitize-portable-paths.mjs" "$APP/Contents/Resources/runtime" "$ROOT" "$STAGE"; fi
