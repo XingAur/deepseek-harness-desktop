@@ -30,11 +30,11 @@ try {
     moduleRoot, archive, extracted, 'darwin-arm64'], { stdio: 'inherit' })
   asar.uncache(archive)
   for (const relative of [nodeFile, dylibFile]) {
-    assert.equal(asar.statFile(archive, relative).unpacked, true)
+    assert.equal(asar.statFile(archive, join(...relative.split('/'))).unpacked, true)
     assert.equal(readFileSync(join(`${archive}.unpacked`, relative), 'utf8'),
       relative === nodeFile ? 'addon' : 'library')
   }
-  assert.equal(asar.extractFile(archive, ordinaryFile).toString(), 'sanitized')
+  assert.equal(asar.extractFile(archive, join(...ordinaryFile.split('/'))).toString(), 'sanitized')
   console.log('portable ASAR native unpack regression passed')
 } finally {
   rmSync(temporary, { recursive: true, force: true })

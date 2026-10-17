@@ -39,7 +39,7 @@ rmSync(output, { force: true })
 rmSync(outputUnpacked, { recursive: true, force: true })
 await asar.createPackageWithOptions(resolve(extracted), output, { unpackDir: join('dsh', 'node_modules') })
 for (const file of previous) {
-  if (asar.statFile(output, file).unpacked !== true || !existsSync(join(outputUnpacked, file))) {
+  if (asar.statFile(output, join(...file.split('/'))).unpacked !== true || !existsSync(join(outputUnpacked, file))) {
     throw new Error(`ASAR repack lost an unpacked native dependency: ${file}`)
   }
 }
