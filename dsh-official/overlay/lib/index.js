@@ -244,7 +244,7 @@ function codexSku(raw) {
 }
 function foldPickerModels(provider, models) {
   if (provider === "xai") {
-    return [...new Set(models)].filter((id) => id.startsWith("grok-") && !XAI_DROP_RE.test(id)).sort().map((id) => ({ id, name: displayNameFor(id, provider) }));
+    return [...new Set(models)].filter((id) => id.startsWith("grok-") && !XAI_DROP_RE.test(id)).sort().map((id) => ({ id, name: displayNameFor(id, provider), input: ["text", "image"] }));
   }
   if (provider !== "openai-codex") {
     return [...new Set(models)].sort().map((id) => ({ id, name: displayNameFor(id, provider) }));
@@ -256,11 +256,11 @@ function foldPickerModels(provider, models) {
     if (sku === null) continue;
     byId.set(sku.id, sku);
   }
-  return [...byId.values()].sort((left, right) => left.id.localeCompare(right.id));
+  return [...byId.values()].sort((left, right) => left.id.localeCompare(right.id)).map((entry) => ({ ...entry, input: ["text", "image"] }));
 }
 function profilesForIds(provider, models) {
   if (provider === "xai") {
-    return [...new Set(models)].filter((id) => id.startsWith("grok-") && !XAI_DROP_RE.test(id)).sort().map((id) => ({ id, name: displayNameFor(id, provider) }));
+    return [...new Set(models)].filter((id) => id.startsWith("grok-") && !XAI_DROP_RE.test(id)).sort().map((id) => ({ id, name: displayNameFor(id, provider), input: ["text", "image"] }));
   }
   if (provider !== "openai-codex") {
     return [...new Set(models)].sort().map((id) => ({ id, name: displayNameFor(id, provider) }));
@@ -271,7 +271,7 @@ function profilesForIds(provider, models) {
     if (sku === null) continue;
     byId.set(sku.id, sku);
   }
-  return [...byId.values()].sort((left, right) => left.id.localeCompare(right.id));
+  return [...byId.values()].sort((left, right) => left.id.localeCompare(right.id)).map((entry) => ({ ...entry, input: ["text", "image"] }));
 }
 function normalizeModelIds(models) {
   const seen = /* @__PURE__ */ new Set();
@@ -344,6 +344,7 @@ async function writeModelSelection(home, provider, models) {
     models: folded.map((entry2) => ({
       id: entry2.id,
       name: entry2.name,
+      ...entry2.input === void 0 ? {} : { input: entry2.input },
       ...entry2.reasoningEfforts === void 0 ? {} : { reasoningEfforts: entry2.reasoningEfforts }
     }))
   };
