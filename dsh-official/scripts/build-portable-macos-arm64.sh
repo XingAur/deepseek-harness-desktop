@@ -31,7 +31,8 @@ export ELECTRON_MIRROR="${ELECTRON_MIRROR:-https://npmmirror.com/mirrors/electro
 export DSH_GITHUB_ASSET_MIRROR="${DSH_GITHUB_ASSET_MIRROR-}"
 export DSH_PORTABLE_ALLOW_MAC_ARM64_CROSS=1
 export DSH_PORTABLE_SOURCE_ROOT="$ROOT"
-(cd "$OVERLAY" && npm ci && npm run bundle:host && npm run bundle:client && npm run check)
+NPM_REGISTRY="${DSH_PORTABLE_NPM_REGISTRY:-https://registry.npmjs.org}"
+(cd "$OVERLAY" && npm ci --registry "$NPM_REGISTRY" && npm run bundle:host && npm run bundle:client && npm run check)
 
 rm -rf "$STAGE"
 mkdir -p "$STAGE" "$DIST"

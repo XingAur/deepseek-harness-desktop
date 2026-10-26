@@ -100,7 +100,8 @@ if (-not $env:ELECTRON_MIRROR) { $env:ELECTRON_MIRROR = 'https://npmmirror.com/m
 if (-not (Test-Path Env:DSH_GITHUB_ASSET_MIRROR)) { $env:DSH_GITHUB_ASSET_MIRROR = '' }
 $env:DSH_PORTABLE_SOURCE_ROOT = $Root
 
-Invoke-Checked npm @('ci') $Overlay
+$NpmRegistry = if ($env:DSH_PORTABLE_NPM_REGISTRY) { $env:DSH_PORTABLE_NPM_REGISTRY } else { 'https://registry.npmjs.org' }
+Invoke-Checked npm @('ci', '--registry', $NpmRegistry) $Overlay
 Invoke-Checked npm @('run', 'bundle:host') $Overlay
 Invoke-Checked npm @('run', 'bundle:client') $Overlay
 Invoke-Checked npm @('run', 'check') $Overlay
