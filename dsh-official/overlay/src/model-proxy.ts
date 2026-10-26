@@ -1,154 +1,166 @@
-/** Per-provider model proxy: only overseas API hosts go through the tunnel. */
+/** Overlay-owned model proxy configuration. Network routing lives at the model call boundary. */
 
-import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
-import { parse } from 'yaml'
-import { readOverlayConfig, writeOverlayConfig } from './overlay-config.ts'
-
+import { randomUUID } from 'node:crypto'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { dirname, join, resolve } from 'node:path'
+import { parse, stringify } from 'yaml'
+import { parseProxyBypass } from './model-proxy-routing.ts'
+import type { SystemProxySnapshot } from './system-proxy.ts'
 
 const MAX_PROXY_URL_BYTES = 2048
 const HTTP_PROTOCOLS = new Set(['http:', 'https:'])
-const DEFAULT_PROVIDERS = ['xai', 'openai-codex'] as const
+const MODES = new Set(['system', 'manual', 'direct'])
+const OVERLAY_FILE = 'overlay-custom.yaml'
 
-const PROVIDER_HOSTS: Readonly<Record<string, readonly string[]>> = {
-  xai: ['api.x.ai', 'x.ai'],
-  'openai-codex': ['api.openai.com', 'openai.com', 'chatgpt.com', 'auth.openai.com'],
-  anthropic: ['api.anthropic.com'],
-  gemini: ['generativelanguage.googleapis.com'],
-}
-
+export type ModelProxyMode = 'system' | 'manual' | 'direct'
 export interface ModelProxyConfig {
+  readonly mode: ModelProxyMode
+  /** Internal only. May contain credentials; use modelProxyConfigView for responses. */
   readonly url: string
-  readonly providers: readonly string[]
+  readonly bypass: readonly string[]
 }
+
+const DEFAULT_CONFIG: ModelProxyConfig = Object.freeze({ mode: 'system', url: '', bypass: Object.freeze([]) })
 
 export function parseModelProxyUrl(value: unknown): string {
   if (value === undefined || value === '') return ''
-  if (typeof value !== 'string') throw new Error('proxy url must be a string')
+  if (typeof value !== 'string') throw new Error('invalid-url')
   const trimmed = value.trim()
-  if (trimmed === '') return ''
-  if (trimmed.length > MAX_PROXY_URL_BYTES) throw new Error('proxy url too long')
-  const parsed = new URL(trimmed)
-  if (!HTTP_PROTOCOLS.has(parsed.protocol)) throw new Error(`unsupported proxy scheme ${parsed.protocol}`)
+  if (!trimmed) return ''
+  if (Buffer.byteLength(trimmed) > MAX_PROXY_URL_BYTES) throw new Error('url-too-long')
+  // URL() otherwise accepts whitespace/newlines and normalizes backslashes.
+  if (/[\s\\\u0000-\u001f\u007f]/.test(trimmed)) throw new Error('invalid-url')
+  let parsed: URL
+  try { parsed = new URL(trimmed) } catch { throw new Error('invalid-url') }
+  if (!HTTP_PROTOCOLS.has(parsed.protocol)) throw new Error('unsupported-proxy-scheme')
+  if (!/^https?:\/\//i.test(trimmed) || !parsed.hostname || parsed.pathname !== '/' || parsed.search || parsed.hash) throw new Error('invalid-url')
+  // Explicit empty/zero ports and empty query/fragment suffixes must not disappear
+  // into URL normalization and accidentally select another endpoint.
+  const authority = trimmed.slice(trimmed.indexOf('://') + 3).split('/')[0]!
+  if (!authority || /:$/.test(authority) || parsed.port === '0' || /[?#]/.test(trimmed)) throw new Error('invalid-url')
   return trimmed
 }
 
+/** Intentionally excludes all userinfo, paths and query parameters. */
 export function proxyDiagnosticOrigin(value: string): string {
-  if (value === '') return ''
-  const parsed = new URL(value)
-  parsed.username = ''
-  parsed.password = ''
-  return `${parsed.protocol}//${parsed.host}`
-}
-
-export function hostsForProviders(providers: readonly string[]): string[] {
-  const hosts = new Set<string>()
-  for (const id of providers) {
-    for (const host of PROVIDER_HOSTS[id] ?? []) hosts.add(host)
-  }
-  return [...hosts]
-}
-
-export function hostNeedsProxy(hostname: string, providers: readonly string[]): boolean {
-  const host = hostname.toLowerCase()
-  for (const allowed of hostsForProviders(providers)) {
-    if (host === allowed || host.endsWith(`.${allowed}`)) return true
-  }
-  return false
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {}
-}
-
-function proxyFromRecord(source: Record<string, unknown>): ModelProxyConfig {
-  let url = ''
+  if (!value) return ''
   try {
-    url = parseModelProxyUrl(source.modelProxyUrl)
+    const parsed = new URL(parseModelProxyUrl(value))
+    return parsed.origin
   } catch {
-    url = ''
+    return ''
   }
-  const providers = Array.isArray(source.modelProxyProviders)
-    ? source.modelProxyProviders.filter((item): item is string => typeof item === 'string' && item in PROVIDER_HOSTS)
-    : [...DEFAULT_PROVIDERS]
-  return { url, providers: providers.length > 0 ? providers : [...DEFAULT_PROVIDERS] }
+}
+
+function asRecord(value: unknown, error = 'invalid-config'): Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error(error)
+  return value as Record<string, unknown>
+}
+
+/** PATCH semantics: an omitted URL preserves the complete stored credential URL. */
+export function parseModelProxyConfig(input: unknown, previous: ModelProxyConfig = DEFAULT_CONFIG): ModelProxyConfig {
+  const source = asRecord(input)
+  const mode = Object.hasOwn(source, 'mode') ? source.mode : previous.mode
+  if (typeof mode !== 'string' || !MODES.has(mode)) throw new Error('invalid-mode')
+  const url = Object.hasOwn(source, 'url') ? parseModelProxyUrl(source.url) : parseModelProxyUrl(previous.url)
+  const bypass = parseProxyBypass(Object.hasOwn(source, 'bypass') ? source.bypass : previous.bypass)
+  if (mode === 'manual' && !url) throw new Error('manual-url-required')
+  return Object.freeze({ mode: mode as ModelProxyMode, url, bypass })
+}
+
+async function readOptionalYaml(home: string, file: string): Promise<Record<string, unknown>> {
+  let text: string
+  try { text = await readFile(join(home, file), 'utf8') } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
+    throw new Error('config-read-failed')
+  }
+  try {
+    const document: unknown = parse(text)
+    return document === null || document === undefined ? {} : asRecord(document, 'config-read-failed')
+  } catch {
+    throw new Error('config-read-failed')
+  }
+}
+
+async function configFromOverlay(home: string, overlay: Record<string, unknown>): Promise<ModelProxyConfig> {
+  const input: Record<string, unknown> = {}
+  if (Object.hasOwn(overlay, 'modelProxyMode')) input.mode = overlay.modelProxyMode
+  if (Object.hasOwn(overlay, 'modelProxyBypass')) input.bypass = overlay.modelProxyBypass
+  if (Object.hasOwn(overlay, 'modelProxyUrl')) {
+    input.url = overlay.modelProxyUrl
+  } else {
+    // One-way compatibility with old desktop settings. An explicitly empty
+    // overlay URL wins; a removed password must not reappear from legacy data.
+    const settings = await readOptionalYaml(home, 'settings.yaml')
+    const legacy = settings['dsh-desktop']
+    if (legacy !== undefined && legacy !== null) {
+      const source = asRecord(legacy, 'config-read-failed')
+      if (Object.hasOwn(source, 'modelProxyUrl')) input.url = source.modelProxyUrl
+    }
+  }
+  // Legacy provider lists are deliberately neither read nor interpreted.
+  // Legacy URLs remain available in manual mode, but do not opt into it.
+  return parseModelProxyConfig(input)
 }
 
 export async function readModelProxyConfig(home: string): Promise<ModelProxyConfig> {
-  const overlay = proxyFromRecord(await readOverlayConfig(home))
-  if (overlay.url !== '') return overlay
-  let document: unknown = {}
-  try {
-    document = parse(await readFile(join(home, 'settings.yaml'), 'utf8'))
-  } catch {
-    document = {}
-  }
-  const fromSettings = proxyFromRecord(asRecord(asRecord(document)['dsh-desktop']))
-  if (fromSettings.url !== '') return fromSettings
-  const envUrl = process.env.DSH_OVERLAY_MODEL_PROXY_URL
-  if (typeof envUrl === 'string') {
-    try {
-      return { url: parseModelProxyUrl(envUrl), providers: overlay.providers }
-    } catch {
-      // Fall through to empty.
+  return configFromOverlay(home, await readOptionalYaml(home, OVERLAY_FILE))
+}
+
+// Serializes proxy edits within this process; callers still own runtime activation.
+const writes = new Map<string, Promise<unknown>>()
+
+export async function writeModelProxyConfig(home: string, input: unknown): Promise<ModelProxyConfig> {
+  const directory = resolve(home)
+  const preceding = writes.get(directory) ?? Promise.resolve()
+  const operation = preceding.catch(() => {}).then(async () => {
+    const overlay = await readOptionalYaml(directory, OVERLAY_FILE)
+    const source = asRecord(input)
+    const complete = ['mode', 'url', 'bypass'].every(key => Object.hasOwn(source, key))
+    const config = parseModelProxyConfig(input, complete ? DEFAULT_CONFIG : await configFromOverlay(directory, overlay))
+    const next = {
+      ...overlay, modelProxyMode: config.mode, modelProxyUrl: config.url, modelProxyBypass: [...config.bypass],
     }
-  }
-  return overlay
-}
-
-export async function writeModelProxyConfig(home: string, config: ModelProxyConfig): Promise<ModelProxyConfig> {
-  const url = parseModelProxyUrl(config.url)
-  const providers = config.providers.filter(id => id in PROVIDER_HOSTS)
-  await writeOverlayConfig(home, { modelProxyUrl: url, modelProxyProviders: providers })
-  return { url, providers }
-}
-
-type UndiciRuntime = {
-  Agent: new (opts?: { factory?: (origin: string | URL, options?: object) => { close(): Promise<void> } }) => {
-    close(): Promise<void>
-  }
-  Pool: new (origin: string | URL, opts?: object) => { close(): Promise<void> }
-  ProxyAgent: new (opts: { uri: string } & object) => { close(): Promise<void> }
-  getGlobalDispatcher: () => unknown
-  setGlobalDispatcher: (dispatcher: unknown) => void
-}
-
-async function loadUndici(): Promise<UndiciRuntime | undefined> {
-  return await import('undici').catch(() => undefined) as UndiciRuntime | undefined
-}
-
-/**
- * Route allowlisted model hosts through the overlay proxy; every other origin
- * stays on a dedicated Pool so domestic APIs (DeepSeek, Zhipu) stay direct.
- */
-export async function installModelProxy(config: ModelProxyConfig, report: (message: string) => void): Promise<() => Promise<void>> {
-  if (config.url === '' || config.providers.length === 0) return async () => {}
-  const undici = await loadUndici()
-  if (undici?.Agent === undefined || undici.ProxyAgent === undefined) {
-    report('dsh-overlay-custom: undici proxy support unavailable; connecting directly')
-    return async () => {}
-  }
-  const previous = undici.getGlobalDispatcher()
-  const agent = new undici.Agent({
-    factory(origin, options) {
-      let hostname = ''
-      try {
-        hostname = (origin instanceof URL ? origin : new URL(String(origin))).hostname
-      } catch {
-        hostname = ''
-      }
-      if (hostNeedsProxy(hostname, config.providers)) {
-        return new undici.ProxyAgent({ ...options, uri: config.url })
-      }
-      return new undici.Pool(origin, options)
-    },
+    const path = join(directory, OVERLAY_FILE)
+    const temporary = join(directory, `.${OVERLAY_FILE}.${randomUUID()}.tmp`)
+    // Both rename endpoints and cleanup paths are fixed children of this home.
+    if (dirname(path) !== directory || dirname(temporary) !== directory) throw new Error('config-write-failed')
+    try {
+      await mkdir(directory, { recursive: true, mode: 0o700 })
+      await writeFile(temporary, `${stringify(next)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
+      await rename(temporary, path)
+    } catch {
+      await rm(temporary, { force: true }).catch(() => {})
+      throw new Error('config-write-failed')
+    }
+    return config
   })
-  undici.setGlobalDispatcher(agent)
-  report(`dsh-overlay-custom: model proxy ${proxyDiagnosticOrigin(config.url)} for ${hostsForProviders(config.providers).join(', ')}`)
-  return async () => {
-    undici.setGlobalDispatcher(previous)
-    await agent.close()
+  writes.set(directory, operation)
+  try { return await operation } finally {
+    if (writes.get(directory) === operation) writes.delete(directory)
+  }
+}
+
+/** The only configuration projection intended for browser/API consumers. */
+export function modelProxyConfigView(config: ModelProxyConfig, system: SystemProxySnapshot) {
+  let hasCredentials = false
+  if (config.url) {
+    try {
+      const url = new URL(config.url)
+      hasCredentials = Boolean(url.username || url.password)
+    } catch { /* Invalid URLs are never reflected. */ }
+  }
+  return {
+    mode: config.mode,
+    url: proxyDiagnosticOrigin(config.url),
+    hasCredentials,
+    bypass: [...config.bypass],
+    system: {
+      status: system.status,
+      httpProxy: proxyDiagnosticOrigin(system.httpProxy),
+      httpsProxy: proxyDiagnosticOrigin(system.httpsProxy),
+      bypass: [...system.bypass],
+      ...(system.error === undefined ? {} : { error: system.error }),
+    },
   }
 }

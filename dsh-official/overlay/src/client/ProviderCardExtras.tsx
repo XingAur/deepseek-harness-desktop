@@ -41,7 +41,7 @@ const en: Record<ModelLocaleKey, string> = {
   savedHint: 'Saved. Restart the app to apply.',
   restartHint: 'Checked models appear in the model picker after a restart.',
   loginFirst: 'Sign in first to fetch the newest models',
-  proxyHint: 'OpenAI blocked this region. Save a model proxy below, test it, then sign in again.',
+  proxyHint: 'OpenAI blocked this region. Check Model network below and the proxy exit region, then sign in again.',
   refreshNeedLogin: 'Sign in first, then refresh.',
   refreshEmpty: 'Live list was empty. Check the model proxy and try again.',
   refreshApplied: 'Wrote the live list. Restart to update the picker.',
@@ -73,9 +73,9 @@ const zh: Record<ModelLocaleKey, string> = {
   savedHint: '已保存，重启应用后生效。',
   restartHint: '勾选的模型将在重启后出现在模型选择器。',
   loginFirst: '请先登录，才能拉取最新模型',
-  proxyHint: 'OpenAI 拒绝了当前地区。请先在下方「模型代理」填写、测试并保存，再登录。',
+  proxyHint: 'OpenAI 拒绝了当前地区。请检查下方「模型网络」的连接模式、检测结果和代理出口地区，再登录。',
   refreshNeedLogin: '请先登录，再刷新。',
-  refreshEmpty: '线上列表是空的。请确认模型代理已保存后再试。',
+  refreshEmpty: '线上列表是空的。请检查「模型网络」中的生效路由后再试。',
   refreshApplied: '已写入最新列表。重启后选择器才会更新。',
   refreshReady: '已更新下方列表。勾选后点保存，再重启选择器才会变。',
 }
@@ -119,7 +119,11 @@ interface OauthView {
   readonly message: string | null
   readonly url: string | null
   readonly code: string | null
-  readonly prompt: { readonly message: string; readonly placeholder: string | null } | null
+  readonly prompt: {
+    readonly message: string
+    readonly placeholder: string | null
+    readonly options?: readonly { readonly id: string; readonly label: string }[]
+  } | null
   readonly error: string | null
 }
 

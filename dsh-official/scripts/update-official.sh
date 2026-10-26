@@ -6,6 +6,18 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="$ROOT/deepseek-harness"
 REF="${DSH_OFFICIAL_REF:-master}"
 FETCH_SOURCE="${DSH_OFFICIAL_FETCH_URL:-origin}"
+FETCH_REF="$REF"
+EXPECTED_BRANCH="$REF"
+RELEASE_TAG=false
+if [[ "$REF" == dsh-v* ]]; then
+  if [[ ! "$REF" =~ ^dsh-v[0-9]+\.[0-9]+\.[0-9]+(-[[:alnum:].-]+)?$ ]]; then
+    echo "invalid official release tag" >&2
+    exit 1
+  fi
+  RELEASE_TAG=true
+  FETCH_REF="refs/tags/$REF"
+  EXPECTED_BRANCH=master
+fi
 
 if [[ ! -d "$DEST/.git" ]]; then
   echo "official checkout is not a Git clone; run: bash $ROOT/scripts/bootstrap.sh" >&2
@@ -24,19 +36,21 @@ if [[ -n "$(git -C "$DEST" status --porcelain --untracked-files=no)" ]]; then
 fi
 
 current_branch="$(git -C "$DEST" branch --show-current)"
-if [[ "$current_branch" != "$REF" ]]; then
-  echo "official checkout is on '$current_branch', expected '$REF'" >&2
+if [[ "$current_branch" != "$EXPECTED_BRANCH" ]]; then
+  echo "official checkout is on '$current_branch', expected '$EXPECTED_BRANCH'" >&2
   exit 1
 fi
 
 before="$(git -C "$DEST" rev-parse HEAD)"
 if [[ "$FETCH_SOURCE" == "origin" ]]; then
-  git -C "$DEST" -c http.version=HTTP/1.1 fetch --prune origin "$REF"
+  git -C "$DEST" -c http.version=HTTP/1.1 fetch --prune origin "$FETCH_REF"
 else
-  git -C "$DEST" -c http.version=HTTP/1.1 fetch "$FETCH_SOURCE" "$REF"
-  git -C "$DEST" update-ref "refs/remotes/origin/$REF" FETCH_HEAD
+  git -C "$DEST" -c http.version=HTTP/1.1 fetch "$FETCH_SOURCE" "$FETCH_REF"
+  if [[ "$RELEASE_TAG" != true ]]; then
+    git -C "$DEST" update-ref "refs/remotes/origin/$REF" FETCH_HEAD
+  fi
 fi
-git -C "$DEST" merge --ff-only "origin/$REF"
+git -C "$DEST" merge --ff-only FETCH_HEAD
 after="$(git -C "$DEST" rev-parse HEAD)"
 
 if [[ "$before" == "$after" && -d "$DEST/node_modules" && -f "$DEST/apps/web/dist/index.html" ]]; then

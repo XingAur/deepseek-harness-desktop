@@ -20,6 +20,55 @@ const CSS = `
   background: var(--dsw-alias-settings-card-fill);
   border-radius: var(--dsw-radius-xl);
 }
+.dshOverlayProxyFooter { min-width: 0; }
+.dshOverlayProxyModes {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.dshOverlayProxyModes legend {
+  margin-bottom: 8px;
+  padding: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+.dshOverlayProxyModes .dshOverlayRow { gap: 8px 18px; }
+.dshOverlayProxyModes input { accent-color: var(--dsw-alias-button-primary-fill); }
+.dshOverlayProxyField { display: flex; min-width: 0; flex-direction: column; gap: 6px; }
+.dshOverlayProxyField > label { color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.dshOverlayProxyField .dshOverlayInput { width: 100%; min-width: 0; }
+.dshOverlayProxyFooter input:disabled,
+.dshOverlayProxyFooter textarea:disabled { opacity: 0.5; cursor: default; }
+.dshOverlayProxyFooter :is(button, input, textarea):focus-visible {
+  outline: 2px solid var(--dsw-alias-label-primary);
+  outline-offset: 2px;
+}
+.dshOverlayProxyStatus {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 0.5px solid var(--dsw-alias-border-l3);
+}
+.dshOverlayProxyStatus h4 { margin: 0; font-size: 12px; font-weight: 500; }
+.dshOverlayProxyStatus dl {
+  display: grid;
+  grid-template-columns: minmax(100px, auto) minmax(0, 1fr);
+  gap: 4px 16px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+}
+.dshOverlayProxyStatus dt { color: var(--dsw-alias-label-tertiary); }
+.dshOverlayProxyStatus dd { min-width: 0; margin: 0; }
+.dshOverlayProxyFooter :is(p, dd, code) { overflow-wrap: anywhere; }
+.dshOverlayProxyFooter code { font-size: 12px; }
+@media (max-width: 480px) {
+  .dshOverlayProxyStatus dl { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .dshOverlayProxyStatus dd + dt { margin-top: 6px; }
+}
 .dshOverlayTitle {
   margin: 0;
   font-size: 16px;

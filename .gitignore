@@ -29,6 +29,7 @@ dist2/
 dsh-official/deepseek-harness/
 dsh-official/.cache/
 dsh-official/.portable-stage/
+dsh-official/.compat-stage/
 dsh-official/dist/
 .pnpm-store/
 

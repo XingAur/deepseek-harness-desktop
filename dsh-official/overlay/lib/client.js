@@ -290,6 +290,55 @@ var CSS2 = `
   background: var(--dsw-alias-settings-card-fill);
   border-radius: var(--dsw-radius-xl);
 }
+.dshOverlayProxyFooter { min-width: 0; }
+.dshOverlayProxyModes {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.dshOverlayProxyModes legend {
+  margin-bottom: 8px;
+  padding: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+.dshOverlayProxyModes .dshOverlayRow { gap: 8px 18px; }
+.dshOverlayProxyModes input { accent-color: var(--dsw-alias-button-primary-fill); }
+.dshOverlayProxyField { display: flex; min-width: 0; flex-direction: column; gap: 6px; }
+.dshOverlayProxyField > label { color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.dshOverlayProxyField .dshOverlayInput { width: 100%; min-width: 0; }
+.dshOverlayProxyFooter input:disabled,
+.dshOverlayProxyFooter textarea:disabled { opacity: 0.5; cursor: default; }
+.dshOverlayProxyFooter :is(button, input, textarea):focus-visible {
+  outline: 2px solid var(--dsw-alias-label-primary);
+  outline-offset: 2px;
+}
+.dshOverlayProxyStatus {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 0.5px solid var(--dsw-alias-border-l3);
+}
+.dshOverlayProxyStatus h4 { margin: 0; font-size: 12px; font-weight: 500; }
+.dshOverlayProxyStatus dl {
+  display: grid;
+  grid-template-columns: minmax(100px, auto) minmax(0, 1fr);
+  gap: 4px 16px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+}
+.dshOverlayProxyStatus dt { color: var(--dsw-alias-label-tertiary); }
+.dshOverlayProxyStatus dd { min-width: 0; margin: 0; }
+.dshOverlayProxyFooter :is(p, dd, code) { overflow-wrap: anywhere; }
+.dshOverlayProxyFooter code { font-size: 12px; }
+@media (max-width: 480px) {
+  .dshOverlayProxyStatus dl { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .dshOverlayProxyStatus dd + dt { margin-top: 6px; }
+}
 .dshOverlayTitle {
   margin: 0;
   font-size: 16px;
@@ -626,150 +675,584 @@ var import_react2 = require("react");
 var import_jsx_runtime2 = require("react/jsx-runtime");
 var NAMESPACE2 = "overlay.proxy";
 var en2 = {
-  title: "Model proxy",
-  intro: "Only checked overseas providers use this proxy. DeepSeek and Zhipu stay direct.",
-  url: "Proxy URL",
-  xai: "xAI / Grok",
-  codex: "OpenAI / Codex",
+  title: "Model network",
+  intro: "Applies to all model providers, not MCP or other tools. No provider list is needed.",
+  mode: "Connection mode",
+  modeSystem: "Follow system (default)",
+  modeManual: "Manual proxy",
+  modeDirect: "Direct",
+  systemHint: "Use the detected system HTTP/HTTPS proxies and bypass rules. Unsupported or unreadable settings do not silently fall back to direct.",
+  manualHint: "Use an HTTP or HTTPS proxy for model requests. A failed proxy does not fall back to direct.",
+  directHint: "Connect directly, ignoring system proxies and proxy environment variables.",
+  url: "Manual proxy URL",
+  urlPlaceholder: "http://127.0.0.1:7890",
+  credentialsHint: "Stored credentials are hidden and preserved while this URL is unchanged.",
+  urlEditedHint: "Editing replaces the entire URL. Include credentials again if the proxy requires them; credential-bearing input is masked.",
+  bypass: "Extra direct destinations",
+  bypassHint: "Separate domains or IP addresses with commas or new lines. Matching destinations bypass the proxy.",
+  loopbackHint: "Loopback destinations always connect directly. Successfully detected system bypass rules also apply in manual proxy mode.",
   save: "Save",
-  test: "Test",
+  saving: "Saving\u2026",
+  test: "Test connection",
   testing: "Testing\u2026",
-  saved: "Saved. New requests use this proxy.",
-  testOk: "Reached api.x.ai through the proxy.",
-  testFail: "Proxy test failed"
+  testHint: "Test the current inputs without saving them. Success only confirms this test connection, not every model provider.",
+  refresh: "Refresh detection",
+  refreshing: "Refreshing\u2026",
+  loading: "Loading proxy settings\u2026",
+  saved: "Saved. New model requests use these settings; in-flight requests keep their original route.",
+  refreshed: "System detection and saved status refreshed. Unsaved inputs were kept.",
+  unsaved: "Unsaved changes. The effective settings below have not changed.",
+  loadFailed: "Could not load proxy settings.",
+  refreshFailed: "Could not refresh proxy detection.",
+  saveFailed: "Could not save proxy settings.",
+  testFailed: "Connection test failed.",
+  testOk: "Connection test succeeded. Nothing was saved.",
+  testOkProxy: "The test connected through a proxy. Nothing was saved.",
+  testOkDirect: "The test connected directly. Nothing was saved.",
+  testOrigin: "Test connection address",
+  effectiveTitle: "Effective settings for new model requests",
+  effectiveMode: "Saved mode",
+  effectiveProxy: "Manual proxy",
+  effectiveSystem: "Use the detected routes below, subject to destination bypass rules.",
+  effectiveUnavailable: "System routing is unavailable. Requests that need it will fail rather than silently connect directly.",
+  appliedBypass: "Saved extra direct destinations",
+  systemTitle: "Detected system settings",
+  systemReady: "System proxy detected",
+  systemDirect: "No system proxy enabled (direct)",
+  systemUnsupported: "Unsupported system proxy configuration",
+  systemError: "System proxy detection failed",
+  httpProxy: "HTTP route",
+  httpsProxy: "HTTPS route",
+  systemBypass: "System bypass rules",
+  none: "None",
+  directRoute: "Direct",
+  stale: "Showing the last successfully read status. Refresh to try again.",
+  configWarning: "Saved configuration needs attention.",
+  errorNetwork: "The request could not reach the application. Check the connection and try again.",
+  errorResponse: "The application returned an invalid response. Refresh or check that the client and host versions match.",
+  errorHttp: "The application rejected the request. Try again or check the host status.",
+  errorUnauthorized: "The request was not authorized. Reload the application and try again.",
+  errorMode: "Choose Follow system, Manual proxy, or Direct.",
+  errorUrl: "Enter a valid HTTP or HTTPS proxy URL.",
+  errorNoProxy: "Manual mode requires a proxy URL.",
+  errorBypass: "One or more direct destinations are invalid. Check the domain or IP address entries.",
+  errorProxyRefused: "The proxy refused the connection. Check that it is running and the address is correct.",
+  errorProxyAuth: "Proxy authentication failed. Check the credentials in the full proxy URL.",
+  errorDns: "The connection address could not be resolved. Check DNS and proxy settings.",
+  errorTimeout: "The request timed out. Check the network and try again.",
+  errorTls: "TLS verification failed. Check the proxy and certificate configuration.",
+  errorUnknown: "The operation failed. Check the proxy settings and try again.",
+  errorConfig: "The proxy configuration is invalid.",
+  errorRead: "The saved proxy configuration could not be read.",
+  errorWrite: "The proxy configuration could not be written. Check the application data directory permissions.",
+  errorUrlLength: "The proxy URL is too long.",
+  errorScheme: "Only HTTP and HTTPS proxy URLs are supported.",
+  errorPlatform: "System proxy detection is not supported on this platform. Choose Manual proxy or Direct.",
+  errorSystemRead: "System proxy settings could not be read. Refresh detection or choose another mode.",
+  errorSystemConfig: "The system proxy settings are invalid. Check the system proxy address and port.",
+  errorPac: "Automatic proxy configuration (PAC) is not supported. Choose Manual proxy or Direct.",
+  errorAutoDiscovery: "Automatic proxy discovery is not supported. Choose Manual proxy or Direct.",
+  errorSocks: "This system SOCKS proxy configuration is not supported. Use an HTTP/HTTPS proxy or Direct.",
+  errorScoped: "Interface-scoped system proxy settings are not supported. Choose Manual proxy or Direct.",
+  errorList: "This system proxy list or failover configuration is not supported. Choose Manual proxy or Direct.",
+  errorBypassUnsupported: "This system bypass rule is not supported. Choose Manual proxy or Direct.",
+  errorTarget: "The connection test destination is invalid. Check the application configuration.",
+  errorRuntime: "Model routing is unavailable. Restart the application and retry; the proxy was not bypassed.",
+  errorTransport: "This transport cannot safely use the selected route. No direct fallback was attempted."
 };
 var zh2 = {
-  title: "\u6A21\u578B\u4EE3\u7406",
-  intro: "\u53EA\u6709\u52FE\u9009\u7684\u6D77\u5916\u5382\u5546\u8D70\u8FD9\u6761\u4EE3\u7406\u3002DeepSeek \u548C\u667A\u8C31\u4FDD\u6301\u76F4\u8FDE\u3002",
-  url: "\u4EE3\u7406 URL",
-  xai: "xAI / Grok",
-  codex: "OpenAI / Codex",
+  title: "\u6A21\u578B\u7F51\u7EDC",
+  intro: "\u9002\u7528\u4E8E\u6240\u6709\u6A21\u578B\u5382\u5546\uFF0C\u4E0D\u5F71\u54CD MCP \u6216\u5176\u4ED6\u5DE5\u5177\uFF0C\u65E0\u9700\u7EF4\u62A4\u5382\u5546\u540D\u5355\u3002",
+  mode: "\u8FDE\u63A5\u6A21\u5F0F",
+  modeSystem: "\u8DDF\u968F\u7CFB\u7EDF\uFF08\u9ED8\u8BA4\uFF09",
+  modeManual: "\u624B\u52A8\u4EE3\u7406",
+  modeDirect: "\u76F4\u8FDE",
+  systemHint: "\u4F7F\u7528\u68C0\u6D4B\u5230\u7684\u7CFB\u7EDF HTTP/HTTPS \u4EE3\u7406\u53CA\u7ED5\u8FC7\u89C4\u5219\u3002\u4E0D\u652F\u6301\u6216\u65E0\u6CD5\u8BFB\u53D6\u7684\u7CFB\u7EDF\u914D\u7F6E\u4E0D\u4F1A\u9759\u9ED8\u56DE\u9000\u4E3A\u76F4\u8FDE\u3002",
+  manualHint: "\u6A21\u578B\u8BF7\u6C42\u4F7F\u7528 HTTP \u6216 HTTPS \u4EE3\u7406\uFF1B\u4EE3\u7406\u4E0D\u53EF\u7528\u65F6\u4E0D\u4F1A\u56DE\u9000\u4E3A\u76F4\u8FDE\u3002",
+  directHint: "\u76F4\u63A5\u8FDE\u63A5\uFF0C\u5FFD\u7565\u7CFB\u7EDF\u4EE3\u7406\u53CA\u4EE3\u7406\u73AF\u5883\u53D8\u91CF\u3002",
+  url: "\u624B\u52A8\u4EE3\u7406 URL",
+  urlPlaceholder: "http://127.0.0.1:7890",
+  credentialsHint: "\u5DF2\u4FDD\u5B58\u7684\u51ED\u636E\u4E0D\u4F1A\u56DE\u663E\uFF1B\u4E0D\u4FEE\u6539\u6B64\u5730\u5740\u5373\u53EF\u4FDD\u7559\u51ED\u636E\u3002",
+  urlEditedHint: "\u7F16\u8F91\u5730\u5740\u4F1A\u66FF\u6362\u5B8C\u6574 URL\uFF1B\u5982\u9700\u8BA4\u8BC1\uFF0C\u8BF7\u91CD\u65B0\u586B\u5199\u51ED\u636E\u3002\u542B\u51ED\u636E\u7684\u8F93\u5165\u4F1A\u88AB\u906E\u6321\u3002",
+  bypass: "\u989D\u5916\u76F4\u8FDE\u5730\u5740",
+  bypassHint: "\u586B\u5199\u57DF\u540D\u6216 IP \u5730\u5740\uFF0C\u7528\u9017\u53F7\u6216\u6362\u884C\u5206\u9694\uFF1B\u5339\u914D\u7684\u76EE\u6807\u5C06\u7ED5\u8FC7\u4EE3\u7406\u3002",
+  loopbackHint: "\u56DE\u73AF\u5730\u5740\u59CB\u7EC8\u76F4\u8FDE\uFF1B\u624B\u52A8\u4EE3\u7406\u6A21\u5F0F\u4E5F\u4F1A\u9075\u5FAA\u6210\u529F\u8BFB\u53D6\u7684\u7CFB\u7EDF\u7ED5\u8FC7\u89C4\u5219\u3002",
   save: "\u4FDD\u5B58",
-  test: "\u6D4B\u8BD5",
+  saving: "\u4FDD\u5B58\u4E2D\u2026",
+  test: "\u6D4B\u8BD5\u8FDE\u63A5",
   testing: "\u6D4B\u8BD5\u4E2D\u2026",
-  saved: "\u5DF2\u4FDD\u5B58\uFF0C\u540E\u7EED\u8BF7\u6C42\u4F1A\u8D70\u8FD9\u6761\u4EE3\u7406\u3002",
-  testOk: "\u5DF2\u901A\u8FC7\u4EE3\u7406\u5230\u8FBE api.x.ai\u3002",
-  testFail: "\u4EE3\u7406\u6D4B\u8BD5\u5931\u8D25"
+  testHint: "\u6309\u5F53\u524D\u8F93\u5165\u6D4B\u8BD5\uFF0C\u4E0D\u4F1A\u4FDD\u5B58\u3002\u6210\u529F\u4EC5\u4EE3\u8868\u672C\u6B21\u8FDE\u63A5\u53EF\u8FBE\uFF0C\u4E0D\u4EE3\u8868\u6240\u6709\u6A21\u578B\u5382\u5546\u5747\u53EF\u7528\u3002",
+  refresh: "\u5237\u65B0\u68C0\u6D4B",
+  refreshing: "\u5237\u65B0\u4E2D\u2026",
+  loading: "\u6B63\u5728\u8BFB\u53D6\u4EE3\u7406\u914D\u7F6E\u2026",
+  saved: "\u5DF2\u4FDD\u5B58\uFF0C\u540E\u7EED\u6A21\u578B\u8BF7\u6C42\u4F7F\u7528\u65B0\u914D\u7F6E\uFF1B\u8FDB\u884C\u4E2D\u7684\u8BF7\u6C42\u4ECD\u4F7F\u7528\u539F\u8DEF\u7531\u3002",
+  refreshed: "\u7CFB\u7EDF\u68C0\u6D4B\u4E0E\u5DF2\u4FDD\u5B58\u72B6\u6001\u5DF2\u5237\u65B0\uFF0C\u672A\u4FDD\u5B58\u7684\u8F93\u5165\u5DF2\u4FDD\u7559\u3002",
+  unsaved: "\u6709\u672A\u4FDD\u5B58\u7684\u4FEE\u6539\uFF1B\u4E0B\u65B9\u751F\u6548\u914D\u7F6E\u5C1A\u672A\u6539\u53D8\u3002",
+  loadFailed: "\u8BFB\u53D6\u4EE3\u7406\u914D\u7F6E\u5931\u8D25\u3002",
+  refreshFailed: "\u5237\u65B0\u4EE3\u7406\u68C0\u6D4B\u5931\u8D25\u3002",
+  saveFailed: "\u4FDD\u5B58\u4EE3\u7406\u914D\u7F6E\u5931\u8D25\u3002",
+  testFailed: "\u8FDE\u63A5\u6D4B\u8BD5\u5931\u8D25\u3002",
+  testOk: "\u8FDE\u63A5\u6D4B\u8BD5\u6210\u529F\uFF0C\u672A\u4FDD\u5B58\u4EFB\u4F55\u914D\u7F6E\u3002",
+  testOkProxy: "\u672C\u6B21\u6D4B\u8BD5\u901A\u8FC7\u4EE3\u7406\u8FDE\u63A5\u6210\u529F\uFF0C\u672A\u4FDD\u5B58\u4EFB\u4F55\u914D\u7F6E\u3002",
+  testOkDirect: "\u672C\u6B21\u6D4B\u8BD5\u76F4\u8FDE\u6210\u529F\uFF0C\u672A\u4FDD\u5B58\u4EFB\u4F55\u914D\u7F6E\u3002",
+  testOrigin: "\u672C\u6B21\u6D4B\u8BD5\u8FDE\u63A5\u5730\u5740",
+  effectiveTitle: "\u540E\u7EED\u6A21\u578B\u8BF7\u6C42\u7684\u751F\u6548\u914D\u7F6E",
+  effectiveMode: "\u5DF2\u4FDD\u5B58\u6A21\u5F0F",
+  effectiveProxy: "\u624B\u52A8\u4EE3\u7406",
+  effectiveSystem: "\u6309\u4E0B\u65B9\u68C0\u6D4B\u7ED3\u679C\u9009\u62E9\u8DEF\u7531\uFF0C\u540C\u65F6\u9075\u5FAA\u76EE\u6807\u5730\u5740\u7684\u7ED5\u8FC7\u89C4\u5219\u3002",
+  effectiveUnavailable: "\u7CFB\u7EDF\u8DEF\u7531\u4E0D\u53EF\u7528\uFF1B\u9700\u8981\u8BE5\u8DEF\u7531\u7684\u8BF7\u6C42\u5C06\u5931\u8D25\uFF0C\u4E0D\u4F1A\u9759\u9ED8\u76F4\u8FDE\u3002",
+  appliedBypass: "\u5DF2\u4FDD\u5B58\u7684\u989D\u5916\u76F4\u8FDE\u5730\u5740",
+  systemTitle: "\u7CFB\u7EDF\u4EE3\u7406\u68C0\u6D4B",
+  systemReady: "\u5DF2\u68C0\u6D4B\u5230\u7CFB\u7EDF\u4EE3\u7406",
+  systemDirect: "\u672A\u542F\u7528\u7CFB\u7EDF\u4EE3\u7406\uFF08\u76F4\u8FDE\uFF09",
+  systemUnsupported: "\u7CFB\u7EDF\u4EE3\u7406\u914D\u7F6E\u6682\u4E0D\u652F\u6301",
+  systemError: "\u7CFB\u7EDF\u4EE3\u7406\u68C0\u6D4B\u5931\u8D25",
+  httpProxy: "HTTP \u8DEF\u7531",
+  httpsProxy: "HTTPS \u8DEF\u7531",
+  systemBypass: "\u7CFB\u7EDF\u7ED5\u8FC7\u89C4\u5219",
+  none: "\u65E0",
+  directRoute: "\u76F4\u8FDE",
+  stale: "\u5F53\u524D\u663E\u793A\u4E0A\u6B21\u8BFB\u53D6\u6210\u529F\u7684\u72B6\u6001\uFF0C\u8BF7\u5237\u65B0\u91CD\u8BD5\u3002",
+  configWarning: "\u5DF2\u4FDD\u5B58\u7684\u914D\u7F6E\u9700\u8981\u5904\u7406\u3002",
+  errorNetwork: "\u65E0\u6CD5\u8FDE\u63A5\u5E94\u7528\u670D\u52A1\uFF0C\u8BF7\u68C0\u67E5\u8FDE\u63A5\u540E\u91CD\u8BD5\u3002",
+  errorResponse: "\u5E94\u7528\u8FD4\u56DE\u7684\u6570\u636E\u65E0\u6548\uFF0C\u8BF7\u5237\u65B0\u6216\u68C0\u67E5\u524D\u540E\u7AEF\u7248\u672C\u662F\u5426\u5339\u914D\u3002",
+  errorHttp: "\u5E94\u7528\u62D2\u7EDD\u4E86\u6B64\u8BF7\u6C42\uFF0C\u8BF7\u91CD\u8BD5\u6216\u68C0\u67E5\u670D\u52A1\u72B6\u6001\u3002",
+  errorUnauthorized: "\u8BF7\u6C42\u672A\u83B7\u6388\u6743\uFF0C\u8BF7\u91CD\u65B0\u52A0\u8F7D\u5E94\u7528\u540E\u91CD\u8BD5\u3002",
+  errorMode: "\u8BF7\u9009\u62E9\u8DDF\u968F\u7CFB\u7EDF\u3001\u624B\u52A8\u4EE3\u7406\u6216\u76F4\u8FDE\u3002",
+  errorUrl: "\u8BF7\u8F93\u5165\u6709\u6548\u7684 HTTP \u6216 HTTPS \u4EE3\u7406 URL\u3002",
+  errorNoProxy: "\u624B\u52A8\u6A21\u5F0F\u5FC5\u987B\u586B\u5199\u4EE3\u7406 URL\u3002",
+  errorBypass: "\u90E8\u5206\u76F4\u8FDE\u5730\u5740\u65E0\u6548\uFF0C\u8BF7\u68C0\u67E5\u57DF\u540D\u6216 IP \u5730\u5740\u6761\u76EE\u3002",
+  errorProxyRefused: "\u4EE3\u7406\u62D2\u7EDD\u8FDE\u63A5\uFF0C\u8BF7\u68C0\u67E5\u4EE3\u7406\u662F\u5426\u542F\u52A8\u4EE5\u53CA\u5730\u5740\u662F\u5426\u6B63\u786E\u3002",
+  errorProxyAuth: "\u4EE3\u7406\u8BA4\u8BC1\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u5B8C\u6574\u4EE3\u7406 URL \u4E2D\u7684\u51ED\u636E\u3002",
+  errorDns: "\u65E0\u6CD5\u89E3\u6790\u8FDE\u63A5\u5730\u5740\uFF0C\u8BF7\u68C0\u67E5 DNS \u548C\u4EE3\u7406\u914D\u7F6E\u3002",
+  errorTimeout: "\u8BF7\u6C42\u8D85\u65F6\uFF0C\u8BF7\u68C0\u67E5\u7F51\u7EDC\u540E\u91CD\u8BD5\u3002",
+  errorTls: "TLS \u6821\u9A8C\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u4EE3\u7406\u4E0E\u8BC1\u4E66\u914D\u7F6E\u3002",
+  errorUnknown: "\u64CD\u4F5C\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u4EE3\u7406\u914D\u7F6E\u540E\u91CD\u8BD5\u3002",
+  errorConfig: "\u4EE3\u7406\u914D\u7F6E\u65E0\u6548\u3002",
+  errorRead: "\u65E0\u6CD5\u8BFB\u53D6\u5DF2\u4FDD\u5B58\u7684\u4EE3\u7406\u914D\u7F6E\u3002",
+  errorWrite: "\u65E0\u6CD5\u5199\u5165\u4EE3\u7406\u914D\u7F6E\uFF0C\u8BF7\u68C0\u67E5\u5E94\u7528\u6570\u636E\u76EE\u5F55\u7684\u6743\u9650\u3002",
+  errorUrlLength: "\u4EE3\u7406 URL \u8FC7\u957F\u3002",
+  errorScheme: "\u4EC5\u652F\u6301 HTTP \u548C HTTPS \u4EE3\u7406 URL\u3002",
+  errorPlatform: "\u5F53\u524D\u5E73\u53F0\u4E0D\u652F\u6301\u7CFB\u7EDF\u4EE3\u7406\u68C0\u6D4B\uFF0C\u8BF7\u9009\u62E9\u624B\u52A8\u4EE3\u7406\u6216\u76F4\u8FDE\u3002",
+  errorSystemRead: "\u65E0\u6CD5\u8BFB\u53D6\u7CFB\u7EDF\u4EE3\u7406\u8BBE\u7F6E\uFF0C\u8BF7\u5237\u65B0\u68C0\u6D4B\u6216\u9009\u62E9\u5176\u4ED6\u6A21\u5F0F\u3002",
+  errorSystemConfig: "\u7CFB\u7EDF\u4EE3\u7406\u8BBE\u7F6E\u65E0\u6548\uFF0C\u8BF7\u68C0\u67E5\u7CFB\u7EDF\u4EE3\u7406\u5730\u5740\u548C\u7AEF\u53E3\u3002",
+  errorPac: "\u6682\u4E0D\u652F\u6301\u81EA\u52A8\u4EE3\u7406\u914D\u7F6E\uFF08PAC\uFF09\uFF0C\u8BF7\u9009\u62E9\u624B\u52A8\u4EE3\u7406\u6216\u76F4\u8FDE\u3002",
+  errorAutoDiscovery: "\u6682\u4E0D\u652F\u6301\u81EA\u52A8\u53D1\u73B0\u4EE3\u7406\uFF0C\u8BF7\u9009\u62E9\u624B\u52A8\u4EE3\u7406\u6216\u76F4\u8FDE\u3002",
+  errorSocks: "\u6682\u4E0D\u652F\u6301\u6B64\u7CFB\u7EDF SOCKS \u4EE3\u7406\u914D\u7F6E\uFF0C\u8BF7\u4F7F\u7528 HTTP/HTTPS \u4EE3\u7406\u6216\u76F4\u8FDE\u3002",
+  errorList: "\u6682\u4E0D\u652F\u6301\u6B64\u7CFB\u7EDF\u4EE3\u7406\u5217\u8868\u6216\u6545\u969C\u8F6C\u79FB\u914D\u7F6E\uFF0C\u8BF7\u9009\u62E9\u624B\u52A8\u4EE3\u7406\u6216\u76F4\u8FDE\u3002",
+  errorBypassUnsupported: "\u6682\u4E0D\u652F\u6301\u6B64\u7CFB\u7EDF\u7ED5\u8FC7\u89C4\u5219\uFF0C\u8BF7\u9009\u62E9\u624B\u52A8\u4EE3\u7406\u6216\u76F4\u8FDE\u3002",
+  errorScoped: "\u6682\u4E0D\u652F\u6301\u6309\u7F51\u7EDC\u63A5\u53E3\u533A\u5206\u7684\u7CFB\u7EDF\u4EE3\u7406\u914D\u7F6E\uFF0C\u8BF7\u9009\u62E9\u624B\u52A8\u4EE3\u7406\u6216\u76F4\u8FDE\u3002",
+  errorTarget: "\u8FDE\u63A5\u6D4B\u8BD5\u7684\u76EE\u6807\u5730\u5740\u65E0\u6548\uFF0C\u8BF7\u68C0\u67E5\u5E94\u7528\u914D\u7F6E\u3002",
+  errorRuntime: "\u6A21\u578B\u7F51\u7EDC\u8DEF\u7531\u4E0D\u53EF\u7528\uFF0C\u8BF7\u91CD\u542F\u5E94\u7528\u540E\u91CD\u8BD5\uFF1B\u7A0B\u5E8F\u672A\u7ED5\u8FC7\u4EE3\u7406\u3002",
+  errorTransport: "\u6B64\u8FDE\u63A5\u65B9\u5F0F\u6682\u65F6\u65E0\u6CD5\u5B89\u5168\u4F7F\u7528\u6240\u9009\u8DEF\u7531\uFF0C\u7A0B\u5E8F\u672A\u56DE\u9000\u76F4\u8FDE\u3002"
 };
+var MODE_LABELS = {
+  system: "modeSystem",
+  manual: "modeManual",
+  direct: "modeDirect"
+};
+var MODE_HINTS = {
+  system: "systemHint",
+  manual: "manualHint",
+  direct: "directHint"
+};
+var SYSTEM_LABELS = {
+  ready: "systemReady",
+  direct: "systemDirect",
+  unsupported: "systemUnsupported",
+  error: "systemError"
+};
+var OPERATION_ERRORS = {
+  load: "loadFailed",
+  refresh: "refreshFailed",
+  save: "saveFailed",
+  test: "testFailed"
+};
+var ERROR_KEYS = {
+  "invalid-config": "errorConfig",
+  "invalid-mode": "errorMode",
+  "invalid-url": "errorUrl",
+  "url-too-long": "errorUrlLength",
+  "unsupported-proxy-scheme": "errorScheme",
+  "invalid-bypass": "errorBypass",
+  "manual-url-required": "errorNoProxy",
+  "config-read-failed": "errorRead",
+  "config-write-failed": "errorWrite",
+  "system-proxy-unsupported-platform": "errorPlatform",
+  "system-proxy-read-failed": "errorSystemRead",
+  "system-proxy-invalid-config": "errorSystemConfig",
+  "system-proxy-pac-unsupported": "errorPac",
+  "system-proxy-autodiscovery-unsupported": "errorAutoDiscovery",
+  "system-proxy-socks-unsupported": "errorSocks",
+  "system-proxy-scoped-unsupported": "errorScoped",
+  "system-proxy-list-unsupported": "errorList",
+  "system-proxy-bypass-unsupported": "errorBypassUnsupported",
+  "no-proxy": "errorNoProxy",
+  "proxy-refused": "errorProxyRefused",
+  "proxy-auth": "errorProxyAuth",
+  dns: "errorDns",
+  timeout: "errorTimeout",
+  tls: "errorTls",
+  unknown: "errorUnknown",
+  "request-failed": "errorUnknown",
+  "invalid-target-url": "errorTarget",
+  "model-proxy-disposed": "errorRuntime",
+  "model-proxy-runtime-unavailable": "errorRuntime",
+  "model-proxy-transport-unsupported": "errorTransport"
+};
+function errorKey(code) {
+  return typeof code === "string" && Object.hasOwn(ERROR_KEYS, code) ? ERROR_KEYS[code] : "errorUnknown";
+}
+var ProxyRequestError = class extends Error {
+  constructor(key) {
+    super(key);
+    this.key = key;
+  }
+  key;
+};
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function isStringArray(value) {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+function isMode(value) {
+  return value === "system" || value === "manual" || value === "direct";
+}
+function isSystemStatus(value) {
+  return value === "ready" || value === "direct" || value === "unsupported" || value === "error";
+}
+function displayOrigin(value) {
+  if (value === "") return "";
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") return parsed.origin;
+  } catch {
+  }
+  throw new ProxyRequestError("errorResponse");
+}
+function configView(payload) {
+  const system = payload.system;
+  if (!isMode(payload.mode) || typeof payload.url !== "string" || typeof payload.hasCredentials !== "boolean" || !isStringArray(payload.bypass) || !isRecord(system) || !isSystemStatus(system.status) || typeof system.httpProxy !== "string" || typeof system.httpsProxy !== "string" || !isStringArray(system.bypass)) throw new ProxyRequestError("errorResponse");
+  return {
+    mode: payload.mode,
+    url: displayOrigin(payload.url),
+    hasCredentials: payload.hasCredentials,
+    bypass: payload.bypass,
+    system: {
+      status: system.status,
+      httpProxy: displayOrigin(system.httpProxy),
+      httpsProxy: displayOrigin(system.httpsProxy),
+      bypass: system.bypass,
+      ...typeof system.error === "string" ? { error: system.error } : {}
+    },
+    ...typeof payload.error === "string" ? { error: payload.error } : {}
+  };
+}
+function requestBody(draft) {
+  const url = draft.url.trim();
+  if (draft.mode === "manual" && url === "") throw new ProxyRequestError("errorNoProxy");
+  if (draft.urlEdited && url !== "") {
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new ProxyRequestError("errorUrl");
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new ProxyRequestError("errorScheme");
+  }
+  return {
+    mode: draft.mode,
+    bypass: draft.bypassText.split(/[,\n]/u).map((entry) => entry.trim()).filter(Boolean),
+    // The GET URL has no userinfo. Sending it unchanged would erase the saved credentials.
+    ...draft.urlEdited ? { url } : {}
+  };
+}
+async function requestPayload(request, draft) {
+  const body = draft === void 0 ? void 0 : requestBody(draft);
+  const response = await fetch(`/api/desktop/proxy/${request.kind === "test" ? "test" : "config"}`, {
+    method: body === void 0 ? "GET" : "POST",
+    credentials: "same-origin",
+    redirect: "error",
+    cache: "no-store",
+    signal: request.controller.signal,
+    headers: { accept: "application/json", ...body === void 0 ? {} : { "content-type": "application/json" } },
+    ...body === void 0 ? {} : { body: JSON.stringify(body) }
+  });
+  if (response.status === 401 || response.status === 403) throw new ProxyRequestError("errorUnauthorized");
+  let payload;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new ProxyRequestError(response.ok ? "errorResponse" : "errorHttp");
+  }
+  if (!response.ok) throw new ProxyRequestError(isRecord(payload) && typeof payload.error === "string" ? errorKey(payload.error) : "errorHttp");
+  if (!isRecord(payload) || typeof payload.ok !== "boolean") throw new ProxyRequestError("errorResponse");
+  if (!payload.ok) throw new ProxyRequestError(errorKey(payload.error));
+  return payload;
+}
 function OverlayProxyFooter(props) {
   const { t } = props;
+  const id = (0, import_react2.useId)();
+  const [view, setView] = (0, import_react2.useState)();
+  const [mode, setMode] = (0, import_react2.useState)("system");
   const [url, setUrl] = (0, import_react2.useState)("");
-  const [providers, setProviders] = (0, import_react2.useState)(["xai", "openai-codex"]);
-  const [busy, setBusy] = (0, import_react2.useState)();
-  const [saved, setSaved] = (0, import_react2.useState)(false);
+  const [urlEdited, setUrlEdited] = (0, import_react2.useState)(false);
+  const [bypassText, setBypassText] = (0, import_react2.useState)("");
+  const [dirty, setDirty] = (0, import_react2.useState)(false);
+  const [busy, setBusy] = (0, import_react2.useState)("load");
+  const [notice, setNotice] = (0, import_react2.useState)();
   const [test, setTest] = (0, import_react2.useState)();
-  (0, import_react2.useEffect)(() => {
-    void fetch("/api/desktop/proxy/config", {
-      credentials: "same-origin",
-      redirect: "error",
-      headers: { accept: "application/json" }
-    }).then(async (response) => {
-      const payload = await response.json();
-      if (payload.ok === true) {
-        setUrl(payload.url ?? "");
-        if (Array.isArray(payload.providers) && payload.providers.length > 0) {
-          setProviders(payload.providers);
-        }
-      }
-    }).catch(() => {
-    });
-  }, []);
-  const toggle = (id) => {
-    setProviders((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
-    setSaved(false);
-  };
-  const save = (0, import_react2.useCallback)(() => {
-    setBusy("save");
-    setSaved(false);
-    void fetch("/api/desktop/proxy/config", {
-      method: "POST",
-      credentials: "same-origin",
-      redirect: "error",
-      headers: { accept: "application/json", "content-type": "application/json" },
-      body: JSON.stringify({ url, providers })
-    }).then(async (response) => {
-      const payload = await response.json();
-      if (payload.ok === true) setSaved(true);
-    }).finally(() => {
-      setBusy(void 0);
-    });
-  }, [providers, url]);
-  const runTest = (0, import_react2.useCallback)(() => {
-    setBusy("test");
+  const [error, setError] = (0, import_react2.useState)();
+  const mounted = (0, import_react2.useRef)(false);
+  const draftDirty = (0, import_react2.useRef)(false);
+  const pending = (0, import_react2.useRef)(null);
+  const run = (0, import_react2.useCallback)(async (kind, draft2) => {
+    if (!mounted.current || pending.current !== null) return;
+    const request = { kind, controller: new AbortController(), timedOut: false };
+    pending.current = request;
+    const isCurrent = () => mounted.current && pending.current === request;
+    request.timeout = setTimeout(() => {
+      request.timedOut = true;
+      request.controller.abort();
+    }, 2e4);
+    setBusy(kind);
+    setError(void 0);
+    setNotice(void 0);
     setTest(void 0);
-    void fetch("/api/desktop/proxy/test", {
-      method: "POST",
-      credentials: "same-origin",
-      redirect: "error",
-      headers: { accept: "application/json", "content-type": "application/json" },
-      body: JSON.stringify({ url })
-    }).then(async (response) => {
-      const payload = await response.json();
-      const result = { ok: payload.ok === true, error: payload.error ?? null };
-      setTest(result);
-      if (result.ok) {
-        const savedResponse = await fetch("/api/desktop/proxy/config", {
-          method: "POST",
-          credentials: "same-origin",
-          redirect: "error",
-          headers: { accept: "application/json", "content-type": "application/json" },
-          body: JSON.stringify({ url, providers })
-        });
-        const savedPayload = await savedResponse.json();
-        if (savedPayload.ok === true) setSaved(true);
-      }
-    }).finally(() => {
-      setBusy(void 0);
-    });
-  }, [providers, url]);
-  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("section", { className: "dshOverlayProxyFooter", "aria-labelledby": "dsh-overlay-proxy-title", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("h3", { className: "dshOverlayTitle", id: "dsh-overlay-proxy-title", children: t("title") }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "dshOverlayIntro", children: t("intro") }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("label", { className: "dshOverlayCheck", children: [
-      t("url"),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-        "input",
-        {
-          className: "dshOverlayInput",
-          value: url,
-          type: "url",
-          onChange: (event) => {
-            setUrl(event.target.value);
-            setSaved(false);
-          }
+    try {
+      const payload = await requestPayload(request, draft2);
+      if (!isCurrent()) return;
+      if (request.timedOut) throw new ProxyRequestError("errorTimeout");
+      if (kind === "test") {
+        if (payload.route !== void 0 && payload.route !== "proxy" && payload.route !== "direct" || payload.origin !== void 0 && typeof payload.origin !== "string") {
+          throw new ProxyRequestError("errorResponse");
         }
-      )
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dshOverlayRow", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("label", { className: "dshOverlayCheck", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("input", { type: "checkbox", checked: providers.includes("xai"), onChange: () => {
-          toggle("xai");
-        } }),
-        t("xai")
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("label", { className: "dshOverlayCheck", children: [
+        setTest({
+          ...payload.route === "proxy" || payload.route === "direct" ? { route: payload.route } : {},
+          ...typeof payload.origin === "string" ? { origin: displayOrigin(payload.origin) } : {}
+        });
+      } else {
+        const next = configView(payload);
+        setView(next);
+        if (kind !== "refresh" || !draftDirty.current) {
+          setMode(next.mode);
+          setUrl(next.url);
+          setUrlEdited(false);
+          setBypassText(next.bypass.join("\n"));
+          draftDirty.current = false;
+          setDirty(false);
+        }
+        if (kind === "save") setNotice("saved");
+        if (kind === "refresh") setNotice("refreshed");
+      }
+    } catch (cause) {
+      if (isCurrent()) setError({ operation: kind, key: request.timedOut ? "errorTimeout" : cause instanceof ProxyRequestError ? cause.key : "errorNetwork" });
+    } finally {
+      clearTimeout(request.timeout);
+      if (isCurrent()) {
+        pending.current = null;
+        setBusy(void 0);
+      }
+    }
+  }, []);
+  (0, import_react2.useEffect)(() => {
+    mounted.current = true;
+    void run("load");
+    return () => {
+      mounted.current = false;
+      const request = pending.current;
+      pending.current = null;
+      if (request !== null) {
+        clearTimeout(request.timeout);
+        request.controller.abort();
+      }
+    };
+  }, [run]);
+  const changed = () => {
+    draftDirty.current = true;
+    setDirty(true);
+    setNotice(void 0);
+    setError(void 0);
+    setTest(void 0);
+    const request = pending.current;
+    if (request?.kind === "test") {
+      pending.current = null;
+      clearTimeout(request.timeout);
+      request.controller.abort();
+      setBusy(void 0);
+    }
+  };
+  const inputDisabled = view === void 0 || busy === "load" || busy === "save";
+  const draft = { mode, url, urlEdited, bypassText };
+  const systemUnavailable = view?.system.status === "unsupported" || view?.system.status === "error";
+  const testMessage = test?.route === "proxy" ? "testOkProxy" : test?.route === "direct" ? "testOkDirect" : "testOk";
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("section", { className: "dshOverlayProxyFooter", "aria-labelledby": `${id}-title`, "aria-busy": busy !== void 0, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("h3", { className: "dshOverlayTitle", id: `${id}-title`, children: t("title") }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "dshOverlayIntro", children: t("intro") }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("fieldset", { className: "dshOverlayProxyModes", disabled: inputDisabled, "aria-describedby": `${id}-mode-hint`, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("legend", { children: t("mode") }),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dshOverlayRow", children: ["system", "manual", "direct"].map((value) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("label", { className: "dshOverlayCheck", children: [
         /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
           "input",
           {
-            type: "checkbox",
-            checked: providers.includes("openai-codex"),
+            type: "radio",
+            name: `${id}-mode`,
+            value,
+            checked: mode === value,
             onChange: () => {
-              toggle("openai-codex");
+              changed();
+              setMode(value);
             }
           }
         ),
-        t("codex")
+        t(MODE_LABELS[value])
+      ] }, value)) })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "dshOverlayHint", id: `${id}-mode-hint`, children: t(MODE_HINTS[mode]) }),
+    mode === "manual" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dshOverlayProxyField", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("label", { htmlFor: `${id}-url`, children: t("url") }),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        "input",
+        {
+          id: `${id}-url`,
+          className: "dshOverlayInput",
+          value: url,
+          type: urlEdited && /\/\/[^/?#]*@/u.test(url) ? "password" : "url",
+          autoComplete: "off",
+          autoCapitalize: "none",
+          spellCheck: false,
+          placeholder: t("urlPlaceholder"),
+          disabled: inputDisabled,
+          "aria-describedby": `${id}-url-hint`,
+          onChange: (event) => {
+            changed();
+            setUrlEdited(true);
+            setUrl(event.target.value);
+          }
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("p", { className: "dshOverlayHint", id: `${id}-url-hint`, children: [
+        view?.hasCredentials && !urlEdited ? `${t("credentialsHint")} ` : "",
+        t("urlEditedHint")
+      ] })
+    ] }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dshOverlayProxyField", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("label", { htmlFor: `${id}-bypass`, children: t("bypass") }),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        "textarea",
+        {
+          id: `${id}-bypass`,
+          className: "dshOverlayTextarea",
+          rows: 3,
+          value: bypassText,
+          autoComplete: "off",
+          autoCapitalize: "none",
+          spellCheck: false,
+          disabled: inputDisabled,
+          "aria-describedby": `${id}-bypass-hint`,
+          onChange: (event) => {
+            changed();
+            setBypassText(event.target.value);
+          }
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("p", { className: "dshOverlayHint", id: `${id}-bypass-hint`, children: [
+        t("bypassHint"),
+        " ",
+        t("loopbackHint")
       ] })
     ] }),
+    dirty ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "dshOverlayHint", role: "status", children: t("unsaved") }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dshOverlayRow", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "dshOverlayBtnSecondary", disabled: busy !== void 0, onClick: runTest, children: busy === "test" ? t("testing") : t("test") }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "dshOverlayBtnPrimary", disabled: busy !== void 0, onClick: save, children: t("save") })
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        "button",
+        {
+          type: "button",
+          className: "dshOverlayBtnSecondary",
+          disabled: busy !== void 0,
+          onClick: () => {
+            void run("refresh");
+          },
+          children: busy === "refresh" ? t("refreshing") : t("refresh")
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        "button",
+        {
+          type: "button",
+          className: "dshOverlayBtnSecondary",
+          disabled: busy !== void 0 || view === void 0,
+          "aria-describedby": `${id}-test-hint`,
+          onClick: () => {
+            void run("test", draft);
+          },
+          children: busy === "test" ? t("testing") : t("test")
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        "button",
+        {
+          type: "button",
+          className: "dshOverlayBtnPrimary",
+          disabled: busy !== void 0 || view === void 0,
+          onClick: () => {
+            void run("save", draft);
+          },
+          children: busy === "save" ? t("saving") : t("save")
+        }
+      )
     ] }),
-    saved ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "dshOverlaySaved", role: "status", children: t("saved") }) : null,
-    test?.ok === true ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "dshOverlaySaved", role: "status", children: t("testOk") }) : null,
-    test?.ok === false ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("p", { className: "dshOverlayAlert", role: "alert", children: [
-      t("testFail"),
-      test.error !== null ? `: ${test.error}` : ""
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "dshOverlayHint", id: `${id}-test-hint`, children: t("testHint") }),
+    busy === "load" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "dshOverlayHint", role: "status", children: t("loading") }) : null,
+    notice !== void 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "dshOverlaySaved", role: "status", children: t(notice) }) : null,
+    test !== void 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("p", { className: "dshOverlaySaved", role: "status", children: [
+      t(testMessage),
+      test.origin ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
+        " ",
+        t("testOrigin"),
+        ": ",
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { children: test.origin })
+      ] }) : null
+    ] }) : null,
+    error !== void 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("p", { className: "dshOverlayAlert", role: "alert", children: [
+      t(OPERATION_ERRORS[error.operation]),
+      " ",
+      t(error.key)
+    ] }) : null,
+    view !== void 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dshOverlayProxyStatus", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("h4", { children: t("effectiveTitle") }),
+      error?.operation === "refresh" || error?.operation === "load" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "dshOverlayHint", children: t("stale") }) : null,
+      view.error ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("p", { className: "dshOverlayAlert", role: "alert", children: [
+        t("configWarning"),
+        " ",
+        t(errorKey(view.error))
+      ] }) : null,
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("dl", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("dt", { children: t("effectiveMode") }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("dd", { children: t(MODE_LABELS[view.mode]) }),
+        view.mode === "manual" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("dt", { children: t("effectiveProxy") }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("dd", { children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { children: view.url || t("none") }) })
+        ] }) : null,
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("dt", { children: t("appliedBypass") }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("dd", { children: view.bypass.join(", ") || t("none") })
+      ] }),
+      view.mode === "direct" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "dshOverlayHint", children: t("directHint") }) : null,
+      view.mode === "system" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: systemUnavailable ? "dshOverlayAlert" : "dshOverlayHint", children: t(systemUnavailable ? "effectiveUnavailable" : "effectiveSystem") }) : null,
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("h4", { children: t("systemTitle") }),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("p", { className: systemUnavailable ? "dshOverlayAlert" : "dshOverlayHint", children: [
+        t(SYSTEM_LABELS[view.system.status]),
+        view.system.error ? ` \xB7 ${t(errorKey(view.system.error))}` : ""
+      ] }),
+      !systemUnavailable ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("dl", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("dt", { children: t("httpProxy") }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("dd", { children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { children: view.system.httpProxy || t("directRoute") }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("dt", { children: t("httpsProxy") }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("dd", { children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { children: view.system.httpsProxy || t("directRoute") }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("dt", { children: t("systemBypass") }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("dd", { children: view.system.bypass.join(", ") || t("none") })
+      ] }) : null
     ] }) : null
   ] });
 }
@@ -811,7 +1294,7 @@ var en3 = {
   savedHint: "Saved. Restart the app to apply.",
   restartHint: "Checked models appear in the model picker after a restart.",
   loginFirst: "Sign in first to fetch the newest models",
-  proxyHint: "OpenAI blocked this region. Save a model proxy below, test it, then sign in again.",
+  proxyHint: "OpenAI blocked this region. Check Model network below and the proxy exit region, then sign in again.",
   refreshNeedLogin: "Sign in first, then refresh.",
   refreshEmpty: "Live list was empty. Check the model proxy and try again.",
   refreshApplied: "Wrote the live list. Restart to update the picker.",
@@ -843,9 +1326,9 @@ var zh3 = {
   savedHint: "\u5DF2\u4FDD\u5B58\uFF0C\u91CD\u542F\u5E94\u7528\u540E\u751F\u6548\u3002",
   restartHint: "\u52FE\u9009\u7684\u6A21\u578B\u5C06\u5728\u91CD\u542F\u540E\u51FA\u73B0\u5728\u6A21\u578B\u9009\u62E9\u5668\u3002",
   loginFirst: "\u8BF7\u5148\u767B\u5F55\uFF0C\u624D\u80FD\u62C9\u53D6\u6700\u65B0\u6A21\u578B",
-  proxyHint: "OpenAI \u62D2\u7EDD\u4E86\u5F53\u524D\u5730\u533A\u3002\u8BF7\u5148\u5728\u4E0B\u65B9\u300C\u6A21\u578B\u4EE3\u7406\u300D\u586B\u5199\u3001\u6D4B\u8BD5\u5E76\u4FDD\u5B58\uFF0C\u518D\u767B\u5F55\u3002",
+  proxyHint: "OpenAI \u62D2\u7EDD\u4E86\u5F53\u524D\u5730\u533A\u3002\u8BF7\u68C0\u67E5\u4E0B\u65B9\u300C\u6A21\u578B\u7F51\u7EDC\u300D\u7684\u8FDE\u63A5\u6A21\u5F0F\u3001\u68C0\u6D4B\u7ED3\u679C\u548C\u4EE3\u7406\u51FA\u53E3\u5730\u533A\uFF0C\u518D\u767B\u5F55\u3002",
   refreshNeedLogin: "\u8BF7\u5148\u767B\u5F55\uFF0C\u518D\u5237\u65B0\u3002",
-  refreshEmpty: "\u7EBF\u4E0A\u5217\u8868\u662F\u7A7A\u7684\u3002\u8BF7\u786E\u8BA4\u6A21\u578B\u4EE3\u7406\u5DF2\u4FDD\u5B58\u540E\u518D\u8BD5\u3002",
+  refreshEmpty: "\u7EBF\u4E0A\u5217\u8868\u662F\u7A7A\u7684\u3002\u8BF7\u68C0\u67E5\u300C\u6A21\u578B\u7F51\u7EDC\u300D\u4E2D\u7684\u751F\u6548\u8DEF\u7531\u540E\u518D\u8BD5\u3002",
   refreshApplied: "\u5DF2\u5199\u5165\u6700\u65B0\u5217\u8868\u3002\u91CD\u542F\u540E\u9009\u62E9\u5668\u624D\u4F1A\u66F4\u65B0\u3002",
   refreshReady: "\u5DF2\u66F4\u65B0\u4E0B\u65B9\u5217\u8868\u3002\u52FE\u9009\u540E\u70B9\u4FDD\u5B58\uFF0C\u518D\u91CD\u542F\u9009\u62E9\u5668\u624D\u4F1A\u53D8\u3002"
 };

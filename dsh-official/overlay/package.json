@@ -17,7 +17,7 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "check": "node --experimental-strip-types --test scripts/check.ts",
+    "check": "node --experimental-strip-types --test scripts/check.ts scripts/*.test.ts",
     "bundle:client": "node scripts/bundle.mjs client",
     "bundle:host": "node scripts/bundle.mjs host",
     "bundle": "pnpm run bundle:host && pnpm run bundle:client"
@@ -36,6 +36,8 @@
     }
   },
   "dependencies": {
+    "http-proxy-agent": "^7.0.2",
+    "https-proxy-agent": "^7.0.6",
     "qrcode": "^1.5.4",
     "undici": "^8.11.2",
     "ws": "^8.18.3",

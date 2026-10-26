@@ -166,10 +166,7 @@ async function importMcpClient(): Promise<typeof import('@deepseek-ai/dsh-mcp-cl
 export async function mountOverlayMcpServers(ctx: Context): Promise<void> {
   const servers = await readOverlayMcpServers(resolveDshHome())
   if (!servers.some(server => server.disabled !== true)) return
-  let mcpClient: {
-    readonly apply: (...args: never[]) => unknown
-    readonly Config: (value: Record<string, unknown>) => unknown
-  }
+  let mcpClient: Awaited<ReturnType<typeof importMcpClient>>
   try {
     mcpClient = await importMcpClient()
   } catch (cause) {
@@ -179,7 +176,10 @@ export async function mountOverlayMcpServers(ctx: Context): Promise<void> {
   for (const server of servers) {
     if (server.disabled === true) continue
     try {
-      ctx.plugin(mcpClient as never, mcpClient.Config(mcpClientConfig(parseOverlayMcpServer(server))))
+      const input = mcpClientConfig(parseOverlayMcpServer(server))
+      // Config validates the persisted/wire input before the plugin receives it.
+      const config = mcpClient.Config(input as Parameters<typeof mcpClient.Config>[0])
+      ctx.plugin(mcpClient, config)
       ctx.logger.info(`dsh-overlay-custom: mounted MCP server ${server.serverName}`)
     } catch (cause) {
       logFailure(ctx, `MCP server ${server.serverName} failed to mount`, cause)

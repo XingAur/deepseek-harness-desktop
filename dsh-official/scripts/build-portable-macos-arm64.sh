@@ -72,6 +72,9 @@ if [[ -d "$APP/Contents/Resources/runtime" ]]; then "$NODE_BIN" "$ROOT/scripts/s
 "$NODE_BIN" "$ROOT/scripts/verify-portable-paths.mjs" "$APP/Contents/Resources" "$ROOT" "$STAGE"
 /usr/bin/codesign --force --deep --sign - --preserve-metadata=entitlements,requirements,flags "$APP"
 /usr/bin/codesign --verify --deep --strict "$APP"
+FINAL_DESCRIPTOR="$STAGE/.portable-final/desktop-runtime.json"
+"$NODE_BIN" "$STAGE/node_modules/tsx/dist/cli.mjs" "$ROOT/scripts/finalize-portable-runtime.mjs" "$STAGE" "$APP" "$ROOT" "$FINAL_DESCRIPTOR"
+"$NODE_BIN" "$STAGE/node_modules/tsx/dist/cli.mjs" "$ROOT/scripts/smoke-portable-final.mjs" "$STAGE" "$APP" "$FINAL_DESCRIPTOR"
 
 ZIP="$DIST/deepseek-harness-overlay-${BUILD_VERSION}-mac-arm64-adhoc-manual.zip"
 DMG="$DIST/deepseek-harness-overlay-${BUILD_VERSION}-mac-arm64-adhoc-manual.dmg"

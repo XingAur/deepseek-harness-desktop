@@ -327,21 +327,19 @@ test('overlay does not import the official checkout tree', () => {
   }
 })
 
-test('model proxy allowlists overseas hosts and keeps domestic APIs direct', async () => {
-  const { hostNeedsProxy, parseModelProxyUrl, proxyDiagnosticOrigin, writeModelProxyConfig, readModelProxyConfig } =
+test('model proxy stores one mode for every provider and redacts credentials', async () => {
+  const { parseModelProxyUrl, proxyDiagnosticOrigin, writeModelProxyConfig, readModelProxyConfig } =
     await import('../src/model-proxy.ts')
-  assert.equal(hostNeedsProxy('api.x.ai', ['xai']), true)
-  assert.equal(hostNeedsProxy('chatgpt.com', ['openai-codex']), true)
-  assert.equal(hostNeedsProxy('api.deepseek.com', ['xai', 'openai-codex']), false)
   assert.equal(parseModelProxyUrl('http://127.0.0.1:8001'), 'http://127.0.0.1:8001')
   assert.throws(() => parseModelProxyUrl('ftp://bad'))
   assert.equal(proxyDiagnosticOrigin('http://user:secret@127.0.0.1:8001'), 'http://127.0.0.1:8001')
   const home = mkdtempSync(join(tmpdir(), 'dsh-overlay-proxy-'))
   try {
-    await writeModelProxyConfig(home, { url: 'http://127.0.0.1:8001', providers: ['xai'] })
+    await writeModelProxyConfig(home, { mode: 'manual', url: 'http://127.0.0.1:8001', bypass: [] })
     const saved = await readModelProxyConfig(home)
     assert.equal(saved.url, 'http://127.0.0.1:8001')
-    assert.deepEqual(saved.providers, ['xai'])
+    assert.equal(saved.mode, 'manual')
+    assert.deepEqual(saved.bypass, [])
   } finally {
     rmSync(home, { recursive: true, force: true })
   }

@@ -1,65 +1,24 @@
+/** Authenticated model-network settings; probes do not mutate persisted configuration. */
+
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
+import type {} from '@deepseek-ai/dsh-llm'
 import { resolveDshHome } from './dsh-home.ts'
 import { readJsonBody, rejectUnauthorized, sameOriginMutatingRequest, writeJson } from './http.ts'
-import {
-  installModelProxy, parseModelProxyUrl, proxyDiagnosticOrigin, readModelProxyConfig, writeModelProxyConfig,
-} from './model-proxy.ts'
+import { ModelProxyManager, modelProxyErrorCode } from './model-proxy-manager.ts'
 
-const TEST_TIMEOUT_MS = 8_000
-const TEST_URL = 'https://api.x.ai/v1/models'
-
-async function testProxy(url: string): Promise<{ readonly ok: boolean; readonly error: string | null }> {
-  if (url === '') return { ok: false, error: 'no-proxy' }
-  try {
-    parseModelProxyUrl(url)
-  } catch {
-    return { ok: false, error: 'invalid-url' }
-  }
-  try {
-    const undici = await import('undici') as {
-      ProxyAgent: new (opts: { uri: string }) => object
-      request: (url: string, opts: object) => Promise<{ statusCode: number; body: { dump: () => Promise<void> } }>
-    }
-    const dispatcher = new undici.ProxyAgent({ uri: url })
-    const response = await undici.request(TEST_URL, {
-      method: 'GET',
-      dispatcher,
-      headersTimeout: TEST_TIMEOUT_MS,
-      bodyTimeout: TEST_TIMEOUT_MS,
-      headers: { accept: 'application/json' },
-    })
-    await response.body.dump()
-    return { ok: true, error: null }
-  } catch (cause) {
-    const message = cause instanceof Error ? cause.message : String(cause)
-    if (message.includes('ECONNREFUSED')) return { ok: false, error: 'proxy-refused' }
-    if (message.includes('407') || /proxy.*auth/i.test(message)) return { ok: false, error: 'proxy-auth' }
-    if (message.includes('ENOTFOUND')) return { ok: false, error: 'dns' }
-    if (message.includes('timeout') || message.includes('Timeout')) return { ok: false, error: 'timeout' }
-    if (message.includes('certificate') || message.includes('SSL') || message.includes('TLS')) {
-      return { ok: false, error: 'tls' }
-    }
-    return { ok: false, error: 'unknown' }
-  }
-}
-
-/** JSON API for overlay model-proxy settings (never logs credentials). */
-export function applyOverlayProxyApi(ctx: Context): void {
-  const home = resolveDshHome()
+/** Install one reversible model-call scope and return it to model/auth UI integrations. */
+export function applyOverlayProxyApi(ctx: Context): ModelProxyManager {
+  const manager = new ModelProxyManager(resolveDshHome())
   const reject = (req: IncomingMessage, res: ServerResponse): boolean =>
     rejectUnauthorized(req, res, ctx.connection.requestRejection(req))
-  let uninstall: (() => Promise<void>) | undefined
-  ctx.effect(() => {
-    void readModelProxyConfig(home).then(async config => {
-      uninstall = await installModelProxy(config, message => { ctx.logger.info(message) })
-    }).catch(error => {
-      ctx.logger.warn(`dsh-overlay-custom: model proxy install skipped: ${error instanceof Error ? error.message : String(error)}`)
-    })
-    return () => { void uninstall?.() }
-  }, 'dsh-overlay-custom: model proxy boot')
+
+  ctx.effect(() => () => {
+    void manager.dispose().catch(() => { ctx.logger.warn('dsh-overlay-custom: model proxy cleanup failed') })
+  }, 'dsh-overlay-custom: model network lifecycle')
+  ctx.on('llm/stream', (_options, next) => manager.stream(next))
 
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
@@ -67,13 +26,10 @@ export function applyOverlayProxyApi(ctx: Context): void {
     handler: (req, res) => {
       if (reject(req, res)) return
       if (req.method === 'GET') {
-        void readModelProxyConfig(home).then(config => {
-          writeJson(res, 200, {
-            ok: true,
-            url: config.url,
-            origin: proxyDiagnosticOrigin(config.url),
-            providers: config.providers,
-          })
+        void manager.view().then(view => {
+          writeJson(res, 200, { ok: true, ...view })
+        }).catch(cause => {
+          writeJson(res, 500, { ok: false, error: modelProxyErrorCode(cause) })
         })
         return
       }
@@ -88,24 +44,16 @@ export function applyOverlayProxyApi(ctx: Context): void {
         return
       }
       void (async () => {
-        const body = await readJsonBody(req).catch(() => ({} as Record<string, unknown>))
+        let body: Record<string, unknown>
+        try { body = await readJsonBody(req) } catch {
+          writeJson(res, 400, { ok: false, error: 'invalid-config' })
+          return
+        }
         try {
-          const saved = await writeModelProxyConfig(home, {
-            url: typeof body.url === 'string' ? body.url : '',
-            providers: Array.isArray(body.providers)
-              ? body.providers.filter((item): item is string => typeof item === 'string')
-              : ['xai', 'openai-codex'],
-          })
-          await uninstall?.()
-          uninstall = await installModelProxy(saved, message => { ctx.logger.info(message) })
-          writeJson(res, 200, {
-            ok: true,
-            url: saved.url,
-            origin: proxyDiagnosticOrigin(saved.url),
-            providers: saved.providers,
-          })
+          const view = await manager.save(body)
+          writeJson(res, 200, { ok: true, ...view })
         } catch (cause) {
-          writeJson(res, 400, { ok: false, error: cause instanceof Error ? cause.message : 'write-failed' })
+          writeJson(res, 400, { ok: false, error: modelProxyErrorCode(cause) })
         }
       })()
     },
@@ -127,10 +75,18 @@ export function applyOverlayProxyApi(ctx: Context): void {
         return
       }
       void (async () => {
-        const body = await readJsonBody(req).catch(() => ({} as Record<string, unknown>))
-        const url = typeof body.url === 'string' ? body.url : (await readModelProxyConfig(home)).url
-        writeJson(res, 200, await testProxy(url))
+        let body: Record<string, unknown>
+        try { body = await readJsonBody(req) } catch {
+          writeJson(res, 400, { ok: false, error: 'invalid-config' })
+          return
+        }
+        try {
+          writeJson(res, 200, await manager.test(body))
+        } catch (cause) {
+          writeJson(res, 500, { ok: false, error: modelProxyErrorCode(cause) })
+        }
       })()
     },
   }), 'dsh-overlay-custom: proxy test')
+  return manager
 }

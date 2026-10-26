@@ -43,7 +43,11 @@ overlayManifest.version = version
 delete overlayManifest.private
 overlayManifest.description = 'Portable custom features for the local DeepSeek Harness desktop build'
 overlayManifest.files = ['cordis.patch.yml', 'public', 'lib']
-overlayManifest.dependencies = { ...overlayManifest.dependencies, '@deepseek-ai/dsh-mcp-client': 'workspace:*' }
+overlayManifest.dependencies = {
+  ...overlayManifest.dependencies,
+  '@deepseek-ai/dsh-mcp-client': 'workspace:*',
+  '@deepseek-ai/dsh-llm': 'workspace:*',
+}
 writeJson(overlayManifestPath, overlayManifest)
 mkdirSync(join(stagedOverlay, 'lib', 'types'), { recursive: true })
 writeFileSync(join(stagedOverlay, 'lib', 'types', 'index.js'), "export * from '../../src/index.ts'\n")
@@ -53,6 +57,21 @@ const cliManifestPath = join(stage, 'apps', 'cli', 'package.json')
 const cliManifest = JSON.parse(readFileSync(cliManifestPath, 'utf8'))
 cliManifest.dependencies['@deepseek-ai/dsh-overlay-custom'] = 'workspace:*'
 writeJson(cliManifestPath, cliManifest)
+
+// Streaming HTTP keeps each model call on its captured proxy route. Codex's
+// session-cached WebSocket would otherwise reuse a previous route after a save.
+replaceOnce(join(stage, 'packages', 'llm', 'llm-pi-ai', 'src', 'adapter.ts'),
+  '        ...profileOptions(profile, reasoning, apiKey),\n',
+  "        ...profileOptions(profile, reasoning, apiKey),\n        transport: 'sse',\n")
+
+// Keep Bedrock on its already-supported HTTP/1 transport so the model-scoped
+// native HTTP agents, rather than environment-derived or cached HTTP/2 routes,
+// own every request. Extend the existing exact-version dependency patch.
+const piPatch = join(stage, 'patches', '@earendil-works__pi-ai@1.1.0.patch')
+const bedrockPatchHeader = '--- a/dist/api/bedrock-converse-stream.js\n+++ b/dist/api/bedrock-converse-stream.js\n'
+const bedrockFragment = readFileSync(join(overlay, 'patches', 'pi-ai-bedrock-http1.fragment'), 'utf8')
+replaceOnce(piPatch, bedrockPatchHeader, bedrockPatchHeader + bedrockFragment)
+replaceOnce(piPatch, '@@ -461,7 +461,6 @@ function handleContentBlockDelta', '@@ -461,7 +450,6 @@ function handleContentBlockDelta')
 
 const profileSource = join(stage, 'apps', 'desktop', 'src', 'project-manager.ts')
 replaceOnce(profileSource,
@@ -218,7 +237,7 @@ function sanitizePortableTextPaths(tree: string, forbidden: string): void {
 `)
 replaceOnce(packageTarget,
   "  await execute(['run', 'build:official'], buildEnv, REPOSITORY_ROOT)\n  await execute(['run', 'release:pack', '--family', 'dsh', '--out', buildPaths.packedDsh, ...packArguments], buildEnv, REPOSITORY_ROOT)",
-  "  await execute(['run', 'build:official'], buildEnv, REPOSITORY_ROOT)\n  rmSync(join(REPOSITORY_ROOT, 'packages/external/overlay-custom/lib/types/index.js'), { force: true })\n  await execute(['run', 'release:pack', '--family', 'dsh', '--out', buildPaths.packedDsh, ...packArguments], buildEnv, REPOSITORY_ROOT)")
+  "  const portableOverlay = join(REPOSITORY_ROOT, 'packages/external/overlay-custom')\n  await execute(['run', 'bundle:host'], buildEnv, portableOverlay)\n  await execute(['run', 'bundle:client'], buildEnv, portableOverlay)\n  mkdirSync(join(portableOverlay, 'lib/types'), { recursive: true })\n  writeFileSync(join(portableOverlay, 'lib/types/index.js'), \"export * from '../../src/index.ts'\\n\")\n  await execute(['run', 'build:official'], buildEnv, REPOSITORY_ROOT)\n  const portableName = JSON.parse(readFileSync(join(portableOverlay, 'package.json'), 'utf8')).name\n  if (!readFileSync(join(portableOverlay, 'lib/client.js'), 'utf8').startsWith(`window.__ModuleLoader__.load({id:${JSON.stringify(portableName)},`)) {\n    throw new Error('portable overlay client module identity does not match its package')\n  }\n  rmSync(join(portableOverlay, 'lib/types/index.js'), { force: true })\n  await execute(['run', 'release:pack', '--family', 'dsh', '--out', buildPaths.packedDsh, ...packArguments], buildEnv, REPOSITORY_ROOT)")
 replaceOnce(packageTarget,
   "  await execute(['run', 'prepare:dsh', ...(signPrimaryRuntime ? ['--defer-runtime-smoke'] : [])], downloadEnv)",
   "  await execute(['run', 'prepare:dsh', ...(signPrimaryRuntime ? ['--defer-runtime-smoke'] : [])], downloadEnv)\n  sanitizePortableRuntimeShims(buildPaths.runtime)\n  sanitizePortableTextPaths(buildPaths.runtime, REPOSITORY_ROOT)\n  sanitizePortableTextPaths(join(APP_ROOT, 'lib'), REPOSITORY_ROOT)\n  if (process.env.DSH_PORTABLE_SOURCE_ROOT) {\n    sanitizePortableTextPaths(buildPaths.runtime, process.env.DSH_PORTABLE_SOURCE_ROOT)\n    sanitizePortableTextPaths(join(APP_ROOT, 'lib'), process.env.DSH_PORTABLE_SOURCE_ROOT)\n  }")

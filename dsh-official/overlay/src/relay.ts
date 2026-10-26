@@ -118,11 +118,13 @@ export function applyOverlayRelay(ctx: Context, originValue: string): void {
 
   const startTunnel = (): void => {
     if (origin === null || pairing === null || pairing.token === null) return
+    const targetPort = ctx.webServer.port
+    if (targetPort === undefined) return
     tunnel = new RemoteRelayTunnel({
       relayUrl: `${origin.protocol === 'https:' ? 'wss' : 'ws'}://${origin.host}/host`,
       pairId: pairing.pairId,
       secret: pairing.secret,
-      targetPort: ctx.webServer.port,
+      targetPort,
       log: message => ctx.logger.info(`dsh-overlay-custom: ${message}`),
     })
     tunnel.start()

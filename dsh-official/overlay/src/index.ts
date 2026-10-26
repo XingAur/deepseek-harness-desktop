@@ -20,10 +20,10 @@ function loadRelayOrigin(): string {
 
 /** Host face for official desktop: relay, model, Skills, and MCP extensions. */
 export async function apply(ctx: Context): Promise<void> {
-  applyOverlayProxyApi(ctx)
+  const modelNetwork = applyOverlayProxyApi(ctx)
   applyOverlayRelay(ctx, loadRelayOrigin())
-  applyOverlayModels(ctx)
-  applyOverlayOauth(ctx)
+  applyOverlayModels(ctx, modelNetwork)
+  applyOverlayOauth(ctx, modelNetwork)
   applyOverlaySkillsMcpRoutes(ctx)
   await mountOverlayMcpServers(ctx)
   ctx.logger.info('dsh-overlay-custom host mounted')

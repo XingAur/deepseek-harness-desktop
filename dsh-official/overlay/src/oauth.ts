@@ -5,7 +5,7 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import { resolveDshHome } from './dsh-home.ts'
 import { readJsonBody, rejectUnauthorized, sameOriginMutatingRequest, writeJson } from './http.ts'
 import { readOAuthCredential } from './live-models.ts'
-import { readModelProxyConfig } from './model-proxy.ts'
+import { modelProxyErrorCode, type ModelProxyManager } from './model-proxy-manager.ts'
 import {
   isOauthLoginProvider, oauthCredentialKey, type OauthLoginProvider,
 } from './oauth-providers.ts'
@@ -78,7 +78,7 @@ function parseProvider(body: Record<string, unknown>, query: string | null): Oau
 }
 
 /** Optional official authorization seam: missing API must not fail desktop boot. */
-export function applyOverlayOauth(ctx: Context): void {
+export function applyOverlayOauth(ctx: Context, modelNetwork: ModelProxyManager): void {
   const sessions = new Map<string, Session>()
   const reject = (req: IncomingMessage, res: ServerResponse): boolean =>
     rejectUnauthorized(req, res, ctx.connection.requestRejection(req))
@@ -158,11 +158,6 @@ export function applyOverlayOauth(ctx: Context): void {
           writeJson(res, 400, { ok: false, error: 'unknown-provider' })
           return
         }
-        const proxy = await readModelProxyConfig(resolveDshHome())
-        if (proxy.url === '' && (provider === 'openai-codex' || provider === 'xai')) {
-          writeJson(res, 200, { ...emptyView(provider, 'failed'), error: 'proxy-required' })
-          return
-        }
         const auth = authorizationOf(ctx)
         if (auth === undefined) {
           writeJson(res, 200, emptyView(provider, 'unavailable'))
@@ -183,7 +178,7 @@ export function applyOverlayOauth(ctx: Context): void {
           message: 'starting',
         }
         writeJson(res, 202, session.view)
-        void auth.begin({
+        void modelNetwork.run(() => auth.begin({
           key: oauthCredentialKey(provider),
           method: 'oauth',
           signal: controller.signal,
@@ -218,7 +213,7 @@ export function applyOverlayOauth(ctx: Context): void {
               })
             },
           },
-        }).then((outcome) => {
+        })).then((outcome) => {
           const status = outcome.status === 'authorized' || outcome.status === 'cancelled'
             ? outcome.status
             : 'failed'
@@ -235,7 +230,7 @@ export function applyOverlayOauth(ctx: Context): void {
           const message = cause instanceof Error ? cause.message : String(cause)
           session.view = {
             ...emptyView(provider, message.includes('no authorization flow') ? 'unavailable' : 'failed'),
-            error: message,
+            error: message.includes('no authorization flow') ? 'unavailable' : modelProxyErrorCode(cause),
           }
           session.controller = null
           session.answer = null

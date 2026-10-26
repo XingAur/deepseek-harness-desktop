@@ -6,12 +6,12 @@ import { resolveDshHome } from './dsh-home.ts'
 import { probeModels, probeProvider } from './model-core.ts'
 import { foldPickerModels, isValidProviderId, readConfiguredModels, writeModelSelection } from './model-selection.ts'
 import { fetchLiveModelIds, readOAuthCredential } from './live-models.ts'
-import { readModelProxyConfig } from './model-proxy.ts'
+import type { ModelProxyManager } from './model-proxy-manager.ts'
 import { isOauthLoginProvider } from './oauth-providers.ts'
 import { readJsonBody, rejectUnauthorized, sameOriginMutatingRequest, writeJson } from './http.ts'
 
 /** Host routes for provider-card test/fetch against the active DSH home. */
-export function applyOverlayModels(ctx: Context): void {
+export function applyOverlayModels(ctx: Context, modelNetwork: ModelProxyManager): void {
   const home = resolveDshHome()
   const reject = (req: IncomingMessage, res: ServerResponse): boolean =>
     rejectUnauthorized(req, res, ctx.connection.requestRejection(req))
@@ -38,7 +38,7 @@ export function applyOverlayModels(ctx: Context): void {
             && typeof body.provider === 'string'
             ? body.provider
             : null
-          const outcome = provider === null ? await probeModels(home) : await probeProvider(home, provider)
+          const outcome = await modelNetwork.run(() => provider === null ? probeModels(home) : probeProvider(home, provider))
           writeJson(res, 200, outcome)
         } catch (cause) {
           ctx.logger.error(`dsh-overlay-custom: model probe failed: ${cause instanceof Error ? cause.message : String(cause)}`)
@@ -85,15 +85,16 @@ export function applyOverlayModels(ctx: Context): void {
           writeJson(res, 200, { ok: false, live: [], configured, error: 'no-credential' })
           return
         }
-        const proxy = await readModelProxyConfig(home)
-        const fetched = await fetchLiveModelIds(provider, credential, proxy)
+        const fetched = await modelNetwork.run(() => fetchLiveModelIds(provider, credential))
         if (fetched.ids.length === 0) {
           writeJson(res, 200, { ok: false, live: [], configured, error: fetched.error ?? 'live-empty' })
           return
         }
         const folded = foldPickerModels(provider, fetched.ids).map(entry => entry.id)
         writeJson(res, 200, { ok: true, live: folded, configured: folded, applied: false })
-      })()
+      })().catch(() => {
+        writeJson(res, 502, { ok: false, live: [], configured: [], error: 'network' })
+      })
     },
   }), 'dsh-overlay-custom: live models')
 

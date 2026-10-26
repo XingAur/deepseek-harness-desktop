@@ -301,8 +301,8 @@ function modelIdsOf(profile) {
   for (const entry of raw) {
     if (typeof entry === "string") ids.push(entry);
     else {
-      const record2 = asRecord2(entry);
-      if (typeof record2.id === "string") ids.push(record2.id);
+      const record3 = asRecord2(entry);
+      if (typeof record3.id === "string") ids.push(record3.id);
     }
   }
   return ids;
@@ -315,9 +315,9 @@ async function readConfiguredModels(home, provider) {
   const patch = await readYaml2(join4(home, PATCH_RELATIVE));
   if (Array.isArray(patch)) {
     for (const entry of patch) {
-      const record2 = asRecord2(entry);
-      if (record2.id !== "llm-pi-ai") continue;
-      const providers = asRecord2(asRecord2(record2.config)["providers"]);
+      const record3 = asRecord2(entry);
+      if (record3.id !== "llm-pi-ai") continue;
+      const providers = asRecord2(asRecord2(record3.config)["providers"]);
       for (const id of modelIdsOf(asRecord2(providers[provider]))) merged.add(id);
     }
   }
@@ -335,8 +335,8 @@ async function writeModelSelection(home, provider, models) {
     entry = { id: "llm-pi-ai", name: "@deepseek-ai/dsh-llm-pi-ai", config: { providers: {} } };
     entries.push(entry);
   }
-  const record2 = asRecord2(entry);
-  const config = asRecord2(record2.config);
+  const record3 = asRecord2(entry);
+  const config = asRecord2(record3.config);
   const providers = asRecord2(config.providers);
   const profile = asRecord2(providers[provider]);
   providers[provider] = {
@@ -348,7 +348,7 @@ async function writeModelSelection(home, provider, models) {
       ...entry2.reasoningEfforts === void 0 ? {} : { reasoningEfforts: entry2.reasoningEfforts }
     }))
   };
-  record2.config = { ...config, providers };
+  record3.config = { ...config, providers };
   await mkdir3(dirname(path), { recursive: true, mode: 448 });
   const temporary = `${path}.overlay-tmp`;
   await writeFile3(temporary, `${stringify3(entries)}
@@ -363,163 +363,42 @@ async function writeModelSelection(home, provider, models) {
 }
 
 // src/live-models.ts
-import { readFile as readFile5 } from "node:fs/promises";
-import { join as join6 } from "node:path";
-import { parse as parse5 } from "yaml";
-
-// src/model-proxy.ts
-init_overlay_config();
 import { readFile as readFile4 } from "node:fs/promises";
 import { join as join5 } from "node:path";
 import { parse as parse4 } from "yaml";
-var MAX_PROXY_URL_BYTES = 2048;
-var HTTP_PROTOCOLS = /* @__PURE__ */ new Set(["http:", "https:"]);
-var DEFAULT_PROVIDERS = ["xai", "openai-codex"];
-var PROVIDER_HOSTS = {
-  xai: ["api.x.ai", "x.ai"],
-  "openai-codex": ["api.openai.com", "openai.com", "chatgpt.com", "auth.openai.com"],
-  anthropic: ["api.anthropic.com"],
-  gemini: ["generativelanguage.googleapis.com"]
-};
-function parseModelProxyUrl(value) {
-  if (value === void 0 || value === "") return "";
-  if (typeof value !== "string") throw new Error("proxy url must be a string");
-  const trimmed = value.trim();
-  if (trimmed === "") return "";
-  if (trimmed.length > MAX_PROXY_URL_BYTES) throw new Error("proxy url too long");
-  const parsed = new URL(trimmed);
-  if (!HTTP_PROTOCOLS.has(parsed.protocol)) throw new Error(`unsupported proxy scheme ${parsed.protocol}`);
-  return trimmed;
-}
-function proxyDiagnosticOrigin(value) {
-  if (value === "") return "";
-  const parsed = new URL(value);
-  parsed.username = "";
-  parsed.password = "";
-  return `${parsed.protocol}//${parsed.host}`;
-}
-function hostsForProviders(providers) {
-  const hosts = /* @__PURE__ */ new Set();
-  for (const id of providers) {
-    for (const host of PROVIDER_HOSTS[id] ?? []) hosts.add(host);
-  }
-  return [...hosts];
-}
-function hostNeedsProxy(hostname, providers) {
-  const host = hostname.toLowerCase();
-  for (const allowed of hostsForProviders(providers)) {
-    if (host === allowed || host.endsWith(`.${allowed}`)) return true;
-  }
-  return false;
-}
-function asRecord3(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
-}
-function proxyFromRecord(source) {
-  let url = "";
-  try {
-    url = parseModelProxyUrl(source.modelProxyUrl);
-  } catch {
-    url = "";
-  }
-  const providers = Array.isArray(source.modelProxyProviders) ? source.modelProxyProviders.filter((item) => typeof item === "string" && item in PROVIDER_HOSTS) : [...DEFAULT_PROVIDERS];
-  return { url, providers: providers.length > 0 ? providers : [...DEFAULT_PROVIDERS] };
-}
-async function readModelProxyConfig(home) {
-  const overlay = proxyFromRecord(await readOverlayConfig(home));
-  if (overlay.url !== "") return overlay;
-  let document = {};
-  try {
-    document = parse4(await readFile4(join5(home, "settings.yaml"), "utf8"));
-  } catch {
-    document = {};
-  }
-  const fromSettings = proxyFromRecord(asRecord3(asRecord3(document)["dsh-desktop"]));
-  if (fromSettings.url !== "") return fromSettings;
-  const envUrl = process.env.DSH_OVERLAY_MODEL_PROXY_URL;
-  if (typeof envUrl === "string") {
-    try {
-      return { url: parseModelProxyUrl(envUrl), providers: overlay.providers };
-    } catch {
-    }
-  }
-  return overlay;
-}
-async function writeModelProxyConfig(home, config) {
-  const url = parseModelProxyUrl(config.url);
-  const providers = config.providers.filter((id) => id in PROVIDER_HOSTS);
-  await writeOverlayConfig(home, { modelProxyUrl: url, modelProxyProviders: providers });
-  return { url, providers };
-}
-async function loadUndici() {
-  return await import("undici").catch(() => void 0);
-}
-async function installModelProxy(config, report) {
-  if (config.url === "" || config.providers.length === 0) return async () => {
-  };
-  const undici = await loadUndici();
-  if (undici?.Agent === void 0 || undici.ProxyAgent === void 0) {
-    report("dsh-overlay-custom: undici proxy support unavailable; connecting directly");
-    return async () => {
-    };
-  }
-  const previous = undici.getGlobalDispatcher();
-  const agent = new undici.Agent({
-    factory(origin, options) {
-      let hostname = "";
-      try {
-        hostname = (origin instanceof URL ? origin : new URL(String(origin))).hostname;
-      } catch {
-        hostname = "";
-      }
-      if (hostNeedsProxy(hostname, config.providers)) {
-        return new undici.ProxyAgent({ ...options, uri: config.url });
-      }
-      return new undici.Pool(origin, options);
-    }
-  });
-  undici.setGlobalDispatcher(agent);
-  report(`dsh-overlay-custom: model proxy ${proxyDiagnosticOrigin(config.url)} for ${hostsForProviders(config.providers).join(", ")}`);
-  return async () => {
-    undici.setGlobalDispatcher(previous);
-    await agent.close();
-  };
-}
-
-// src/live-models.ts
 var REQUEST_TIMEOUT_MS2 = 15e3;
-function asRecord4(value) {
+function asRecord3(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 async function readOAuthCredential(home, provider) {
   let document;
   try {
-    document = parse5(await readFile5(join6(home, ".credentials.yaml"), "utf8"));
+    document = parse4(await readFile4(join5(home, ".credentials.yaml"), "utf8"));
   } catch {
     return null;
   }
-  const record2 = asRecord4(asRecord4(asRecord4(document)["records"])[`llm-pi-ai/${provider}`]);
-  const payload = asRecord4(record2.payload);
-  const credential = asRecord4(payload.credential);
+  const record3 = asRecord3(asRecord3(asRecord3(document)["records"])[`llm-pi-ai/${provider}`]);
+  const payload = asRecord3(record3.payload);
+  const credential = asRecord3(payload.credential);
   const access = typeof payload.access === "string" ? payload.access : typeof credential.access === "string" ? credential.access : null;
   if (access === null || access === "") return null;
   const accountId = typeof payload.accountId === "string" ? payload.accountId : null;
   return { access, accountId };
 }
 function extractModelIds(payload) {
-  const record2 = asRecord4(payload);
+  const record3 = asRecord3(payload);
   const ids = /* @__PURE__ */ new Set();
-  const rows = Array.isArray(payload) ? payload : Array.isArray(record2.data) ? record2.data : Array.isArray(record2.models) ? record2.models : [];
+  const rows = Array.isArray(payload) ? payload : Array.isArray(record3.data) ? record3.data : Array.isArray(record3.models) ? record3.models : [];
   for (const item of rows) {
     if (typeof item === "string" && item !== "") {
       ids.add(item);
       continue;
     }
-    const row = asRecord4(item);
+    const row = asRecord3(item);
     const id = [row.id, row.slug, row.model].find((value) => typeof value === "string" && value !== "");
     if (typeof id === "string") ids.add(id);
   }
-  const models = asRecord4(record2.models);
+  const models = asRecord3(record3.models);
   for (const key of Object.keys(models)) ids.add(key);
   return [...ids].sort();
 }
@@ -533,29 +412,12 @@ function endpointsFor(provider) {
     { url: "https://api.openai.com/v1/models", accountHeader: false }
   ];
 }
-async function loadJson(url, headers, proxy) {
-  const hostname = new URL(url).hostname;
-  const useProxy = proxy !== void 0 && proxy.url !== "" && hostNeedsProxy(hostname, proxy.providers);
-  if (useProxy) {
-    const undici = await import("undici");
-    const dispatcher = new undici.ProxyAgent({ uri: proxy.url });
-    const response2 = await undici.request(url, {
-      method: "GET",
-      dispatcher,
-      headersTimeout: REQUEST_TIMEOUT_MS2,
-      bodyTimeout: REQUEST_TIMEOUT_MS2,
-      headers
-    });
-    return { status: response2.statusCode, body: await response2.body.json() };
-  }
+async function loadJson(url, headers) {
   const response = await fetch(url, { headers, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS2) });
   return { status: response.status, body: await response.json().catch(() => null) };
 }
-async function fetchLiveModelIds(provider, credential, proxy) {
+async function fetchLiveModelIds(provider, credential) {
   let lastError = null;
-  if ((provider === "openai-codex" || provider === "xai") && (proxy === void 0 || proxy.url === "")) {
-    return { ids: [], error: "proxy-required" };
-  }
   for (const endpoint of endpointsFor(provider)) {
     try {
       const headers = {
@@ -567,7 +429,7 @@ async function fetchLiveModelIds(provider, credential, proxy) {
       if (endpoint.accountHeader && credential.accountId !== null) {
         headers["chatgpt-account-id"] = credential.accountId;
       }
-      const response = await loadJson(endpoint.url, headers, proxy);
+      const response = await loadJson(endpoint.url, headers);
       if (response.status < 200 || response.status >= 300) {
         lastError = `HTTP ${String(response.status)}`;
         continue;
@@ -643,7 +505,7 @@ function rejectUnauthorized(req, res, rejection) {
 }
 
 // src/models.ts
-function applyOverlayModels(ctx) {
+function applyOverlayModels(ctx, modelNetwork) {
   const home = resolveDshHome();
   const reject = (req, res) => rejectUnauthorized(req, res, ctx.connection.requestRejection(req));
   ctx.effect(() => ctx.webServer.register({
@@ -665,7 +527,7 @@ function applyOverlayModels(ctx) {
         try {
           const body = await readJsonBody(req).catch(() => ({}));
           const provider = typeof body.settingsNs === "string" && body.settingsNs === "llm-pi-ai" && typeof body.provider === "string" ? body.provider : null;
-          const outcome = provider === null ? await probeModels(home) : await probeProvider(home, provider);
+          const outcome = await modelNetwork.run(() => provider === null ? probeModels(home) : probeProvider(home, provider));
           writeJson(res, 200, outcome);
         } catch (cause) {
           ctx.logger.error(`dsh-overlay-custom: model probe failed: ${cause instanceof Error ? cause.message : String(cause)}`);
@@ -710,15 +572,16 @@ function applyOverlayModels(ctx) {
           writeJson(res, 200, { ok: false, live: [], configured, error: "no-credential" });
           return;
         }
-        const proxy = await readModelProxyConfig(home);
-        const fetched = await fetchLiveModelIds(provider, credential, proxy);
+        const fetched = await modelNetwork.run(() => fetchLiveModelIds(provider, credential));
         if (fetched.ids.length === 0) {
           writeJson(res, 200, { ok: false, live: [], configured, error: fetched.error ?? "live-empty" });
           return;
         }
         const folded = foldPickerModels(provider, fetched.ids).map((entry) => entry.id);
         writeJson(res, 200, { ok: true, live: folded, configured: folded, applied: false });
-      })();
+      })().catch(() => {
+        writeJson(res, 502, { ok: false, live: [], configured: [], error: "network" });
+      });
     }
   }), "dsh-overlay-custom: live models");
   ctx.effect(() => ctx.webServer.register({
@@ -773,6 +636,1338 @@ function applyOverlayModels(ctx) {
   }), "dsh-overlay-custom: model selection");
 }
 
+// src/model-proxy.ts
+import { randomUUID } from "node:crypto";
+import { mkdir as mkdir4, readFile as readFile5, rename as rename2, rm, writeFile as writeFile4 } from "node:fs/promises";
+import { dirname as dirname2, join as join6, resolve } from "node:path";
+import { parse as parse5, stringify as stringify4 } from "yaml";
+
+// src/model-proxy-routing.ts
+import { isIP } from "node:net";
+import { domainToASCII } from "node:url";
+var SystemProxyError = class extends Error {
+  code;
+  constructor(code) {
+    super(code);
+    this.name = "SystemProxyError";
+    this.code = code;
+  }
+};
+var MAX_BYPASS_RULES = 256;
+var MAX_BYPASS_LENGTH = 256;
+var TRANSPORT_PROTOCOLS = /* @__PURE__ */ new Set(["http:", "https:", "ws:", "wss:"]);
+function invalidBypass() {
+  throw new Error("invalid-bypass");
+}
+function ipv4Number(host) {
+  if (isIP(host) !== 4) return void 0;
+  return host.split(".").reduce((value, octet) => value << 8n | BigInt(octet), 0n);
+}
+function ipv6Number(host) {
+  let text = host.toLowerCase().replace(/^\[|\]$/g, "");
+  if (isIP(text) !== 6 || text.includes("%")) return void 0;
+  if (text.includes(".")) {
+    const index = text.lastIndexOf(":");
+    const ipv4 = ipv4Number(text.slice(index + 1));
+    if (ipv4 === void 0) return void 0;
+    text = `${text.slice(0, index)}:${(ipv4 >> 16n).toString(16)}:${(ipv4 & 0xffffn).toString(16)}`;
+  }
+  const [left, right] = text.split("::");
+  const start = left ? left.split(":") : [];
+  const end = right ? right.split(":") : [];
+  const parts = text.includes("::") ? [...start, ...Array(8 - start.length - end.length).fill("0"), ...end] : start;
+  if (parts.length !== 8) return void 0;
+  return parts.reduce((value, part) => value << 16n | BigInt(`0x${part}`), 0n);
+}
+function canonicalHost(host) {
+  const unwrapped = host.replace(/^\[|\]$/g, "").replace(/\.$/, "").toLowerCase();
+  if (isIP(unwrapped) === 6) return new URL(`http://[${unwrapped}]`).hostname.slice(1, -1);
+  if (isIP(unwrapped) === 4) return unwrapped;
+  return domainToASCII(unwrapped);
+}
+function parseRule(rule) {
+  if (rule.startsWith("[")) {
+    const match = /^\[([^\]]+)\](?::([0-9]+))?$/.exec(rule);
+    if (!match || isIP(match[1]) !== 6) return invalidBypass();
+    return { host: match[1], port: match[2] };
+  }
+  if (isIP(rule) === 6) return { host: rule };
+  const pieces = rule.split(":");
+  if (pieces.length > 2 || pieces.length === 2 && !/^[0-9]+$/.test(pieces[1])) return invalidBypass();
+  return { host: pieces[0], port: pieces[1] };
+}
+function normalizeCidr(rule) {
+  const parts = rule.split("/");
+  if (parts.length !== 2 || !/^\d+$/.test(parts[1])) return invalidBypass();
+  let host = parts[0].replace(/^\[|\]$/g, "");
+  if (/^\d+(?:\.\d+){0,3}$/.test(host)) {
+    const octets = host.split(".").map(Number);
+    if (octets.some((value) => value > 255)) return invalidBypass();
+    host = [...octets, ...Array(4 - octets.length).fill(0)].join(".");
+  }
+  const family = isIP(host);
+  const prefix = Number(parts[1]);
+  if (!family || host.includes("%") || prefix > (family === 4 ? 32 : 128)) return invalidBypass();
+  return `${canonicalHost(host)}/${prefix}`;
+}
+function parseProxyBypass(value, source = "user") {
+  if (!Array.isArray(value) || value.length > MAX_BYPASS_RULES) return invalidBypass();
+  const result2 = [];
+  for (const item of value) {
+    if (typeof item !== "string") return invalidBypass();
+    const rule = item.trim().toLowerCase();
+    if (!rule || rule.length > MAX_BYPASS_LENGTH || /[\s@\\?#]/.test(rule)) return invalidBypass();
+    if (rule === "<local>" && source === "system") {
+      result2.push(rule);
+      continue;
+    }
+    if (rule.includes("/")) {
+      result2.push(normalizeCidr(rule));
+      continue;
+    }
+    const { host, port } = parseRule(rule);
+    if (port !== void 0 && (Number(port) < 1 || Number(port) > 65535)) return invalidBypass();
+    let normalized = canonicalHost(host);
+    if (!normalized) return invalidBypass();
+    if (!isIP(normalized)) {
+      const domain = (host.startsWith(".") ? host.slice(1) : host).replace(/\.$/, "");
+      if (!domain || source === "user" && domain !== "*" && domain.replace(/^\*\./, "").includes("*")) return invalidBypass();
+      const labels = domain.split(".");
+      if (labels.some((label) => !label || !/^[\p{L}\p{N}_*-]+$/u.test(label))) return invalidBypass();
+      normalized = labels.map((label) => label.includes("*") ? label : domainToASCII(`${label}.invalid`).slice(0, -8)).join(".");
+      if (!normalized || normalized.length > 253 || normalized.split(".").some((label) => !label || label.length > 63 || label.startsWith("-") || label.endsWith("-"))) return invalidBypass();
+      if (host.startsWith(".")) normalized = `.${normalized}`;
+    } else if (isIP(normalized) === 6 && port !== void 0) {
+      normalized = `[${normalized}]`;
+    }
+    result2.push(`${normalized}${port === void 0 ? "" : `:${Number(port)}`}`);
+  }
+  return Object.freeze([...new Set(result2)]);
+}
+function targetUrl(target) {
+  try {
+    const url = new URL(String(target));
+    if (!TRANSPORT_PROTOCOLS.has(url.protocol)) throw new Error();
+    return url;
+  } catch {
+    throw new SystemProxyError("invalid-target-url");
+  }
+}
+function isLoopbackHost(hostname) {
+  const host = canonicalHost(hostname);
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  const ipv4 = ipv4Number(host);
+  if (ipv4 !== void 0) return ipv4 >> 24n === 127n;
+  const ipv6 = ipv6Number(host);
+  return ipv6 === 1n || ipv6 !== void 0 && ipv6 >> 32n === 0xffffn && (ipv6 & 0xffffffffn) >> 24n === 127n;
+}
+function cidrMatches(host, rule) {
+  const [network, size] = rule.split("/");
+  const family = isIP(network);
+  if (!family || isIP(host) !== family) return false;
+  const address = family === 4 ? ipv4Number(host) : ipv6Number(host);
+  const base = family === 4 ? ipv4Number(network) : ipv6Number(network);
+  const shift = BigInt((family === 4 ? 32 : 128) - Number(size));
+  return address !== void 0 && base !== void 0 && address >> shift === base >> shift;
+}
+function matchesRules(url, rules, source) {
+  const host = canonicalHost(url.hostname);
+  const port = url.port || (url.protocol === "https:" || url.protocol === "wss:" ? "443" : "80");
+  for (const rule of rules) {
+    if (rule === "<local>") {
+      if (!isIP(host) && !host.includes(".")) return true;
+      continue;
+    }
+    if (rule.includes("/")) {
+      if (cidrMatches(host, rule)) return true;
+      continue;
+    }
+    const entry = parseRule(rule);
+    if (entry.port !== void 0 && entry.port !== port) continue;
+    const pattern = canonicalHost(entry.host);
+    if (isIP(pattern)) {
+      if (host === pattern) return true;
+    } else if (pattern.includes("*")) {
+      const escaped = pattern.split("*").map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*");
+      if (new RegExp(`^${escaped}$`, "i").test(host)) return true;
+    } else {
+      const suffix = pattern.startsWith(".") ? pattern.slice(1) : pattern;
+      if (host === suffix || (source === "user" || pattern.startsWith(".")) && host.endsWith(`.${suffix}`)) return true;
+    }
+  }
+  return false;
+}
+function createModelProxySnapshot(config, system) {
+  return Object.freeze({
+    config: Object.freeze({ mode: config.mode, url: config.url, bypass: parseProxyBypass(config.bypass) }),
+    system: Object.freeze({
+      status: system.status,
+      httpProxy: system.httpProxy,
+      httpsProxy: system.httpsProxy,
+      bypass: parseProxyBypass(system.bypass, "system"),
+      ...system.error === void 0 ? {} : { error: system.error }
+    })
+  });
+}
+function resolveModelProxyRoute(snapshot, target) {
+  const url = targetUrl(target);
+  const { config, system } = snapshot;
+  if (isLoopbackHost(url.hostname)) return { kind: "direct", reason: "loopback" };
+  if (config.mode === "direct") return { kind: "direct", reason: "explicit-direct" };
+  if (matchesRules(url, config.bypass, "user")) return { kind: "direct", reason: "user-bypass" };
+  if ((system.status === "ready" || system.status === "direct") && matchesRules(url, system.bypass, "system")) {
+    return { kind: "direct", reason: "system-bypass" };
+  }
+  if (config.mode === "manual") {
+    if (!config.url) throw new SystemProxyError("manual-url-required");
+    return { kind: "proxy", proxyUrl: config.url, reason: "manual" };
+  }
+  if (config.mode !== "system") throw new SystemProxyError("invalid-mode");
+  if (system.status === "error" || system.status === "unsupported") {
+    throw new SystemProxyError(system.error || "system-proxy-read-failed");
+  }
+  if (system.status !== "ready" && system.status !== "direct") throw new SystemProxyError("system-proxy-invalid-config");
+  const proxyUrl = url.protocol === "https:" || url.protocol === "wss:" ? system.httpsProxy : system.httpProxy;
+  return proxyUrl ? { kind: "proxy", proxyUrl, reason: "system" } : { kind: "direct", reason: "system-no-proxy" };
+}
+
+// src/model-proxy.ts
+var MAX_PROXY_URL_BYTES = 2048;
+var HTTP_PROTOCOLS = /* @__PURE__ */ new Set(["http:", "https:"]);
+var MODES = /* @__PURE__ */ new Set(["system", "manual", "direct"]);
+var OVERLAY_FILE = "overlay-custom.yaml";
+var DEFAULT_CONFIG = Object.freeze({ mode: "system", url: "", bypass: Object.freeze([]) });
+function parseModelProxyUrl(value) {
+  if (value === void 0 || value === "") return "";
+  if (typeof value !== "string") throw new Error("invalid-url");
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (Buffer.byteLength(trimmed) > MAX_PROXY_URL_BYTES) throw new Error("url-too-long");
+  if (/[\s\\\u0000-\u001f\u007f]/.test(trimmed)) throw new Error("invalid-url");
+  let parsed;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error("invalid-url");
+  }
+  if (!HTTP_PROTOCOLS.has(parsed.protocol)) throw new Error("unsupported-proxy-scheme");
+  if (!/^https?:\/\//i.test(trimmed) || !parsed.hostname || parsed.pathname !== "/" || parsed.search || parsed.hash) throw new Error("invalid-url");
+  const authority = trimmed.slice(trimmed.indexOf("://") + 3).split("/")[0];
+  if (!authority || /:$/.test(authority) || parsed.port === "0" || /[?#]/.test(trimmed)) throw new Error("invalid-url");
+  return trimmed;
+}
+function proxyDiagnosticOrigin(value) {
+  if (!value) return "";
+  try {
+    const parsed = new URL(parseModelProxyUrl(value));
+    return parsed.origin;
+  } catch {
+    return "";
+  }
+}
+function asRecord4(value, error = "invalid-config") {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error(error);
+  return value;
+}
+function parseModelProxyConfig(input, previous = DEFAULT_CONFIG) {
+  const source = asRecord4(input);
+  const mode = Object.hasOwn(source, "mode") ? source.mode : previous.mode;
+  if (typeof mode !== "string" || !MODES.has(mode)) throw new Error("invalid-mode");
+  const url = Object.hasOwn(source, "url") ? parseModelProxyUrl(source.url) : parseModelProxyUrl(previous.url);
+  const bypass = parseProxyBypass(Object.hasOwn(source, "bypass") ? source.bypass : previous.bypass);
+  if (mode === "manual" && !url) throw new Error("manual-url-required");
+  return Object.freeze({ mode, url, bypass });
+}
+async function readOptionalYaml(home, file) {
+  let text;
+  try {
+    text = await readFile5(join6(home, file), "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") return {};
+    throw new Error("config-read-failed");
+  }
+  try {
+    const document = parse5(text);
+    return document === null || document === void 0 ? {} : asRecord4(document, "config-read-failed");
+  } catch {
+    throw new Error("config-read-failed");
+  }
+}
+async function configFromOverlay(home, overlay) {
+  const input = {};
+  if (Object.hasOwn(overlay, "modelProxyMode")) input.mode = overlay.modelProxyMode;
+  if (Object.hasOwn(overlay, "modelProxyBypass")) input.bypass = overlay.modelProxyBypass;
+  if (Object.hasOwn(overlay, "modelProxyUrl")) {
+    input.url = overlay.modelProxyUrl;
+  } else {
+    const settings = await readOptionalYaml(home, "settings.yaml");
+    const legacy = settings["dsh-desktop"];
+    if (legacy !== void 0 && legacy !== null) {
+      const source = asRecord4(legacy, "config-read-failed");
+      if (Object.hasOwn(source, "modelProxyUrl")) input.url = source.modelProxyUrl;
+    }
+  }
+  return parseModelProxyConfig(input);
+}
+async function readModelProxyConfig(home) {
+  return configFromOverlay(home, await readOptionalYaml(home, OVERLAY_FILE));
+}
+var writes = /* @__PURE__ */ new Map();
+async function writeModelProxyConfig(home, input) {
+  const directory = resolve(home);
+  const preceding = writes.get(directory) ?? Promise.resolve();
+  const operation = preceding.catch(() => {
+  }).then(async () => {
+    const overlay = await readOptionalYaml(directory, OVERLAY_FILE);
+    const source = asRecord4(input);
+    const complete = ["mode", "url", "bypass"].every((key) => Object.hasOwn(source, key));
+    const config = parseModelProxyConfig(input, complete ? DEFAULT_CONFIG : await configFromOverlay(directory, overlay));
+    const next = {
+      ...overlay,
+      modelProxyMode: config.mode,
+      modelProxyUrl: config.url,
+      modelProxyBypass: [...config.bypass]
+    };
+    const path = join6(directory, OVERLAY_FILE);
+    const temporary = join6(directory, `.${OVERLAY_FILE}.${randomUUID()}.tmp`);
+    if (dirname2(path) !== directory || dirname2(temporary) !== directory) throw new Error("config-write-failed");
+    try {
+      await mkdir4(directory, { recursive: true, mode: 448 });
+      await writeFile4(temporary, `${stringify4(next)}
+`, { encoding: "utf8", mode: 384, flag: "wx" });
+      await rename2(temporary, path);
+    } catch {
+      await rm(temporary, { force: true }).catch(() => {
+      });
+      throw new Error("config-write-failed");
+    }
+    return config;
+  });
+  writes.set(directory, operation);
+  try {
+    return await operation;
+  } finally {
+    if (writes.get(directory) === operation) writes.delete(directory);
+  }
+}
+function modelProxyConfigView(config, system) {
+  let hasCredentials = false;
+  if (config.url) {
+    try {
+      const url = new URL(config.url);
+      hasCredentials = Boolean(url.username || url.password);
+    } catch {
+    }
+  }
+  return {
+    mode: config.mode,
+    url: proxyDiagnosticOrigin(config.url),
+    hasCredentials,
+    bypass: [...config.bypass],
+    system: {
+      status: system.status,
+      httpProxy: proxyDiagnosticOrigin(system.httpProxy),
+      httpsProxy: proxyDiagnosticOrigin(system.httpsProxy),
+      bypass: [...system.bypass],
+      ...system.error === void 0 ? {} : { error: system.error }
+    }
+  };
+}
+
+// src/system-proxy.ts
+import { execFile } from "node:child_process";
+import { isIP as isIP2 } from "node:net";
+import { join as join7 } from "node:path";
+var MAX_SCUTIL_BYTES = 256 * 1024;
+function result(status, fields = {}) {
+  return Object.freeze({
+    status,
+    httpProxy: "",
+    httpsProxy: "",
+    ...fields,
+    bypass: Object.freeze([...fields.bypass ?? []])
+  });
+}
+function fail(code = "system-proxy-invalid-config") {
+  throw new Error(code);
+}
+function invalid() {
+  return fail();
+}
+function record(value) {
+  if (value === void 0) return {};
+  if (typeof value === "string") return invalid();
+  return value;
+}
+function scutilDictionary(output) {
+  if (!output || Buffer.byteLength(output) > MAX_SCUTIL_BYTES) return invalid();
+  const lines = output.trim().split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length === 1 && /^<dictionary>\s*\{\s*\}$/.test(lines[0])) return {};
+  if (lines[0] !== "<dictionary> {") return invalid();
+  const root = /* @__PURE__ */ Object.create(null);
+  const stack = [root];
+  let closed = false;
+  for (const line of lines.slice(1)) {
+    if (closed) return invalid();
+    if (line === "}") {
+      stack.pop();
+      if (stack.length === 0) closed = true;
+      continue;
+    }
+    const match = /^([^:]+?)\s*:\s*(.*)$/.exec(line);
+    const parent = stack.at(-1);
+    if (!match || !parent) return invalid();
+    const key = match[1].trim();
+    const value = match[2].trim();
+    if (!key || Object.hasOwn(parent, key)) return invalid();
+    if (/^<(?:dictionary|array)>\s*\{$/.test(value)) {
+      const child = /* @__PURE__ */ Object.create(null);
+      parent[key] = child;
+      stack.push(child);
+    } else if (/^<(?:dictionary|array)>\s*\{\s*\}$/.test(value)) {
+      parent[key] = /* @__PURE__ */ Object.create(null);
+    } else if (value.startsWith("<") || value === "{") {
+      return invalid();
+    } else {
+      parent[key] = value;
+    }
+  }
+  if (!closed || stack.length !== 0) return invalid();
+  return root;
+}
+function enabled(source, key) {
+  const value = source[key];
+  if (value === void 0 || value === "0") return false;
+  if (value === "1") return true;
+  return invalid();
+}
+function proxyAddress(source, prefix) {
+  if (!enabled(source, `${prefix}Enable`)) return "";
+  const host = source[`${prefix}Proxy`];
+  const port = source[`${prefix}Port`];
+  if (typeof host !== "string" || typeof port !== "string" || !/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) return invalid();
+  if (!host || /[\s/@\\?#]/.test(host)) return invalid();
+  if ((host.startsWith("[") || host.endsWith("]")) && !/^\[[^\]]+\]$/.test(host)) return invalid();
+  const bareHost = host.replace(/^\[|\]$/g, "");
+  if (bareHost.includes(":") && isIP2(bareHost) !== 6) return invalid();
+  const address = `http://${isIP2(bareHost) === 6 ? `[${bareHost}]` : bareHost}:${Number(port)}`;
+  let url;
+  try {
+    url = new URL(address);
+  } catch {
+    return invalid();
+  }
+  if (!url.hostname || url.username || url.password || url.search || url.hash || url.pathname !== "/") return invalid();
+  return url.origin;
+}
+function exceptionList(source) {
+  const exceptions = record(source.ExceptionsList);
+  if (Object.keys(exceptions).some((key) => !/^\d+$/.test(key))) return invalid();
+  const values = Object.keys(exceptions).sort((a, b) => Number(a) - Number(b)).map((key) => exceptions[key]);
+  if (values.some((value) => typeof value !== "string")) return invalid();
+  if (enabled(source, "ExcludeSimpleHostnames")) values.push("<local>");
+  try {
+    return parseProxyBypass(values, "system");
+  } catch {
+    return invalid();
+  }
+}
+function parseScutilProxyOutput(output) {
+  try {
+    const source = scutilDictionary(output);
+    if (enabled(source, "ProxyAutoConfigEnable")) return result("unsupported", { error: "system-proxy-pac-unsupported" });
+    if (enabled(source, "ProxyAutoDiscoveryEnable")) return result("unsupported", { error: "system-proxy-autodiscovery-unsupported" });
+    if (Object.keys(record(source.__SCOPED__)).length || Object.keys(record(source.__SUPPLEMENTAL__)).length) {
+      return result("unsupported", { error: "system-proxy-scoped-unsupported" });
+    }
+    const httpProxy = proxyAddress(source, "HTTP");
+    const httpsProxy = proxyAddress(source, "HTTPS");
+    if (enabled(source, "SOCKSEnable") && (!httpProxy || !httpsProxy)) {
+      return result("unsupported", { error: "system-proxy-socks-unsupported" });
+    }
+    const bypass = exceptionList(source);
+    return result(httpProxy || httpsProxy ? "ready" : "direct", { httpProxy, httpsProxy, bypass });
+  } catch {
+    return result("error", { error: "system-proxy-invalid-config" });
+  }
+}
+var WINDOWS_KNOWN = /* @__PURE__ */ new Set([
+  "system-proxy-invalid-config",
+  "system-proxy-pac-unsupported",
+  "system-proxy-autodiscovery-unsupported",
+  "system-proxy-socks-unsupported",
+  "system-proxy-list-unsupported",
+  "system-proxy-bypass-unsupported"
+]);
+function windowsEndpoint(value) {
+  let input = value.trim();
+  if (!input) return invalid();
+  if (/^https:\/\//i.test(input)) return fail("system-proxy-list-unsupported");
+  if (/^http:\/\//i.test(input)) input = input.slice("http://".length);
+  if (/[\s/@\\?#]/.test(input)) return invalid();
+  let host;
+  let portText;
+  if (input.startsWith("[")) {
+    const match = /^\[([^\]]+)\](?::(\d+))?$/.exec(input);
+    if (!match) return invalid();
+    host = match[1];
+    portText = match[2] || "80";
+  } else {
+    const index = input.lastIndexOf(":");
+    if (index === -1) {
+      host = input;
+      portText = "80";
+    } else {
+      host = input.slice(0, index);
+      portText = input.slice(index + 1);
+    }
+  }
+  if (!/^\d+$/.test(portText) || Number(portText) < 1 || Number(portText) > 65535) return invalid();
+  if (!host || host.includes(":") && isIP2(host) !== 6) return invalid();
+  const address = `http://${isIP2(host) === 6 ? `[${host}]` : host}:${Number(portText)}`;
+  let url;
+  try {
+    url = new URL(address);
+  } catch {
+    return invalid();
+  }
+  if (!url.hostname || url.username || url.password || url.search || url.hash || url.pathname !== "/") return invalid();
+  return url.origin;
+}
+function parseWindowsProxyServer(raw) {
+  const trimmed = raw.trim();
+  if (!trimmed) return { httpProxy: "", httpsProxy: "" };
+  const tokens = trimmed.split(/[;\s]+/u).map((token) => token.trim()).filter(Boolean);
+  if (tokens.length === 0) return { httpProxy: "", httpsProxy: "" };
+  let fallback = "";
+  const mapped = {};
+  for (const token of tokens) {
+    const separator = token.indexOf("=");
+    if (separator === -1) {
+      if (fallback) return fail("system-proxy-list-unsupported");
+      fallback = windowsEndpoint(token);
+      continue;
+    }
+    const key = token.slice(0, separator).toLowerCase();
+    const value = token.slice(separator + 1);
+    if (key === "ftp") continue;
+    if (key !== "http" && key !== "https" && key !== "socks") return fail("system-proxy-list-unsupported");
+    if (Object.hasOwn(mapped, key)) return fail("system-proxy-list-unsupported");
+    if (key === "socks") {
+      mapped.socks = windowsEndpoint(value);
+      continue;
+    }
+    mapped[key] = windowsEndpoint(value);
+  }
+  const httpProxy = mapped.http ?? fallback;
+  const httpsProxy = mapped.https ?? fallback;
+  if (mapped.socks && (!httpProxy || !httpsProxy)) return fail("system-proxy-socks-unsupported");
+  return { httpProxy, httpsProxy };
+}
+function parseWindowsProxyBypass(raw) {
+  const tokens = raw.split(";").map((token) => token.trim()).filter(Boolean);
+  if (tokens.some((token) => token.toLowerCase() === "<-loopback>" || /^<.+>$/u.test(token) && token.toLowerCase() !== "<local>")) {
+    return fail("system-proxy-bypass-unsupported");
+  }
+  try {
+    return parseProxyBypass(tokens, "system");
+  } catch {
+    return invalid();
+  }
+}
+function parseWindowsIeProxyOutput(output) {
+  try {
+    if (!output || Buffer.byteLength(output) > MAX_SCUTIL_BYTES) return invalid();
+    const parsed = JSON.parse(output);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return invalid();
+    const source = parsed;
+    if (source.schemaVersion !== 1 || source.ok !== true) return result("error", { error: "system-proxy-read-failed" });
+    if (typeof source.autoDetect !== "boolean" || typeof source.autoConfigUrl !== "string" || typeof source.proxy !== "string" || typeof source.proxyBypass !== "string") return invalid();
+    if (source.autoConfigUrl.trim()) return result("unsupported", { error: "system-proxy-pac-unsupported" });
+    if (source.autoDetect) {
+      if (source.autoDetectError === "error") return result("error", { error: "system-proxy-read-failed" });
+      if (source.autoDetectFound === true) return result("unsupported", { error: "system-proxy-autodiscovery-unsupported" });
+      if (source.autoDetectFound !== false || source.autoDetectError !== "not-found") return invalid();
+    } else if (source.autoDetectFound === true || source.autoDetectError && source.autoDetectError !== "") {
+      return invalid();
+    }
+    const { httpProxy, httpsProxy } = parseWindowsProxyServer(source.proxy);
+    const bypass = parseWindowsProxyBypass(source.proxyBypass);
+    return result(httpProxy || httpsProxy ? "ready" : "direct", { httpProxy, httpsProxy, bypass });
+  } catch (cause) {
+    const code = cause instanceof Error ? cause.message : "";
+    if (WINDOWS_KNOWN.has(code)) return result(code.endsWith("unsupported") ? "unsupported" : "error", { error: code });
+    return result("error", { error: "system-proxy-invalid-config" });
+  }
+}
+var WINDOWS_IE_PROXY_SCRIPT = `
+$ErrorActionPreference = 'Stop'
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class DshWinHttpProxy {
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+  public struct Config {
+    public bool AutoDetect;
+    public IntPtr AutoConfigUrl;
+    public IntPtr Proxy;
+    public IntPtr ProxyBypass;
+  }
+  [DllImport("winhttp.dll", SetLastError = true)]
+  public static extern bool WinHttpGetIEProxyConfigForCurrentUser(out Config config);
+  [DllImport("winhttp.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+  public static extern bool WinHttpDetectAutoProxyConfigUrl(int flags, out IntPtr url);
+  [DllImport("kernel32.dll")]
+  public static extern IntPtr GlobalFree(IntPtr hMem);
+  public static string TakeString(IntPtr pointer) {
+    if (pointer == IntPtr.Zero) return "";
+    try { return Marshal.PtrToStringUni(pointer) ?? ""; }
+    finally { GlobalFree(pointer); }
+  }
+}
+'@
+function Emit($payload) { [Console]::Out.Write(($payload | ConvertTo-Json -Compress)) }
+$config = New-Object DshWinHttpProxy+Config
+if (-not [DshWinHttpProxy]::WinHttpGetIEProxyConfigForCurrentUser([ref]$config)) {
+  Emit @{ schemaVersion = 1; ok = $false }
+  exit 1
+}
+$autoConfigUrl = [DshWinHttpProxy]::TakeString($config.AutoConfigUrl)
+$payload = @{
+  schemaVersion = 1
+  ok = $true
+  autoDetect = [bool]$config.AutoDetect
+  autoConfigUrl = $autoConfigUrl
+  proxy = [DshWinHttpProxy]::TakeString($config.Proxy)
+  proxyBypass = [DshWinHttpProxy]::TakeString($config.ProxyBypass)
+  autoDetectFound = $false
+  autoDetectError = ''
+}
+if ($payload.autoDetect -and -not $autoConfigUrl) {
+  $discovered = [IntPtr]::Zero
+  if ([DshWinHttpProxy]::WinHttpDetectAutoProxyConfigUrl(3, [ref]$discovered)) {
+    [void][DshWinHttpProxy]::TakeString($discovered)
+    $payload.autoDetectFound = $true
+  } else {
+    $code = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+    if ($code -eq 12180) { $payload.autoDetectError = 'not-found' }
+    else { $payload.autoDetectError = 'error' }
+  }
+}
+Emit $payload
+`.trim();
+function windowsPowershellPath() {
+  const root = process.env.SystemRoot;
+  if (root && /^[A-Za-z]:[\\/][^.]/u.test(root) && !root.includes("..")) {
+    return join7(root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  }
+  return join7("C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+}
+function windowsEncodedCommand() {
+  return Buffer.from(WINDOWS_IE_PROXY_SCRIPT, "utf16le").toString("base64");
+}
+var runSystemCommand = (command, args) => new Promise((resolve2, reject) => {
+  const timeout = command.endsWith("powershell.exe") ? 8e3 : 3e3;
+  execFile(command, [...args], {
+    encoding: "utf8",
+    timeout,
+    maxBuffer: MAX_SCUTIL_BYTES,
+    windowsHide: true
+  }, (error, stdout) => {
+    if (error) reject(new Error("system-proxy-read-failed"));
+    else resolve2(stdout);
+  });
+});
+async function readSystemProxy(options = {}) {
+  const platform = options.platform ?? process.platform;
+  const runner = options.runner ?? runSystemCommand;
+  try {
+    if (platform === "darwin") {
+      return parseScutilProxyOutput(await runner("/usr/sbin/scutil", ["--proxy"]));
+    }
+    if (platform === "win32") {
+      return parseWindowsIeProxyOutput(await runner(windowsPowershellPath(), [
+        "-NoProfile",
+        "-NonInteractive",
+        "-WindowStyle",
+        "Hidden",
+        "-EncodedCommand",
+        windowsEncodedCommand()
+      ]));
+    }
+    return result("unsupported", { error: "system-proxy-unsupported-platform" });
+  } catch {
+    return result("error", { error: "system-proxy-read-failed" });
+  }
+}
+
+// src/model-proxy-runtime.ts
+import { AsyncLocalStorage } from "node:async_hooks";
+import { createRequire } from "node:module";
+
+// src/model-proxy-node.ts
+import http from "node:http";
+import https from "node:https";
+import http2 from "node:http2";
+import { syncBuiltinESMExports } from "node:module";
+import { urlToHttpOptions } from "node:url";
+import { HttpProxyAgent } from "http-proxy-agent";
+import { HttpsProxyAgent } from "https-proxy-agent";
+var ModelProxyTransportError = class extends Error {
+  code;
+  constructor(code) {
+    super(code);
+    this.name = "ModelProxyTransportError";
+    this.code = code;
+  }
+};
+var HttpAgent = http.Agent;
+var HttpsAgent = https.Agent;
+var plainHttpConnection = HttpAgent.prototype.createConnection;
+var plainHttpsConnection = HttpsAgent.prototype.createConnection;
+var ModelProxyNodeAgents = class {
+  #resolve;
+  #agents = /* @__PURE__ */ new Set();
+  #cache = /* @__PURE__ */ new Map();
+  #noAgent = Object.freeze({});
+  constructor(resolve2) {
+    this.#resolve = resolve2;
+  }
+  agent(target, options) {
+    if (options.createConnection || options.socketPath || options.socket) {
+      throw new ModelProxyTransportError("model-proxy-custom-connection-unsupported");
+    }
+    const secure = target.protocol === "https:";
+    const source = options.agent === false ? void 0 : options.agent ?? (secure ? https.globalAgent : http.globalAgent);
+    const prototype = secure ? HttpsAgent.prototype : HttpAgent.prototype;
+    if (source && (source.constructor !== (secure ? HttpsAgent : HttpAgent) || source.createConnection !== (secure ? plainHttpsConnection : plainHttpConnection) || ["addRequest", "getName", "createSocket", "removeSocket", "reuseSocket", "keepSocketAlive"].some((method2) => source[method2] !== prototype[method2]))) {
+      throw new ModelProxyTransportError("model-proxy-custom-agent-unsupported");
+    }
+    const sourceOptions = source?.options ?? {};
+    const route = this.#resolve(target);
+    const headers = Array.isArray(options.headers) ? options.headers.reduce((entries, value, index, values) => {
+      if (index % 2 === 0) entries.push([String(value), values[index + 1]]);
+      return entries;
+    }, []) : Object.entries(options.headers ?? {});
+    if (String(options.method).toUpperCase() === "CONNECT" || headers.some(([name2]) => name2.toLowerCase() === "upgrade")) {
+      throw new ModelProxyTransportError("model-proxy-upgrade-unsupported");
+    }
+    if (route.kind === "proxy" && !secure) {
+      const host = headers.find(([name2]) => name2.toLowerCase() === "host")?.[1];
+      if (host !== void 0) {
+        let sameOrigin = false;
+        try {
+          sameOrigin = new URL(`${target.protocol}//${String(host)}`).origin === target.origin;
+        } catch {
+        }
+        if (!sameOrigin) throw new ModelProxyTransportError("model-proxy-native-host-unsupported");
+      }
+    }
+    const cacheKey = source ?? this.#noAgent;
+    let agents = this.#cache.get(cacheKey);
+    if (!agents) {
+      agents = /* @__PURE__ */ new Map();
+      this.#cache.set(cacheKey, agents);
+    }
+    const key = `${target.protocol}|${route.kind === "proxy" ? route.proxyUrl : "direct"}`;
+    let agent = agents.get(key);
+    if (!agent) {
+      const base = { ...sourceOptions, proxyEnv: {}, ...options.agent === false ? { keepAlive: false } : {} };
+      if (base.createConnection || base.socketPath || base.socket) {
+        throw new ModelProxyTransportError("model-proxy-custom-connection-unsupported");
+      }
+      const proxyOptions = Object.fromEntries(["keepAlive", "keepAliveMsecs", "maxSockets", "maxTotalSockets", "maxFreeSockets", "scheduling", "timeout", "localAddress", "family", "lookup"].filter((name2) => name2 in base).map((name2) => [name2, base[name2]]));
+      agent = route.kind === "direct" ? secure ? new HttpsAgent(base) : new HttpAgent(base) : secure ? new HttpsProxyAgent(route.proxyUrl, proxyOptions) : new HttpProxyAgent(route.proxyUrl, proxyOptions);
+      agents.set(key, agent);
+      this.#agents.add(agent);
+    }
+    for (const [name2, value] of Object.entries(sourceOptions)) {
+      if (name2 !== "proxyEnv" && !(name2 in options)) options[name2] = value;
+    }
+    return agent;
+  }
+  dispose() {
+    for (const agent of this.#agents) agent.destroy();
+    this.#agents.clear();
+    this.#cache.clear();
+  }
+};
+function normalize(args, protocol) {
+  const first = args[0];
+  let options;
+  let callback;
+  if (typeof first === "string" || first instanceof URL) {
+    const url = first instanceof URL ? first : new URL(first);
+    options = { ...urlToHttpOptions(url) };
+    if (typeof args[1] === "object" && args[1] !== null) {
+      Object.assign(options, args[1]);
+      callback = args[2];
+    } else callback = args[1];
+  } else if (first && typeof first === "object") {
+    options = { ...first };
+    callback = args[1];
+  } else throw new ModelProxyTransportError("model-proxy-native-request-invalid");
+  const scheme = options.protocol ?? protocol;
+  if (scheme !== protocol) throw new ModelProxyTransportError("model-proxy-native-protocol-invalid");
+  const hostname = String(options.hostname ?? options.host ?? "localhost");
+  const host = hostname.includes(":") && !hostname.startsWith("[") ? `[${hostname}]` : hostname;
+  let target;
+  try {
+    target = new URL(`${scheme}//${host}${options.port ? `:${options.port}` : ""}`);
+  } catch {
+    throw new ModelProxyTransportError("model-proxy-native-request-invalid");
+  }
+  if (options.path && !options.path.startsWith("/")) throw new ModelProxyTransportError("model-proxy-native-path-unsupported");
+  return { options, callback, target };
+}
+function installModelProxyNodeGuards(current) {
+  const original = { httpRequest: http.request, httpGet: http.get, httpsRequest: https.request, httpsGet: https.get, http2Connect: http2.connect };
+  function request2(protocol, previous, receiver, args) {
+    const scope = current();
+    if (!scope) return Reflect.apply(previous, receiver, args);
+    scope.assertActive();
+    const { options, callback, target } = normalize(args, protocol);
+    options.agent = scope.native.agent(target, options);
+    delete options.proxyEnv;
+    const release = scope.retain();
+    try {
+      const result2 = Reflect.apply(previous, receiver, callback === void 0 ? [options] : [options, callback]);
+      result2.once("close", release);
+      return result2;
+    } catch (error) {
+      release();
+      throw error;
+    }
+  }
+  const httpRequest = function(...args) {
+    return request2("http:", original.httpRequest, this, args);
+  };
+  const httpsRequest = function(...args) {
+    return request2("https:", original.httpsRequest, this, args);
+  };
+  const httpGet = function(...args) {
+    if (!current()) return Reflect.apply(original.httpGet, this, args);
+    const result2 = request2("http:", original.httpRequest, this, args);
+    result2.end();
+    return result2;
+  };
+  const httpsGet = function(...args) {
+    if (!current()) return Reflect.apply(original.httpsGet, this, args);
+    const result2 = request2("https:", original.httpsRequest, this, args);
+    result2.end();
+    return result2;
+  };
+  const http2Connect = function(...args) {
+    if (current()) throw new ModelProxyTransportError("model-proxy-http2-unsupported");
+    const session = Reflect.apply(original.http2Connect, this, args);
+    const previous = session.request;
+    session.request = function(...requestArgs) {
+      if (current()) throw new ModelProxyTransportError("model-proxy-http2-unsupported");
+      return Reflect.apply(previous, this, requestArgs);
+    };
+    return session;
+  };
+  try {
+    http.request = httpRequest;
+    http.get = httpGet;
+    https.request = httpsRequest;
+    https.get = httpsGet;
+    http2.connect = http2Connect;
+    syncBuiltinESMExports();
+  } catch {
+    http.request = original.httpRequest;
+    http.get = original.httpGet;
+    https.request = original.httpsRequest;
+    https.get = original.httpsGet;
+    http2.connect = original.http2Connect;
+    syncBuiltinESMExports();
+    throw new ModelProxyTransportError("model-proxy-native-install-failed");
+  }
+  return () => {
+    if (http.request === httpRequest) http.request = original.httpRequest;
+    if (http.get === httpGet) http.get = original.httpGet;
+    if (https.request === httpsRequest) https.request = original.httpsRequest;
+    if (https.get === httpsGet) https.get = original.httpsGet;
+    if (http2.connect === http2Connect) http2.connect = original.http2Connect;
+    syncBuiltinESMExports();
+  };
+}
+
+// src/model-proxy-runtime.ts
+var HUB = /* @__PURE__ */ Symbol.for("dsh.overlay.model-proxy-runtime.v1");
+var MODERN = /* @__PURE__ */ Symbol.for("undici.globalDispatcher.2");
+var LEGACY = /* @__PURE__ */ Symbol.for("undici.globalDispatcher.1");
+var require2 = createRequire(import.meta.url);
+var globals = globalThis;
+function transparentDispatcher(previous, dispatch) {
+  return new Proxy(previous, {
+    get(target, property) {
+      if (property === "dispatch") return dispatch;
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    }
+  });
+}
+function ensureHub() {
+  const existing = globals[HUB];
+  if (existing) {
+    if (globals[MODERN] !== existing.modern || globals[LEGACY] !== existing.legacy) {
+      throw new ModelProxyTransportError("model-proxy-dispatcher-replaced");
+    }
+    return existing;
+  }
+  const savedLegacy = globals[LEGACY];
+  const savedModern = globals[MODERN];
+  const undici = require2("undici");
+  const previousModern = savedModern ?? undici.getGlobalDispatcher();
+  const previousLegacy = savedLegacy ?? globals[LEGACY];
+  const instances = /* @__PURE__ */ new Set();
+  const current = () => {
+    let selected;
+    for (const reference of instances) {
+      const runtime = reference.deref();
+      if (!runtime) {
+        instances.delete(reference);
+        continue;
+      }
+      const scope = runtime.currentScope();
+      if (scope && (!selected || scope.order > selected.order)) selected = scope;
+    }
+    return selected;
+  };
+  const modern = transparentDispatcher(previousModern, (options, handler) => {
+    const scope = current();
+    return scope ? scope.dispatch(options, handler) : previousModern.dispatch(options, handler);
+  });
+  let undoNative;
+  try {
+    undici.setGlobalDispatcher(modern);
+    const bridge = globals[LEGACY];
+    const legacy = transparentDispatcher(previousLegacy, (options, handler) => {
+      const scope = current();
+      return scope ? bridge.dispatch(options, handler) : previousLegacy.dispatch(options, handler);
+    });
+    globals[LEGACY] = legacy;
+    if (globals[MODERN] !== modern || globals[LEGACY] !== legacy) throw new Error();
+    undoNative = installModelProxyNodeGuards(current);
+    const hub = { undici, instances, modern, legacy, order: 0 };
+    Object.defineProperty(globals, HUB, { value: hub, configurable: false });
+    return hub;
+  } catch {
+    undoNative?.();
+    globals[MODERN] = previousModern;
+    globals[LEGACY] = previousLegacy;
+    throw new ModelProxyTransportError("model-proxy-runtime-install-failed");
+  }
+}
+function completeHandler(handler, release) {
+  return new Proxy(handler, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target);
+      if (property === "onResponseEnd" || property === "onResponseError") {
+        return (...args) => {
+          try {
+            return typeof value === "function" ? Reflect.apply(value, target, args) : void 0;
+          } finally {
+            release();
+          }
+        };
+      }
+      return typeof value === "function" ? value.bind(target) : value;
+    }
+  });
+}
+var ModelProxyRuntime = class {
+  #hub;
+  #options;
+  #storage = new AsyncLocalStorage();
+  #snapshots = /* @__PURE__ */ new WeakMap();
+  #generations = /* @__PURE__ */ new WeakMap();
+  #open = /* @__PURE__ */ new Set();
+  #latest;
+  #disposed = false;
+  #disposePromise;
+  #resolveDispose;
+  #rejectDispose;
+  #closeFailed = false;
+  constructor(options = {}) {
+    this.#options = options;
+    this.#hub = ensureHub();
+    this.#hub.instances.add(new WeakRef(this));
+  }
+  /** A stable owned copy: even accidentally mutable caller input is isolated. */
+  snapshot(scope) {
+    let copy = this.#snapshots.get(scope);
+    if (!copy) {
+      copy = createModelProxySnapshot(scope.config, scope.system);
+      this.#snapshots.set(scope, copy);
+      this.#snapshots.set(copy, copy);
+    }
+    return copy;
+  }
+  /** Internal hub interface; storage is instance-owned, never a shared ALS. */
+  currentScope() {
+    return this.#storage.getStore();
+  }
+  #assertInstalled() {
+    if (globals[MODERN] !== this.#hub.modern || globals[LEGACY] !== this.#hub.legacy) {
+      throw new ModelProxyTransportError("model-proxy-dispatcher-replaced");
+    }
+  }
+  #generation(input) {
+    if (this.#disposed) throw new ModelProxyTransportError("model-proxy-runtime-disposed");
+    this.#assertInstalled();
+    const snapshot = this.snapshot(input);
+    let generation = this.#generations.get(snapshot);
+    if (!generation || generation.closing) {
+      generation = {
+        snapshot,
+        direct: new this.#hub.undici.Agent(this.#options.agentOptions),
+        proxies: /* @__PURE__ */ new Map(),
+        native: new ModelProxyNodeAgents((target) => resolveModelProxyRoute(snapshot, target)),
+        references: 0,
+        retired: false,
+        closing: false
+      };
+      this.#generations.set(snapshot, generation);
+      this.#open.add(generation);
+    }
+    if (this.#latest !== generation) {
+      if (this.#latest) {
+        this.#latest.retired = true;
+        this.#tryClose(this.#latest);
+      }
+      this.#latest = generation;
+    }
+    generation.retired = false;
+    return generation;
+  }
+  #retain(generation) {
+    if (generation.closing) throw new ModelProxyTransportError("model-proxy-scope-closed");
+    generation.references++;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      generation.references--;
+      this.#tryClose(generation);
+    };
+  }
+  #acquire(input) {
+    const generation = this.#generation(input);
+    const finish = this.#retain(generation);
+    const scope = {
+      owner: this,
+      generation,
+      native: generation.native,
+      order: ++this.#hub.order,
+      released: false,
+      assertActive: () => {
+        if (scope.released || generation.closing) throw new ModelProxyTransportError("model-proxy-scope-closed");
+        this.#assertInstalled();
+      },
+      retain: () => {
+        scope.assertActive();
+        return this.#retain(generation);
+      },
+      dispatch: (options, handler) => {
+        scope.assertActive();
+        if (options.upgrade || String(options.method).toUpperCase() === "CONNECT") {
+          throw new ModelProxyTransportError("model-proxy-upgrade-unsupported");
+        }
+        const origin = String(options.origin);
+        if (!/^https?:\/\//.test(origin)) throw new ModelProxyTransportError("model-proxy-target-unsupported");
+        const route = resolveModelProxyRoute(generation.snapshot, origin);
+        let agent = generation.direct;
+        if (route.kind === "proxy") {
+          let proxy = generation.proxies.get(route.proxyUrl);
+          if (!proxy) {
+            proxy = new this.#hub.undici.ProxyAgent({ ...this.#options.proxyAgentOptions, uri: route.proxyUrl });
+            generation.proxies.set(route.proxyUrl, proxy);
+          }
+          agent = proxy;
+        }
+        const release = scope.retain();
+        try {
+          return agent.dispatch(options, completeHandler(handler, release));
+        } catch (error) {
+          release();
+          throw error;
+        }
+      }
+    };
+    return { scope, release: () => {
+      scope.released = true;
+      finish();
+    } };
+  }
+  #tryClose(generation) {
+    if (!generation.retired || generation.references !== 0 || generation.closing) return;
+    generation.closing = true;
+    generation.native.dispose();
+    void Promise.allSettled([generation.direct, ...generation.proxies.values()].map((agent) => agent.close())).then((results) => {
+      if (results.some((result2) => result2.status === "rejected")) this.#closeFailed = true;
+      generation.proxies.clear();
+      this.#open.delete(generation);
+      this.#finishDispose();
+    });
+  }
+  #finishDispose() {
+    if (!this.#disposed || this.#open.size) return;
+    if (this.#closeFailed) this.#rejectDispose?.(new ModelProxyTransportError("model-proxy-dispose-failed"));
+    else this.#resolveDispose?.();
+  }
+  #enter(scope, fn) {
+    const entered = Object.create(scope);
+    Object.defineProperty(entered, "order", { value: ++this.#hub.order });
+    return this.#storage.run(entered, fn);
+  }
+  /** Only fn's execution/async descendants are scoped, never its awaiter. */
+  async run(snapshot, fn) {
+    const lease = this.#acquire(snapshot);
+    try {
+      return await this.#enter(lease.scope, fn);
+    } finally {
+      lease.release();
+    }
+  }
+  /**
+   * Factory and iterator operations execute in the scope. The consumer's
+   * continuation (including tools invoked after yield) executes outside it.
+   * Serializing operations matches async-generator next/return/throw ordering.
+   */
+  wrapStream(snapshot, factory) {
+    const frozen = this.snapshot(snapshot);
+    let lease;
+    let iterator;
+    let done = false;
+    let queue = Promise.resolve();
+    const finish = () => {
+      if (!done) {
+        done = true;
+        lease?.release();
+      }
+    };
+    const operation = (method2, value) => {
+      const result2 = queue.then(async () => {
+        if (done) {
+          if (method2 === "throw") throw value;
+          return { done: true, value: method2 === "return" ? value : void 0 };
+        }
+        if (!lease && method2 !== "next") {
+          finish();
+          if (method2 === "throw") throw value;
+          return { done: true, value };
+        }
+        try {
+          lease ??= this.#acquire(frozen);
+          const result3 = await this.#enter(lease.scope, async () => {
+            iterator ??= factory()[Symbol.asyncIterator]();
+            if (method2 === "throw" && !iterator.throw) {
+              await iterator.return?.();
+              throw value;
+            }
+            if (method2 === "return" && !iterator.return) return { done: true, value };
+            return await iterator[method2](value);
+          });
+          if (result3.done) finish();
+          return result3;
+        } catch (error) {
+          finish();
+          throw error;
+        }
+      });
+      queue = result2.catch(() => {
+      });
+      return result2;
+    };
+    return {
+      next: (value) => operation("next", value),
+      return: (value) => operation("return", value),
+      throw: (error) => operation("throw", error),
+      [Symbol.asyncIterator]() {
+        return this;
+      }
+    };
+  }
+  /** Stop new scopes; wait for active streams and response bodies, then close. */
+  dispose() {
+    if (this.#disposePromise) return this.#disposePromise;
+    this.#disposed = true;
+    this.#disposePromise = new Promise((resolve2, reject) => {
+      this.#resolveDispose = resolve2;
+      this.#rejectDispose = reject;
+    });
+    for (const generation of this.#open) {
+      generation.retired = true;
+      this.#tryClose(generation);
+    }
+    this.#finishDispose();
+    return this.#disposePromise;
+  }
+};
+
+// src/model-proxy-manager.ts
+var PROBE_URL = "https://opencode.ai/";
+var PROBE_TIMEOUT_MS = 8e3;
+var SAFE_CODES = /* @__PURE__ */ new Set([
+  "invalid-config",
+  "invalid-mode",
+  "invalid-url",
+  "url-too-long",
+  "unsupported-proxy-scheme",
+  "invalid-bypass",
+  "manual-url-required",
+  "config-read-failed",
+  "config-write-failed",
+  "system-proxy-unsupported-platform",
+  "system-proxy-read-failed",
+  "system-proxy-invalid-config",
+  "system-proxy-pac-unsupported",
+  "system-proxy-autodiscovery-unsupported",
+  "system-proxy-socks-unsupported",
+  "system-proxy-scoped-unsupported",
+  "system-proxy-list-unsupported",
+  "system-proxy-bypass-unsupported",
+  "model-proxy-disposed",
+  "model-proxy-transport-unsupported",
+  "model-proxy-runtime-unavailable",
+  "invalid-target-url"
+]);
+var CODE_ALIASES = {
+  "model-proxy-custom-agent-unsupported": "model-proxy-transport-unsupported",
+  "model-proxy-custom-connection-unsupported": "model-proxy-transport-unsupported",
+  "model-proxy-http2-unsupported": "model-proxy-transport-unsupported",
+  "model-proxy-target-unsupported": "model-proxy-transport-unsupported",
+  "model-proxy-runtime-disposed": "model-proxy-runtime-unavailable",
+  "model-proxy-dispatcher-replaced": "model-proxy-runtime-unavailable",
+  "model-proxy-runtime-install-failed": "model-proxy-runtime-unavailable",
+  "model-proxy-native-install-failed": "model-proxy-runtime-unavailable",
+  "model-proxy-scope-closed": "model-proxy-runtime-unavailable"
+};
+function modelProxyErrorCode(cause) {
+  let error = cause;
+  const seen = /* @__PURE__ */ new Set();
+  while (error !== null && typeof error === "object" && !seen.has(error)) {
+    seen.add(error);
+    const record3 = error;
+    for (const value of [record3.code, record3.message]) {
+      if (typeof value === "string" && SAFE_CODES.has(value)) return value;
+      if (typeof value === "string" && Object.hasOwn(CODE_ALIASES, value)) return CODE_ALIASES[value];
+    }
+    const code = typeof record3.code === "string" ? record3.code : "";
+    const message = typeof record3.message === "string" ? record3.message : "";
+    if (record3.statusCode === 407 || /\b407\b|proxy[^\n]*auth/i.test(message)) return "proxy-auth";
+    if (code === "ECONNREFUSED") return "proxy-refused";
+    if (code === "ENOTFOUND" || code === "EAI_AGAIN") return "dns";
+    if (record3.name === "TimeoutError" || /TIMEOUT/.test(code) || /timed?\s*out|timeout/i.test(message)) return "timeout";
+    if (/CERT|TLS|SSL/.test(code) || /certificate|\bTLS\b|\bSSL\b/i.test(message)) return "tls";
+    error = record3.cause;
+  }
+  return "unknown";
+}
+var ModelProxyManager = class {
+  #home;
+  #runtime;
+  #system;
+  #probeUrl;
+  #probeTimeoutMs;
+  #pending = Promise.resolve();
+  #cached;
+  #disposed = false;
+  constructor(home, options = {}) {
+    this.#home = home;
+    this.#runtime = options.runtime ?? new ModelProxyRuntime();
+    this.#system = options.system ?? (() => readSystemProxy());
+    this.#probeUrl = options.probeUrl ?? PROBE_URL;
+    this.#probeTimeoutMs = options.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
+  }
+  #assertOpen() {
+    if (this.#disposed) throw new Error("model-proxy-disposed");
+  }
+  async #read() {
+    this.#assertOpen();
+    await this.#pending;
+    const config = await readModelProxyConfig(this.#home);
+    const system = await this.#system();
+    this.#assertOpen();
+    return { config, system };
+  }
+  async view() {
+    const { config, system } = await this.#read();
+    return modelProxyConfigView(config, system);
+  }
+  /** Refresh OS facts at a new call boundary, reusing the same immutable snapshot when unchanged. */
+  async capture() {
+    const { config, system } = await this.#read();
+    const identity = JSON.stringify({ config, system });
+    if (this.#cached?.identity === identity) return this.#cached.snapshot;
+    const snapshot = createModelProxySnapshot(config, system);
+    this.#cached = { identity, snapshot };
+    return snapshot;
+  }
+  /** Serialize persistence. A failed write leaves the previous published configuration intact. */
+  save(input) {
+    this.#assertOpen();
+    const operation = this.#pending.then(async () => {
+      this.#assertOpen();
+      const previous = await readModelProxyConfig(this.#home);
+      const next = parseModelProxyConfig(input, previous);
+      const system = await this.#system();
+      createModelProxySnapshot(next, system);
+      this.#assertOpen();
+      const saved = await writeModelProxyConfig(this.#home, next);
+      this.#cached = void 0;
+      return modelProxyConfigView(saved, system);
+    });
+    this.#pending = operation.then(() => {
+    }, () => {
+    });
+    return operation;
+  }
+  async run(operation) {
+    const snapshot = await this.capture();
+    return await this.#runtime.run(snapshot, operation);
+  }
+  /** The consumer receives chunks outside the model network scope. */
+  async *stream(factory) {
+    const snapshot = await this.capture();
+    yield* this.#runtime.wrapStream(snapshot, factory);
+  }
+  /** An explicit network-only probe; it never writes settings or submits a generation request. */
+  async test(input) {
+    let route;
+    const origin = new URL(this.#probeUrl).origin;
+    try {
+      const { config, system } = await this.#read();
+      const proposed = parseModelProxyConfig(input, config);
+      const snapshot = createModelProxySnapshot(proposed, system);
+      route = resolveModelProxyRoute(snapshot, this.#probeUrl).kind;
+      return await this.#runtime.run(snapshot, async () => {
+        const response = await fetch(this.#probeUrl, {
+          method: "HEAD",
+          redirect: "manual",
+          signal: AbortSignal.timeout(this.#probeTimeoutMs),
+          headers: { accept: "text/html, application/json" }
+        });
+        await response.body?.cancel();
+        if (response.status === 407) return { ok: false, error: "proxy-auth", route, origin };
+        if (response.status >= 500) return { ok: false, error: "request-failed", route, origin };
+        return { ok: true, error: null, route, origin };
+      });
+    } catch (cause) {
+      return { ok: false, error: modelProxyErrorCode(cause), ...route ? { route } : {}, origin };
+    }
+  }
+  async dispose() {
+    if (this.#disposed) return;
+    this.#disposed = true;
+    await this.#pending;
+    await this.#runtime.dispose();
+    this.#cached = void 0;
+  }
+};
+
 // src/oauth.ts
 function emptyView(provider, phase = "idle") {
   return { phase, provider, message: null, url: null, code: null, prompt: null, error: null };
@@ -790,7 +1985,7 @@ function parseProvider(body, query) {
   if (typeof raw !== "string" || !isOauthLoginProvider(raw)) return null;
   return raw;
 }
-function applyOverlayOauth(ctx) {
+function applyOverlayOauth(ctx, modelNetwork) {
   const sessions = /* @__PURE__ */ new Map();
   const reject = (req, res) => rejectUnauthorized(req, res, ctx.connection.requestRejection(req));
   const sessionOf = (provider) => {
@@ -865,11 +2060,6 @@ function applyOverlayOauth(ctx) {
           writeJson(res, 400, { ok: false, error: "unknown-provider" });
           return;
         }
-        const proxy = await readModelProxyConfig(resolveDshHome());
-        if (proxy.url === "" && (provider === "openai-codex" || provider === "xai")) {
-          writeJson(res, 200, { ...emptyView(provider, "failed"), error: "proxy-required" });
-          return;
-        }
         const auth = authorizationOf(ctx);
         if (auth === void 0) {
           writeJson(res, 200, emptyView(provider, "unavailable"));
@@ -890,7 +2080,7 @@ function applyOverlayOauth(ctx) {
           message: "starting"
         };
         writeJson(res, 202, session.view);
-        void auth.begin({
+        void modelNetwork.run(() => auth.begin({
           key: oauthCredentialKey(provider),
           method: "oauth",
           signal: controller.signal,
@@ -909,8 +2099,8 @@ function applyOverlayOauth(ctx) {
               const options = Array.isArray(prompt.options) ? prompt.options : [];
               const oauthOption = options.find((option) => option.id === "oauth" || option.id === "chatgpt");
               if (oauthOption !== void 0) return Promise.resolve(oauthOption.id);
-              return new Promise((resolve, reject2) => {
-                session.answer = resolve;
+              return new Promise((resolve2, reject2) => {
+                session.answer = resolve2;
                 session.decline = () => {
                   reject2(new Error("declined"));
                 };
@@ -927,7 +2117,7 @@ function applyOverlayOauth(ctx) {
               });
             }
           }
-        }).then((outcome) => {
+        })).then((outcome) => {
           const status = outcome.status === "authorized" || outcome.status === "cancelled" ? outcome.status : "failed";
           session.view = {
             ...session.view,
@@ -942,7 +2132,7 @@ function applyOverlayOauth(ctx) {
           const message = cause instanceof Error ? cause.message : String(cause);
           session.view = {
             ...emptyView(provider, message.includes("no authorization flow") ? "unavailable" : "failed"),
-            error: message
+            error: message.includes("no authorization flow") ? "unavailable" : modelProxyErrorCode(cause)
           };
           session.controller = null;
           session.answer = null;
@@ -1021,68 +2211,25 @@ function applyOverlayOauth(ctx) {
 }
 
 // src/proxy-api.ts
-var TEST_TIMEOUT_MS = 8e3;
-var TEST_URL = "https://api.x.ai/v1/models";
-async function testProxy(url) {
-  if (url === "") return { ok: false, error: "no-proxy" };
-  try {
-    parseModelProxyUrl(url);
-  } catch {
-    return { ok: false, error: "invalid-url" };
-  }
-  try {
-    const undici = await import("undici");
-    const dispatcher = new undici.ProxyAgent({ uri: url });
-    const response = await undici.request(TEST_URL, {
-      method: "GET",
-      dispatcher,
-      headersTimeout: TEST_TIMEOUT_MS,
-      bodyTimeout: TEST_TIMEOUT_MS,
-      headers: { accept: "application/json" }
-    });
-    await response.body.dump();
-    return { ok: true, error: null };
-  } catch (cause) {
-    const message = cause instanceof Error ? cause.message : String(cause);
-    if (message.includes("ECONNREFUSED")) return { ok: false, error: "proxy-refused" };
-    if (message.includes("407") || /proxy.*auth/i.test(message)) return { ok: false, error: "proxy-auth" };
-    if (message.includes("ENOTFOUND")) return { ok: false, error: "dns" };
-    if (message.includes("timeout") || message.includes("Timeout")) return { ok: false, error: "timeout" };
-    if (message.includes("certificate") || message.includes("SSL") || message.includes("TLS")) {
-      return { ok: false, error: "tls" };
-    }
-    return { ok: false, error: "unknown" };
-  }
-}
 function applyOverlayProxyApi(ctx) {
-  const home = resolveDshHome();
+  const manager = new ModelProxyManager(resolveDshHome());
   const reject = (req, res) => rejectUnauthorized(req, res, ctx.connection.requestRejection(req));
-  let uninstall;
-  ctx.effect(() => {
-    void readModelProxyConfig(home).then(async (config) => {
-      uninstall = await installModelProxy(config, (message) => {
-        ctx.logger.info(message);
-      });
-    }).catch((error) => {
-      ctx.logger.warn(`dsh-overlay-custom: model proxy install skipped: ${error instanceof Error ? error.message : String(error)}`);
+  ctx.effect(() => () => {
+    void manager.dispose().catch(() => {
+      ctx.logger.warn("dsh-overlay-custom: model proxy cleanup failed");
     });
-    return () => {
-      void uninstall?.();
-    };
-  }, "dsh-overlay-custom: model proxy boot");
+  }, "dsh-overlay-custom: model network lifecycle");
+  ctx.on("llm/stream", (_options, next) => manager.stream(next));
   ctx.effect(() => ctx.webServer.register({
     kind: "exact",
     path: "/api/desktop/proxy/config",
     handler: (req, res) => {
       if (reject(req, res)) return;
       if (req.method === "GET") {
-        void readModelProxyConfig(home).then((config) => {
-          writeJson(res, 200, {
-            ok: true,
-            url: config.url,
-            origin: proxyDiagnosticOrigin(config.url),
-            providers: config.providers
-          });
+        void manager.view().then((view) => {
+          writeJson(res, 200, { ok: true, ...view });
+        }).catch((cause) => {
+          writeJson(res, 500, { ok: false, error: modelProxyErrorCode(cause) });
         });
         return;
       }
@@ -1097,24 +2244,18 @@ function applyOverlayProxyApi(ctx) {
         return;
       }
       void (async () => {
-        const body = await readJsonBody(req).catch(() => ({}));
+        let body;
         try {
-          const saved = await writeModelProxyConfig(home, {
-            url: typeof body.url === "string" ? body.url : "",
-            providers: Array.isArray(body.providers) ? body.providers.filter((item) => typeof item === "string") : ["xai", "openai-codex"]
-          });
-          await uninstall?.();
-          uninstall = await installModelProxy(saved, (message) => {
-            ctx.logger.info(message);
-          });
-          writeJson(res, 200, {
-            ok: true,
-            url: saved.url,
-            origin: proxyDiagnosticOrigin(saved.url),
-            providers: saved.providers
-          });
+          body = await readJsonBody(req);
+        } catch {
+          writeJson(res, 400, { ok: false, error: "invalid-config" });
+          return;
+        }
+        try {
+          const view = await manager.save(body);
+          writeJson(res, 200, { ok: true, ...view });
         } catch (cause) {
-          writeJson(res, 400, { ok: false, error: cause instanceof Error ? cause.message : "write-failed" });
+          writeJson(res, 400, { ok: false, error: modelProxyErrorCode(cause) });
         }
       })();
     }
@@ -1135,23 +2276,33 @@ function applyOverlayProxyApi(ctx) {
         return;
       }
       void (async () => {
-        const body = await readJsonBody(req).catch(() => ({}));
-        const url = typeof body.url === "string" ? body.url : (await readModelProxyConfig(home)).url;
-        writeJson(res, 200, await testProxy(url));
+        let body;
+        try {
+          body = await readJsonBody(req);
+        } catch {
+          writeJson(res, 400, { ok: false, error: "invalid-config" });
+          return;
+        }
+        try {
+          writeJson(res, 200, await manager.test(body));
+        } catch (cause) {
+          writeJson(res, 500, { ok: false, error: modelProxyErrorCode(cause) });
+        }
       })();
     }
   }), "dsh-overlay-custom: proxy test");
+  return manager;
 }
 
 // src/relay.ts
 import { randomBytes } from "node:crypto";
-import { createRequire } from "node:module";
+import { createRequire as createRequire2 } from "node:module";
 import { readFile as readFile6 } from "node:fs/promises";
-import { dirname as dirname2, join as join7, normalize, sep } from "node:path";
+import { dirname as dirname3, join as join8, normalize as normalize2, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/mobile-api.ts
-import { randomUUID } from "node:crypto";
+import { randomUUID as randomUUID2 } from "node:crypto";
 
 // src/relay-tunnel.ts
 import { request as requestHttp } from "node:http";
@@ -1190,16 +2341,16 @@ function headerValue(value) {
 }
 function sanitizedTunnelHeaders(headers, options) {
   const stripHopByHop = options?.hopByHop === true;
-  const result = [];
+  const result2 = [];
   for (const [name2, raw] of headers) {
     const lower = name2.toLowerCase();
     if (isForwardingIdentityHeader(name2)) continue;
     if (stripHopByHop && HOP_BY_HOP_HEADERS.has(lower)) continue;
     const value = headerValue(raw);
     if (value === null) continue;
-    result.push([name2, value]);
+    result2.push([name2, value]);
   }
-  return result;
+  return result2;
 }
 function rawTunnelRequest(method2, path, headers) {
   const lines = [`${method2} ${path} HTTP/1.1`];
@@ -1519,8 +2670,8 @@ function asRecord5(value) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
   return value;
 }
-function asWireEvent(record2) {
-  const row = asRecord5(record2);
+function asWireEvent(record3) {
+  const row = asRecord5(record3);
   if (row === null) return null;
   if (row.type === "event") {
     const event = asRecord5(row.event);
@@ -1631,8 +2782,8 @@ function mobileTodoItems(value) {
 function mobileTranscriptFromEvents(events) {
   const items = [];
   let lastTodoJson = "";
-  for (const record2 of events) {
-    const event = asWireEvent(record2);
+  for (const record3 of events) {
+    const event = asWireEvent(record3);
     if (event === null) continue;
     const data = asRecord5(event.data);
     if (event.type === "user/message") {
@@ -1726,8 +2877,8 @@ function mobileTranscriptFromEvents(events) {
 function mobileFactsFromEvents(events) {
   let model = null;
   let permissionPreset = null;
-  for (const record2 of events) {
-    const event = asWireEvent(record2);
+  for (const record3 of events) {
+    const event = asWireEvent(record3);
     if (event === null) continue;
     const data = asRecord5(event.data);
     if (event.type === "model/selection" || event.type === "request/context") {
@@ -1964,7 +3115,7 @@ function registerMobileApi(options) {
     }
     return false;
   };
-  const fail = (cause, res, label, code) => {
+  const fail2 = (cause, res, label, code) => {
     const message = cause instanceof Error ? cause.message : String(cause);
     ctx.logger.error(`dsh-overlay-custom: ${label}: ${message}`);
     json(res, 503, { error: code, message });
@@ -1983,12 +3134,12 @@ function registerMobileApi(options) {
       if (controller === void 0) return;
       options.presence.lastSeen = Date.now();
       void controller.list({}, freshSignal(15e3)).then(
-        (result) => {
+        (result2) => {
           try {
             const feed = workspaceFeed(ctx);
             const baseline = feed?.baseline();
             const archived = new Set(baseline?.archivedSessionIds ?? []);
-            const rows = result.items.filter((item) => item.origin !== "subagent" && item.blank !== true && (typeof item.sessionId === "string" && !archived.has(item.sessionId))).map(mobileSessionRow);
+            const rows = result2.items.filter((item) => item.origin !== "subagent" && item.blank !== true && (typeof item.sessionId === "string" && !archived.has(item.sessionId))).map(mobileSessionRow);
             const byId = new Map(rows.map((row) => [row.id, row]));
             const groups = [];
             const accounted = /* @__PURE__ */ new Set();
@@ -2014,11 +3165,11 @@ function registerMobileApi(options) {
               relay: { active: options.relayActive() }
             });
           } catch (cause) {
-            fail(cause, res, "mobile state assemble failed", "state-unavailable");
+            fail2(cause, res, "mobile state assemble failed", "state-unavailable");
           }
         },
         (cause) => {
-          fail(cause, res, "mobile state read failed", "state-unavailable");
+          fail2(cause, res, "mobile state read failed", "state-unavailable");
         }
       );
     }
@@ -2047,7 +3198,7 @@ function registerMobileApi(options) {
           json(res, 200, { sessionId, messages: loaded.messages, facts: loaded.facts });
         },
         (cause) => {
-          fail(cause, res, "mobile transcript read failed", "transcript-unavailable");
+          fail2(cause, res, "mobile transcript read failed", "transcript-unavailable");
         }
       );
     }
@@ -2104,7 +3255,7 @@ function registerMobileApi(options) {
           json(res, 200, catalog);
         },
         (cause) => {
-          fail(cause, res, "mobile model catalog read failed", "model-catalog-unavailable");
+          fail2(cause, res, "mobile model catalog read failed", "model-catalog-unavailable");
         }
       );
     }
@@ -2133,14 +3284,14 @@ function registerMobileApi(options) {
         if (content !== "" || images.length > 0) {
           await controller.prompt({
             sessionId: created.sessionId,
-            requestId: randomUUID(),
+            requestId: randomUUID2(),
             mode: "queue",
             content: mobilePromptContent(content, images)
           }, freshSignal(12e4));
         }
         json(res, 200, { sessionId: created.sessionId });
       }).catch((cause) => {
-        fail(cause, res, "mobile session create failed", "create-failed");
+        fail2(cause, res, "mobile session create failed", "create-failed");
       });
     }
   }), "dsh-overlay-custom: mobile create route");
@@ -2162,13 +3313,13 @@ function registerMobileApi(options) {
         }
         await controller.prompt({
           sessionId,
-          requestId: randomUUID(),
+          requestId: randomUUID2(),
           mode: "queue",
           content: mobilePromptContent(content, images)
         }, freshSignal(12e4));
         json(res, 200, { accepted: true });
       }).catch((cause) => {
-        fail(cause, res, "mobile prompt failed", "prompt-failed");
+        fail2(cause, res, "mobile prompt failed", "prompt-failed");
       });
     }
   }), "dsh-overlay-custom: mobile prompt route");
@@ -2186,10 +3337,10 @@ function registerMobileApi(options) {
           json(res, 400, { error: "invalid-request" });
           return;
         }
-        const result = await controller.cancel({ sessionId });
-        json(res, 200, { accepted: result.accepted === true });
+        const result2 = await controller.cancel({ sessionId });
+        json(res, 200, { accepted: result2.accepted === true });
       }).catch((cause) => {
-        fail(cause, res, "mobile cancel failed", "cancel-failed");
+        fail2(cause, res, "mobile cancel failed", "cancel-failed");
       });
     }
   }), "dsh-overlay-custom: mobile cancel route");
@@ -2217,7 +3368,7 @@ function registerMobileApi(options) {
         const selected = await controller.selectModel(request2);
         json(res, 200, { selected: selected.selected ?? null });
       }).catch((cause) => {
-        fail(cause, res, "mobile model select failed", "select-model-failed");
+        fail2(cause, res, "mobile model select failed", "select-model-failed");
       });
     }
   }), "dsh-overlay-custom: mobile select-model route");
@@ -2253,7 +3404,7 @@ function registerMobileApi(options) {
         presets.set(agent.session, preset);
         json(res, 200, { accepted: true });
       }).catch((cause) => {
-        fail(cause, res, "mobile permission switch failed", "permission-failed");
+        fail2(cause, res, "mobile permission switch failed", "permission-failed");
       });
     }
   }), "dsh-overlay-custom: mobile permission route");
@@ -2278,7 +3429,7 @@ function registerMobileApi(options) {
         await controller.updateQueue({ sessionId, itemId, action: { kind: "remove" } });
         json(res, 200, { accepted: true });
       }).catch((cause) => {
-        fail(cause, res, "mobile queue remove failed", "queue-remove-failed");
+        fail2(cause, res, "mobile queue remove failed", "queue-remove-failed");
       });
     }
   }), "dsh-overlay-custom: mobile queue-remove route");
@@ -2303,7 +3454,7 @@ function registerMobileApi(options) {
         await controller.rename({ sessionId, title });
         json(res, 200, { accepted: true });
       }).catch((cause) => {
-        fail(cause, res, "mobile rename failed", "rename-failed");
+        fail2(cause, res, "mobile rename failed", "rename-failed");
       });
     }
   }), "dsh-overlay-custom: mobile rename route");
@@ -2338,7 +3489,7 @@ function registerMobileApi(options) {
         await commands.execute(agent, "/compact", [], freshSignal(12e4));
         json(res, 200, { accepted: true });
       }).catch((cause) => {
-        fail(cause, res, "mobile compact failed", "compact-failed");
+        fail2(cause, res, "mobile compact failed", "compact-failed");
       });
     }
   }), "dsh-overlay-custom: mobile compact route");
@@ -2398,7 +3549,7 @@ function registerMobileApi(options) {
           options.presence.lastSeen = Date.now();
           json(res, 200, { accepted: true });
         }).catch((cause) => {
-          fail(cause, res, label, code);
+          fail2(cause, res, label, code);
         });
       }
     }), `dsh-overlay-custom: ${label} route`);
@@ -2537,7 +3688,7 @@ var MobileControlCache = class {
 };
 
 // src/mobile-interruptions.ts
-import { randomUUID as randomUUID2 } from "node:crypto";
+import { randomUUID as randomUUID3 } from "node:crypto";
 var DEFAULT_HOLD_MS = 6e4;
 var DEFAULT_TICK_MS = 1e3;
 var MAX_QUESTIONS = 8;
@@ -2571,9 +3722,9 @@ var MobileInterruptions = class {
    * maps that onto the waterfall's own return contract.
    */
   hold(request2, signal) {
-    const record2 = {
+    const record3 = {
       kind: request2.questions === null ? "approval" : "question",
-      key: randomUUID2(),
+      key: randomUUID3(),
       sessionId: request2.sessionId,
       toolName: request2.toolName,
       callId: request2.callId,
@@ -2583,11 +3734,11 @@ var MobileInterruptions = class {
       delegated: false
     };
     let settleFn;
-    const settled = new Promise((resolve) => {
-      settleFn = resolve;
+    const settled = new Promise((resolve2) => {
+      settleFn = resolve2;
     });
     const entry = {
-      record: record2,
+      record: record3,
       settle: (value) => {
         if (entry.settled !== null) return;
         entry.settled = value;
@@ -2598,10 +3749,10 @@ var MobileInterruptions = class {
       settled: null,
       watcher: null
     };
-    this.entries.set(record2.key, entry);
+    this.entries.set(record3.key, entry);
     const retire = () => {
       if (entry.watcher !== null) clearInterval(entry.watcher);
-      this.entries.delete(record2.key);
+      this.entries.delete(record3.key);
     };
     if (this.parallel) {
       signal?.addEventListener("abort", () => {
@@ -2613,8 +3764,8 @@ var MobileInterruptions = class {
           entry.settle({ kind: "abort" });
           return;
         }
-        if (!this.phoneActive() || this.now() - record2.at > this.holdMs) {
-          this.log(`dsh-overlay-custom: mobile interruption hold fell through to desktop (${record2.toolName ?? record2.kind})`);
+        if (!this.phoneActive() || this.now() - record3.at > this.holdMs) {
+          this.log(`dsh-overlay-custom: mobile interruption hold fell through to desktop (${record3.toolName ?? record3.kind})`);
           entry.settle({ kind: "delegate" });
         }
       }, this.tickMs);
@@ -2624,7 +3775,7 @@ var MobileInterruptions = class {
     } else {
       entry.settle({ kind: "delegate" });
     }
-    return { record: record2, settled, retire };
+    return { record: record3, settled, retire };
   }
   /**
    * Apply one phone decision. Returns `null` when the payload is malformed;
@@ -2746,8 +3897,8 @@ async function persistRelayOrigin(home, value) {
 }
 
 // src/relay.ts
-var QRCode = createRequire(import.meta.url)("qrcode");
-var PUBLIC_ROOT = join7(dirname2(fileURLToPath(import.meta.url)), "..", "public");
+var QRCode = createRequire2(import.meta.url)("qrcode");
+var PUBLIC_ROOT = join8(dirname3(fileURLToPath(import.meta.url)), "..", "public");
 var MOBILE_CSP = [
   "default-src 'none'",
   "script-src 'self'",
@@ -2826,11 +3977,13 @@ function applyOverlayRelay(ctx, originValue) {
   };
   const startTunnel = () => {
     if (origin === null || pairing === null || pairing.token === null) return;
+    const targetPort = ctx.webServer.port;
+    if (targetPort === void 0) return;
     tunnel = new RemoteRelayTunnel({
       relayUrl: `${origin.protocol === "https:" ? "wss" : "ws"}://${origin.host}/host`,
       pairId: pairing.pairId,
       secret: pairing.secret,
-      targetPort: ctx.webServer.port,
+      targetPort,
       log: (message) => ctx.logger.info(`dsh-overlay-custom: ${message}`)
     });
     tunnel.start();
@@ -2872,7 +4025,7 @@ function applyOverlayRelay(ctx, originValue) {
           reason: typeof request2.reason === "string" ? request2.reason : null,
           questions: null
         }, request2.signal);
-        return new Promise((resolve, rejectHold) => {
+        return new Promise((resolve2, rejectHold) => {
           let done = false;
           const finish = (settle) => {
             if (done) return;
@@ -2884,11 +4037,11 @@ function applyOverlayRelay(ctx, originValue) {
             if (settlement.kind === "phone-decision") {
               gate.abortPhoneWin();
               finish(() => {
-                resolve(settlement.decision === "allow" ? "allowed-once" : "rejected");
+                resolve2(settlement.decision === "allow" ? "allowed-once" : "rejected");
               });
             } else if (settlement.kind === "abort") {
               finish(() => {
-                resolve("cancelled");
+                resolve2("cancelled");
               });
             } else {
               handle.retire();
@@ -2896,7 +4049,7 @@ function applyOverlayRelay(ctx, originValue) {
           });
           void desktop.then((outcome) => {
             finish(() => {
-              resolve(outcome);
+              resolve2(outcome);
             });
           }, (cause) => {
             finish(() => {
@@ -2927,7 +4080,7 @@ function applyOverlayRelay(ctx, originValue) {
         reason: null,
         questions
       }, request2.signal);
-      return new Promise((resolve, rejectHold) => {
+      return new Promise((resolve2, rejectHold) => {
         let done = false;
         const finish = (settle) => {
           if (done) return;
@@ -2939,7 +4092,7 @@ function applyOverlayRelay(ctx, originValue) {
           if (settlement.kind === "phone-answer") {
             gate.abortPhoneWin();
             finish(() => {
-              resolve({ answers: settlement.answers });
+              resolve2({ answers: settlement.answers });
             });
           } else if (settlement.kind === "abort") {
             finish(() => {
@@ -2952,7 +4105,7 @@ function applyOverlayRelay(ctx, originValue) {
         if (desktop !== void 0) {
           void desktop.then((answer) => {
             finish(() => {
-              resolve(answer);
+              resolve2(answer);
             });
           }, (cause) => {
             finish(() => {
@@ -3015,14 +4168,14 @@ function applyOverlayRelay(ctx, originValue) {
     const url = new URL(req.url ?? "/mobile/", "http://localhost");
     let relative = url.pathname.replace(/^\/mobile\/?/u, "");
     if (relative === "") relative = "mobile.html";
-    const normalized = normalize(relative).split(sep).join("/");
+    const normalized = normalize2(relative).split(sep).join("/");
     if (normalized.startsWith("..") || normalized.includes("../") || normalized.startsWith("/") || normalized !== "mobile.html" && normalized !== "mobile.js" && normalized !== "mobile.css") {
       res.writeHead(404, { "cache-control": "no-store" });
       res.end("not found");
       return;
     }
     try {
-      const body = await readFile6(join7(PUBLIC_ROOT, normalized));
+      const body = await readFile6(join8(PUBLIC_ROOT, normalized));
       const type = normalized.endsWith(".js") ? "text/javascript; charset=utf-8" : normalized.endsWith(".css") ? "text/css; charset=utf-8" : "text/html; charset=utf-8";
       res.writeHead(200, {
         "content-type": type,
@@ -3102,8 +4255,8 @@ function applyOverlayRelay(ctx, originValue) {
 }
 
 // src/skills-mcp.ts
-import { createRequire as createRequire2 } from "node:module";
-import { join as join8 } from "node:path";
+import { createRequire as createRequire3 } from "node:module";
+import { join as join9 } from "node:path";
 import { pathToFileURL } from "node:url";
 
 // src/mcp-probe.ts
@@ -3115,7 +4268,7 @@ var NAME = /^[A-Za-z0-9_-]{1,32}$/u;
 var ID = /^[A-Za-z0-9_-]{1,64}$/u;
 var MAX_SERVERS = 64;
 var MAX_TEXT = 2048;
-function record(value) {
+function record2(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : void 0;
 }
 function optionalText(value, field) {
@@ -3134,19 +4287,19 @@ function stringArray(value, field) {
 }
 function stringMap(value, field) {
   if (value === void 0) return void 0;
-  const map = record(value);
+  const map = record2(value);
   if (map === void 0 || Object.keys(map).length > 256) throw new Error(`${field} must be an object`);
-  const result = {};
+  const result2 = {};
   for (const [key, entry] of Object.entries(map)) {
     if (key.length === 0 || key.length > 256 || typeof entry !== "string" || entry.length > MAX_TEXT) {
       throw new Error(`${field} contains an invalid entry`);
     }
-    result[key] = entry;
+    result2[key] = entry;
   }
-  return result;
+  return result2;
 }
 function parseOverlayMcpServer(value) {
-  const row = record(value);
+  const row = record2(value);
   if (row === void 0) throw new Error("MCP server must be an object");
   if (typeof row.id !== "string" || !ID.test(row.id)) throw new Error("invalid MCP server id");
   if (typeof row.serverName !== "string" || !NAME.test(row.serverName)) throw new Error("invalid MCP server name");
@@ -3208,9 +4361,9 @@ function mergeOverlayMcpServer(current, value) {
     ...value.disabled === void 0 ? {} : { disabled: value.disabled }
   });
 }
-async function writeOverlayMcpServers(home, writes) {
+async function writeOverlayMcpServers(home, writes2) {
   const current = await readOverlayMcpServers(home);
-  const servers = parseOverlayMcpServers(writes.map((write) => mergeOverlayMcpServer(current.find((server) => server.id === write.id), write)));
+  const servers = parseOverlayMcpServers(writes2.map((write) => mergeOverlayMcpServer(current.find((server) => server.id === write.id), write)));
   await writeOverlayConfig(home, { mcpServers: servers });
   return servers;
 }
@@ -3276,9 +4429,9 @@ function failure(value) {
   if (value.error !== void 0) return { ok: false, error: "protocol", detail: "server rejected the MCP handshake" };
   return { ok: false, error: "protocol", detail: "unrecognized MCP response" };
 }
-function info(result) {
-  if (result === null || typeof result !== "object") return {};
-  const serverInfo = result.serverInfo;
+function info(result2) {
+  if (result2 === null || typeof result2 !== "object") return {};
+  const serverInfo = result2.serverInfo;
   if (serverInfo === null || typeof serverInfo !== "object") return {};
   const name2 = serverInfo.name;
   const version = serverInfo.version;
@@ -3287,13 +4440,13 @@ function info(result) {
     ...typeof version === "string" && version.length > 0 ? { serverInfoVersion: version.slice(0, 60) } : {}
   };
 }
-function toolCount(result) {
-  if (result === null || typeof result !== "object") return void 0;
-  const tools = result.tools;
+function toolCount(result2) {
+  if (result2 === null || typeof result2 !== "object") return void 0;
+  const tools = result2.tools;
   return Array.isArray(tools) ? tools.length : void 0;
 }
 async function stdio(server, timeoutMs) {
-  return await new Promise((resolve) => {
+  return await new Promise((resolve2) => {
     let child;
     try {
       child = spawn(server.command, resolvedMcpArgs(server), {
@@ -3302,7 +4455,7 @@ async function stdio(server, timeoutMs) {
         stdio: ["pipe", "pipe", "pipe"]
       });
     } catch {
-      resolve({ ok: false, error: "spawn", detail: "command could not be started" });
+      resolve2({ ok: false, error: "spawn", detail: "command could not be started" });
       return;
     }
     let output = "";
@@ -3320,7 +4473,7 @@ async function stdio(server, timeoutMs) {
         child.kill("SIGKILL");
       } catch {
       }
-      resolve(value);
+      resolve2(value);
     };
     const evaluate = () => {
       const messages = parseLines(output);
@@ -3361,7 +4514,7 @@ async function stdio(server, timeoutMs) {
     }
   });
 }
-async function http(server, timeoutMs) {
+async function http3(server, timeoutMs) {
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), timeoutMs);
   const headers = { "content-type": "application/json", accept: "application/json, text/event-stream", ...server.headers };
@@ -3395,7 +4548,7 @@ async function http(server, timeoutMs) {
   }
 }
 async function probeOverlayMcpServer(server, timeoutMs = 3e4) {
-  return server.transport === "stdio" ? await stdio(server, timeoutMs) : await http(server, timeoutMs);
+  return server.transport === "stdio" ? await stdio(server, timeoutMs) : await http3(server, timeoutMs);
 }
 
 // src/skills-mcp.ts
@@ -3518,7 +4671,7 @@ async function importMcpClient() {
     return await import("@deepseek-ai/dsh-mcp-client");
   } catch (directError) {
     try {
-      const requireFromRuntime = createRequire2(join8(process.cwd(), "package.json"));
+      const requireFromRuntime = createRequire3(join9(process.cwd(), "package.json"));
       return await import(pathToFileURL(requireFromRuntime.resolve("@deepseek-ai/dsh-mcp-client")).href);
     } catch {
       throw directError;
@@ -3538,7 +4691,9 @@ async function mountOverlayMcpServers(ctx) {
   for (const server of servers) {
     if (server.disabled === true) continue;
     try {
-      ctx.plugin(mcpClient, mcpClient.Config(mcpClientConfig(parseOverlayMcpServer(server))));
+      const input = mcpClientConfig(parseOverlayMcpServer(server));
+      const config = mcpClient.Config(input);
+      ctx.plugin(mcpClient, config);
       ctx.logger.info(`dsh-overlay-custom: mounted MCP server ${server.serverName}`);
     } catch (cause) {
       logFailure(ctx, `MCP server ${server.serverName} failed to mount`, cause);
@@ -3557,10 +4712,10 @@ function loadRelayOrigin() {
   return "";
 }
 async function apply(ctx) {
-  applyOverlayProxyApi(ctx);
+  const modelNetwork = applyOverlayProxyApi(ctx);
   applyOverlayRelay(ctx, loadRelayOrigin());
-  applyOverlayModels(ctx);
-  applyOverlayOauth(ctx);
+  applyOverlayModels(ctx, modelNetwork);
+  applyOverlayOauth(ctx, modelNetwork);
   applyOverlaySkillsMcpRoutes(ctx);
   await mountOverlayMcpServers(ctx);
   ctx.logger.info("dsh-overlay-custom host mounted");

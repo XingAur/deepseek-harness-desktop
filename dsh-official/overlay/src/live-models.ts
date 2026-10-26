@@ -3,7 +3,6 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { parse } from 'yaml'
-import { hostNeedsProxy, type ModelProxyConfig } from './model-proxy.ts'
 import { type OauthLoginProvider } from './oauth-providers.ts'
 
 const REQUEST_TIMEOUT_MS = 15_000
@@ -82,28 +81,7 @@ function endpointsFor(provider: OauthLoginProvider): readonly { readonly url: st
 async function loadJson(
   url: string,
   headers: Record<string, string>,
-  proxy: ModelProxyConfig | undefined,
 ): Promise<{ readonly status: number; readonly body: unknown }> {
-  const hostname = new URL(url).hostname
-  const useProxy = proxy !== undefined && proxy.url !== '' && hostNeedsProxy(hostname, proxy.providers)
-  if (useProxy) {
-    const undici = await import('undici') as {
-      ProxyAgent: new (opts: { uri: string }) => object
-      request: (input: string, opts: object) => Promise<{
-        statusCode: number
-        body: { json: () => Promise<unknown> }
-      }>
-    }
-    const dispatcher = new undici.ProxyAgent({ uri: proxy.url })
-    const response = await undici.request(url, {
-      method: 'GET',
-      dispatcher,
-      headersTimeout: REQUEST_TIMEOUT_MS,
-      bodyTimeout: REQUEST_TIMEOUT_MS,
-      headers,
-    })
-    return { status: response.statusCode, body: await response.body.json() }
-  }
   const response = await fetch(url, { headers, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
   return { status: response.status, body: await response.json().catch(() => null) }
 }
@@ -111,12 +89,8 @@ async function loadJson(
 export async function fetchLiveModelIds(
   provider: OauthLoginProvider,
   credential: OAuthCredential,
-  proxy?: ModelProxyConfig,
 ): Promise<{ readonly ids: string[]; readonly error: string | null }> {
   let lastError: string | null = null
-  if ((provider === 'openai-codex' || provider === 'xai') && (proxy === undefined || proxy.url === '')) {
-    return { ids: [], error: 'proxy-required' }
-  }
   for (const endpoint of endpointsFor(provider)) {
     try {
       const headers: Record<string, string> = {
@@ -128,7 +102,7 @@ export async function fetchLiveModelIds(
       if (endpoint.accountHeader && credential.accountId !== null) {
         headers['chatgpt-account-id'] = credential.accountId
       }
-      const response = await loadJson(endpoint.url, headers, proxy)
+      const response = await loadJson(endpoint.url, headers)
       if (response.status < 200 || response.status >= 300) {
         lastError = `HTTP ${String(response.status)}`
         continue

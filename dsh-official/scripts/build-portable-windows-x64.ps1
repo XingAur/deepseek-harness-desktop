@@ -15,6 +15,29 @@ $StageBase = if ($env:DSH_PORTABLE_STAGE_ROOT) { $env:DSH_PORTABLE_STAGE_ROOT } 
 $Stage = Join-Path $StageBase 'dsh-win-x64'
 $Dist = Join-Path $Root 'dist'
 
+function Assert-OwnedPath {
+  param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$OwnerRoot)
+  $full = [IO.Path]::GetFullPath($Path)
+  $root = [IO.Path]::GetFullPath($OwnerRoot)
+  if ($full -match '(?i)^[\\/]Applications([\\/]|$)') {
+    throw "portable build: refusing path under /Applications: $Path"
+  }
+  $prefix = if ($root.EndsWith([IO.Path]::DirectorySeparatorChar)) { $root } else { $root + [IO.Path]::DirectorySeparatorChar }
+  if ($full -ne $root -and -not $full.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "portable build: path is outside owned root ${OwnerRoot}: $Path"
+  }
+  return $full
+}
+
+function Remove-OwnedItem {
+  param([Parameter(Mandatory)][string[]]$Path, [Parameter(Mandatory)][string]$OwnerRoot, [switch]$Recurse)
+  foreach ($item in $Path) {
+    if (-not (Test-Path -LiteralPath $item)) { continue }
+    $full = Assert-OwnedPath -Path $item -OwnerRoot $OwnerRoot
+    if ($Recurse) { Remove-Item -LiteralPath $full -Recurse -Force } else { Remove-Item -LiteralPath $full -Force }
+  }
+}
+
 function Invoke-Checked {
   param([string]$File, [string[]]$Arguments, [string]$WorkingDirectory)
   Push-Location $WorkingDirectory
@@ -22,6 +45,47 @@ function Invoke-Checked {
     & $File @Arguments
     if ($LASTEXITCODE -ne 0) { throw "portable build: $File failed with exit code $LASTEXITCODE" }
   } finally { Pop-Location }
+}
+
+function Get-AppInventory {
+  param([Parameter(Mandatory)][string]$Root)
+  $rootFull = Assert-OwnedPath -Path $Root -OwnerRoot $Stage
+  $map = [ordered]@{}
+  Get-ChildItem -LiteralPath $rootFull -Recurse -File -Force | ForEach-Object {
+    $rel = $_.FullName.Substring($rootFull.Length).TrimStart('\', '/').Replace('\', '/')
+    $map[$rel] = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+  }
+  return $map
+}
+
+function Assert-NsisInventoryDelta {
+  param($Before, $After)
+  foreach ($key in @($Before.Keys)) {
+    if (-not (@($After.Keys) -contains $key)) { throw "portable build: NSIS removed $key" }
+    if ($Before[$key] -ne $After[$key]) { throw "portable build: NSIS modified $key" }
+  }
+  foreach ($key in @($After.Keys)) {
+    if (@($Before.Keys) -contains $key) { continue }
+    if ($key -ne 'resources/elevate.exe') { throw "portable build: NSIS added unexpected $key" }
+  }
+}
+
+function Invoke-UnsignedEnvironment {
+  $sensitive = [regex]'(?i)(?:KEY|SECRET|TOKEN|PASSWORD)'
+  $remove = New-Object System.Collections.Generic.List[string]
+  foreach ($entry in [Environment]::GetEnvironmentVariables('Process').GetEnumerator()) {
+    $name = [string]$entry.Name
+    if ($sensitive.IsMatch($name) -or $name.StartsWith('DSH_DESKTOP_WINDOWS_') -or $name -like 'CSC_*' -or $name -like 'WIN_CSC_*' -or $name -like 'APPLE_*' -or $name -like 'DSH_DESKTOP_MACOS_*') {
+      [void]$remove.Add($name)
+    }
+  }
+  foreach ($name in $remove) { Remove-Item -Path "Env:$name" -ErrorAction SilentlyContinue }
+  $env:DSH_DESKTOP_TARGET_PLATFORM = 'win32'
+  $env:DSH_DESKTOP_TARGET_ARCH = 'x64'
+  $env:DSH_DESKTOP_UNSIGNED = '1'
+  $env:CSC_IDENTITY_AUTO_DISCOVERY = 'false'
+  $env:DSH_DESKTOP_BUILD_VERSION = $BuildVersion
+  $env:ELECTRON_BUILDER_7Z_FILTER = 'BCJ'
 }
 
 $status = (& git -C $Official status --short) -join "`n"
@@ -41,7 +105,7 @@ Invoke-Checked npm @('run', 'bundle:host') $Overlay
 Invoke-Checked npm @('run', 'bundle:client') $Overlay
 Invoke-Checked npm @('run', 'check') $Overlay
 
-Remove-Item $Stage -Recurse -Force -ErrorAction SilentlyContinue
+if (Test-Path -LiteralPath $Stage) { Remove-OwnedItem -Path $Stage -OwnerRoot $StageBase -Recurse }
 New-Item $Stage, $Dist -ItemType Directory -Force | Out-Null
 $Archive = Join-Path ([System.IO.Path]::GetTempPath()) "dsh-official-$PID.tar"
 try {
@@ -72,32 +136,41 @@ if (-not $Packaged) { throw 'portable build: package failed after three attempts
 
 $App = Join-Path $Stage 'apps/desktop/.desktop-build/targets/win-x64/unsigned-artifacts/win-unpacked'
 $Resources = Join-Path $App 'resources'
-if (-not (Test-Path (Join-Path $App 'DeepSeek Harness.exe')) -or -not (Test-Path (Join-Path $Resources 'app.asar'))) {
+$ExeName = Join-Path $App 'DeepSeek Harness.exe'
+if (-not (Test-Path -LiteralPath $ExeName) -or -not (Test-Path -LiteralPath (Join-Path $Resources 'app.asar'))) {
   throw "portable build: expected unpacked application missing: $App"
 }
 $Asar = Join-Path $Resources 'app.asar'
 $AsarCommand = Join-Path $Stage 'node_modules/.pnpm/node_modules/.bin/asar.cmd'
+$Tsx = Join-Path $Stage 'node_modules/tsx/dist/cli.mjs'
+if (-not (Test-Path -LiteralPath $Tsx)) { throw "portable build: tsx is missing: $Tsx" }
 Invoke-Checked node @((Join-Path $Root 'scripts/test-repack-portable-asar.mjs'), (Join-Path $Stage 'node_modules/.pnpm/node_modules/@electron/asar')) $Root
 $AsarTree = Join-Path $Stage '.asar-sanitize'
-Remove-Item $AsarTree -Recurse -Force -ErrorAction SilentlyContinue
+Remove-OwnedItem -Path $AsarTree -OwnerRoot $Stage -Recurse
 Invoke-Checked $AsarCommand @('extract', $Asar, $AsarTree) $Stage
 Invoke-Checked node @((Join-Path $Root 'scripts/sanitize-portable-paths.mjs'), $AsarTree, $Root, $Stage) $Root
 Invoke-Checked node @((Join-Path $Root 'scripts/repack-portable-asar.mjs'), (Join-Path $Stage 'node_modules/.pnpm/node_modules/@electron/asar'), $Asar, $AsarTree, 'win32-x64') $Root
-Remove-Item $AsarTree -Recurse -Force
+Remove-OwnedItem -Path $AsarTree -OwnerRoot $Stage -Recurse
 $AsarUnpacked = "$Asar.unpacked"
-if (Test-Path $AsarUnpacked) { Invoke-Checked node @((Join-Path $Root 'scripts/sanitize-portable-paths.mjs'), $AsarUnpacked, $Root, $Stage) $Root }
+if (Test-Path -LiteralPath $AsarUnpacked) { Invoke-Checked node @((Join-Path $Root 'scripts/sanitize-portable-paths.mjs'), $AsarUnpacked, $Root, $Stage) $Root }
 $Runtime = Join-Path $Resources 'runtime'
-if (Test-Path $Runtime) { Invoke-Checked node @((Join-Path $Root 'scripts/sanitize-portable-paths.mjs'), $Runtime, $Root, $Stage) $Root }
+if (Test-Path -LiteralPath $Runtime) { Invoke-Checked node @((Join-Path $Root 'scripts/sanitize-portable-paths.mjs'), $Runtime, $Root, $Stage) $Root }
 Invoke-Checked node @((Join-Path $Root 'scripts/verify-portable-paths.mjs'), $Resources, $Root, $Stage) $Root
+
+$FinalDescriptor = Join-Path $Stage '.portable-final/win-x64/desktop-runtime.json'
+Invoke-Checked node @($Tsx, (Join-Path $Root 'scripts/finalize-portable-runtime.mjs'), $Stage, $App, $Root, $FinalDescriptor, 'win32-x64') $Root
+Invoke-Checked node @($Tsx, (Join-Path $Root 'scripts/smoke-portable-final.mjs'), $Stage, $App, $FinalDescriptor) $Root
+Invoke-Checked node @((Join-Path $Root 'scripts/windows-portable-integrity.mjs'), $Stage, $ExeName, $Asar, 'verify') $Root
 
 $Zip = Join-Path $Dist "deepseek-harness-overlay-$BuildVersion-win-x64-unsigned-manual.zip"
 $Exe = Join-Path $Dist "deepseek-harness-overlay-$BuildVersion-win-x64-unsigned-manual.exe"
 $ExeStage = Join-Path $Stage 'apps/desktop/.desktop-build/portable-nsis'
-Remove-Item $Zip, "$Zip.sha256", "$Zip.build.json", $Exe, "$Exe.sha256", "$Exe.build.json" -Force -ErrorAction SilentlyContinue
-Remove-Item $ExeStage -Recurse -Force -ErrorAction SilentlyContinue
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-[System.IO.Compression.ZipFile]::CreateFromDirectory($App, $Zip, [System.IO.Compression.CompressionLevel]::Optimal, $false)
-if (-not (Test-Path $Zip) -or (Get-Item $Zip).Length -eq 0) { throw 'portable build: Windows ZIP is empty' }
+Remove-OwnedItem -Path @($Zip, "$Zip.sha256", "$Zip.build.json", $Exe, "$Exe.sha256", "$Exe.build.json") -OwnerRoot $Dist
+Remove-OwnedItem -Path $ExeStage -OwnerRoot $Stage -Recurse
+
+$InventoryBeforeNsis = Get-AppInventory -Root $App
+$AsarHashBeforeNsis = (Get-FileHash -LiteralPath $Asar -Algorithm SHA256).Hash.ToLowerInvariant()
+$ExeHashBeforeNsis = (Get-FileHash -LiteralPath $ExeName -Algorithm SHA256).Hash.ToLowerInvariant()
 
 foreach ($line in Get-Content (Join-Path $Stage 'apps/desktop/.env.windows')) {
   if ($line -notmatch '^([A-Z0-9_]+)=(.*)$') { continue }
@@ -107,9 +180,7 @@ foreach ($line in Get-Content (Join-Path $Stage 'apps/desktop/.env.windows')) {
   }
   Set-Item -Path "Env:$($Matches[1])" -Value $value
 }
-$env:DSH_DESKTOP_TARGET_PLATFORM = 'win32'
-$env:DSH_DESKTOP_TARGET_ARCH = 'x64'
-$env:DSH_DESKTOP_UNSIGNED = '1'
+Invoke-UnsignedEnvironment
 Invoke-Checked powershell @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $Stage 'apps/desktop/scripts/prepare-windows-installer.ps1')) (Join-Path $Stage 'apps/desktop')
 New-Item $ExeStage -ItemType Directory -Force | Out-Null
 Invoke-Checked corepack @(
@@ -122,7 +193,21 @@ Invoke-Checked corepack @(
 $ExeSource = @(Get-ChildItem $ExeStage -File -Filter '*.exe' | Where-Object { $_.Name -notmatch 'uninstall' })
 if ($ExeSource.Count -ne 1) { throw "portable build: expected exactly one NSIS EXE in $ExeStage" }
 Move-Item $ExeSource[0].FullName $Exe -Force
-if (-not (Test-Path $Exe) -or (Get-Item $Exe).Length -eq 0) { throw 'portable build: Windows EXE is empty' }
+if (-not (Test-Path -LiteralPath $Exe) -or (Get-Item -LiteralPath $Exe).Length -eq 0) { throw 'portable build: Windows EXE is empty' }
+
+$InventoryAfterNsis = Get-AppInventory -Root $App
+Assert-NsisInventoryDelta -Before $InventoryBeforeNsis -After $InventoryAfterNsis
+$AsarHashAfterNsis = (Get-FileHash -LiteralPath $Asar -Algorithm SHA256).Hash.ToLowerInvariant()
+$ExeHashAfterNsis = (Get-FileHash -LiteralPath $ExeName -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($AsarHashAfterNsis -ne $AsarHashBeforeNsis) { throw 'portable build: NSIS changed app.asar' }
+if ($ExeHashAfterNsis -ne $ExeHashBeforeNsis) { throw 'portable build: NSIS changed DeepSeek Harness.exe' }
+Invoke-Checked node @((Join-Path $Root 'scripts/windows-portable-integrity.mjs'), $Stage, $ExeName, $Asar, 'verify') $Root
+Invoke-Checked node @((Join-Path $Root 'scripts/verify-portable-paths.mjs'), $Resources, $Root, $Stage) $Root
+Invoke-Checked node @($Tsx, (Join-Path $Root 'scripts/smoke-portable-final.mjs'), $Stage, $App, $FinalDescriptor) $Root
+
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[System.IO.Compression.ZipFile]::CreateFromDirectory($App, $Zip, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+if (-not (Test-Path -LiteralPath $Zip) -or (Get-Item -LiteralPath $Zip).Length -eq 0) { throw 'portable build: Windows ZIP is empty' }
 
 $OverlayPackage = Join-Path $Stage 'packages/external/overlay-custom'
 Invoke-Checked node @((Join-Path $Root 'scripts/write-portable-metadata.mjs'), $Zip, $OverlayPackage, $OfficialSha, $OfficialVersion, $BuildVersion, 'win32', 'x64', 'unsigned') $Root
