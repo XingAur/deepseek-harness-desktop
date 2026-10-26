@@ -49,32 +49,57 @@ export function asarHeaderSha256(headerString) {
  * @param {string} value Lowercase SHA-256 of the ASAR headerString.
  * @returns {Buffer} UTF-8 JSON payload.
  */
-export function integrityPayloadBytes(value) {
-  if (typeof value !== 'string' || !DIGEST.test(value)) throw new Error('invalid ASAR integrity digest')
-  return Buffer.from(JSON.stringify([{ file: WIN_ASAR_INTEGRITY_FILE, alg: WIN_ASAR_INTEGRITY_ALG, value }]))
+const ASAR_RESOURCE_FILE = /^resources\\[^\\/]+\.asar$/u
+
+function decodeIntegrityJson(bytes) {
+  for (const encoding of ['utf8', 'utf16le']) {
+    try { return JSON.parse(bytes.toString(encoding)) } catch { /* try the next encoding */ }
+  }
+  throw new Error('INTEGRITY resource is not JSON')
+}
+
+function integrityEntry(entry) {
+  if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) throw new Error('INTEGRITY resource entry is invalid')
+  const { file, alg, value, ...rest } = entry
+  if (Object.keys(rest).length !== 0) throw new Error('INTEGRITY resource has unexpected fields')
+  if (typeof file !== 'string' || !ASAR_RESOURCE_FILE.test(file)) throw new Error(`unexpected INTEGRITY file: ${JSON.stringify(file)}`)
+  if (alg !== WIN_ASAR_INTEGRITY_ALG) throw new Error(`unexpected INTEGRITY algorithm: ${JSON.stringify(alg)}`)
+  if (typeof value !== 'string' || !DIGEST.test(value)) throw new Error('invalid INTEGRITY digest')
+  return { file, alg, value }
 }
 
 /**
- * Parse the unique Electron ASAR integrity list. Missing, duplicate, extra or mistyped fields fail closed.
+ * Parse every ASAR integrity record. Electron may also list default_app.asar.
+ * @param {Buffer | ArrayBuffer | ArrayBufferView} bin Resource bytes.
+ * @returns {{ file: string, alg: string, value: string }[]}
+ */
+export function parseIntegrityEntries(bin) {
+  const bytes = asBuffer(bin)
+  if (bytes.length === 0) throw new Error('INTEGRITY resource is empty')
+  const parsed = decodeIntegrityJson(bytes)
+  if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('INTEGRITY resource must contain ASAR entries')
+  const entries = parsed.map(integrityEntry)
+  if (entries.filter(entry => entry.file === WIN_ASAR_INTEGRITY_FILE).length !== 1) {
+    throw new Error('INTEGRITY resource must contain exactly one resources\\app.asar entry')
+  }
+  return entries
+}
+
+export function integrityPayloadBytes(value, entries = [{ file: WIN_ASAR_INTEGRITY_FILE, alg: WIN_ASAR_INTEGRITY_ALG, value }]) {
+  if (typeof value !== 'string' || !DIGEST.test(value)) throw new Error('invalid ASAR integrity digest')
+  const next = parseIntegrityEntries(Buffer.from(JSON.stringify(entries))).map(entry => (
+    entry.file === WIN_ASAR_INTEGRITY_FILE ? { ...entry, value } : entry
+  ))
+  return Buffer.from(JSON.stringify(next))
+}
+
+/**
+ * Return the resources\\app.asar integrity record. Companion ASAR entries are retained separately.
  * @param {Buffer | ArrayBuffer | ArrayBufferView} bin Resource bytes.
  * @returns {{ file: string, alg: string, value: string }}
  */
 export function parseIntegrityPayload(bin) {
-  const bytes = asBuffer(bin)
-  if (bytes.length === 0) throw new Error('INTEGRITY resource is empty')
-  let parsed
-  try { parsed = JSON.parse(bytes.toString('utf8')) } catch {
-    throw new Error('INTEGRITY resource is not JSON')
-  }
-  if (!Array.isArray(parsed) || parsed.length !== 1) throw new Error('INTEGRITY resource must contain exactly one ASAR entry')
-  const entry = parsed[0]
-  if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) throw new Error('INTEGRITY resource entry is invalid')
-  const { file, alg, value, ...rest } = entry
-  if (Object.keys(rest).length !== 0) throw new Error('INTEGRITY resource has unexpected fields')
-  if (file !== WIN_ASAR_INTEGRITY_FILE) throw new Error(`unexpected INTEGRITY file: ${JSON.stringify(file)}`)
-  if (alg !== WIN_ASAR_INTEGRITY_ALG) throw new Error(`unexpected INTEGRITY algorithm: ${JSON.stringify(alg)}`)
-  if (typeof value !== 'string' || !DIGEST.test(value)) throw new Error('invalid INTEGRITY digest')
-  return { file, alg, value }
+  return parseIntegrityEntries(bin).find(entry => entry.file === WIN_ASAR_INTEGRITY_FILE)
 }
 
 /**
@@ -206,7 +231,7 @@ export function updateWinAsarIntegrity({ executablePath, expectedValue, resedit,
   if (/^\/Applications(?:\/|$)/iu.test(path)) throw new Error('refusing to rewrite an installed application executable')
   const current = parseExecutableResources(readFileSync(path), loaded)
   if (current.payload.value === expectedValue) return { updated: false, value: expectedValue }
-  current.entry.bin = Uint8Array.from(integrityPayloadBytes(expectedValue)).buffer
+  current.entry.bin = Uint8Array.from(integrityPayloadBytes(expectedValue, parseIntegrityEntries(current.entry.bin))).buffer
   current.resource.outputResource(current.executable)
   const generated = Buffer.from(current.executable.generate())
   assertUnsignedPe(generated)

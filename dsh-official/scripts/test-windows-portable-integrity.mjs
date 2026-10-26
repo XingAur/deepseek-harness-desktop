@@ -86,13 +86,26 @@ test('canonical payload is the electron-builder JSON list with resources\\\\app.
 test('integrity JSON missing, duplicate, extra, wrong file or algorithm fail closed', () => {
   assert.throws(() => parseIntegrityPayload(Buffer.from('')), /empty/)
   assert.throws(() => parseIntegrityPayload(Buffer.from('not-json')), /not JSON/)
-  assert.throws(() => parseIntegrityPayload(Buffer.from('{}')), /exactly one/)
-  assert.throws(() => parseIntegrityPayload(Buffer.from('[]')), /exactly one/)
+  assert.throws(() => parseIntegrityPayload(Buffer.from('{}')), /ASAR entries/)
+  assert.throws(() => parseIntegrityPayload(Buffer.from('[]')), /ASAR entries/)
   assert.throws(() => parseIntegrityPayload(Buffer.from(JSON.stringify([
     { file: WIN_ASAR_INTEGRITY_FILE, alg: WIN_ASAR_INTEGRITY_ALG, value: DIGEST_A },
     { file: WIN_ASAR_INTEGRITY_FILE, alg: WIN_ASAR_INTEGRITY_ALG, value: DIGEST_B },
-  ]))), /exactly one/)
-  assert.throws(() => parseIntegrityPayload(Buffer.from('null')), /exactly one/)
+  ]))), /exactly one resources\\app\.asar/)
+  const withDefault = parseIntegrityPayload(Buffer.from(JSON.stringify([
+    { file: WIN_ASAR_INTEGRITY_FILE, alg: WIN_ASAR_INTEGRITY_ALG, value: DIGEST_A },
+    { file: 'resources\\default_app.asar', alg: WIN_ASAR_INTEGRITY_ALG, value: DIGEST_B },
+  ])))
+  assert.deepEqual(withDefault, { file: WIN_ASAR_INTEGRITY_FILE, alg: WIN_ASAR_INTEGRITY_ALG, value: DIGEST_A })
+  const rewritten = JSON.parse(integrityPayloadBytes(DIGEST_B, [
+    { file: WIN_ASAR_INTEGRITY_FILE, alg: WIN_ASAR_INTEGRITY_ALG, value: DIGEST_A },
+    { file: 'resources\\default_app.asar', alg: WIN_ASAR_INTEGRITY_ALG, value: DIGEST_B },
+  ]).toString('utf8'))
+  assert.deepEqual(rewritten, [
+    { file: WIN_ASAR_INTEGRITY_FILE, alg: WIN_ASAR_INTEGRITY_ALG, value: DIGEST_B },
+    { file: 'resources\\default_app.asar', alg: WIN_ASAR_INTEGRITY_ALG, value: DIGEST_B },
+  ])
+  assert.throws(() => parseIntegrityPayload(Buffer.from('null')), /ASAR entries/)
   assert.throws(() => parseIntegrityPayload(Buffer.from('[null]')), /invalid/)
   assert.throws(() => parseIntegrityPayload(payload({ extra: true })), /unexpected fields/)
   assert.throws(() => parseIntegrityPayload(payload({ file: 'resources/app.asar' })), /file/)
