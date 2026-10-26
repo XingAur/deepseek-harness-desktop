@@ -55,18 +55,17 @@ jobs:
           esac
           expected="official-v$BUILD_VERSION"
           test "$RELEASE_TAG" = "$expected" || { echo "release_tag must equal $expected" >&2; exit 1; }
-          if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' >/tmp/release-draft 2>/dev/null; then
-            test "$(cat /tmp/release-draft)" = true || { echo 'existing release is already published' >&2; exit 1; }
-            if gh api "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
-              gh api "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" --method PATCH -f sha="$GITHUB_SHA" -F force=true >/dev/null
-            fi
-            release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --jq '.id')
-            gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --method PATCH -f target_commitish="$GITHUB_SHA" >/dev/null
-          else
-            gh release create "$RELEASE_TAG" --draft --prerelease --target "$GITHUB_SHA" \
-              --title "Official DSH Portable $BUILD_VERSION" \
-              --notes "Portable DeepSeek Harness based on the locked official source, with the local Overlay and MCP manager bundled. macOS provides a DMG installer and ZIP archive. Windows provides an unsigned NSIS EXE installer and ZIP archive. Windows is unsigned and macOS is ad-hoc signed; both use manual updates and are not added to an automatic-update feed."
+          if gh release view "$RELEASE_TAG" --json isDraft,databaseId --jq '{isDraft,databaseId}' >/tmp/release-draft.json 2>/dev/null; then
+            test "$(node -p "JSON.parse(require('fs').readFileSync('/tmp/release-draft.json','utf8')).isDraft")" = true \
+              || { echo 'existing release is already published' >&2; exit 1; }
+            # Drafts may be untagged, so /releases/tags/{tag} and git tag PATCH are unreliable.
+            release_id="$(node -p "JSON.parse(require('fs').readFileSync('/tmp/release-draft.json','utf8')).databaseId")"
+            gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --method DELETE >/dev/null
+            gh api "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" --method DELETE >/dev/null 2>/dev/null || true
           fi
+          gh release create "$RELEASE_TAG" --draft --prerelease --target "$GITHUB_SHA" \
+            --title "Official DSH Portable $BUILD_VERSION" \
+            --notes "Portable DeepSeek Harness based on the locked official source, with the local Overlay and MCP manager bundled. macOS provides a DMG installer and ZIP archive. Windows provides an unsigned NSIS EXE installer and ZIP archive. Windows is unsigned and macOS is ad-hoc signed; both use manual updates and are not added to an automatic-update feed."
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
 
