@@ -66,6 +66,7 @@ import {
 } from './windows-volume-diagnostics.ts'
 import { ElectronWorkspaceAdmission } from './workspace-admission.ts'
 import { ProfileCreateWindow, type ProfileCreateWindowOptions } from './profile-create-window.ts'
+import { TaskEditorWindow, type TaskEditorWindowGateway } from './task-editor-window.ts'
 import { RemotePairingWindow } from './remote-pairing-window.ts'
 import { ModelDiagnosticsWindow } from './model-diagnostics-window.ts'
 import type { RemotePairingWindowOptions } from './runtime.ts'
@@ -119,6 +120,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
   private rendererHealthGate: DesktopRendererHealthGate | undefined
   private rendererBootHealthy = false
   private profileCreateWindow: ProfileCreateWindow | undefined
+  private taskEditorWindow: TaskEditorWindow | undefined
   private remotePairingWindow: RemotePairingWindow | undefined
   private modelDiagnosticsWindow: ModelDiagnosticsWindow | undefined
   private restartRequest: Promise<void> | undefined
@@ -215,6 +217,8 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
         try {
           this.profileCreateWindow?.close()
           this.profileCreateWindow = undefined
+          this.taskEditorWindow?.close()
+          this.taskEditorWindow = undefined
           this.remotePairingWindow?.close()
           this.remotePairingWindow = undefined
           this.modelDiagnosticsWindow?.close()
@@ -306,6 +310,14 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
       this.remotePairingWindow = new RemotePairingWindow(options)
     }
     this.remotePairingWindow.open()
+  }
+
+  /** @inheritdoc */
+  openTaskEditorWindow(gateway: TaskEditorWindowGateway): void {
+    if (this.taskEditorWindow === undefined) {
+      this.taskEditorWindow = new TaskEditorWindow({ locale: this.locale, gateway })
+    }
+    this.taskEditorWindow.open()
   }
 
   /** @inheritdoc */

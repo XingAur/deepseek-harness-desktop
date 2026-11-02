@@ -77,7 +77,6 @@ if (typeof upstreamPackage.packageManager !== 'string' || !upstreamPackage.packa
 for (const [owner, manifest] of [
   ['root', workspace],
   ['stable desktop', stablePlugin],
-  ['beta desktop', betaPlugin],
   ['fabric', fabric],
   ['market', market],
 ]) {
@@ -94,10 +93,12 @@ for (const [owner, manifest] of [
 
 const [mode, object] = run('git', ['ls-files', '--stage', '--', 'deepseek-harness']).split(/\s+/u)
 if (mode !== '160000') fail('deepseek-harness must be tracked as a Git submodule')
-if (object !== activeUpstream.commit) fail(`submodule index is ${object}, expected ${activeUpstream.commit}`)
+if (object !== (activeUpstream.checkoutCommit ?? activeUpstream.commit)) {
+  fail(`submodule index is ${object}, expected ${activeUpstream.checkoutCommit ?? activeUpstream.commit}`)
+}
 
 const upstreamDir = resolve(root, 'deepseek-harness')
-if (run('git', ['rev-parse', 'HEAD'], upstreamDir) !== activeUpstream.commit) {
+if (run('git', ['rev-parse', 'HEAD'], upstreamDir) !== (activeUpstream.checkoutCommit ?? activeUpstream.commit)) {
   fail('checked-out upstream commit differs from upstream.json')
 }
 if (run('git', ['status', '--porcelain'], upstreamDir) !== '') {
@@ -106,10 +107,10 @@ if (run('git', ['status', '--porcelain'], upstreamDir) !== '') {
 if (run('git', ['remote', 'get-url', 'origin'], upstreamDir) !== upstream.repository) {
   fail('deepseek-harness origin differs from upstream.json')
 }
-if (upstreamPackage.version !== activeUpstream.sourceVersion) {
-  fail('deepseek-harness package version differs from upstream.json')
+if (upstreamPackage.version !== (activeUpstream.checkoutSourceVersion ?? activeUpstream.sourceVersion)) {
+  fail('deepseek-harness package version differs from upstream.json checkout source version')
 }
-for (const [channel, plugin] of [['stable', stablePlugin], ['beta', betaPlugin]]) {
+for (const [channel, plugin] of [['stable', stablePlugin]]) {
   const metadata = upstream.channels?.[channel]
   if (metadata?.package !== plugin.name) fail(`${channel} upstream metadata points at the wrong package`)
   for (const name of Object.keys(plugin.dependencies).filter(name => name === '@deepseek-ai/dsh' || name.startsWith('@deepseek-ai/dsh-'))) {
@@ -119,4 +120,4 @@ for (const [channel, plugin] of [['stable', stablePlugin], ['beta', betaPlugin]]
   }
 }
 
-process.stdout.write(`verify-layout: dual Desktop workspaces and upstream ${activeUpstream.commit.slice(0, 10)} are consistent\n`)
+process.stdout.write(`verify-layout: Desktop workspace and upstream checkout ${(activeUpstream.checkoutCommit ?? activeUpstream.commit).slice(0, 10)} are consistent\n`)

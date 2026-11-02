@@ -40,6 +40,11 @@ import {
   DESKTOP_MCP_TEST_PATH,
   DESKTOP_PROXY_DETECT_PATH,
   DESKTOP_PROXY_TEST_PATH,
+  DESKTOP_ACCOUNTS_LIST_PATH,
+  DESKTOP_ACCOUNTS_ADD_PATH,
+  DESKTOP_ACCOUNTS_SWITCH_PATH,
+  DESKTOP_ACCOUNTS_REMOVE_PATH,
+  DESKTOP_ACCOUNTS_LOGOUT_PATH,
   DESKTOP_TERMINAL_OPEN_PATH,
 } from '../src/desktop-settings-contract.ts'
 import type { DesktopRuntime, DesktopShellSpec } from '../src/runtime.ts'
@@ -453,6 +458,11 @@ describe('desktop Host plugin', () => {
       DESKTOP_PROFILE_SELECT_PATH,
       DESKTOP_AA_SELECT_PATH,
   DESKTOP_MARKET_SELECT_PATH,
+      DESKTOP_ACCOUNTS_LIST_PATH,
+      DESKTOP_ACCOUNTS_ADD_PATH,
+      DESKTOP_ACCOUNTS_SWITCH_PATH,
+      DESKTOP_ACCOUNTS_REMOVE_PATH,
+      DESKTOP_ACCOUNTS_LOGOUT_PATH,
       DESKTOP_TERMINAL_OPEN_PATH,
       DESKTOP_RESTART_PATH,
       DESKTOP_RECOVERY_RESTART_PATH,
@@ -480,6 +490,7 @@ describe('desktop Host plugin', () => {
       '/api/desktop/models/probe',
       '/api/desktop/models/select',
       '/api/desktop/models/state',
+      '/api/desktop/models/sync',
       '/api/desktop/remote/pairing/open',
       '/api/desktop/remote/state',
     ].sort()

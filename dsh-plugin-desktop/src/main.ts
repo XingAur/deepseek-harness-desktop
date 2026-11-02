@@ -80,6 +80,9 @@ import { DesktopProfileService } from './profile-service.ts'
 import type {} from '@deepseek-ai/dsh-agent-presets/types'
 import { DesktopActionsService } from './desktop-actions.ts'
 import { DesktopModelSigninService } from './desktop-model-signin.ts'
+import { DesktopModelAccountService } from './desktop-model-accounts.ts'
+import { DesktopModelSyncService } from './desktop-model-sync.ts'
+import { desktopModelAccountCopy } from './desktop-accounts-locale.ts'
 import { desktopModelSigninCopy } from './model-signin-locale.ts'
 import { clearDesktopProfilePluginState, DesktopPluginsService } from './desktop-plugins.ts'
 import {
@@ -217,9 +220,103 @@ import {
   DESKTOP_RELEASE_CHANNEL,
 } from './product-identity.ts'
 import { desktopRecoveryCopy } from './recovery-copy.ts'
+import type { DesktopTraySubmenuItem } from './runtime.ts'
+import type { DesktopAccountsProviderView } from './desktop-settings-contract.ts'
 
 const BIN_NAME = DESKTOP_PACKAGE_NAME
 const PRODUCT_NAME = DESKTOP_PRODUCT_NAME
+
+/**
+ * Raise the restart recommendation after an account switch or sign-out. The
+ * next request already authenticates with the new credential, so declining
+ * only keeps long-lived in-flight requests on the previous account.
+ * @param runtime - the Electron runtime owning the dialog and relaunch.
+ * @param message - the outcome message the dialog presents.
+ */
+async function promptModelAccountRestart(runtime: ElectronDesktopRuntime, message: string): Promise<void> {
+  const copy = desktopModelAccountCopy(runtime.locale)
+  const result = await showDesktopDialog({
+    title: copy.trayLabel,
+    message,
+    buttons: [copy.restartNow, copy.restartLater],
+    defaultId: 0,
+    cancelId: 1,
+  })
+  if (result.response === 0) runtime.requestRestart()
+}
+
+/**
+ * Build one provider's account submenu: the active account header, one radio
+ * row per saved account that switches on selection, and the add, remove, and
+ * sign-out commands.
+ * @param runtime - the Electron runtime owning dialogs and the relaunch.
+ * @param accounts - the account library service the commands run through.
+ * @param provider - the provider view the submenu renders.
+ * @returns the submenu items for one provider.
+ */
+function modelAccountSubmenu(
+  runtime: ElectronDesktopRuntime,
+  accounts: DesktopModelAccountService,
+  provider: DesktopAccountsProviderView,
+): readonly DesktopTraySubmenuItem[] {
+  const copy = desktopModelAccountCopy(runtime.locale)
+  const items: DesktopTraySubmenuItem[] = [{
+    label: () => provider.activeLabel ?? copy.notSignedIn,
+    enabled: () => false,
+    invoke: () => {},
+  }]
+  for (const saved of provider.saved) {
+    items.push({
+      label: () => saved.label,
+      type: 'radio',
+      checked: () => false,
+      invoke: async () => {
+        try {
+          const label = await accounts.switchTo(provider.provider, saved.id)
+          await promptModelAccountRestart(runtime, desktopModelAccountCopy(runtime.locale).switchedMessage(label))
+        } catch {
+          /* the library already logged the failure; the menu stays as it was */
+        }
+      },
+    })
+  }
+  items.push({
+    label: () => copy.addAccount,
+    enabled: () => !provider.inFlight,
+    invoke: () => { accounts.startAdd(provider.provider) },
+  })
+  for (const saved of provider.saved) {
+    items.push({
+      label: () => copy.removeAccount(saved.label),
+      invoke: async () => {
+        try {
+          const label = await accounts.remove(provider.provider, saved.id)
+          await showDesktopDialog({
+            title: provider.label,
+            message: desktopModelAccountCopy(runtime.locale).removedMessage(label),
+            buttons: [copy.dismiss],
+            cancelId: 0,
+          })
+        } catch {
+          /* the library already logged the failure; the menu stays as it was */
+        }
+      },
+    })
+  }
+  items.push({
+    label: () => copy.logoutAccount,
+    enabled: () => provider.activeLabel !== null,
+    invoke: async () => {
+      try {
+        await accounts.logout(provider.provider)
+        await promptModelAccountRestart(runtime, desktopModelAccountCopy(runtime.locale).loggedOutMessage)
+      } catch {
+        /* the library already logged the failure; the menu stays as it was */
+      }
+    },
+  })
+  return items
+}
 
 /** Require OS-backed secret storage; Linux's plaintext fallback is not sufficient for a CA key. */
 function desktopLanHttpsPrivateKeyProtector(): DesktopLanHttpsPrivateKeyProtector {
@@ -1508,7 +1605,15 @@ async function start(): Promise<void> {
           showDialog: async spec => (await showDesktopDialog(spec)).response,
           locale: () => runtime.locale,
         })
+        await hostCtx.plugin(DesktopModelAccountService, {
+          openExternal: url => runtime.openExternal(url),
+          showDialog: async spec => (await showDesktopDialog(spec)).response,
+          locale: () => runtime.locale,
+        })
+        await hostCtx.plugin(DesktopModelSyncService, { clientVersion: appVersion })
         const modelSignin = hostCtx.desktopModelSignin
+        const modelAccounts = hostCtx.desktopModelAccounts
+        const modelSync = hostCtx.desktopModelSync
         runtime.registerTrayItem({
           group: 'tools',
           order: 90,
@@ -1518,6 +1623,18 @@ async function start(): Promise<void> {
           submenu: () => modelSignin.flows().map(flow => ({
             label: () => (flow.inFlight ? `${flow.label} …` : flow.label),
             invoke: () => { void modelSignin.beginSignIn(flow) },
+          })),
+        })
+        runtime.registerTrayItem({
+          group: 'tools',
+          order: 91,
+          label: () => desktopModelAccountCopy(runtime.locale).trayLabel,
+          enabled: () => modelAccounts.snapshotOf().length > 0,
+          invoke: () => {},
+          submenu: () => modelAccounts.snapshotOf().map(provider => ({
+            label: () => (provider.inFlight ? `${provider.label} …` : provider.label),
+            invoke: () => {},
+            submenu: () => modelAccountSubmenu(runtime, modelAccounts, provider),
           })),
         })
         if (prepared.market.effective === 'community-market') {
@@ -1636,6 +1753,12 @@ async function start(): Promise<void> {
               return { ok: false, error: 'protocol', detail: 'probe could not run' }
             }
           },
+          readAccounts: async () => ({ available: true, providers: [...await modelAccounts.list()] }),
+          syncModels: async () => await modelSync.syncAll(),
+          addModelAccount: provider => { modelAccounts.startAdd(provider) },
+          switchModelAccount: async (provider, account) => await modelAccounts.switchTo(provider, account),
+          removeModelAccount: async (provider, account) => await modelAccounts.remove(provider, account),
+          logoutModelAccount: async provider => { await modelAccounts.logout(provider) },
           readAa: () => ({ requested: currentProfilePreferences.aaEnabled === true, effective: prepared.aaEnabled }),
           selectAa: async enabled => {
             await enqueueProfilePreferencesWrite(current => desktopProfilePreferencesFromSettings(

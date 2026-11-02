@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-desktop",
-  "version": "2.0.34",
+  "version": "2.0.36",
   "description": "DSH Desktop: an Electron shell composed as a DeepSeek Harness Cordis plugin",
   "license": "MIT",
   "publishConfig": {
@@ -66,6 +66,10 @@
     "./notifications": {
       "types": "./lib/types/notifications.d.ts",
       "default": "./lib/notifications.js"
+    },
+    "./scheduler": {
+      "types": "./lib/types/scheduler/index.d.ts",
+      "default": "./lib/scheduler.js"
     },
     "./updates": {
       "types": "./lib/types/updates.d.ts",
@@ -272,7 +276,9 @@
     "@deepseek-ai/dsh-workflow": "0.1.2-rc.1",
     "@deepseek-ai/dsh-workspace": "0.1.2-rc.1",
     "@deepseek-ai/schemastery": "^3.18.2",
+    "@earendil-works/pi-ai": "0.84.3",
     "adm-zip": "^0.6.0",
+    "croner": "^10.0.1",
     "dsh-community-market": "0.1.0-dev.0",
     "dshmarket": "1.38.1",
     "koffi": "3.1.5",

@@ -20,6 +20,16 @@ const MCP_STATE_PATH = '/api/desktop/mcp'
 const MCP_TEST_PATH = '/api/desktop/mcp/test'
 const PROXY_DETECT_PATH = '/api/desktop/proxy/detect'
 const PROXY_TEST_PATH = '/api/desktop/proxy/test'
+const ACCOUNTS_LIST_PATH = '/api/desktop/accounts'
+const ACCOUNTS_ADD_PATH = '/api/desktop/accounts/add'
+const ACCOUNTS_SWITCH_PATH = '/api/desktop/accounts/switch'
+const ACCOUNTS_REMOVE_PATH = '/api/desktop/accounts/remove'
+const ACCOUNTS_LOGOUT_PATH = '/api/desktop/accounts/logout'
+const MODEL_SYNC_PATH = '/api/desktop/models/sync'
+const MAX_ACCOUNT_PROVIDERS = 64
+const MAX_ACCOUNT_SLOTS = 32
+const MAX_ACCOUNT_LABEL_LENGTH = 200
+const ACCOUNT_SLOT_PATTERN = /^[a-z][a-z0-9-]*-acct-[0-9]+$/u
 const MAX_PROFILES = 256
 const MAX_SKILLS = 1024
 const MAX_SKILL_TEXT_LENGTH = 2048
@@ -191,6 +201,46 @@ export interface DesktopMcpTestView {
   readonly detail?: string
 }
 
+/** One saved (not active) model account, addressed by its library slot id. */
+export interface DesktopModelAccountView {
+  readonly id: string
+  readonly label: string
+}
+
+/** Renderer-safe projection of one provider's model accounts. */
+export interface DesktopAccountsProviderView {
+  readonly provider: string
+  readonly label: string
+  readonly activeLabel: string | null
+  readonly inFlight: boolean
+  readonly saved: readonly DesktopModelAccountView[]
+}
+
+/** Renderer-safe model-account listing; payloads and tokens never appear. */
+export interface DesktopAccountsListView {
+  readonly available: boolean
+  readonly providers: readonly DesktopAccountsProviderView[]
+}
+
+/** Renderer-safe outcome of one model-account mutation. */
+export interface DesktopAccountsMutationView {
+  readonly accepted: true
+  readonly restartRecommended: boolean
+}
+
+/** Renderer-safe outcome of one provider's live model-catalog sync. */
+export interface DesktopModelSyncProviderResultView {
+  readonly provider: string
+  readonly status: 'ok' | 'error' | 'skipped'
+  readonly discovered: readonly string[]
+  readonly detail?: string
+}
+
+/** Renderer-safe outcome of one whole-catalog sync run. */
+export interface DesktopModelSyncView {
+  readonly results: readonly DesktopModelSyncProviderResultView[]
+}
+
 /** Browser operations consumed by the Desktop settings section. */
 export interface DesktopSettingsApi {
   read(): Promise<DesktopSettingsView>
@@ -214,6 +264,12 @@ export interface DesktopSettingsApi {
   testMcp(row: DesktopMcpServerWrite, id?: string): Promise<DesktopMcpTestView>
   detectLocalProxy?(): Promise<DesktopProxyDetectView>
   testModelProxy?(proxyUrl: string): Promise<DesktopProxyTestView>
+  listAccounts(): Promise<DesktopAccountsListView>
+  addModelAccount(provider: string): Promise<DesktopAccountsMutationView>
+  switchModelAccount(provider: string, account: string): Promise<DesktopAccountsMutationView>
+  removeModelAccount(provider: string, account: string): Promise<DesktopAccountsMutationView>
+  logoutModelAccount(provider: string): Promise<DesktopAccountsMutationView>
+  syncModels(): Promise<DesktopModelSyncView>
 }
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
@@ -633,6 +689,90 @@ function parseMcpTestView(value: unknown): DesktopMcpTestView {
   }
 }
 
+function parseModelAccountRow(value: unknown): DesktopModelAccountView {
+  if (!isObject(value)
+    || !hasExactKeys(value, ['id', 'label'])
+    || typeof value.id !== 'string'
+    || !ACCOUNT_SLOT_PATTERN.test(value.id)
+    || typeof value.label !== 'string'
+    || value.label.length > MAX_ACCOUNT_LABEL_LENGTH) {
+    throw new Error('dsh-plugin-desktop: invalid model account row in accounts response')
+  }
+  return Object.freeze({ id: value.id, label: value.label })
+}
+
+function parseAccountsProviderView(value: unknown): DesktopAccountsProviderView {
+  if (!isObject(value)
+    || !hasExactKeys(value, ['provider', 'label', 'activeLabel', 'inFlight', 'saved'])
+    || typeof value.provider !== 'string'
+    || value.provider.length === 0
+    || value.provider.length > MAX_ACCOUNT_LABEL_LENGTH
+    || typeof value.label !== 'string'
+    || value.label.length > MAX_ACCOUNT_LABEL_LENGTH
+    || (value.activeLabel !== null && (typeof value.activeLabel !== 'string' || value.activeLabel.length > MAX_ACCOUNT_LABEL_LENGTH))
+    || typeof value.inFlight !== 'boolean'
+    || !Array.isArray(value.saved)
+    || value.saved.length > MAX_ACCOUNT_SLOTS) {
+    throw new Error('dsh-plugin-desktop: invalid model account provider in accounts response')
+  }
+  return Object.freeze({
+    provider: value.provider,
+    label: value.label,
+    activeLabel: value.activeLabel,
+    inFlight: value.inFlight,
+    saved: Object.freeze(value.saved.map(parseModelAccountRow)),
+  })
+}
+
+/** Validate the bounded model-account projection before it reaches React state. */
+export function parseDesktopAccountsListView(value: unknown): DesktopAccountsListView {
+  if (!isObject(value)
+    || typeof value.available !== 'boolean'
+    || !Array.isArray(value.providers)
+    || value.providers.length > MAX_ACCOUNT_PROVIDERS) {
+    throw new Error('dsh-plugin-desktop: invalid Desktop accounts response')
+  }
+  return Object.freeze({
+    available: value.available,
+    providers: Object.freeze(value.providers.map(parseAccountsProviderView)),
+  })
+}
+
+function parseAccountsMutationView(value: unknown): DesktopAccountsMutationView {
+  if (!isObject(value)
+    || value.accepted !== true
+    || typeof value.restartRecommended !== 'boolean') {
+    throw new Error('dsh-plugin-desktop: invalid Desktop accounts mutation response')
+  }
+  return { accepted: true, restartRecommended: value.restartRecommended }
+}
+
+/** Validate one provider row of a model-catalog sync response. */
+function parseModelSyncProviderResult(value: unknown): DesktopModelSyncProviderResultView {
+  if (!isObject(value)
+    || typeof value.provider !== 'string'
+    || value.provider.length === 0
+    || (value.status !== 'ok' && value.status !== 'error' && value.status !== 'skipped')
+    || !Array.isArray(value.discovered)
+    || value.discovered.some(id => typeof id !== 'string')
+    || (value.detail !== undefined && typeof value.detail !== 'string')) {
+    throw new Error('dsh-plugin-desktop: invalid model sync provider result')
+  }
+  return {
+    provider: value.provider,
+    status: value.status,
+    discovered: Object.freeze([...value.discovered]),
+    ...(value.detail === undefined ? {} : { detail: value.detail }),
+  }
+}
+
+function parseModelSyncView(value: unknown): DesktopModelSyncView {
+  if (!isObject(value) || !Array.isArray(value.results)) {
+    throw new Error('dsh-plugin-desktop: invalid model sync response')
+  }
+  return { results: Object.freeze(value.results.map(result => parseModelSyncProviderResult(result))) }
+}
+
 /** Validate the exact acknowledgement returned by a Desktop side effect. */
 export function parseDesktopActionAcceptance(value: unknown): void {
   if (!isObject(value)
@@ -797,6 +937,37 @@ export function createDesktopSettingsApi(fetcher: FetchLike = globalThis.fetch.b
         clearTimeout(timer)
       }
     },
+    async listAccounts() {
+      const response = await fetcher(ACCOUNTS_LIST_PATH, {
+        method: 'GET',
+        credentials: 'same-origin',
+        redirect: 'error',
+        cache: 'no-store',
+        headers: { 'Accept': 'application/json' },
+      })
+      return parseDesktopAccountsListView(await readResponse(response))
+    },
+    async addModelAccount(provider: string) {
+      return parseAccountsMutationView(await readResponse(await post(fetcher, ACCOUNTS_ADD_PATH, { provider })))
+    },
+    async switchModelAccount(provider: string, account: string) {
+      return parseAccountsMutationView(await readResponse(await post(fetcher, ACCOUNTS_SWITCH_PATH, { provider, account })))
+    },
+    async removeModelAccount(provider: string, account: string) {
+      return parseAccountsMutationView(await readResponse(await post(fetcher, ACCOUNTS_REMOVE_PATH, { provider, account })))
+    },
+    async logoutModelAccount(provider: string) {
+      return parseAccountsMutationView(await readResponse(await post(fetcher, ACCOUNTS_LOGOUT_PATH, { provider })))
+    },
+    async syncModels() {
+      const response = await fetcher(MODEL_SYNC_PATH, {
+        method: 'POST',
+        credentials: 'same-origin',
+        redirect: 'error',
+        headers: { 'Accept': 'application/json' },
+      })
+      return parseModelSyncView(await readResponse(response))
+    },
   })
 }
 
@@ -820,4 +991,10 @@ export const desktopSettingsPaths = Object.freeze({
   mcpTest: MCP_TEST_PATH,
   proxyDetect: PROXY_DETECT_PATH,
   proxyTest: PROXY_TEST_PATH,
+  accountsList: ACCOUNTS_LIST_PATH,
+  accountsAdd: ACCOUNTS_ADD_PATH,
+  accountsSwitch: ACCOUNTS_SWITCH_PATH,
+  accountsRemove: ACCOUNTS_REMOVE_PATH,
+  accountsLogout: ACCOUNTS_LOGOUT_PATH,
+  modelSync: MODEL_SYNC_PATH,
 })

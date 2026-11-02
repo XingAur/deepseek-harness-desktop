@@ -10,6 +10,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { applyAdvancedShell } from './advanced-shell.ts'
 import { startRendererBootReporter } from './boot-health.ts'
 import { applyDesktopRemoteEntry } from './DesktopRemoteEntry.tsx'
+import { applyDesktopPortableContext } from './DesktopPortableContext.tsx'
+import { applyDesktopSchedulerEntry } from './DesktopSchedulerEntry.tsx'
 import { applyDesktopSettings } from './desktop-settings.ts'
 import { installDesktopDirectoryPickerBridge } from './directory-picker.ts'
 import { parseDesktopClientEnvironment } from './environment.ts'
@@ -89,6 +91,8 @@ export function apply(ctx: ClientContext): void {
   )
   const desktopSettings = applyDesktopSettings(ctx, environment)
   applyDesktopRemoteEntry(ctx)
+  applyDesktopPortableContext(ctx)
+  applyDesktopSchedulerEntry(ctx)
   ctx.effect(
     () => startRendererBootReporter(ctx.loader),
     'dsh-plugin-desktop: renderer boot health report',

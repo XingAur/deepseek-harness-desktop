@@ -1,0 +1,49 @@
+{
+  "name": "dsh-overlay-custom",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Custom features on top of official DSH Desktop: relay, model extras, Codex/xAI OAuth",
+  "license": "MIT",
+  "type": "module",
+  "files": [
+    "cordis.patch.yml",
+    "public",
+    "src",
+    "lib"
+  ],
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "check": "node --experimental-strip-types --test scripts/check.ts scripts/*.test.ts",
+    "bundle:client": "node scripts/bundle.mjs client",
+    "bundle:host": "node scripts/bundle.mjs host",
+    "bundle": "pnpm run bundle:host && pnpm run bundle:client"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-settings-models"
+      ],
+      "platform": "web"
+    }
+  },
+  "dependencies": {
+    "http-proxy-agent": "^7.0.2",
+    "https-proxy-agent": "^7.0.6",
+    "qrcode": "^1.5.4",
+    "undici": "^8.11.2",
+    "ws": "^8.18.3",
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

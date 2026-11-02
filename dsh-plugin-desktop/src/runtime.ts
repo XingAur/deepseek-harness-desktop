@@ -4,6 +4,7 @@ import type { RendererBootReport } from './renderer-boot-contract.ts'
 import type { DesktopReleaseChannel, UpdateCheckResult, UpdateRequest } from './update-checker.ts'
 import type { DesktopInstallationId } from './desktop-installation-id.ts'
 import type { ProfileCreateWindowOptions } from './profile-create-window.ts'
+import type { TaskEditorWindowGateway } from './task-editor-window.ts'
 import type {
   DesktopWindowMaterial,
   MacosWindowMaterial,
@@ -240,6 +241,13 @@ export interface DesktopRuntime {
 
   /** Open the native remote-control pairing window, focusing an existing instance. */
   openRemotePairingWindow(options: RemotePairingWindowOptions): void
+
+  /**
+   * Open the isolated native scheduled-task editor, focusing an existing
+   * instance. Optional: environments without the editor keep the scheduler's
+   * routes and notifications working and simply hide this entry point.
+   */
+  openTaskEditorWindow?(gateway: TaskEditorWindowGateway): void
 
   /** Open the native model diagnostics window, focusing an existing instance. */
   openModelDiagnosticsWindow(): void

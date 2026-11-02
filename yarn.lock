@@ -5664,7 +5664,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@earendil-works/pi-ai@npm:^0.84.2":
+"@earendil-works/pi-ai@npm:0.84.3, @earendil-works/pi-ai@npm:^0.84.2":
   version: 0.84.3
   resolution: "@earendil-works/pi-ai@npm:0.84.3"
   dependencies:
@@ -9380,6 +9380,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"croner@npm:^10.0.1":
+  version: 10.0.1
+  resolution: "croner@npm:10.0.1"
+  checksum: 10c0/b1a022f8c786b19799e662e0f11686937e97133e386efa2859e316ba64b7a9c2ecd0d1500cdbe3157625ff7e9af8584c7d6e41c9a17db892c731f83be464bc92
+  languageName: node
+  linkType: hard
+
 "cross-spawn@npm:^7.0.1, cross-spawn@npm:^7.0.3, cross-spawn@npm:^7.0.5, cross-spawn@npm:^7.0.6":
   version: 7.0.6
   resolution: "cross-spawn@npm:7.0.6"
@@ -10052,6 +10059,7 @@ __metadata:
     "@deepseek-ai/dsh-workflow": "npm:0.1.2-rc.1"
     "@deepseek-ai/dsh-workspace": "npm:0.1.2-rc.1"
     "@deepseek-ai/schemastery": "npm:^3.18.2"
+    "@earendil-works/pi-ai": "npm:0.84.3"
     "@electron/asar": "npm:3.4.1"
     "@electron/fuses": "npm:1.8.0"
     "@fontsource-variable/inter": "npm:^5.3.0"
@@ -10068,6 +10076,7 @@ __metadata:
     builder-util: "npm:26.15.3"
     class-variance-authority: "npm:^0.7.1"
     clsx: "npm:^2.1.1"
+    croner: "npm:^10.0.1"
     dsh-community-market: "npm:0.1.0-dev.0"
     dshmarket: "npm:1.38.1"
     electron: "npm:43.3.0"
