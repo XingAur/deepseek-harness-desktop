@@ -84,7 +84,6 @@ function Invoke-UnsignedEnvironment {
   $env:DSH_DESKTOP_TARGET_ARCH = 'x64'
   $env:DSH_DESKTOP_UNSIGNED = '1'
   $env:CSC_IDENTITY_AUTO_DISCOVERY = 'false'
-  $env:DSH_DESKTOP_BUILD_VERSION = $BuildVersion
   $env:ELECTRON_BUILDER_7Z_FILTER = 'BCJ'
 }
 
@@ -95,7 +94,13 @@ $OfficialVersion = (& node -p "require(process.argv[1]).version" (Join-Path $Off
 if ($OfficialSha -ne $Lock.commit -or $OfficialVersion -ne $Lock.version) {
   throw 'portable build: official checkout does not match official-lock.json'
 }
-if (-not $BuildVersion) { $BuildVersion = "$OfficialVersion.$(Get-Date -Format yyyyMMdd).1" }
+if (-not $BuildVersion) {
+  $Iteration = if ($env:DSH_PORTABLE_ITERATION) { $env:DSH_PORTABLE_ITERATION } else { '01' }
+  $BuildVersion = "${OfficialVersion}_$Iteration"
+}
+# The overlay reports this build identity in its version and update panel.
+$env:DSH_OVERLAY_OFFICIAL_VERSION = $OfficialVersion
+$env:DSH_OVERLAY_BUILD_VERSION = $BuildVersion
 if (-not $env:ELECTRON_MIRROR) { $env:ELECTRON_MIRROR = 'https://npmmirror.com/mirrors/electron/' }
 if (-not (Test-Path Env:DSH_GITHUB_ASSET_MIRROR)) { $env:DSH_GITHUB_ASSET_MIRROR = '' }
 $env:DSH_PORTABLE_SOURCE_ROOT = $Root
@@ -126,7 +131,7 @@ for ($Attempt = 1; $Attempt -le 3; $Attempt++) {
   New-Item $Types -ItemType Directory -Force | Out-Null
   Set-Content (Join-Path $Types 'index.js') "export * from '../../src/index.ts'" -Encoding utf8NoBOM
   try {
-    Invoke-Checked corepack @('pnpm', '--dir', 'apps/desktop', 'run', 'package', '--', 'win-x64', '--unsigned', '--dir', '--build-version', $BuildVersion) $Stage
+    Invoke-Checked corepack @('pnpm', '--dir', 'apps/desktop', 'run', 'package', '--', 'win-x64', '--unsigned', '--dir') $Stage
     $Packaged = $true
     break
   } catch {

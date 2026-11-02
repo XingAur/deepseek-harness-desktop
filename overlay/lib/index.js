@@ -13,6 +13,14 @@ var __export = (target, all) => {
     __defProp(target, name2, { get: all[name2], enumerable: true });
 };
 
+// <define:__DSH_OVERLAY_META__>
+var define_DSH_OVERLAY_META_default;
+var init_define_DSH_OVERLAY_META = __esm({
+  "<define:__DSH_OVERLAY_META__>"() {
+    define_DSH_OVERLAY_META_default = { officialVersion: "0.2.1-rc.5", buildVersion: "0.2.1-rc.5_dev" };
+  }
+});
+
 // src/overlay-config.ts
 var overlay_config_exports = {};
 __export(overlay_config_exports, {
@@ -54,11 +62,16 @@ async function writeOverlayConfig(home, patch) {
 var FILE;
 var init_overlay_config = __esm({
   "src/overlay-config.ts"() {
+    init_define_DSH_OVERLAY_META();
     FILE = "overlay-custom.yaml";
   }
 });
 
+// src/index.ts
+init_define_DSH_OVERLAY_META();
+
 // src/dsh-home.ts
+init_define_DSH_OVERLAY_META();
 import { homedir } from "node:os";
 import { join } from "node:path";
 function resolveDshHome() {
@@ -70,12 +83,17 @@ function resolveDshHome() {
 // src/index.ts
 init_overlay_config();
 
+// src/models.ts
+init_define_DSH_OVERLAY_META();
+
 // src/model-core.ts
+init_define_DSH_OVERLAY_META();
 import { chmod as chmod2, mkdir as mkdir2, readFile as readFile2, writeFile as writeFile2 } from "node:fs/promises";
 import { join as join3 } from "node:path";
 import { parse as parse2, stringify as stringify2 } from "yaml";
 
 // src/models-endpoint.ts
+init_define_DSH_OVERLAY_META();
 function modelsEndpoint(baseURL) {
   const trimmed = baseURL.replace(/\/+$/u, "");
   const root = trimmed.endsWith("/anthropic") ? trimmed.slice(0, -"/anthropic".length) : trimmed;
@@ -174,6 +192,7 @@ async function probeWithRetry(endpoint, key) {
 }
 
 // src/model-selection.ts
+init_define_DSH_OVERLAY_META();
 import { chmod as chmod3, copyFile, mkdir as mkdir3, readFile as readFile3, rename, writeFile as writeFile3 } from "node:fs/promises";
 import { dirname, join as join4 } from "node:path";
 import { parse as parse3, stringify as stringify3 } from "yaml";
@@ -363,6 +382,7 @@ async function writeModelSelection(home, provider, models) {
 }
 
 // src/live-models.ts
+init_define_DSH_OVERLAY_META();
 import { readFile as readFile4 } from "node:fs/promises";
 import { join as join5 } from "node:path";
 import { parse as parse4 } from "yaml";
@@ -445,6 +465,7 @@ async function fetchLiveModelIds(provider, credential) {
 }
 
 // src/oauth-providers.ts
+init_define_DSH_OVERLAY_META();
 var OAUTH_LOGIN_PROVIDERS = ["openai-codex", "xai"];
 function isOauthLoginProvider(value) {
   return OAUTH_LOGIN_PROVIDERS.includes(value);
@@ -454,6 +475,7 @@ function oauthCredentialKey(provider) {
 }
 
 // src/http.ts
+init_define_DSH_OVERLAY_META();
 function writeJson(res, status, value) {
   const body = `${JSON.stringify(value)}
 `;
@@ -636,13 +658,21 @@ function applyOverlayModels(ctx, modelNetwork) {
   }), "dsh-overlay-custom: model selection");
 }
 
+// src/oauth.ts
+init_define_DSH_OVERLAY_META();
+
+// src/model-proxy-manager.ts
+init_define_DSH_OVERLAY_META();
+
 // src/model-proxy.ts
+init_define_DSH_OVERLAY_META();
 import { randomUUID } from "node:crypto";
 import { mkdir as mkdir4, readFile as readFile5, rename as rename2, rm, writeFile as writeFile4 } from "node:fs/promises";
 import { dirname as dirname2, join as join6, resolve } from "node:path";
 import { parse as parse5, stringify as stringify4 } from "yaml";
 
 // src/model-proxy-routing.ts
+init_define_DSH_OVERLAY_META();
 import { isIP } from "node:net";
 import { domainToASCII } from "node:url";
 var SystemProxyError = class extends Error {
@@ -975,6 +1005,7 @@ function modelProxyConfigView(config, system) {
 }
 
 // src/system-proxy.ts
+init_define_DSH_OVERLAY_META();
 import { execFile } from "node:child_process";
 import { isIP as isIP2 } from "node:net";
 import { join as join7 } from "node:path";
@@ -1302,10 +1333,12 @@ async function readSystemProxy(options = {}) {
 }
 
 // src/model-proxy-runtime.ts
+init_define_DSH_OVERLAY_META();
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createRequire } from "node:module";
 
 // src/model-proxy-node.ts
+init_define_DSH_OVERLAY_META();
 import http from "node:http";
 import https from "node:https";
 import http2 from "node:http2";
@@ -2211,6 +2244,7 @@ function applyOverlayOauth(ctx, modelNetwork) {
 }
 
 // src/proxy-api.ts
+init_define_DSH_OVERLAY_META();
 function applyOverlayProxyApi(ctx) {
   const manager = new ModelProxyManager(resolveDshHome());
   const reject = (req, res) => rejectUnauthorized(req, res, ctx.connection.requestRejection(req));
@@ -2295,6 +2329,7 @@ function applyOverlayProxyApi(ctx) {
 }
 
 // src/relay.ts
+init_define_DSH_OVERLAY_META();
 import { randomBytes } from "node:crypto";
 import { createRequire as createRequire2 } from "node:module";
 import { readFile as readFile6 } from "node:fs/promises";
@@ -2302,9 +2337,11 @@ import { dirname as dirname3, join as join8, normalize as normalize2, sep } from
 import { fileURLToPath } from "node:url";
 
 // src/mobile-api.ts
+init_define_DSH_OVERLAY_META();
 import { randomUUID as randomUUID2 } from "node:crypto";
 
 // src/relay-tunnel.ts
+init_define_DSH_OVERLAY_META();
 import { request as requestHttp } from "node:http";
 import { connect as connectTcp } from "node:net";
 import WebSocket from "ws";
@@ -3559,6 +3596,7 @@ function registerMobileApi(options) {
 }
 
 // src/mobile-control.ts
+init_define_DSH_OVERLAY_META();
 var QUEUE_PREVIEW_CHARS = 160;
 var MAX_QUEUE_ITEMS = 20;
 function previewOf(content) {
@@ -3688,6 +3726,7 @@ var MobileControlCache = class {
 };
 
 // src/mobile-interruptions.ts
+init_define_DSH_OVERLAY_META();
 import { randomUUID as randomUUID3 } from "node:crypto";
 var DEFAULT_HOLD_MS = 6e4;
 var DEFAULT_TICK_MS = 1e3;
@@ -3874,6 +3913,7 @@ function clip(value, max) {
 }
 
 // src/relay-origin.ts
+init_define_DSH_OVERLAY_META();
 function canonicalRelayOrigin(value) {
   if (value === "") return null;
   let parsed;
@@ -4255,14 +4295,17 @@ function applyOverlayRelay(ctx, originValue) {
 }
 
 // src/skills-mcp.ts
+init_define_DSH_OVERLAY_META();
 import { createRequire as createRequire3 } from "node:module";
 import { join as join9 } from "node:path";
 import { pathToFileURL } from "node:url";
 
 // src/mcp-probe.ts
+init_define_DSH_OVERLAY_META();
 import { spawn } from "node:child_process";
 
 // src/mcp-state.ts
+init_define_DSH_OVERLAY_META();
 init_overlay_config();
 var NAME = /^[A-Za-z0-9_-]{1,32}$/u;
 var ID = /^[A-Za-z0-9_-]{1,64}$/u;
@@ -4701,6 +4744,217 @@ async function mountOverlayMcpServers(ctx) {
   }
 }
 
+// src/updates.ts
+init_define_DSH_OVERLAY_META();
+
+// src/build-meta.ts
+init_define_DSH_OVERLAY_META();
+var FALLBACK = { officialVersion: "0.0.0", buildVersion: "0.0.0_dev" };
+function currentBuildMeta() {
+  const baked = typeof define_DSH_OVERLAY_META_default === "undefined" ? void 0 : define_DSH_OVERLAY_META_default;
+  if (baked !== void 0 && typeof baked.officialVersion === "string" && baked.officialVersion !== "") return baked;
+  return FALLBACK;
+}
+function parseOfficialVersion(version) {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/u.exec(version.trim());
+  if (match === null) return null;
+  const pre = match[4] === void 0 ? [] : match[4].split(".").map((part) => /^\d+$/u.test(part) ? Number(part) : part);
+  return { core: [Number(match[1]), Number(match[2]), Number(match[3])], pre };
+}
+function comparePre(a, b) {
+  if (a.length === 0 && b.length === 0) return 0;
+  if (a.length === 0) return 1;
+  if (b.length === 0) return -1;
+  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+    const left = a[index];
+    const right = b[index];
+    if (left === void 0) return -1;
+    if (right === void 0) return 1;
+    if (left === right) continue;
+    const leftNumeric = typeof left === "number";
+    const rightNumeric = typeof right === "number";
+    if (leftNumeric && rightNumeric) return left < right ? -1 : 1;
+    if (leftNumeric) return -1;
+    if (rightNumeric) return 1;
+    return left < right ? -1 : 1;
+  }
+  return 0;
+}
+function compareOfficialVersions(a, b) {
+  const left = parseOfficialVersion(a);
+  const right = parseOfficialVersion(b);
+  if (left === null || right === null) return left === right ? 0 : left === null ? -1 : 1;
+  for (let index = 0; index < 3; index += 1) {
+    if (left.core[index] !== right.core[index]) return left.core[index] < right.core[index] ? -1 : 1;
+  }
+  return comparePre(left.pre, right.pre);
+}
+function parseBuildVersion(version) {
+  const match = /^(.+?)_(\d+|dev)$/u.exec(version.trim());
+  if (match === null) return null;
+  const iteration = match[2] === "dev" ? 0 : Number(match[2]);
+  if (!Number.isSafeInteger(iteration)) return null;
+  return { officialVersion: match[1], iteration };
+}
+function compareBuildVersions(a, b) {
+  const left = parseBuildVersion(a);
+  const right = parseBuildVersion(b);
+  if (left === null || right === null) return compareOfficialVersions(a, b);
+  const official = compareOfficialVersions(left.officialVersion, right.officialVersion);
+  if (official !== 0) return official;
+  if (left.iteration === right.iteration) return 0;
+  return left.iteration < right.iteration ? -1 : 1;
+}
+
+// src/updates.ts
+init_overlay_config();
+var OFFICIAL_REPO = "https://api.github.com/repos/deepseek-ai/deepseek-harness";
+var BUILD_REPO = "https://api.github.com/repos/XingAur/deepseek-harness-desktop";
+var CACHE_MS = 30 * 60 * 1e3;
+var FETCH_TIMEOUT_MS = 1e4;
+var NOTES_LIMIT = 1600;
+function trimNotes(body) {
+  if (typeof body !== "string") return "";
+  const withoutChangelog = body.split(/Full Changelog:/u)[0] ?? body;
+  const text = withoutChangelog.replace(/\r\n/gu, "\n").replace(/\n{3,}/gu, "\n\n").trim();
+  return text.length > NOTES_LIMIT ? `${text.slice(0, NOTES_LIMIT)}\u2026` : text;
+}
+async function fetchJson(url) {
+  const response = await fetch(url, {
+    headers: { accept: "application/vnd.github+json", "user-agent": "dsh-overlay-custom" },
+    redirect: "error",
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+  });
+  if (!response.ok) throw new Error(`HTTP ${String(response.status)}`);
+  return response.json();
+}
+function parseReleases(value) {
+  return Array.isArray(value) ? value : [];
+}
+function candidateOf(release, prefix) {
+  if (typeof release.tag_name !== "string" || !release.tag_name.startsWith(prefix)) return null;
+  if (typeof release.html_url !== "string") return null;
+  return {
+    version: release.tag_name.slice(prefix.length),
+    url: release.html_url,
+    name: typeof release.name === "string" && release.name !== "" ? release.name : release.tag_name,
+    notes: trimNotes(release.body),
+    publishedAt: typeof release.published_at === "string" ? release.published_at : null
+  };
+}
+function isDraft(release) {
+  return release.draft === true;
+}
+async function latestOfficial() {
+  const releases = parseReleases(await fetchJson(`${OFFICIAL_REPO}/releases?per_page=30`));
+  let best = null;
+  for (const release of releases) {
+    if (isDraft(release)) continue;
+    const candidate = candidateOf(release, "dsh-v");
+    if (candidate === null) continue;
+    if (best === null || compareOfficialVersions(candidate.version, best.version) > 0) best = candidate;
+  }
+  return best;
+}
+async function latestBuild() {
+  const releases = parseReleases(await fetchJson(`${BUILD_REPO}/releases?per_page=30`));
+  let best = null;
+  for (const release of releases) {
+    if (isDraft(release)) continue;
+    const candidate = candidateOf(release, "official-v");
+    if (candidate === null) continue;
+    if (best === null || compareBuildVersions(candidate.version, best.version) > 0) best = candidate;
+  }
+  return best;
+}
+async function discoverUpdates(current) {
+  const [official, build] = await Promise.all([latestOfficial(), latestBuild()]).catch(() => [null, null]);
+  return {
+    current,
+    official,
+    build,
+    officialUpdate: official !== null && compareOfficialVersions(official.version, current.officialVersion) > 0,
+    buildUpdate: build !== null && compareBuildVersions(build.version, current.buildVersion) > 0,
+    checkedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    error: official === null && build === null ? "network" : null
+  };
+}
+function applyOverlayUpdates(ctx) {
+  const current = currentBuildMeta();
+  const config = readOverlayConfigSync(resolveDshHome());
+  const updates = config.updates !== null && typeof config.updates === "object" && !Array.isArray(config.updates) ? config.updates : {};
+  const autoCheck = updates.autoCheck !== false;
+  let cache = null;
+  let inflight = null;
+  const resolve2 = async () => {
+    const state2 = await discoverUpdates(current);
+    cache = { at: Date.now(), state: state2 };
+    return state2;
+  };
+  const refresh = async () => {
+    if (inflight !== null) return inflight;
+    inflight = resolve2().finally(() => {
+      inflight = null;
+    });
+    return inflight;
+  };
+  const state = async (force) => {
+    if (!force && cache !== null && Date.now() - cache.at < CACHE_MS) return cache.state;
+    try {
+      return await refresh();
+    } catch (cause) {
+      return {
+        current,
+        official: null,
+        build: null,
+        officialUpdate: false,
+        buildUpdate: false,
+        checkedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        error: cause instanceof Error ? cause.message : "failed"
+      };
+    }
+  };
+  const reject = (req, res) => rejectUnauthorized(req, res, ctx.connection.requestRejection(req));
+  ctx.effect(() => ctx.webServer.register({
+    kind: "exact",
+    path: "/api/desktop/updates/state",
+    handler: (req, res) => {
+      if (reject(req, res)) return;
+      if (req.method === "GET") {
+        void state(false).then((value) => {
+          writeJson(res, 200, { ok: true, ...value });
+        });
+        return;
+      }
+      if (req.method !== "POST") {
+        res.writeHead(405, { allow: "GET, POST", "cache-control": "no-store" });
+        res.end("method not allowed");
+        return;
+      }
+      if (!sameOriginMutatingRequest(req)) {
+        res.writeHead(403, { "cache-control": "no-store" });
+        res.end("forbidden");
+        return;
+      }
+      void state(true).then((value) => {
+        writeJson(res, 200, { ok: true, ...value });
+      });
+    }
+  }), "dsh-overlay-custom: update state route");
+  if (!autoCheck) return;
+  ctx.effect(() => {
+    const timer = setTimeout(() => {
+      void state(false).catch(() => {
+        ctx.logger.warn("dsh-overlay-custom: update check failed");
+      });
+    }, 5e3);
+    timer.unref?.();
+    return () => {
+      clearTimeout(timer);
+    };
+  }, "dsh-overlay-custom: startup update check");
+}
+
 // src/index.ts
 var name = "dsh-overlay-custom";
 var inject = ["webServer", "connection"];
@@ -4717,6 +4971,7 @@ async function apply(ctx) {
   applyOverlayModels(ctx, modelNetwork);
   applyOverlayOauth(ctx, modelNetwork);
   applyOverlaySkillsMcpRoutes(ctx);
+  applyOverlayUpdates(ctx);
   await mountOverlayMcpServers(ctx);
   ctx.logger.info("dsh-overlay-custom host mounted");
 }

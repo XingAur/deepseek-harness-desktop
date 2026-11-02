@@ -6,6 +6,7 @@ import { applyOverlayOauth } from './oauth.ts'
 import { applyOverlayProxyApi } from './proxy-api.ts'
 import { applyOverlayRelay } from './relay.ts'
 import { applyOverlaySkillsMcpRoutes, mountOverlayMcpServers } from './skills-mcp.ts'
+import { applyOverlayUpdates } from './updates.ts'
 
 export const name = 'dsh-overlay-custom'
 export const inject = ['webServer', 'connection']
@@ -25,6 +26,7 @@ export async function apply(ctx: Context): Promise<void> {
   applyOverlayModels(ctx, modelNetwork)
   applyOverlayOauth(ctx, modelNetwork)
   applyOverlaySkillsMcpRoutes(ctx)
+  applyOverlayUpdates(ctx)
   await mountOverlayMcpServers(ctx)
   ctx.logger.info('dsh-overlay-custom host mounted')
 }

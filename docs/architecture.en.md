@@ -148,7 +148,7 @@ User bundles, patch rows, and `settings.yaml` are left alone.
 
 Every artifact gets a matching `.sha256` and `.build.json` recording `officialCommit`, `officialVersion`, `buildVersion`, `overlayHash`, `sha256`, `platform`, `arch`, `signing`, and `update: manual`. That is six files per platform and twelve attachments per release.
 
-`buildVersion` must begin with the locked official version; the default is `<official version>.<yyyyMMdd>.1`, overridable with `DSH_PORTABLE_BUILD_VERSION`.
+`buildVersion` must be `<locked official version>_<two-digit iteration>`; the default is `<official version>_01`. Override the iteration with `DSH_PORTABLE_ITERATION` or the whole value with `DSH_PORTABLE_BUILD_VERSION`.
 
 Releases use [release-official-portable.yml](../.github/workflows/release-official-portable.yml): `workflow_dispatch` takes `build_version`, `release_tag` (must equal `official-v<build_version>`), and `publish`. It creates a draft prerelease, and only after both platform jobs pass does it verify all twelve attachments and publish.
 

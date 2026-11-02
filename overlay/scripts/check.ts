@@ -14,6 +14,7 @@ import { MCP_TEMPLATES, templateInitialValues, templateRequirementsMet } from '.
 import { readOverlayConfigSync, writeOverlayConfig } from '../src/overlay-config.ts'
 import { canonicalRelayOrigin, persistRelayOrigin } from '../src/relay-origin.ts'
 import { RELAY_REQUEST_HEADER, sanitizedTunnelHeaders } from '../src/relay-tunnel.ts'
+import { compareBuildVersions, compareOfficialVersions, currentBuildMeta, parseBuildVersion } from '../src/build-meta.ts'
 
 const overlayRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -358,6 +359,44 @@ test('proxy API and official-token stylesheet exist', () => {
   assert.match(host, /applyOverlayProxyApi/)
   assert.match(css, /--dsw-alias-button-primary-fill/)
   assert.match(css, /--dsw-alias-state-success-primary/)
+})
+
+test('official and build versions order as the update panel expects', () => {
+  assert.equal(compareOfficialVersions('0.2.1-rc.5', '0.2.1-rc.4'), 1)
+  assert.equal(compareOfficialVersions('0.2.2-alpha.2', '0.2.1-rc.5'), 1)
+  assert.equal(compareOfficialVersions('0.2.1-rc.10', '0.2.1-rc.9'), 1)
+  assert.equal(compareOfficialVersions('0.2.1-rc.5', '0.2.1-rc.5'), 0)
+  assert.equal(compareBuildVersions('0.2.1-rc.5_02', '0.2.1-rc.5_01'), 1)
+  assert.equal(compareBuildVersions('0.2.2-alpha.2_01', '0.2.1-rc.5_09'), 1)
+  assert.deepEqual(parseBuildVersion('0.2.1-rc.5_03'), { officialVersion: '0.2.1-rc.5', iteration: 3 })
+  assert.equal(parseBuildVersion('0.2.1-rc.5'), null)
+})
+
+test('overlay exposes its build identity and update routes', () => {
+  const meta = currentBuildMeta()
+  assert.equal(typeof meta.officialVersion, 'string')
+  assert.match(meta.buildVersion, /_/u)
+  const host = readFileSync(join(overlayRoot, 'src', 'index.ts'), 'utf8')
+  assert.match(host, /applyOverlayUpdates/u)
+  const updates = readFileSync(join(overlayRoot, 'src', 'updates.ts'), 'utf8')
+  assert.match(updates, /path: '\/api\/desktop\/updates\/state'/u)
+  assert.match(updates, /repos\/XingAur\/deepseek-harness-desktop/u)
+  assert.match(updates, /repos\/deepseek-ai\/deepseek-harness/u)
+  const client = readFileSync(join(overlayRoot, 'src', 'client', 'UpdateEntry.tsx'), 'utf8')
+  assert.match(client, /sidebar\.footer\.action/u)
+  assert.match(client, /dshOverlayUpdateDot/u)
+})
+
+test('portable scripts bake the official baseline and iteration into the overlay', () => {
+  const windows = readFileSync(join(overlayRoot, '..', 'scripts', 'build-portable-windows-x64.ps1'), 'utf8')
+  const macos = readFileSync(join(overlayRoot, '..', 'scripts', 'build-portable-macos-arm64.sh'), 'utf8')
+  for (const text of [windows, macos]) {
+    assert.match(text, /DSH_OVERLAY_OFFICIAL_VERSION/u)
+    assert.match(text, /DSH_OVERLAY_BUILD_VERSION/u)
+  }
+  assert.match(macos, /_\$\{DSH_PORTABLE_ITERATION:-01\}/u)
+  const workflow = readFileSync(join(overlayRoot, '..', '.github', 'workflows', 'release-official-portable.yml'), 'utf8')
+  assert.match(workflow, /\[0-9\]\[0-9\]/u)
 })
 
 test('overlay is a plain Cordis bundle outside the official tree', () => {

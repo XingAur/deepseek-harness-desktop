@@ -20,7 +20,7 @@ Get the latest build from [GitHub Releases](https://github.com/XingAur/deepseek-
 | macOS ARM64 | `deepseek-harness-overlay-<build>-mac-arm64-adhoc-manual.dmg` | DMG |
 | macOS ARM64 | `deepseek-harness-overlay-<build>-mac-arm64-adhoc-manual.zip` | Portable ZIP |
 
-Every artifact ships with a `.sha256` sidecar and a `.build.json` record. `<build>` starts with the locked official version, for example `0.2.1-rc.5.20261102.1`.
+Every artifact ships with a `.sha256` sidecar and a `.build.json` record. `<build>` is the locked official version plus a two-digit iteration, for example `0.2.1-rc.5_01`.
 
 The artifacts are not commercially code-signed:
 
@@ -38,6 +38,7 @@ The official desktop already provides account sign-in, the scheduler, the termin
 - **MCP card manager**: add, edit, and test MCP servers as cards in Settings, with built-in templates. Configuration lives in `overlay-custom.yaml` and is mounted by the overlay on the next start.
 - **Model network proxy**: model requests can follow the system proxy, use a manual HTTP(S) proxy, or connect directly, with bypass rules and a connectivity test. MCP and other tools are unaffected.
 - **Skills catalog**: a Settings section that lists the skills available to the current profile.
+- **Version and update notice**: an "Updates" sidebar entry with a red dot checks the official releases and this repository's releases, shows both version numbers (`official version_iteration`) and release notes, and links the matching release pages. It only notifies; it never installs anything.
 
 ### Relay configuration
 

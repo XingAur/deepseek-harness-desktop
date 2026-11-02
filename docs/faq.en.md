@@ -26,14 +26,14 @@ Not for the portable build; the runtime is bundled. Building or running the deve
 
 ## Windows says "Windows protected your PC". What now?
 
-The build is not code-signed, so SmartScreen blocks it. Click "More info" â†?"Run anyway". This is normal for unsigned builds, not corruption; verify the download with the sibling `.sha256` if you want certainty.
+The build is not code-signed, so SmartScreen blocks it. Click "More info" â†’ "Run anyway". This is normal for unsigned builds, not corruption; verify the download with the sibling `.sha256` if you want certainty.
 
 ## The macOS app will not open.
 
 The build is ad-hoc signed and not notarized. Two options:
 
-1. Right-click (or Control-click) the app in Applications â†?"Open" â†?confirm again.
-2. Try opening it once, then use "Open Anyway" at the bottom of System Settings â†?Privacy & Security.
+1. Right-click (or Control-click) the app in Applications â†’ "Open" â†’ confirm again.
+2. Try opening it once, then use "Open Anyway" at the bottom of System Settings â†’ Privacy & Security.
 
 If it is still blocked, clear the quarantine attribute with `xattr -dr com.apple.quarantine <app path>` and open it again. Only do this when you trust the source.
 
@@ -55,7 +55,7 @@ The portable build never writes `~/.dsh` by default, so it can coexist with a da
 
 ## How do I configure the relay?
 
-Deploy [`relay-server/`](../relay-server/README.md) first (Node â‰?22 plus TLS), then enter the origin in the app's mobile dialog, or override it with the `DSH_OVERLAY_RELAY_ORIGIN` environment variable. Only a bare origin is accepted: `https://` for public hosts, `http://` only for `localhost`, `127.0.0.1`, or `[::1]`.
+Deploy [`relay-server/`](../relay-server/README.md) first (Node â‰¥ 22 plus TLS), then enter the origin in the app's mobile dialog, or override it with the `DSH_OVERLAY_RELAY_ORIGIN` environment variable. Only a bare origin is accepted: `https://` for public hosts, `http://` only for `localhost`, `127.0.0.1`, or `[::1]`.
 
 The relay sees forwarded plaintext traffic, so deploy it only on a server you control.
 
@@ -100,6 +100,14 @@ cd overlay && npm run bundle:host && npm run bundle:client && npm run check
 7. **Only the UI missing while routes work?** An official client slot was renamed. Host routes (`/api/desktop/...`) and client slots fail independently.
 8. **Does a portable profile still hold a legacy `file:` dependency?** On profile create/upgrade the packaged app removes legacy `file:` dependencies and symlinks automatically and writes `portable-overlay-state.json`. If that file exists but the UI still does not change, go back to step 2.
 
+## The sidebar says an update exists, but "this repository releases" has no new package.
+
+That transition is expected: the overlay checks the official releases and this repository separately. When the official app publishes a new baseline (for example `0.2.2-...`) this repository usually has no matching build yet, so the notice shows the new official version while the build column stays on the old one. After this repository publishes `official-v<version>_NN`, check again and both columns should be current.
+
+## Why not install updates automatically?
+
+The official installer is signed and publisher-checked, and this repository's portable builds are unsigned, so they cannot use the official updater. Installing an official update would also replace the overlay build with plain official DSH. The overlay therefore only notifies and links; installation stays manual. See the "Updates" section of the [user guide](user-guide.en.md).
+
 ## The phone scans the code but the page will not load.
 
 - The origin in the QR code/link must be reachable from the phone and have a valid certificate.
@@ -112,4 +120,4 @@ Model selection has to affect the official loader's model list, so the overlay w
 
 ## Where do I report problems?
 
-Open a [GitHub issue](https://github.com/XingAur/deepseek-harness-desktop/issues/new/choose) with the OS and architecture, the artifact filename (including `buildVersion`), your `DSH_HOME` path, reproduction steps, and the relevant log excerpt. Redact anything credential-like first.
+Open a [GitHub issue](https://github.com/LiuYuMiao-M/dsh-desktop/issues/new/choose) with the OS and architecture, the artifact filename (including `buildVersion`), your `DSH_HOME` path, reproduction steps, and the relevant log excerpt. Redact anything credential-like first.

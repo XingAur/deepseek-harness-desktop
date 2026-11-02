@@ -20,7 +20,7 @@ DSH Desktop 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harne
 | macOS ARM64 | `deepseek-harness-overlay-<build>-mac-arm64-adhoc-manual.dmg` | DMG |
 | macOS ARM64 | `deepseek-harness-overlay-<build>-mac-arm64-adhoc-manual.zip` | 便携 ZIP |
 
-每个产物都带 `.sha256` 与 `.build.json`。`<build>` 以锁定官方版本开头，例如 `0.2.1-rc.5.20261102.1`。
+每个产物都带 `.sha256` 与 `.build.json`。`<build>` 是「锁定官方版本\_两位迭代号」，例如 `0.2.1-rc.5_01`。
 
 发布产物未做商业代码签名：
 
@@ -38,6 +38,7 @@ DSH Desktop 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harne
 - **MCP 卡片管理**：设置中以卡片添加、编辑、测试 MCP 服务器，内置常用模板；配置保存在 `overlay-custom.yaml`，重启后由 overlay 挂载。
 - **模型网络代理**：模型请求可选择跟随系统、手动 HTTP(S) 代理或直连，支持绕过列表和连通性测试；不影响 MCP 或其他工具。
 - **Skills 目录展示**：设置中的 Skills 区块列出当前 profile 可用的技能目录。
+- **版本与更新提示**：侧栏「更新」入口带红点，检查官方 Releases 与本仓库 Releases，显示两边的版本号（`官方版本_迭代号`）和更新内容，可跳转对应发布页。只提示，不自动安装。
 
 ### 中继配置
 

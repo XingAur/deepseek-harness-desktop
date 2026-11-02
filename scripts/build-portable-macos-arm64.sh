@@ -24,7 +24,10 @@ if [[ "$OFFICIAL_SHA" != "$LOCKED_SHA" || "$OFFICIAL_VERSION" != "$LOCKED_VERSIO
   echo "portable build: official checkout does not match official-lock.json" >&2
   exit 1
 fi
-BUILD_VERSION="${DSH_PORTABLE_BUILD_VERSION:-${OFFICIAL_VERSION}.$(TZ=Asia/Shanghai date +%Y%m%d).1}"
+BUILD_VERSION="${DSH_PORTABLE_BUILD_VERSION:-${OFFICIAL_VERSION}_${DSH_PORTABLE_ITERATION:-01}}"
+# The overlay reports this build identity in its version and update panel.
+export DSH_OVERLAY_OFFICIAL_VERSION="$OFFICIAL_VERSION"
+export DSH_OVERLAY_BUILD_VERSION="$BUILD_VERSION"
 
 export PATH="$(dirname "$NODE_BIN"):/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export ELECTRON_MIRROR="${ELECTRON_MIRROR:-https://npmmirror.com/mirrors/electron/}"
@@ -46,7 +49,7 @@ packaged=false
 for attempt in 1 2 3; do
   mkdir -p "$STAGE/packages/external/overlay-custom/lib/types"
   printf "%s\n" "export * from '../../src/index.ts'" >"$STAGE/packages/external/overlay-custom/lib/types/index.js"
-  if (cd "$STAGE" && $PNPM --dir apps/desktop run package -- mac-arm64 --unsigned --dir --build-version "$BUILD_VERSION"); then
+  if (cd "$STAGE" && $PNPM --dir apps/desktop run package -- mac-arm64 --unsigned --dir); then
     packaged=true
     break
   fi

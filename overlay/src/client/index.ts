@@ -6,6 +6,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { applyOverlayRemoteEntry } from './RemoteEntry.tsx'
 import { applyOverlayModelExtras } from './ProviderCardExtras.tsx'
 import { applyOverlayCapabilitySettings } from './SettingsSections.tsx'
+import { applyOverlayUpdateEntry } from './UpdateEntry.tsx'
 
 export const inject = ['slots', 'locale']
 
@@ -14,4 +15,5 @@ export function apply(ctx: ClientContext): void {
   applyOverlayRemoteEntry(ctx)
   applyOverlayModelExtras(ctx)
   applyOverlayCapabilitySettings(ctx)
+  applyOverlayUpdateEntry(ctx)
 }

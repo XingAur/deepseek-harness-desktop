@@ -6,7 +6,7 @@ This guide covers the official DeepSeek Harness desktop app plus the local overl
 
 ### Portable build (recommended)
 
-Download the file for your platform from [GitHub Releases](https://github.com/XingAur/deepseek-harness-desktop/releases/latest):
+Download the file for your platform from [GitHub Releases](https://github.com/LiuYuMiao-M/dsh-desktop/releases/latest):
 
 | Platform | File | Use |
 |---|---|---|
@@ -79,10 +79,10 @@ The relay is a separately deployed Node service; see [`relay-server/README.md`](
 cd /opt/dsh-relay
 npm install --omit=dev
 node main.mjs --host 127.0.0.1 --port 8787
-curl https://relay.example.com/healthz   # â†?dsh-desktop relay
+curl https://relay.example.com/healthz   # â†’ dsh-desktop relay
 ```
 
-The Caddy reverse proxy and systemd unit are in that README. Requirements: Node â‰?22 and TLS.
+The Caddy reverse proxy and systemd unit are in that README. Requirements: Node â‰¥ 22 and TLS.
 
 Validation rules the overlay enforces:
 
@@ -102,7 +102,7 @@ Security boundary: the relay sees forwarded plaintext HTTP. Deploy it only on a 
 
 ## Models: test, fetch, select
 
-Settings â†?Models â†?any provider card (DeepSeek and custom OpenAI-compatible routes):
+Settings â†’ Models â†’ any provider card (DeepSeek and custom OpenAI-compatible routes):
 
 - **Test connection** requests the provider's model list and shows the HTTP status plus the upstream response on failure; transient failures are retried.
 - **Fetch model list / Refresh latest models** pulls the provider's currently available model IDs into the candidate list below.
@@ -114,7 +114,7 @@ Selections are written to the `llm-pi-ai` row of the profile's `cordis.patch.yml
 
 Codex and xAI provider cards have a "Sign in (OAuth)" action:
 
-1. Clicking it starts the official authorization flow and shows "Waiting for browserâ€?.
+1. Clicking it starts the official authorization flow and shows "Waiting for browserâ€¦".
 2. Sign in in the browser ("Open sign-in page" reopens it if needed).
 3. If an authorization code is required, paste it and click "Submit".
 4. On success the card shows "Signed in" and the live model list becomes available.
@@ -123,7 +123,7 @@ Credentials are stored in `<DSH_HOME>/.credentials.yaml` (`llm-pi-ai/openai-code
 
 ## MCP management
 
-Settings â†?MCP:
+Settings â†’ MCP:
 
 - Each MCP is a card: test connection, edit, enable/disable, delete, export one JSON.
 - "Common MCPs" offers templates: database, Yunxiao, GitLab, Playwright, Filesystem, Memory, generic HTTP.
@@ -136,7 +136,7 @@ Configuration is stored under `mcpServers` in `<DSH_HOME>/overlay-custom.yaml`. 
 
 ## Model network proxy
 
-Settings â†?Models â†?"Model network" at the bottom. It applies to model requests only, never to MCP or other tools, and needs no provider list.
+Settings â†’ Models â†’ "Model network" at the bottom. It applies to model requests only, never to MCP or other tools, and needs no provider list.
 
 - **System**: use the detected system HTTP/HTTPS proxy and bypass rules. Unsupported or unreadable system settings never silently become direct.
 - **Manual**: an `http://` or `https://` proxy URL, optionally with credentials. No fallback to direct when the proxy is unavailable.
@@ -148,20 +148,28 @@ If an upstream rejects your region (for example OpenAI reporting an unsupported 
 
 ## Skills
 
-Settings â†?Skills lists the skills the current official composition has discovered, with source, model-invocable and user-invocable flags, and when to use them. Typing `/` in the session input also selects a skill directly.
+Settings â†’ Skills lists the skills the current official composition has discovered, with source, model-invocable and user-invocable flags, and when to use them. Typing `/` in the session input also selects a skill directly.
 
 If the page says the composition has no skill catalog, the running build lacks the official skills service; the page then only informs and offers no management.
 
 ## Updates
 
-This project updates **manually**; there is no auto-update:
+This project updates **manually**; there is no auto-update. The sidebar "Updates" entry checks two sources and shows a red dot when something is available:
 
-1. Check Releases for a newer version (version numbers start with the official version, e.g. `0.2.1-rc.5.20261102.1`).
-2. Windows: quit the app, then run the new `.exe` to install over the old copy, or extract the new ZIP over the old directory.
-3. macOS: open the new DMG and drag the app into Applications, replacing the old one.
-4. Data stays in `<DSH_HOME>`; just restart.
+1. **Official releases** (`deepseek-ai/deepseek-harness`, tags `dsh-v*`): the official desktop app published a newer version.
+2. **This repository's releases** (tags `official-v<buildVersion>`): a new portable build was published here.
 
-Skipping several patch releases is usually fine, but when the official baseline changes (a different `officialVersion` prefix) read the release notes first.
+Open the entry to see the current version, the latest official version, the latest build here, the release notes for each, and links to the release pages. The version format is `<locked official version>_<two-digit iteration>`, for example `0.2.1-rc.5_01` and `0.2.1-rc.5_02`; after the baseline moves to `0.2.2-...` the next build becomes `0.2.2-..._01`.
+
+The notice only informs; it never downloads or installs:
+
+1. Official update available: download the official desktop from the official releases page, or wait for this repository to rebuild against the new baseline.
+2. New build available: download the package for your platform. On Windows, quit and install the new `.exe` (or replace the ZIP directory); on macOS, open the new DMG and replace the app.
+3. Data stays in `DSH_HOME`; restart afterwards.
+
+Why no automatic install: the official installer is signed and publisher-checked, and this repository's unsigned portable builds cannot use the official updater. Installing an official update would replace the overlay build, so the overlay only notifies.
+
+Skipping several patch releases is usually fine, but when the official baseline changes (the part before the underscore) read the release notes first.
 
 ## When something breaks
 

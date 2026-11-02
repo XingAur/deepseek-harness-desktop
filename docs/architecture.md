@@ -150,7 +150,7 @@ dist/：产物 + .sha256 + .build.json
 
 每个产物都有同名 `.sha256` 与 `.build.json`（记录 `officialCommit`、`officialVersion`、`buildVersion`、`overlayHash`、`sha256`、`platform`、`arch`、`signing`、`update: manual`）。单平台 6 个文件，一次发布 12 个附件。
 
-`buildVersion` 必须以锁定的官方版本开头，默认 `<官方版本>.<yyyyMMdd>.1`；可用 `DSH_PORTABLE_BUILD_VERSION` 覆盖。
+`buildVersion` 必须是 `<锁定官方版本>_<两位迭代号>`，默认 `<官方版本>_01`；可用 `DSH_PORTABLE_ITERATION` 改迭代号，或用 `DSH_PORTABLE_BUILD_VERSION` 整体覆盖。
 
 发布走 [release-official-portable.yml](../.github/workflows/release-official-portable.yml)：`workflow_dispatch` 输入 `build_version`、`release_tag`（必须等于 `official-v<build_version>`）和 `publish`；先建 draft prerelease，Windows 与 macOS 两块都通过后才校验 12 个附件并发布。
 

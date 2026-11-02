@@ -50,13 +50,24 @@ build-portable-windows-x64.ps1 / build-portable-macos-arm64.sh
 
 - 产物：Windows x64 未签名 NSIS EXE + ZIP；macOS ARM64 ad-hoc 签名 DMG + ZIP。
 - 更新方式：**手动更新**，不接入官方自动更新 feed；发布 Release 标记为 prerelease。
+- 版本号：`<锁定官方版本>_<两位迭代号>`（例如 `0.2.1-rc.5_01`）。打包脚本把它烘焙进 overlay，并用于产物名与发布 tag。
 - 详见 [官方打包脚本](../scripts/) 与 [发布工作流](../.github/workflows/release-official-portable.yml)。
+
+## 更新提示
+
+overlay 的 Host 面提供只读的更新检查（`/api/desktop/updates/state`），Client 面在侧栏渲染「更新」入口：有可用版本时显示红点，点开显示当前版本、官方最新、本仓库最新与对应的 release notes。
+
+- 官方最新：GitHub 上 `deepseek-ai/deepseek-harness` 的非 draft release，tag 形如 `dsh-v*`。
+- 本仓库最新：本仓库的非 draft release，tag 形如 `official-v<buildVersion>`。
+- 比较规则：官方版本按 semver 优先级；本仓库版本先比官方基线，再比两位迭代号。
+- 检查在启动 5 秒后触发一次，结果缓存 30 分钟；网络失败只显示「暂时无法检查」，不影响应用。`overlay-custom.yaml` 的 `updates.autoCheck: false` 可关闭启动检查。
+- 只提示，不下载、不安装：官方安装包有签名与 publisher 校验，本仓库的未签名便携包不能套用官方更新器，安装会替换掉 overlay 构建。
 
 ## 功能归属
 
 官方自带、overlay 不重复实现：账号登录、任务调度、终端、Office 预览、插件管理、会话与工作区、Web/CLI 运行时、安装器与更新。
 
-overlay 只做官方没有的：云中继手机控制与配对页、模型「测试连接/拉取模型/勾选显示」、Codex/xAI OAuth 登录、MCP 卡片管理、模型网络代理、Skills 目录展示。
+overlay 只做官方没有的：云中继手机控制与配对页、模型「测试连接/拉取模型/勾选显示」、Codex/xAI OAuth 登录、MCP 卡片管理、模型网络代理、Skills 目录展示、版本与更新提示。
 
 ## 验证
 

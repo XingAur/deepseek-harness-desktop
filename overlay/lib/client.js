@@ -2380,11 +2380,218 @@ function applyOverlayCapabilitySettings(ctx) {
   ctx.effect(() => ctx.slots.inject("settings.section", () => ctx.slots.register({ name: "settings.section", id: "overlay-mcp", order: 95, label: () => t("mcpNav"), locale: CAPABILITY_NS, inject: () => ({}) }, OverlayMcpSection)), "dsh-overlay-custom: mcp settings");
 }
 
+// src/client/UpdateEntry.tsx
+var import_react6 = require("react");
+var import_jsx_runtime6 = require("react/jsx-runtime");
+var NAMESPACE4 = "overlay.updates";
+var en4 = {
+  label: "Updates",
+  title: "Version and updates",
+  current: "Current",
+  officialLatest: "Official latest",
+  buildLatest: "This build latest",
+  upToDate: "Everything is up to date.",
+  officialUpdate: "The official app has a newer release. Rebuild or download it from the official releases page.",
+  buildUpdate: "A newer portable build is available for this repository.",
+  notes: "What changed",
+  openOfficial: "Open official releases",
+  openBuild: "Open this repository releases",
+  refresh: "Check now",
+  refreshing: "Checking\u2026",
+  close: "Close",
+  unavailable: "Update check is unavailable right now.",
+  dev: "development build"
+};
+var zh4 = {
+  label: "\u66F4\u65B0",
+  title: "\u7248\u672C\u4E0E\u66F4\u65B0",
+  current: "\u5F53\u524D\u7248\u672C",
+  officialLatest: "\u5B98\u65B9\u6700\u65B0",
+  buildLatest: "\u672C\u4ED3\u5E93\u6700\u65B0",
+  upToDate: "\u5DF2\u662F\u6700\u65B0\u3002",
+  officialUpdate: "\u5B98\u65B9\u5DF2\u53D1\u5E03\u65B0\u7248\u672C\uFF0C\u9700\u8981\u91CD\u65B0\u6784\u5EFA\u6216\u5230\u5B98\u65B9 Releases \u4E0B\u8F7D\u5B98\u65B9\u5305\u3002",
+  buildUpdate: "\u672C\u4ED3\u5E93\u6709\u65B0\u7684\u4FBF\u643A\u5305\u6784\u5EFA\u3002",
+  notes: "\u66F4\u65B0\u5185\u5BB9",
+  openOfficial: "\u6253\u5F00\u5B98\u65B9 Releases",
+  openBuild: "\u6253\u5F00\u672C\u4ED3\u5E93 Releases",
+  refresh: "\u7ACB\u5373\u68C0\u67E5",
+  refreshing: "\u68C0\u67E5\u4E2D\u2026",
+  close: "\u5173\u95ED",
+  unavailable: "\u6682\u65F6\u65E0\u6CD5\u68C0\u67E5\u66F4\u65B0\u3002",
+  dev: "\u5F00\u53D1\u6784\u5EFA"
+};
+var STATE_PATH2 = "/api/desktop/updates/state";
+var STYLE_ID3 = "dsh-overlay-updates-entry-styles";
+var CSS3 = `
+.dshOverlayUpdateEntry {
+  position: relative;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 32px;
+  min-width: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+}
+.dshOverlayUpdateEntry:hover { background: var(--dsw-alias-bg-hover); }
+.dshOverlayUpdateEntryWide { justify-content: flex-start; padding: 0 10px 0 8px; width: calc(100% + 4px); margin: 0 -2px; height: 42px; }
+.dshOverlayUpdateDot {
+  position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--dsw-alias-state-error-primary, #e5484d); box-shadow: 0 0 0 2px var(--dsw-alias-bg-base, #fff);
+}
+.dshOverlayUpdateModal {
+  position: fixed; z-index: 80; top: 96px; left: 50%; transform: translateX(-50%);
+  width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 160px); overflow: auto;
+  box-sizing: border-box; padding: 16px; border-radius: 14px;
+  background: var(--dsw-alias-bg-elevated, #fff); color: var(--dsw-alias-label-primary, #111);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .24); font-size: 13px; line-height: 20px;
+}
+.dshOverlayUpdateModal h3 { margin: 0 0 10px; font-size: 15px; line-height: 22px; }
+.dshOverlayUpdateRow { display: flex; gap: 8px; align-items: baseline; margin: 0 0 6px; }
+.dshOverlayUpdateRow b { flex: 0 0 84px; font-weight: 600; opacity: .72; }
+.dshOverlayUpdateNote { margin: 4px 0 10px; }
+.dshOverlayUpdateAlert { margin: 0 0 10px; padding: 8px 10px; border-radius: 8px; background: var(--dsw-alias-bg-warning, #fff6e5); color: var(--dsw-alias-label-primary, #111); }
+.dshOverlayUpdateNotes { margin: 0 0 12px; padding: 10px; max-height: 220px; overflow: auto; white-space: pre-wrap; border-radius: 8px; background: var(--dsw-alias-bg-base, #f7f7f8); }
+.dshOverlayUpdateActions { display: flex; flex-wrap: wrap; gap: 8px; }
+.dshOverlayUpdateActions a, .dshOverlayUpdateActions button {
+  box-sizing: border-box; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--dsw-alias-border-default, rgba(0,0,0,.12));
+  background: transparent; color: inherit; font: inherit; text-decoration: none; cursor: pointer;
+}
+.dshOverlayUpdateActions a:hover, .dshOverlayUpdateActions button:hover { background: var(--dsw-alias-bg-hover, rgba(0,0,0,.05)); }
+`;
+function BellIcon() {
+  return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("svg", { width: "16", height: "16", viewBox: "0 0 16 16", "aria-hidden": "true", focusable: "false", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("path", { fill: "currentColor", d: "M8 1.6a3.4 3.4 0 0 0-3.4 3.4v2.1l-1 1.8a.8.8 0 0 0 .7 1.2h7.4a.8.8 0 0 0 .7-1.2l-1-1.8V5A3.4 3.4 0 0 0 8 1.6Zm0 12.1a1.8 1.8 0 0 0 1.7-1.2H6.3A1.8 1.8 0 0 0 8 13.7Z" }) });
+}
+function installStyles() {
+  if (typeof document === "undefined" || document.getElementById(STYLE_ID3) !== null) return;
+  const style = document.createElement("style");
+  style.id = STYLE_ID3;
+  style.textContent = CSS3;
+  document.head.append(style);
+}
+function OverlayUpdateEntry({ t, wide }) {
+  const [view, setView] = (0, import_react6.useState)();
+  const [open, setOpen] = (0, import_react6.useState)(false);
+  const [checking, setChecking] = (0, import_react6.useState)(false);
+  const [failed, setFailed] = (0, import_react6.useState)(false);
+  const load = (0, import_react6.useCallback)((force) => {
+    setFailed(false);
+    if (force) setChecking(true);
+    void fetch(STATE_PATH2, {
+      method: force ? "POST" : "GET",
+      credentials: "same-origin",
+      redirect: "error",
+      headers: { accept: "application/json" }
+    }).then(async (response) => {
+      const value = await response.json().catch(() => void 0);
+      if (!response.ok || value === void 0) throw new Error(`HTTP ${String(response.status)}`);
+      setView(value);
+    }).catch(() => {
+      setFailed(true);
+    }).finally(() => {
+      setChecking(false);
+    });
+  }, []);
+  (0, import_react6.useEffect)(() => {
+    load(false);
+  }, [load]);
+  (0, import_react6.useEffect)(() => {
+    const timer = window.setInterval(() => {
+      load(false);
+    }, 10 * 60 * 1e3);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [load]);
+  const pending = view !== void 0 && (view.officialUpdate || view.buildUpdate);
+  return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(
+      "button",
+      {
+        type: "button",
+        className: ["dshOverlayUpdateEntry", wide ? "dshOverlayUpdateEntryWide" : ""].filter((part) => part !== "").join(" "),
+        "aria-label": t("label"),
+        title: pending ? view?.buildUpdate === true ? t("buildUpdate") : t("officialUpdate") : t("label"),
+        onClick: () => {
+          setOpen(true);
+          load(true);
+        },
+        children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(BellIcon, {}),
+          wide ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { children: t("label") }) : null,
+          pending ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "dshOverlayUpdateDot", "aria-hidden": "true" }) : null
+        ]
+      }
+    ),
+    open ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "dshOverlayUpdateModal", role: "dialog", "aria-modal": "true", "aria-label": t("title"), children: [
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { children: t("title") }),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { className: "dshOverlayUpdateRow", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("b", { children: t("current") }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { children: [
+          view?.current.buildVersion ?? "\u2026",
+          view?.current.buildVersion.endsWith("_dev") === true ? ` \xB7 ${t("dev")}` : ""
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { className: "dshOverlayUpdateRow", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("b", { children: t("officialLatest") }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { children: view?.official?.version ?? "\u2014" })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { className: "dshOverlayUpdateRow", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("b", { children: t("buildLatest") }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { children: view?.build?.version ?? "\u2014" })
+      ] }),
+      failed || view?.error !== null && view?.error !== void 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: "dshOverlayUpdateAlert", children: t("unavailable") }) : null,
+      pending ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: "dshOverlayUpdateAlert", children: view?.buildUpdate === true ? t("buildUpdate") : t("officialUpdate") }) : null,
+      !pending && view !== void 0 && view.error === null ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: "dshOverlayUpdateRow", children: t("upToDate") }) : null,
+      view?.build?.notes !== void 0 && view.build.notes !== "" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: "dshOverlayUpdateNote", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("b", { children: t("notes") }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("pre", { className: "dshOverlayUpdateNotes", children: view.build.notes })
+      ] }) : null,
+      view?.official?.notes !== void 0 && view.official.notes !== "" && view.build?.notes === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: "dshOverlayUpdateNote", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("b", { children: t("notes") }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("pre", { className: "dshOverlayUpdateNotes", children: view.official.notes })
+      ] }) : null,
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "dshOverlayUpdateActions", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("button", { type: "button", onClick: () => {
+          load(true);
+        }, disabled: checking, children: checking ? t("refreshing") : t("refresh") }),
+        view?.official?.url !== void 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("a", { href: view.official.url, target: "_blank", rel: "noreferrer noopener", children: t("openOfficial") }) : null,
+        view?.build?.url !== void 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("a", { href: view.build.url, target: "_blank", rel: "noreferrer noopener", children: t("openBuild") }) : null,
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("button", { type: "button", onClick: () => {
+          setOpen(false);
+        }, children: t("close") })
+      ] })
+    ] }) : null
+  ] });
+}
+function applyOverlayUpdateEntry(ctx) {
+  installStyles();
+  ctx.effect(() => ctx.locale.register(NAMESPACE4, { zh: zh4, en: en4 }), "dsh-overlay-custom: updates locale");
+  ctx.effect(() => ctx.slots.inject("sidebar.footer.action", () => ctx.slots.register({
+    name: "sidebar.footer.action",
+    id: "overlay-updates",
+    priority: -1,
+    order: 24,
+    label: () => ctx.locale.bind(NAMESPACE4)("label"),
+    inject: () => ({ t: ctx.locale.bind(NAMESPACE4) })
+  }, OverlayUpdateEntry)), "dsh-overlay-custom: update sidebar entry");
+}
+
 // src/client/index.ts
 var inject = ["slots", "locale"];
 function apply(ctx) {
   applyOverlayRemoteEntry(ctx);
   applyOverlayModelExtras(ctx);
   applyOverlayCapabilitySettings(ctx);
+  applyOverlayUpdateEntry(ctx);
 }
 return module.exports;}});

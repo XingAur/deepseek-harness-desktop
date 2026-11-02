@@ -50,8 +50,8 @@ jobs:
           set -euo pipefail
           official_version=$(node -p "require('./official-lock.json').version")
           case "$BUILD_VERSION" in
-            "$official_version".*) ;;
-            *) echo "build_version must begin with $official_version." >&2; exit 1 ;;
+            "$official_version"_[0-9][0-9]) ;;
+            *) echo "build_version must be ${official_version}_<NN> (for example ${official_version}_01)" >&2; exit 1 ;;
           esac
           expected="official-v$BUILD_VERSION"
           test "$RELEASE_TAG" = "$expected" || { echo "release_tag must equal $expected" >&2; exit 1; }
