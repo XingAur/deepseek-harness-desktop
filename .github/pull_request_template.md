@@ -15,26 +15,35 @@
 - [ ] Tests only / 仅测试
 - [ ] Other / 其他
 
+## Scope / 影响范围
+
+- [ ] `overlay/` host face / 主机端
+- [ ] `overlay/` client face / 客户端
+- [ ] `scripts/` build or release / 构建或发布
+- [ ] `relay-server/`
+- [ ] `official-lock.json` baseline / 官方基线
+- [ ] Docs only / 仅文档
+
 ## Platforms / 影响平台
 
-- [ ] Windows installer / Windows 安装包
-- [ ] Windows portable ZIP / Windows 便携版 ZIP
-- [ ] macOS Apple Silicon
-- [ ] macOS Intel
-- [ ] macOS Universal package / macOS 通用安装包
-- [ ] Linux
+- [ ] Windows x64 portable / Windows x64 便携包
+- [ ] macOS ARM64 portable / macOS ARM64 便携包
+- [ ] Official desktop only (no portable build) / 仅官方桌面，无打包
 - [ ] Not platform-specific / 与平台无关
 
 ## Verification / 验证
 
 <!-- List commands actually run and any manual checks. Do not claim unrun checks passed. / 列出实际运行过的命令和人工验证。不要声称未运行的检查已经通过。 -->
 
-- [ ] `corepack yarn check:layout`
-- [ ] `corepack yarn typecheck`
-- [ ] `corepack yarn test`
-- [ ] `corepack yarn check`
-- [ ] Platform package smoke / 平台打包或启动冒烟
-- [ ] Manual test / 人工测试
+- [ ] `cd overlay && npm run check`
+- [ ] `bash scripts/check.sh`
+- [ ] Portable build smoke / 便携包构建与冒烟
+- [ ] Manual test on official desktop / 在官方桌面上人工验证
+- [ ] Docs only, no runtime check / 仅文档，无运行时验证
+
+## Baseline / 官方基线
+
+<!-- Only when official-lock.json changes: old -> new commit/version and why. / 仅当 official-lock.json 变化时填写：旧 -> 新提交/版本及原因。 -->
 
 ## Release Notes / 发布说明
 

@@ -2,49 +2,40 @@
 
 [中文文档](README.md)
 
-This directory is the product and developer documentation index for DSH Desktop. The root [`README.en.md`](../README.en.md) is the short product entry point; these pages explain why the project exists, how to use it, and how to build plugins for it. Want to contribute? See [Contributing](../CONTRIBUTING.en.md).
+This repository maintains exactly one product: **the official DeepSeek Harness desktop app (`apps/desktop`) plus a local overlay plugin**. Windows, tray, installer, updates, and plugin management belong to the official implementation; this repository owns what the overlay adds and the packaging that bundles official sources with the overlay.
 
-## Read by goal
+- New to the project: start with the root [`README.en.md`](../README.en.md)
+- Want to use it: read the [user guide](user-guide.en.md)
+- Want to change code: read [official shell and overlay](official-architecture.md) first, then the [architecture notes](architecture.en.md) and [overlay plugin development](plugin-development.en.md)
 
-Ordinary users can start with the [user guide](user-guide.en.md) and never need the developer documentation.
-
-### User documentation
-
-| Document | Covers |
-| --- | --- |
-| [User guide](user-guide.en.md) | Installation, profiles, modes, terminal, plugins, and updates |
-| [FAQ](faq.en.md) | Direct answers about platforms, bundled runtime, project status, data, plugins, and updates |
-| [Privacy Policy](../PRIVACY.md) | Official updates, downloads, local data, third-party services, and user choices |
-| [Why Desktop](why-desktop.en.md) | The boundary with upstream Harness and the case for plugins |
-
-### Developer and maintainer documentation
+## User documentation
 
 | Document | Covers |
-| --- | --- |
-| [Plugin ecosystem manifesto](plugin-ecosystem.en.md) | The vision of an open, composable, sustainable plugin ecosystem and its three principles |
-| [Plugin development](plugin-development.en.md) | Ordinary DSH plugins, Desktop services, compatibility, and lifecycle |
-| [Community Fabric Draft](../dsh-community-fabric/README.md) | Community interoperability drafts spanning manifest/capability foundations, Runtime/Presentation, service composition, and provenance diagnostics |
-| [Fabric community-feedback disposition](../dsh-community-fabric/docs/research/community-issue-23-review.md) | Which Issue #23 proposals were adopted, split into focused RFCs, deferred, or kept out of portable core |
-| [Fabric framework and plugin-needs research](../dsh-community-fabric/docs/research/mature-plugin-frameworks.md) | Mature Koishi, Chrome, and VS Code patterns plus requirements observed in real DSH plugins |
-| [VS Code extension-model research](../dsh-community-fabric/docs/research/vscode-extension-model.md) | Implemented declaration, Provider, UI, placement, and lifecycle patterns, with concrete constraints for the Fabric RFC |
-| [Community Market design](../dsh-community-market/README.md) | The proposed market shell, extensible catalog sources, user selection, install confirmation, and safety boundary |
-| [Market catalog provider contract](../dsh-community-market/docs/catalog-provider-contract.md) | Schemas, query parameters, multi-source behavior, and adapter rules for the implementation team |
-| [Architecture](architecture.en.md) | Electron, Host, the Web carrier, profiles, and packaging |
-| [Desktop service reference](../dsh-plugin-desktop/docs/plugin-services.md) | Stable `desktopProfiles` and `desktopPnpm` contracts with TypeScript examples |
-| [Package reference](../dsh-plugin-desktop/README.md) | Detailed build, runtime, release, and limitation notes |
+|---|---|
+| [User guide](user-guide.en.md) | Installing the official app and portable builds, enabling mobile connection, configuring the relay, model test/fetch/selection, Codex/xAI sign-in, MCP, model network proxy, Skills |
+| [FAQ](faq.en.md) | Unsigned builds and SmartScreen, opening on macOS, manual updates, `DSH_HOME` isolation, changing the official baseline, troubleshooting the overlay |
+| [Why this desktop build](why-desktop.en.md) | The positioning and cost of "official shell + local overlay", and what it deliberately does not do |
+| [Migrating from 2.0.x](migration-from-2.0.en.md) | Where the old shell's capabilities went, what happens to data, and the migration steps |
+| [Privacy policy](../PRIVACY.md) | Local data, third-party requests, and what the relay can see |
 
-## How the README files are organized
+## Developer documentation
 
-The outer repository has two formal product READMEs plus one legacy compatibility entry:
+| Document | Covers |
+|---|---|
+| [Official shell and overlay](official-architecture.md) | Conclusions: repository structure, hard dependency-direction rules, feature ownership. **Read this first** |
+| [Architecture notes](architecture.en.md) | How the overlay is injected, Host/Client contracts, profile repair, official version locking, portable packaging pipeline |
+| [Overlay plugin development](plugin-development.en.md) | `dsh.bundle.patch`, `dsh.client.inject`, Host services, Client slots, tests, and prohibitions |
+| [Plugin ecosystem and this repository](plugin-ecosystem.en.md) | The official plugin manager owns official bundles; the overlay is a local patch layer and is not published |
+| [Relay server](../relay-server/README.md) | Deploying `relay-server/`, protocol essentials, and security boundaries |
+| [Contributing](../CONTRIBUTING.en.md) | Commit and review conventions |
 
-- [`README.md`](../README.md): the Chinese product entry point.
-- [`README.en.md`](../README.en.md): the English product entry point with the same product scope.
-- [`README.zh.md`](../README.zh.md): a legacy Chinese-path compatibility page with no independent content.
+## Conventions
 
-`README.i18n.yaml` records the bilingual blob hashes for those two formal entry points; it is not a user guide. `dsh-plugin-desktop/README.md` and `dsh-plugin-desktop/README.zh.md` ship with the npm package and are the more technical package reference. `dsh-plugin-desktop/docs/` contains stable API contracts rather than marketing copy. `.agents/notes/implemented/` contains dated maintainer decision records and does not replace user documentation.
+- `docs/official-architecture.md` holds the conclusions. Other pages cite it instead of restating the arguments.
+- `docs/*.en.md` are semantic equivalents of the Chinese pages; keep both sides in sync.
+- The authoritative source for build, sync, and packaging commands is `scripts/` plus the root `package.json` `scripts` field. Documentation explains them; it never adds semantics.
+- These pages do not describe features that are not merged into the repository. Before writing "supported", confirm the implementation exists.
 
-`deepseek-harness/` is the pinned upstream submodule. Its README and `docs/` belong to the upstream project, not to the Desktop product, and are excluded from the outer documentation inventory.
+## Migration and history
 
-## Status convention
-
-These pages distinguish shipped behavior, platform limits, and roadmap items. Compatibility mode keeps the upstream default Web client below an independent Desktop frame; extended mode installs its own Desktop layout/sidebar registration and hosts official occupants in an inverted L; enhanced mode retains a separate root registration with compact internal captions. Desktop frames provide capability-gated native materials. The plugin marketplace now has a documentation scaffold in [`dsh-community-market`](../dsh-community-market/README.md), but no usable page or installer; mobile remote control and Channels also remain separate roadmap items and are not implied to be part of the current installer.
+This repository has moved to an official-first architecture: the shell, installer, and updates belong to the official implementation, and this repository keeps only the overlay plus portable packaging. See [migrating from 2.0.x](migration-from-2.0.en.md) for where the old capabilities and data went; older implementations exist only in git history, are unmaintained, and should not be followed from old documentation.

@@ -48,7 +48,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          official_version=$(node -p "require('./dsh-official/official-lock.json').version")
+          official_version=$(node -p "require('./official-lock.json').version")
           case "$BUILD_VERSION" in
             "$official_version".*) ;;
             *) echo "build_version must begin with $official_version." >&2; exit 1 ;;
@@ -83,7 +83,7 @@ jobs:
         with:
           node-version: 22.23.2
           cache: npm
-          cache-dependency-path: dsh-official/overlay/package-lock.json
+          cache-dependency-path: overlay/package-lock.json
       - run: corepack enable
       - name: Require Windows x64 runner
         shell: pwsh
@@ -94,20 +94,20 @@ jobs:
       - name: Check out locked official source
         shell: pwsh
         run: |
-          $lock = Get-Content dsh-official/official-lock.json -Raw | ConvertFrom-Json
-          New-Item dsh-official/deepseek-harness -ItemType Directory -Force | Out-Null
-          git -C dsh-official/deepseek-harness init
-          git -C dsh-official/deepseek-harness remote add origin $lock.repository
-          git -C dsh-official/deepseek-harness fetch --depth 1 origin $lock.commit
-          git -C dsh-official/deepseek-harness checkout --detach FETCH_HEAD
-          if ((git -C dsh-official/deepseek-harness rev-parse HEAD).Trim() -ne $lock.commit) { throw 'official commit mismatch' }
+          $lock = Get-Content official-lock.json -Raw | ConvertFrom-Json
+          New-Item deepseek-harness -ItemType Directory -Force | Out-Null
+          git -C deepseek-harness init
+          git -C deepseek-harness remote add origin $lock.repository
+          git -C deepseek-harness fetch --depth 1 origin $lock.commit
+          git -C deepseek-harness checkout --detach FETCH_HEAD
+          if ((git -C deepseek-harness rev-parse HEAD).Trim() -ne $lock.commit) { throw 'official commit mismatch' }
       - name: Build Windows x64 portable ZIP and EXE
         shell: pwsh
         env:
           DSH_PORTABLE_BUILD_VERSION: ${{ needs.prepare.outputs.build_version }}
           DSH_PORTABLE_NPM_REGISTRY: https://registry.npmjs.org
           DSH_GITHUB_ASSET_MIRROR: ''
-        run: ./dsh-official/scripts/build-portable-windows-x64.ps1
+        run: ./scripts/build-portable-windows-x64.ps1
       - name: Upload Windows assets to draft release
         shell: bash
         env:
@@ -115,8 +115,8 @@ jobs:
           TAG: ${{ needs.prepare.outputs.tag }}
         run: |
           set -euo pipefail
-          test "$(find dsh-official/dist -maxdepth 1 -type f | wc -l | tr -d ' ')" = 6
-          gh release upload "$TAG" dsh-official/dist/* --clobber
+          test "$(find dist -maxdepth 1 -type f | wc -l | tr -d ' ')" = 6
+          gh release upload "$TAG" dist/* --clobber
 
   build-macos:
     needs: prepare
@@ -132,7 +132,7 @@ jobs:
         with:
           node-version: 22.23.2
           cache: npm
-          cache-dependency-path: dsh-official/overlay/package-lock.json
+          cache-dependency-path: overlay/package-lock.json
       - run: corepack enable
       - name: Require macOS ARM64 runner
         run: node -e "if (process.platform !== 'darwin' || process.arch !== 'arm64') process.exit(1)"
@@ -140,20 +140,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          repository=$(node -p "require('./dsh-official/official-lock.json').repository")
-          commit=$(node -p "require('./dsh-official/official-lock.json').commit")
-          mkdir -p dsh-official/deepseek-harness
-          git -C dsh-official/deepseek-harness init
-          git -C dsh-official/deepseek-harness remote add origin "$repository"
-          git -C dsh-official/deepseek-harness fetch --depth 1 origin "$commit"
-          git -C dsh-official/deepseek-harness checkout --detach FETCH_HEAD
-          test "$(git -C dsh-official/deepseek-harness rev-parse HEAD)" = "$commit"
+          repository=$(node -p "require('./official-lock.json').repository")
+          commit=$(node -p "require('./official-lock.json').commit")
+          mkdir -p deepseek-harness
+          git -C deepseek-harness init
+          git -C deepseek-harness remote add origin "$repository"
+          git -C deepseek-harness fetch --depth 1 origin "$commit"
+          git -C deepseek-harness checkout --detach FETCH_HEAD
+          test "$(git -C deepseek-harness rev-parse HEAD)" = "$commit"
       - name: Build macOS ARM64 portable DMG and ZIP
         env:
           DSH_PORTABLE_BUILD_VERSION: ${{ needs.prepare.outputs.build_version }}
           DSH_PORTABLE_NPM_REGISTRY: https://registry.npmjs.org
           DSH_GITHUB_ASSET_MIRROR: ''
-        run: bash dsh-official/scripts/build-portable-macos-arm64.sh
+        run: bash scripts/build-portable-macos-arm64.sh
       - name: Upload macOS assets to draft release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -161,8 +161,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(find dsh-official/dist -maxdepth 1 -type f | wc -l | tr -d ' ')" = 6
-          gh release upload "$TAG" dsh-official/dist/* --clobber
+          test "$(find dist -maxdepth 1 -type f | wc -l | tr -d ' ')" = 6
+          gh release upload "$TAG" dist/* --clobber
 
   publish:
     needs: [prepare, build-windows, build-macos]

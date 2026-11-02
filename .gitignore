@@ -1,22 +1,18 @@
 .DS_Store
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/sdks
-!.yarn/versions
 node_modules/
-.corepack/
-.yarn-cache/
-.yarn-global/
 *.tsbuildinfo
 .build/
 
-dsh-plugin-desktop/dist/
-dsh-plugin-desktop/lib/
-dsh-community-market/lib/
+# Built overlay output (bundle scripts write lib/)
+overlay/lib/
 
-.env.yarn.electron-cache/
+# Official DeepSeek Harness checkout, locked by official-lock.json
+deepseek-harness/
+.cache/
+.portable-stage/
+.compat-stage/
+dist/
+.pnpm-store/
 .electron-builder-cache/
 .npm-cache/
 
@@ -25,16 +21,7 @@ dist-local*/
 dist-e2e/
 dist2/
 
-# Isolated official master checkout for the overlay line (not the 2.0.x pin)
-dsh-official/deepseek-harness/
-dsh-official/.cache/
-dsh-official/.portable-stage/
-dsh-official/.compat-stage/
-dsh-official/dist/
-.pnpm-store/
-
 # Local skill workspaces and extracted history data (not product code)
 .dsh/
 ecommerce-automation/
 dfhis-history/
-scripts/extract_dfhis_history.py

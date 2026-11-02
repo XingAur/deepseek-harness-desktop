@@ -1,214 +1,160 @@
-# DSH Desktop 插件开发
+# overlay 插件开发
 
-> **当前接口与 Draft 请勿混淆：** 本文介绍现在可用的 DSH/Cordis 与 Desktop service。`dsh-community-fabric` 中的 manifest、capability 和统一事件模型仍处于[社区 RFC Draft](../dsh-community-fabric/README.zh.md)，尚不能作为依赖或发布目标。
+`overlay/` 是本仓库唯一的产品代码。它是一个**普通的 Cordis Host/Client bundle**，挂在官方桌面 profile 上，不修改官方源码，也不引入 Electron。
 
-## 先理解两层插件
+## 一个包，两个面
 
-一个普通 DSH 插件可以提供 Host service、命令、路由、bundle 或 Web Client。它应该尽量只依赖官方 DSH contract，因此可以在命令行、普通 Web profile 和 DSH Desktop 中复用。
+```text
+overlay/
+├─ package.json         # dsh.bundle.patch / dsh.client.inject / exports
+├─ cordis.patch.yml     # 向 profile 追加 overlay 行
+├─ src/index.ts         # Host 面入口 → lib/index.js（ESM）
+├─ src/client/index.ts  # Client 面入口 → lib/client.js（CJS）
+├─ public/              # 手机页静态资源（mobile.html/js/css）
+└─ scripts/             # 打包与检查
+```
 
-Desktop 另外提供两个公开的 Host service：
+关键字段：
 
-- `desktopProfiles`：读取当前 profile、发现可选 profile，并请求安全的 profile 切换。
-- `desktopPnpm`：在当前 profile 中执行 pnpm，或通过官方 `dsh plugin` 语义管理插件。
+```json
+{
+  "exports": { ".": "./lib/index.js", "./client": "./lib/client.js" },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": { "inject": ["@deepseek-ai/dsh-client-ui-sidebar", "..."], "platform": "web" }
+  }
+}
+```
 
-它们属于 Electron main 进程中的 Host Cordis generation。Renderer 不能直接读取它们；有浏览器界面的插件仍应使用普通 DSH Web routes、RPC、client metadata、service 和 slot。
+- `dsh.bundle.patch` 让官方 loader 在组合 profile 时读到你的 patch。
+- `dsh.client.inject` 列出你要扩展的官方 Client 包；`platform: "web"` 表示这是浏览器侧 bundle。
+- `cordis.patch.yml` 只追加 overlay 自己的一行，不碰别人的行。
 
-完整类型、生命周期和失败语义见 [`dsh-plugin-desktop/docs/plugin-services.md`](../dsh-plugin-desktop/docs/plugin-services.md)。下面只给出选择方式和最小原则。
+## Host 面
 
-## Desktop 专用插件
-
-如果插件只应该在 Desktop 中运行，可以把服务声明为 required injection：
+最小骨架：
 
 ```ts
 import type { Context } from '@deepseek-ai/cordis'
-import { randomUUID } from 'node:crypto'
-import type {} from 'dsh-plugin-desktop/profile-service'
-import type { DesktopPnpmHandle } from 'dsh-plugin-desktop/pnpm'
+import type {} from '@deepseek-ai/dsh-client-connection'
+import type {} from '@deepseek-ai/dsh-host-webserver'
+import { readJsonBody, rejectUnauthorized, sameOriginMutatingRequest, writeJson } from './http.ts'
 
-export const name = 'example-desktop-plugin'
-export const inject = ['desktopProfiles', 'desktopPnpm']
+export const name = 'dsh-overlay-custom'
+export const inject = ['webServer', 'connection']
 
-declare function persistPendingReceipt(recovery: {
-  readonly packageName: string
-  readonly packageVersion: string
-  readonly receiptId: string
-}): Promise<void>
+export function applyFeature(ctx: Context): void {
+  const reject = (req, res): boolean =>
+    rejectUnauthorized(req, res, ctx.connection.requestRejection(req))
 
-export function apply(ctx: Context): void {
-  ctx.logger.info(`profile: ${ctx.desktopProfiles.current.name}`)
-  let active: DesktopPnpmHandle | undefined
-
-  // 将这个函数连接到插件界面的明确用户操作。
-  async function installExample(): Promise<void> {
-    const recovery = {
-      packageName: 'example-plugin',
-      packageVersion: '1.0.0',
-      receiptId: randomUUID(),
-    }
-    await persistPendingReceipt(recovery)
-    active = await ctx.desktopPnpm.installPlugin({
-      invokingDir: process.cwd(),
-      recovery,
-    })
-    await active.done
-  }
-
-  ctx.effect(() => {
-    return async () => {
-      active?.cancel()
-      await active?.done.catch(() => {})
-    }
-  }, 'example plugin operation')
-}
-```
-
-实际项目应该把 package operation 放在明确的用户动作中，校验目标来源，在安装前持久保存 recovery receipt，在启动时 reconcile 已恢复的 receipt id，读取 stdout/stderr，设置自己的 timeout，并同时检查 `exitCode` 和 `signal`。一个 generation 同时只允许一个 `desktopPnpm` package operation；插件卸载时必须取消并等待它结束。
-
-## 兼容 Desktop 和普通 DSH
-
-如果同一个插件也要在普通 `dsh web` 中运行，不要把 Desktop service 放进顶层 required `inject`。先用 `ctx.get('desktopProfiles')` 判断是否处于 Desktop，再把两个 Desktop service 一起放进同一个嵌套 injection，让 adapter 会随着任一 service 的 generation 一起卸载：
-
-```ts
-export const inject = ['webServer', 'loader']
-
-export function apply(ctx: Context, config: { profile?: string }): void {
-  if (ctx.get('desktopProfiles') === undefined) {
-    mountOrdinaryDshManager(ctx, config.profile ?? 'web')
-    return
-  }
-
-  ctx.inject(['desktopProfiles', 'desktopPnpm'], (desktopCtx) => {
-    desktopCtx.effect(() => mountManager(desktopCtx, {
-      profile: desktopCtx.desktopProfiles.current.name,
-      profileDir: desktopCtx.desktopProfiles.current.dir,
-      runPlugin: (args, cwd, signal) =>
-        desktopCtx.desktopPnpm.runPlugin(args, cwd, signal),
-    }), 'example: Desktop plugin manager')
-  })
-}
-```
-
-普通 DSH 的 fallback 仍然是插件自己的权威实现。不要从 `process.argv`、`ctx.baseUrl`、settings 或 `$DSH_HOME` 推断 Desktop profile；在 Desktop 中以 `desktopProfiles.current` 为准。
-
-## 外部开发沙箱
-
-外部开发沙箱是构建在 Desktop 旁边的普通 `dsh web` 镜像，不是第二个 Electron 应用。当前公开 service 已足够支撑一条生命周期安全的集成路径：
-
-```ts
-import type { Context } from '@deepseek-ai/cordis'
-import type { DesktopPnpmHandle } from 'dsh-plugin-desktop/pnpm'
-import type {} from 'dsh-plugin-desktop/profile-service'
-import type {} from 'dsh-plugin-desktop/pnpm'
-
-declare function prepareSandboxProfile(options: {
-  readonly sourceProfileDir: string
-  readonly sandboxRoot: string
-  readonly pluginDir: string
-}): Promise<void>
-declare function launchExternalWebMirror(sandboxRoot: string): Promise<void>
-declare function removeSandbox(sandboxRoot: string): Promise<void>
-
-export function apply(ctx: Context): void {
-  if (ctx.get('desktopProfiles') === undefined) return
-
-  ctx.inject(['desktopProfiles', 'desktopPnpm'], (desktopCtx) => {
-    desktopCtx.effect(() => {
-      let build: DesktopPnpmHandle | undefined
-
-      async function buildAndLaunch(pluginDir: string, sandboxRoot: string): Promise<void> {
-        const sourceProfileDir = desktopCtx.desktopProfiles.current.dir
-        await prepareSandboxProfile({ sourceProfileDir, sandboxRoot, pluginDir })
-
-        const deadline = AbortSignal.timeout(5 * 60_000)
-        const operation = desktopCtx.desktopPnpm.run(
-          ['--dir', pluginDir, 'run', 'build'],
-          deadline,
-        )
-        build = operation
-        operation.stdout.resume()
-        operation.stderr.resume()
-
-        try {
-          const outcome = await operation.done
-          if (outcome.exitCode !== 0 || outcome.signal !== null) {
-            await removeSandbox(sandboxRoot)
-            throw new Error(
-              `sandbox build failed: exit=${String(outcome.exitCode)} signal=${String(outcome.signal)}`,
-            )
-          }
-        } catch (error) {
-          await removeSandbox(sandboxRoot)
-          throw error
-        } finally {
-          if (build === operation) build = undefined
-        }
-
-        await launchExternalWebMirror(sandboxRoot)
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: '/api/desktop/example/state',
+    handler: (req, res) => {
+      if (reject(req, res)) return
+      if (req.method !== 'GET') {
+        res.writeHead(405, { allow: 'GET', 'cache-control': 'no-store' }).end('method not allowed')
+        return
       }
-
-      return async () => {
-        const operation = build
-        operation?.cancel()
-        await operation?.done.catch(() => {})
-      }
-    }, 'example: external development sandbox')
-  })
+      writeJson(res, 200, { ok: true })
+    },
+  }), 'dsh-overlay-custom: example state')
 }
 ```
 
-这条模式里要注意：
+规则：
 
-- 把 `desktopProfiles.current.dir` 当作当前 Host generation 的只读 `host-web` 镜像来源；不要修改它、跨 `select()` 缓存它，也不要猜测成 `profiles/web`。
-- 本地 checkout 的构建应使用 `desktopPnpm.run(['--dir', pluginDir, 'run', 'build'], signal)`，这样 Desktop 的打包 pnpm、Node ABI 与 subprocess ownership 才会继续保持权威，而且不会改动激活 profile。
-- 必须持续读取两个输出流，自己设置 deadline，并保留返回 handle，这样 dispose 时才能调用 `cancel()`，随后继续等待 `done`。
-- 只要 `done` rejection、`exitCode` 非零，或 `signal` 非空，就应删除临时沙箱并停止，而不是继续启动镜像。
-- 镜像启动器本身按设计属于外部组件；公开 Desktop contract 不会提供第二套 Electron bootstrap surface。
+- **必需服务**写进顶层 `inject`：`webServer`、`connection`。它们缺失时 overlay 不启动，这是可接受的降级。
+- **可选服务**用 `ctx.get('name')` 探测，不要写进 `inject`：例如 `authorization`（缺失时 OAuth 显示不可用）、`skills` 与 `agentPresets`（缺失时技能页只提示）。这样官方改名不会让整个 overlay 起不来。
+- **路由**都用 `ctx.effect(...)` 包一层，返回的 dispose 由 Cordis 在卸载时调用。`kind` 只用 `exact` 或 `prefix`。
+- **写操作**必须同时做两道检查：`connection.requestRejection()` 判会话，`sameOriginMutatingRequest()` 判同源；读操作只做前者。
+- **事件**：`ctx.on('llm/stream', (options, next) => manager.stream(next))` 用于接管模型请求路由；`approval/request`、`user-questions/request` 用 `{ prepend: true }` 挂载，手机端可以先答，桌面仍可正常回答。
+- **不要**缓存跨 generation 的对象；不要从 `process.argv` 或 `ctx.baseUrl` 推断 profile。
 
-## `run()`、`runPlugin()` 和 `installPlugin()` 的区别
-
-`desktopPnpm.run(args)` 是低层 pnpm operation，cwd 是当前 profile。当你需要像 `['--dir', pluginDir, 'run', 'build']` 这样的生命周期自管本地工作，并且希望继承 Desktop 打包的 pnpm 与 Node surface、又不修改激活 profile 时，它是合适的选择。它不保证 DSH 的 profile 初始化、调用方相对 `file:`/`link:` source 锚定或 `dsh.profile.bundles` reconcile。
-
-`desktopPnpm.runPlugin(args, invokingDir)` 为非安装 mutation 执行打包的 `dsh plugin --profile <active>`，并保留上游插件管理语义。它会拒绝 `add`。`installPlugin(request)` 是可恢复安装路径：它从 receipt metadata 生成精确 package 目标，并拥有 profile 快照/WAL 生命周期。
+## Client 面
 
 ```ts
-await desktopPnpm.installPlugin({
-  invokingDir,
-  pnpmOptions: ['--save-exact'],
-  recovery: { packageName, packageVersion, receiptId },
-  signal,
-})
-desktopPnpm.runPlugin(['remove', packageName], invokingDir, signal)
-desktopPnpm.runPlugin(['update'], invokingDir, signal)
-desktopPnpm.runPlugin(['install', '--no-frozen-lockfile'], invokingDir, signal)
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+
+export const inject = ['slots', 'locale']
+
+export function apply(ctx: ClientContext): void {
+  ctx.effect(() => ctx.locale.register('overlay.example', { zh, en }), 'dsh-overlay-custom: locale')
+  ctx.effect(() => ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: 'overlay-example',
+    order: 96,
+    label: () => ctx.locale.bind('overlay.example')('nav'),
+    locale: 'overlay.example',
+    inject: () => ({}) as never,
+  }, ExampleSection as never)), 'dsh-overlay-custom: example settings')
+}
 ```
 
-参数始终作为 argv 传递；不要拼接 shell 字符串，也不要依赖 Windows `.cmd` shim。服务会在完整子进程树退出后 settle，并在 generation dispose 时终止仍在运行的 operation。
+现有插槽见[架构说明](architecture.md#overlay-如何被加载)。要点：
 
-## 不要依赖的接口
+- 先 `slots.inject(槽名, …)` 再 `slots.register`，让注册随插槽可用性一起生效。
+- 文案走 `ctx.locale.register` 的命名空间，中英各一份；不要在组件里硬编码中文。
+- 样式用注入 `<style>` 的方式（参考 `src/client/overlay-styles.ts`），使用 `--dsw-*` 主题变量，不要假设具体配色。
+- 所有请求都是同源相对路径（`credentials: 'same-origin'`），不要跨域打官方接口。
 
-`desktopRuntime`、`desktopPnpmBootstrap`、Electron `BrowserWindow`、托盘注册表、private Node helper、`ELECTRON_RUN_AS_NODE` 和生成的 shim 都是 Desktop 内部实现。即使它们出现在 declaration 或运行时上下文中，也不属于第三方兼容 contract。
+## 打包约定
 
-## 测试与发布检查
+```bash
+cd overlay
+npm run bundle:host    # esbuild → lib/index.js，platform=node，format=esm，packages=external
+npm run bundle:client  # esbuild → lib/client.js，format=cjs
+npm run check
+```
 
-插件至少应覆盖：
+client bundle 带一段 banner：
 
-- 在普通 DSH 中没有 Desktop service 时仍能加载，或按产品定义保持 pending。
-- Desktop 中读取的 profile name/dir 与用户实际选择一致。
-- package operation 的取消、非零退出、spawn failure 和 generation teardown。
-- 插件变更后重新启动，bundle 能进入下一次 Loader 组合。
+```js
+window.__ModuleLoader__.load({ id: "@deepseek-ai/dsh-overlay-custom", factory: (require) => { ... } })
+```
 
-开发者可以先阅读 [架构说明](architecture.md)，再使用包级 [service contract](../dsh-plugin-desktop/docs/plugin-services.md)。
+`id` 必须等于 `package.json` 的 `name`。便携包构建会校验这一点，不一致直接失败——因为它在 staging 里把包改名为 `@deepseek-ai/dsh-overlay-custom`。
 
-## 生态愿景：保持插件生态可组合
+`lib/` 是 gitignored 的构建产物，改完源码必须重新 bundle，否则加载的还是旧代码。
 
-DSH 的插件生态正在快速增长。插件越多，它们能否协同工作就越重要——如果每个插件都假设或覆盖其他插件的内部实现，装几个插件就会开始冲突，生态会逐渐碎片化。
+## 数据与状态
 
-我们倡导像浏览器插件一样的开发方式：大家在同一个平台上、按同一套约定扩展，而不是各自维护一份改过的运行时。DSH Desktop 是这套方式的第一个实践者——桌面壳本身就是一个普通插件，与官方、第三方插件走同一条组合路径，没有任何特权。
+- home 用 `resolveDshHome()` 自己解析（`DSH_HOME` 优先），不要 import 官方 home-paths 包。
+- 自己的状态写 `<DSH_HOME>/overlay-custom.yaml`（`writeOverlayConfig`，0600）。
+- **不要**写官方 `settings.yaml`、`.credentials.yaml` 或会话数据库。唯一例外是模型勾选需要影响官方 Loader，写入 profile 的 `cordis.patch.yml`。
+- 密钥不落日志：`overlay-custom.yaml` 可以存凭据，但返回给前端的视图必须脱敏（参考 `projectOverlayMcpServer`、`modelProxyConfigView`）。
 
-为此我们发起一项开发规范倡议，希望它通过社区的采纳成为事实标准：
+## 测试
 
-- **组合优先**：通过官方 slot、service 和 patch 组合能力，不要假设或覆盖其他插件的内部实现。
-- **声明清晰**：明确声明依赖的 service 和 slot，不依赖运行时巧合。
-- **兼容优先**：升级保持向后兼容，不破坏已有组合。
+```bash
+node --experimental-strip-types --test overlay/scripts/check.ts
+cd overlay && npm run check    # check.ts + scripts/*.test.ts
+```
 
-倡议是活文档，随生态实践更新，接受社区讨论和修订。插件市场上线后，遵循共同约定的插件将更容易被发现、安装和判断兼容性，让"按规范开发"成为对每个作者都有利的选择。完整愿景见 [DSH 插件生态倡议书](plugin-ecosystem.md)；未来互操作 contract 的讨论见 [DSH Community Fabric](../dsh-community-fabric/README.zh.md)。
+`scripts/check.ts` 是"契约测试"，除了断言纯函数行为，还做静态守卫：
+
+- 每个 Host 路由路径在源码里存在，Client 注册的插槽 id 存在；
+- 手机页调用的每个 `/api/desktop/mobile/*` 路由都在 Host 侧注册过；
+- client bundle 与 host bundle 已构建，`exports` 指向正确；
+- overlay 源码不出现 `deepseek-harness/` 路径、不 import `electron`、不 import 官方 authorization 包；
+- 打包脚本里保留关键适配（例如图片预检的放开）。
+
+新增功能时同步加断言。仅仅"跑得起来"不算验证——`scripts/check.ts` 是 CI 唯一会跑的东西。
+
+## 禁止事项
+
+1. 不 import 官方源码树路径（`deepseek-harness/**`），只用 `@deepseek-ai/*` 公开包与类型。
+2. 不 import `electron`，不调用 `require('electron')`。overlay 是普通 Web Host/Client 插件。
+3. 不让官方桌面依赖 overlay：官方服务缺失只能降级单个入口。
+4. 不改官方 `apps/desktop` / `packages/**`；需要打包期适配时写进 `scripts/prepare-portable-stage.mjs`，只作用于 staging。
+5. 不劫持或删除 profile 里不属于自己的 bundle 与 patch 行（profile 修补只清理历史 overlay 行）。
+6. 不把构建机绝对路径、软链或开发期 `file:` 依赖带进产物。
+
+## 提交前检查
+
+- [ ] `npm run bundle:host && npm run bundle:client` 已重跑
+- [ ] `npm run check` 通过，新增行为有对应断言
+- [ ] 新路由做了 `requestRejection` + 同源检查
+- [ ] 新文案中英都在 locale 命名空间里
+- [ ] 新状态只写 `overlay-custom.yaml`
+- [ ] 在真实官方桌面上手动验证过一次（`bash scripts/start-official.sh`）

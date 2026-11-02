@@ -1,49 +1,72 @@
-# DSH Desktop 常见问题
+# 常见问题
 
 [English](faq.en.md)
 
-本页回答当前正式版本最常见的安装、平台、运行环境和插件问题。功能范围以[GitHub Releases](https://github.com/LiuYuMiao-M/dsh-desktop/releases/latest)和[用户指南](user-guide.md)为准。
+本页只回答与当前代码一致的问题。功能范围的权威来源是[用户指南](user-guide.md)和[官方壳与 overlay 架构](official-architecture.md)�?
+## 这是什么？和官�?DeepSeek Harness 什么关系？
 
-## DSH Desktop 是什么？
+本仓库维�?*官方 DeepSeek Harness 桌面应用（`apps/desktop`�? 一个本�?overlay 插件**，并把它打成便携包。桌面壳、安装器、更新、插件管理都是官方的，overlay 只补几项官方没有的能力（手机连接、模型卡片工具、Codex/xAI 登录、MCP 卡片、模型网络代理、Skills 展示）�?
+它不�?DeepSeek 官方产品，也没有官方背书。这是个人定制版，不提供支持承诺�?
+## 旧版本（自带壳）还能用吗�?
+本仓库不再维护它，也不再提供更新。能力去向与数据迁移见[�?2.0.x 迁移](migration-from-2.0.md)；旧实现只留�?git 历史与历�?Release 里。按旧文档操作会与当前代码对不上�?
+## 支持哪些平台�?
+- Windows x64：NSIS 安装�?+ 便携 ZIP�?- macOS ARM64：DMG + ZIP，ad-hoc 签名�?- 没有 Intel macOS 包，没有 Linux 包�?
+## 需要自己装 Node.js 吗？
 
-DSH Desktop 是面向 Windows 和 macOS 的开源 DeepSeek Harness 桌面客户端。它把官方 Harness 的本地 Web UI、Host 服务和插件系统装进原生桌面应用，并提供窗口、系统托盘、终端、更新和 profile 管理。
+用便携包的用户不需要，运行时已经打进去了。要自己构建或跑开发流程则需�?Node.js `^22.19.0` �?`>=24.0.0`、`corepack` 提供�?pnpm、Git �?`bash`；Windows 便携包要�?Windows x64 主机�?PowerShell 7（`pwsh`），macOS 包要�?Apple Silicon 主机�?
+## Windows 提示"已保护你的电�?怎么办？
 
-## 这是 DeepSeek 官方产品吗？
+包没有代码签名，SmartScreen 会拦。点「更多信息」→「仍要运行」。这是未签名构建的正常行为，不是文件损坏；可以用同目�?`.sha256` 核对下载完整性�?
+## macOS 打不开应用怎么办？
 
-不是。DSH Desktop 是社区维护的独立开源项目，不隶属于 DeepSeek，也未获得 DeepSeek 官方背书。项目名称仅用于说明它与官方 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的技术关系。
+包是 ad-hoc 签名、未公证。两种方式：
 
-## 支持哪些操作系统？
+1. 在「应用程序」里右键（或 Control-点击）应�?→「打开」→ 再确认一次�?2. 或者先尝试打开一次，然后到「系统设�?�?隐私与安全性」底部点「仍要打开」�?
+如果仍然被拦，用 `xattr -dr com.apple.quarantine <应用路径>` 清掉隔离属性后再打开。只在确认来源可信时这么做�?
+## 怎么更新�?
+手动更新，不接自动更新：下载新包，Windows 退出应用后覆盖安装（或替换 ZIP 解压目录），macOS 打开�?DMG 拖进「应用程序」覆盖。数据留�?`DSH_HOME`，不会因为换包丢失�?
+## `DSH_HOME` 是什么，会不会动我原来的 `~/.dsh`�?
+`DSH_HOME` �?DSH 的数据目录（会话、设置、凭据、profile）�?
+| 场景 | 默认�?|
+|---|---|
+| 官方应用直接运行 | `~/.dsh` |
+| 便携包（未设 `DSH_HOME`�?| `~/.dsh-official` |
+| 开发脚�?`start-official.sh` | `~/.dsh-official-dev` |
 
-当前正式安装包支持 Windows x64 和 universal macOS（Intel 与 Apple Silicon）。当前没有 Linux 安装包；不要根据源码中存在跨平台兼容代码推断已经发布了对应安装包。
+便携包默认不�?`~/.dsh`，所以可以和日常使用的官�?Harness 并存。overlay 的配置只在当�?home �?`overlay-custom.yaml` 里，不写官方 `settings.yaml`。设�?`DSH_HOME` 后，官方应用�?overlay 一起切换�?
+## 中继怎么配？
 
-## 需要安装 Node.js、pnpm 或 DSH 吗？
+先部�?[`relay-server/`](../relay-server/README.md)（Node �?22 + TLS），然后在应用的手机连接弹窗里填 origin，或�?`DSH_OVERLAY_RELAY_ORIGIN` 环境变量覆盖。只接受�?origin：公网必�?`https://`，`localhost`/`127.0.0.1`/`[::1]` 才允�?`http://`�?
+中继能看到转发的明文流量，只应部署在自己控制的服务器上�?
+## 怎么换官方基线？
 
-不需要。安装包已经包含 Electron、Node.js、pnpm 和固定版本的 DSH 依赖。普通用户下载安装后即可启动，Desktop 也不会修改系统全局 PATH 或用户的 shell 配置。
+只允许换到官�?*已发布标�?*，并且要在官方树外完成：
 
-## 首次启动需要下载运行环境吗？
+1. 确认目标的官�?tag �?commit，例�?`dsh-v0.3.0`�?2. �?`official-lock.json` �?`repository`、`commit`、`version` 三个字段�?3. 快进检出并重新构建官方产物�?
+```bash
+DSH_OFFICIAL_REF=dsh-v0.3.0 bash scripts/update-official.sh
+```
 
-不需要另行下载 Node.js 或 Harness 核心。安装包较大，是因为运行时和固定版本依赖已经包含在内，以换取更确定的首次启动和版本组合。使用云端模型、检查更新或下载新版本时仍然需要网络。
+`update-official.sh` 要求检出干净、当前在 `master` 分支、官方桌面未在运行；它只�?`merge --ff-only`，然�?`pnpm install --frozen-lockfile` �?`pnpm run build`�?
+4. 跑一致性检查与 overlay 单测�?
+```bash
+bash scripts/check.sh
+```
 
-## DSH Desktop 会修改官方 Harness 吗？
+5. �?Windows x64 �?macOS ARM64 上各跑一次完整便携包构建�?smoke（`scripts/build-portable-windows-x64.ps1`、`scripts/build-portable-macos-arm64.sh`）�?6. 如果官方改动�?overlay 依赖的服务或插槽，改 overlay�?*不要**�?`deepseek-harness/` 里打补丁�?cherry-pick�?
+## overlay 装了但界面没有变化，怎么排查�?
+按顺序看�?
+1. **`DSH_HOME` 指对了吗�?* overlay 只读写当�?home。便携包默认 `~/.dsh-official`，开发脚本用 `~/.dsh-official-dev`，别去看 `~/.dsh`�?2. **profile 里有 overlay 吗？** 检�?`<DSH_HOME>/profiles/desktop/package.json` �?`dsh.profile.bundles`（便携包�?`@deepseek-ai/dsh-overlay-custom`，开发为 `dsh-overlay-custom`）和 `cordis.patch.yml` 里的 `overlay-custom` 行�?3. **开发环境重装一�?*：`bash scripts/install-overlay.sh`。如果脚本提�?desktop profile �?Electron 管理，就在官�?Plugin Manager 里添�?`file:<仓库绝对路径>/overlay`�?4. **`lib/` 重新打了吗？** `overlay/lib/` �?gitignored 的构建产物，缺了就什么都不会加载�?
+```bash
+cd overlay && npm run bundle:host && npm run bundle:client && npm run check
+```
 
-不会。仓库固定一个未修改的官方 Harness 上游版本。兼容模式在独立 overlay frame 下运行上游默认 Web client；扩展窗口与增强模式分别通过插件/profile composition 边界安装各自的 Desktop root registration，并继续承载官方 slot occupant。所有模式都不会直接修改上游源码。
+5. **重启应用**：bundle 与插槽只在启动时组合，改完必须重启�?6. **看日�?*：开发运行看 `~/.dsh-official-dev/official-desktop.log`，正常会有一�?`dsh-overlay-custom host mounted`。没有这行说�?Host 面没挂上，通常�?`webServer` �?`connection` 服务缺失（官方改名了）�?7. **只有界面元素缺失、路由还在？** 说明官方 Client 插槽改名了。Host 路由（`/api/desktop/...`）与 Client 插槽是两件事，可以分别失效�?8. **便携包里还有旧的 `file:` 依赖吗？** 打包后的应用首次创建/升级 profile 会自动清理历�?`file:` 依赖与软链，并写 `portable-overlay-state.json`。如果这份文件在但界面仍无变化，回到�?2 步�?
+## 手机扫码后页面打不开�?
+- 二维�?链接里的 origin 必须能被手机访问到，且证书有效�?- 应用重启后旧链接立即失效，需要重新点入口生成�?- 状态是「等待远程连接」而手机一直打不开时，先确认中继的 `/healthz` 正常、桌面到中继�?WebSocket 没被企业网络拦截�?
+## 模型勾�?登录后为什么还要重启？
 
-## 数据是否保存在本地？
+模型选择要影响官�?Loader 的模型列表，overlay 把它写进 profile �?`cordis.patch.yml`。官�?Loader 在启动时组合配置，所以保存后需要重启应用才生效�?
+## 在哪里反馈问题？
 
-Desktop Host、profile 和 DSH home 位于本机。是否向外部服务发送内容取决于用户配置的模型或工具提供商；使用云端模型时，相应请求仍会发送给该提供商。
-
-## 可以安装 DSH 插件吗？
-
-可以。DSH Desktop 使用官方 Harness 插件体系。可以从托盘打开 DSH Terminal，然后运行 `dsh plugin add`、`dsh plugin remove` 和 `dsh plugin update`；命令默认作用于当前激活的 profile，插件变更后需要重启 Desktop。
-
-## Desktop profile 和已有 web profile 会自动同步吗？
-
-不会自动复制插件。每个 profile 都有自己的 bundle 和依赖组合；切换 profile 后，终端中的默认插件命令会作用于当前 profile，也可以使用 `--profile <name>` 显式指定目标。
-
-## 应用如何更新？
-
-打包后的应用会在后台检查稳定版本，但不会静默安装。发现新版本后先征得用户确认；下载前可以在原生保存对话框中选择安装包的目录和文件名，取消保存不会开始下载。macOS 下载并打开 DMG，Windows 下载并启动 NSIS 安装程序。升级完成并重新启动后，应用会询问是否删除或保留安装包。网络或下载失败不会破坏当前安装。
-
-## 在哪里下载和报告问题？
-
-从 [GitHub Releases](https://github.com/LiuYuMiao-M/dsh-desktop/releases/latest) 下载安装包。遇到问题时先查看[用户指南的排查部分](user-guide.md#排查)，仍无法解决再提交 [GitHub Issue](https://github.com/LiuYuMiao-M/dsh-desktop/issues/new/choose)，并附上操作系统、应用版本、复现步骤和错误信息。
+�?[GitHub Issue](https://github.com/XingAur/deepseek-harness-desktop/issues/new/choose)，附上：操作系统与架构、包文件名（�?`buildVersion`）、`DSH_HOME` 路径、复现步骤、相关日志片段。涉及凭据的内容请先脱敏�?

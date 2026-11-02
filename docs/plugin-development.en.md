@@ -1,214 +1,160 @@
-# DSH Desktop Plugin Development
+# Overlay Plugin Development
 
-> **Do not confuse current APIs with a Draft:** this guide describes working DSH/Cordis and Desktop services. The manifest, capability, and unified event model in `dsh-community-fabric` remains a [community RFC Draft](../dsh-community-fabric/README.md) and cannot yet be used as a dependency or release target.
+`overlay/` is the only product code in this repository. It is an **ordinary Cordis host/client bundle** mounted into the official desktop profile. It does not modify official sources and it does not pull in Electron.
 
-## Understand the two plugin layers
+## One package, two faces
 
-A normal DSH plugin can provide Host services, commands, routes, bundles, or a Web Client. It should depend on upstream DSH contracts whenever possible so the same package can work in the CLI, an ordinary Web profile, and DSH Desktop.
+```text
+overlay/
+├─ package.json         # dsh.bundle.patch / dsh.client.inject / exports
+├─ cordis.patch.yml     # appends the overlay row to the profile
+├─ src/index.ts         # host entry → lib/index.js (ESM)
+├─ src/client/index.ts  # client entry → lib/client.js (CJS)
+├─ public/              # phone page assets (mobile.html/js/css)
+└─ scripts/             # bundling and checks
+```
 
-Desktop adds two public Host services:
+Key fields:
 
-- `desktopProfiles`: reads the active profile, discovers selectable profiles, and requests a safe profile switch.
-- `desktopPnpm`: runs pnpm in the active profile, or manages plugins through the official `dsh plugin` semantics.
+```json
+{
+  "exports": { ".": "./lib/index.js", "./client": "./lib/client.js" },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": { "inject": ["@deepseek-ai/dsh-client-ui-sidebar", "..."], "platform": "web" }
+  }
+}
+```
 
-These services live in the Host Cordis generation in Electron's main process. The renderer cannot read them directly; a plugin with browser UI should continue to use ordinary DSH Web routes, RPC, client metadata, services, and slots.
+- `dsh.bundle.patch` makes the official loader read your patch while composing the profile.
+- `dsh.client.inject` lists the official client packages you extend; `platform: "web"` marks this as a browser-side bundle.
+- `cordis.patch.yml` appends only the overlay's own row and leaves everyone else's rows alone.
 
-The complete types, lifecycle, and failure semantics are in [`dsh-plugin-desktop/docs/plugin-services.md`](../dsh-plugin-desktop/docs/plugin-services.md). This page focuses on selection and the minimum safe patterns.
+## Host face
 
-## Desktop-only plugins
-
-If a plugin only makes sense in Desktop, declare the services as required injections:
+Minimal skeleton:
 
 ```ts
 import type { Context } from '@deepseek-ai/cordis'
-import { randomUUID } from 'node:crypto'
-import type {} from 'dsh-plugin-desktop/profile-service'
-import type { DesktopPnpmHandle } from 'dsh-plugin-desktop/pnpm'
+import type {} from '@deepseek-ai/dsh-client-connection'
+import type {} from '@deepseek-ai/dsh-host-webserver'
+import { readJsonBody, rejectUnauthorized, sameOriginMutatingRequest, writeJson } from './http.ts'
 
-export const name = 'example-desktop-plugin'
-export const inject = ['desktopProfiles', 'desktopPnpm']
+export const name = 'dsh-overlay-custom'
+export const inject = ['webServer', 'connection']
 
-declare function persistPendingReceipt(recovery: {
-  readonly packageName: string
-  readonly packageVersion: string
-  readonly receiptId: string
-}): Promise<void>
+export function applyFeature(ctx: Context): void {
+  const reject = (req, res): boolean =>
+    rejectUnauthorized(req, res, ctx.connection.requestRejection(req))
 
-export function apply(ctx: Context): void {
-  ctx.logger.info(`profile: ${ctx.desktopProfiles.current.name}`)
-  let active: DesktopPnpmHandle | undefined
-
-  // Connect this function to an explicit user action in the plugin UI.
-  async function installExample(): Promise<void> {
-    const recovery = {
-      packageName: 'example-plugin',
-      packageVersion: '1.0.0',
-      receiptId: randomUUID(),
-    }
-    await persistPendingReceipt(recovery)
-    active = await ctx.desktopPnpm.installPlugin({
-      invokingDir: process.cwd(),
-      recovery,
-    })
-    await active.done
-  }
-
-  ctx.effect(() => {
-    return async () => {
-      active?.cancel()
-      await active?.done.catch(() => {})
-    }
-  }, 'example plugin operation')
-}
-```
-
-Production code should invoke package operations from an explicit user action, validate the target, durably persist the recovery receipt before installation, reconcile recovered receipt ids on startup, read stdout/stderr, set its own timeout, and check both `exitCode` and `signal`. A generation allows only one `desktopPnpm` package operation at a time; dispose must cancel and await it.
-
-## Plugins that work in Desktop and ordinary DSH
-
-When the same package must also run under ordinary `dsh web`, do not put Desktop services in the top-level required `inject` list. Detect Desktop from `ctx.get('desktopProfiles')`, then keep both Desktop services together in one nested Desktop injection so the adapter unloads with either service generation:
-
-```ts
-export const inject = ['webServer', 'loader']
-
-export function apply(ctx: Context, config: { profile?: string }): void {
-  if (ctx.get('desktopProfiles') === undefined) {
-    mountOrdinaryDshManager(ctx, config.profile ?? 'web')
-    return
-  }
-
-  ctx.inject(['desktopProfiles', 'desktopPnpm'], (desktopCtx) => {
-    desktopCtx.effect(() => mountManager(desktopCtx, {
-      profile: desktopCtx.desktopProfiles.current.name,
-      profileDir: desktopCtx.desktopProfiles.current.dir,
-      runPlugin: (args, cwd, signal) =>
-        desktopCtx.desktopPnpm.runPlugin(args, cwd, signal),
-    }), 'example: Desktop plugin manager')
-  })
-}
-```
-
-The ordinary DSH fallback remains the plugin's authoritative implementation. Do not infer the Desktop profile from `process.argv`, `ctx.baseUrl`, settings, or `$DSH_HOME`; in Desktop, use `desktopProfiles.current`.
-
-## External development sandboxes
-
-An external development sandbox is an ordinary `dsh web` mirror built beside Desktop, not a second Electron application. The current public services are enough for a lifecycle-safe recipe:
-
-```ts
-import type { Context } from '@deepseek-ai/cordis'
-import type { DesktopPnpmHandle } from 'dsh-plugin-desktop/pnpm'
-import type {} from 'dsh-plugin-desktop/profile-service'
-import type {} from 'dsh-plugin-desktop/pnpm'
-
-declare function prepareSandboxProfile(options: {
-  readonly sourceProfileDir: string
-  readonly sandboxRoot: string
-  readonly pluginDir: string
-}): Promise<void>
-declare function launchExternalWebMirror(sandboxRoot: string): Promise<void>
-declare function removeSandbox(sandboxRoot: string): Promise<void>
-
-export function apply(ctx: Context): void {
-  if (ctx.get('desktopProfiles') === undefined) return
-
-  ctx.inject(['desktopProfiles', 'desktopPnpm'], (desktopCtx) => {
-    desktopCtx.effect(() => {
-      let build: DesktopPnpmHandle | undefined
-
-      async function buildAndLaunch(pluginDir: string, sandboxRoot: string): Promise<void> {
-        const sourceProfileDir = desktopCtx.desktopProfiles.current.dir
-        await prepareSandboxProfile({ sourceProfileDir, sandboxRoot, pluginDir })
-
-        const deadline = AbortSignal.timeout(5 * 60_000)
-        const operation = desktopCtx.desktopPnpm.run(
-          ['--dir', pluginDir, 'run', 'build'],
-          deadline,
-        )
-        build = operation
-        operation.stdout.resume()
-        operation.stderr.resume()
-
-        try {
-          const outcome = await operation.done
-          if (outcome.exitCode !== 0 || outcome.signal !== null) {
-            await removeSandbox(sandboxRoot)
-            throw new Error(
-              `sandbox build failed: exit=${String(outcome.exitCode)} signal=${String(outcome.signal)}`,
-            )
-          }
-        } catch (error) {
-          await removeSandbox(sandboxRoot)
-          throw error
-        } finally {
-          if (build === operation) build = undefined
-        }
-
-        await launchExternalWebMirror(sandboxRoot)
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: '/api/desktop/example/state',
+    handler: (req, res) => {
+      if (reject(req, res)) return
+      if (req.method !== 'GET') {
+        res.writeHead(405, { allow: 'GET', 'cache-control': 'no-store' }).end('method not allowed')
+        return
       }
-
-      return async () => {
-        const operation = build
-        operation?.cancel()
-        await operation?.done.catch(() => {})
-      }
-    }, 'example: external development sandbox')
-  })
+      writeJson(res, 200, { ok: true })
+    },
+  }), 'dsh-overlay-custom: example state')
 }
 ```
 
-For this pattern:
+Rules:
 
-- Treat `desktopProfiles.current.dir` as the read-only `host-web` mirror source for one Host generation. Do not mutate it, cache it across `select()`, or guess `profiles/web`.
-- Use `desktopPnpm.run(['--dir', pluginDir, 'run', 'build'], signal)` for the local checkout build so Desktop's packaged pnpm, Node ABI, and subprocess ownership remain authoritative without mutating the active profile.
-- Drain both streams, apply your own deadline, and keep the returned handle so disposal can call `cancel()` and still await `done`.
-- If `done` rejects, `exitCode` is nonzero, or `signal` is non-null, remove the temporary sandbox and stop there instead of launching the mirror.
-- The mirror launcher is external by design. The public Desktop contract does not expose a second Electron bootstrap surface.
+- **Required services** go in the top-level `inject`: `webServer` and `connection`. When they are missing the overlay does not start, and that degradation is acceptable.
+- **Optional services** are probed with `ctx.get('name')` and never added to `inject`: `authorization` (absent → OAuth reports unavailable), `skills` and `agentPresets` (absent → the Skills page only informs). This keeps an upstream rename from taking the whole overlay down.
+- **Routes** are always wrapped in `ctx.effect(...)` so the returned disposer runs on unmount. `kind` is either `exact` or `prefix`.
+- **Mutations** must pass both guards: `connection.requestRejection()` for the session and `sameOriginMutatingRequest()` for same-origin. Reads only need the first.
+- **Events**: `ctx.on('llm/stream', (options, next) => manager.stream(next))` takes over model request routing; `approval/request` and `user-questions/request` are mounted with `{ prepend: true }` so the phone may answer first while the desktop still can.
+- **Never** cache objects across generations, and never infer the profile from `process.argv` or `ctx.baseUrl`.
 
-## `run()`, `runPlugin()`, and `installPlugin()`
-
-`desktopPnpm.run(args)` is a low-level pnpm operation with the active profile as its cwd. It is appropriate for lifecycle-owned local work such as `['--dir', pluginDir, 'run', 'build']` when you need Desktop's packaged pnpm and Node surface without mutating the active profile. It does not promise DSH profile initialization, caller-relative `file:`/`link:` anchoring, or `dsh.profile.bundles` reconciliation.
-
-`desktopPnpm.runPlugin(args, invokingDir)` runs packaged `dsh plugin --profile <active>` for non-install mutations and preserves upstream plugin-management semantics. It rejects `add`. `installPlugin(request)` is the recoverable install path: it generates the exact package target from receipt metadata and owns the profile snapshot/WAL lifecycle.
+## Client face
 
 ```ts
-await desktopPnpm.installPlugin({
-  invokingDir,
-  pnpmOptions: ['--save-exact'],
-  recovery: { packageName, packageVersion, receiptId },
-  signal,
-})
-desktopPnpm.runPlugin(['remove', packageName], invokingDir, signal)
-desktopPnpm.runPlugin(['update'], invokingDir, signal)
-desktopPnpm.runPlugin(['install', '--no-frozen-lockfile'], invokingDir, signal)
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+
+export const inject = ['slots', 'locale']
+
+export function apply(ctx: ClientContext): void {
+  ctx.effect(() => ctx.locale.register('overlay.example', { zh, en }), 'dsh-overlay-custom: locale')
+  ctx.effect(() => ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: 'overlay-example',
+    order: 96,
+    label: () => ctx.locale.bind('overlay.example')('nav'),
+    locale: 'overlay.example',
+    inject: () => ({}) as never,
+  }, ExampleSection as never)), 'dsh-overlay-custom: example settings')
+}
 ```
 
-Arguments are passed as argv. Do not concatenate shell strings or depend on Windows `.cmd` shims. The service settles only after the whole subprocess tree exits and terminates active operations during generation disposal.
+Current slots are listed in the [architecture notes](architecture.en.md#how-the-overlay-is-loaded). Essentials:
 
-## APIs not to depend on
+- Call `slots.inject(name, …)` before `slots.register` so registration follows slot availability.
+- Text goes through a `ctx.locale.register` namespace with both Chinese and English; never hardcode copy in a component.
+- Style by injecting a `<style>` element (see `src/client/overlay-styles.ts`) and use `--dsw-*` theme variables instead of assuming a palette.
+- Every request is a same-origin relative path (`credentials: 'same-origin'`). Never call official endpoints cross-origin.
 
-`desktopRuntime`, `desktopPnpmBootstrap`, Electron `BrowserWindow`, the tray registry, private Node helpers, `ELECTRON_RUN_AS_NODE`, and generated shims are Desktop internals. Their presence in declarations or runtime context does not make them third-party compatibility contracts.
+## Bundling
 
-## Testing and release checks
+```bash
+cd overlay
+npm run bundle:host    # esbuild → lib/index.js, platform=node, format=esm, packages=external
+npm run bundle:client  # esbuild → lib/client.js, format=cjs
+npm run check
+```
 
-At minimum, a plugin should cover:
+The client bundle carries a banner:
 
-- Loading under ordinary DSH without Desktop services, or staying pending by design.
-- Matching the profile name and directory reported by Desktop to the user's actual selection.
-- Cancellation, non-zero exit, spawn failure, and generation teardown for package operations.
-- Restarting after a plugin change and seeing the bundle in the next Loader composition.
+```js
+window.__ModuleLoader__.load({ id: "@deepseek-ai/dsh-overlay-custom", factory: (require) => { ... } })
+```
 
-Read the [architecture](architecture.en.md) next, then use the package-level [service contract](../dsh-plugin-desktop/docs/plugin-services.md) as the API reference.
+`id` must equal `package.json` `name`. The portable build enforces this and fails otherwise, because staging renames the package to `@deepseek-ai/dsh-overlay-custom`.
 
-## Ecosystem vision: keep the plugin ecosystem composable
+`lib/` is a gitignored build artifact. Re-bundle after editing sources or the old code keeps loading.
 
-The DSH plugin ecosystem is growing quickly. The more plugins there are, the more their ability to work together matters — if every plugin assumes or overrides another plugin's internals, installing a few plugins starts to conflict and the ecosystem fragments.
+## Data and state
 
-We advocate a browser-plugin style of development: everyone extends the same platform against the same conventions, instead of each maintaining a modified runtime of their own. DSH Desktop is the first practitioner of this approach — the desktop shell itself is an ordinary plugin on the same composition path as official and third-party plugins, with no special privileges.
+- Resolve the home with `resolveDshHome()` (`DSH_HOME` first). Never import the official home-paths package.
+- Write your own state to `<DSH_HOME>/overlay-custom.yaml` via `writeOverlayConfig` (0600).
+- **Do not** write the official `settings.yaml`, `.credentials.yaml`, or session database. The one exception is model selection, which has to reach the official loader through the profile's `cordis.patch.yml`.
+- Keep secrets out of logs: `overlay-custom.yaml` may hold credentials, but every view returned to the UI must be redacted (see `projectOverlayMcpServer`, `modelProxyConfigView`).
 
-To that end we are starting a development-conventions initiative and hope it becomes a de facto standard through community adoption:
+## Tests
 
-- **Composition first**: compose capabilities through official slots, services, and patches; do not assume or override other plugins' internals.
-- **Declare clearly**: state the services and slots you depend on; do not rely on runtime coincidences.
-- **Compatibility first**: keep upgrades backward compatible and never break existing compositions.
+```bash
+node --experimental-strip-types --test overlay/scripts/check.ts
+cd overlay && npm run check    # check.ts + scripts/*.test.ts
+```
 
-The manifesto is a living document that follows ecosystem practice and accepts community discussion and revisions. Once the plugin marketplace ships, plugins following shared conventions will be easier to discover, install, and evaluate for compatibility, making convention-driven development the beneficial choice for every author. See the [DSH plugin ecosystem manifesto](plugin-ecosystem.en.md) for the vision and [DSH Community Fabric](../dsh-community-fabric/README.md) for the proposed future interoperability contract.
+`scripts/check.ts` is the contract test. Besides pure-function behaviour it enforces static guards:
+
+- every host route path and client slot id exists in the sources;
+- every `/api/desktop/mobile/*` route the phone page calls is registered on the host;
+- both bundles exist and `exports` points at them;
+- overlay sources contain no `deepseek-harness/` path, import no `electron`, and import no official authorization package;
+- packaging adaptations (for example the relaxed image preflight) stay present.
+
+Add assertions with the feature. "It runs" is not verification — `scripts/check.ts` is the only thing CI runs.
+
+## Prohibitions
+
+1. Do not import the official source tree (`deepseek-harness/**`); use only public `@deepseek-ai/*` packages and types.
+2. Do not import `electron` or `require('electron')`. The overlay is an ordinary web host/client plugin.
+3. Do not make the official desktop depend on the overlay: a missing official service may only degrade a single entry point.
+4. Do not edit official `apps/desktop` / `packages/**`. Packaging-time adaptation goes into `scripts/prepare-portable-stage.mjs` and applies to staging only.
+5. Do not hijack or delete bundles and patch rows you do not own; profile repair removes legacy overlay rows only.
+6. Never ship build-host absolute paths, symlinks, or development `file:` dependencies inside artifacts.
+
+## Pre-commit checklist
+
+- [ ] `npm run bundle:host && npm run bundle:client` re-run
+- [ ] `npm run check` passes and new behaviour has assertions
+- [ ] New routes use `requestRejection` plus the same-origin guard
+- [ ] New copy exists in both locale dictionaries
+- [ ] New state is written only to `overlay-custom.yaml`
+- [ ] Manually verified once on the real official desktop (`bash scripts/start-official.sh`)

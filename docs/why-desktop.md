@@ -1,49 +1,48 @@
-# 为什么做 DSH Desktop
+# 为什么还做一个桌面版
 
-## 我们解决什么问题
+## 官方桌面已经解决了什么
 
-DeepSeek Harness 的核心是一个可组合的 agent harness。它适合通过命令行和 Web UI 使用，也适合开发者把模型、工具、会话和工作流组合成自己的运行时。但对很多用户来说，第一次运行仍然要面对 Node.js、profile、依赖安装、端口和进程生命周期。
+[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 自带桌面应用（`apps/desktop`）：Electron 壳、窗口与托盘、安装包、更新、profile 与插件管理、Web UI 都在里面。这些不需要谁来重写一遍。
 
-DSH Desktop 的目标不是重新实现 Harness，而是把同一个运行时放进一个容易启动、容易管理、符合操作系统习惯的应用里：
+所以本仓库不再自己造壳：官方的壳已经覆盖这些，旧的自写壳已删除，能力去向见[从 2.0.x 迁移](migration-from-2.0.md)。
 
-- 安装包负责提供 Electron、Node 运行时和固定版本的 DSH 依赖。
-- 应用负责窗口、托盘、单实例、退出和本地服务生命周期。
-- 用户仍然使用官方 DSH 的 profile、插件、会话和 Web UI。
-- 上游 Harness 继续拥有 agent、模型、工具、会话和 Web 客户端的核心语义。
+## 那这个仓库存在的理由
 
-因此 Desktop 是一个产品入口和运行时适配层，不是上游项目的替代品，也不是把上游源码复制一份再长期分叉。
+官方桌面是个通用产品。日常使用里还有几件它没覆盖、或者用起来别扭的事，本仓库用一个**本地 overlay 插件**补上，并且不改官方源码：
 
-## 为什么坚持插件化
+- **手机连接**：官方没有云中继。overlay 加了一条「桌面主动出站 WebSocket → 你的中继 → 手机浏览器」的通道，手机不在同一局域网也能用。
+- **模型卡片工具**：测试连接、拉取线上模型列表、勾选要显示在模型选择器里的模型。
+- **Codex / xAI 登录**：在模型卡片里直接走官方 OAuth，登录后拉取并使用线上模型列表。
+- **MCP 管理**：把 MCP 服务器做成可测试、可启停、可导入导出的卡片，而不是手改 YAML。
+- **模型网络代理**：按 system / manual / direct 三种模式给**模型请求**单独设定出口，不影响 MCP 和其它工具。
+- **Skills 目录**：把官方组合里已发现的技能列出来，方便确认当前能调用什么。
 
-“一切皆插件”让 Harness 的能力可以被组合，而不是被一个固定应用绑死。Desktop 采用同一原则有三个直接好处：
+这些能力都是"官方没有，但我每天要用"的部分，不是要另立一个产品。
 
-1. **上游能力保持可替换。** Desktop 可以使用官方 Web client，用户的 profile 也可以加入模型、工具、界面和工作流插件。
-2. **桌面能力保持可扩展。** profile 管理和打包环境提供的能力可以通过明确的 Host service 给插件使用，而不是让每个插件猜 Electron 的内部对象。
-3. **边界更容易维护。** 上游 DSH 负责 agent 语义，Desktop 负责原生窗口和系统集成，第三方插件只依赖自己真正需要的 contract。
+## 边界
 
-插件化也意味着不是所有东西都应该暴露。第三方插件只能使用明确公开的接口，不能直接控制窗口、托盘、安装器等内部实现；稳定的边界比“什么都能访问”更容易升级和排错。公开接口的细节见[插件开发](plugin-development.md)。
+| 归官方 | 归 overlay |
+|---|---|
+| 窗口、托盘、安装器、更新、插件管理、账号登录、任务调度、终端、Office 预览、会话与工作区 | 中继手机控制与配对页、模型测试/拉取/勾选、Codex/xAI 登录入口、MCP 卡片、模型网络代理、Skills 展示 |
 
-## Desktop 自己提供什么
+overlay 通过 Cordis 的 `dsh.bundle.patch` 与 Client 插槽挂进去，只用官方公开的服务；官方服务缺失时它自己降级，官方桌面照常启动。
 
-当前 Desktop 主要提供：
+## 代价，说清楚
 
-- macOS 和 Windows 原生窗口、托盘和单实例生命周期。
-- 兼容、扩展窗口和增强三种呈现模式。兼容模式在独立 Desktop frame 下保留上游默认客户端；扩展窗口使用自己独立注册的 Desktop layout/sidebar surface 承载官方 occupant 并形成倒 L；增强模式保留独立 root registration 与紧凑内部 caption。Desktop frame 还会按能力提供原生材质与拖动区域。
-- 多 profile 选择。当前 generation 的 profile 身份由 Desktop 明确提供，切换通过有序重启生效。
-- 内置终端和固定版本 pnpm 环境。它们只作用于 Desktop 自己创建的进程，不修改用户的全局 PATH。
-- 面向插件开发者的一组受控扩展接口（详见[插件开发](plugin-development.md)）。
-- 版本检查、用户确认后的安装包下载，以及 macOS DMG/Windows NSIS 的平台交接。
+- **未签名 / ad-hoc 签名**：Windows 包会触发 SmartScreen，macOS 需要手动放行。仓库没有代码签名证书，也不打算为此收钱。
+- **手动更新**：不接官方自动更新 feed，新版本要自己下载覆盖安装。
+- **跟着官方走**：overlay 依赖官方内部服务的公开接口。官方重构时，某些入口可能先失败。这时应该是修 overlay，而不是改官方树。
+- **单人维护**：这是个人定制版，不承诺支持时效，也不承诺功能路线图。
 
-## 我们刻意不做什么
+## 刻意不做
 
-- 不把上游 Web UI 重新实现成 Electron 原生页面。
-- 不在兼容模式中覆盖上游 layout、sidebar 或 conversation 组合。
-- 不把记录复制到另一个“Desktop 数据库”；官方 profile 默认共享 DSH home 中的会话和设置。
-- 不给第三方插件一个未定义的 Electron 私有 API。
-- 不把 roadmap（插件市场、手机远程、Channels）写成当前版本已经交付的功能。
+- 不把官方 Web UI 重写成原生页面。
+- 不复制官方源码再长期分叉。
+- 不发布 overlay 到插件市场，也不对外承诺 ABI 兼容（原因见[插件生态与本仓库的关系](plugin-ecosystem.md)）。
+- 不为了"看起来完整"而写没有实现的功能。
 
 ## 适合谁
 
-- 只想安装后直接使用 Harness 的用户：从[用户指南](user-guide.md)开始。
-- 想安装或开发 DSH 插件的用户：先读[插件开发](plugin-development.md)，再看 [Desktop service contract](../dsh-plugin-desktop/docs/plugin-services.md)。
-- 想理解启动、profile 和打包边界的维护者：阅读[架构说明](architecture.md)和包级 [README](../dsh-plugin-desktop/README.md)。
+- 想直接装包用起来的人：看[用户指南](user-guide.md)。
+- 想改 overlay 的人：看[架构说明](architecture.md)与[overlay 插件开发](plugin-development.md)。
+- 想确认"到底改了官方什么"的人：看[官方壳与 overlay 架构](official-architecture.md)。

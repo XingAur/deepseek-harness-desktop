@@ -23,12 +23,14 @@ body:
     attributes:
       label: Affected area / 涉及区域
       options:
-        - Startup or installation / 启动或安装
-        - Updates / 更新
-        - Profiles or plugins / Profile 或插件
-        - Conversations, models, or tools / 会话、模型或工具
-        - Terminal / 终端
-        - Window, tray, or interface / 窗口、托盘或界面
+        - Relay or phone connection / 中继或手机连接
+        - Model tools (probe, live models, selection) / 模型工具（测连接、拉模型、勾选显示）
+        - Codex / xAI OAuth sign-in / Codex、xAI 登录
+        - MCP cards / MCP 卡片
+        - Model network proxy / 模型网络代理
+        - Skills directory / Skills 目录
+        - Portable packaging or release assets / 便携包或发布产物
+        - Official app behavior (upstream) / 官方应用行为（上游）
         - Documentation or community / 文档或社区
         - Other or unknown / 其他或不确定
     validations:
@@ -64,12 +66,9 @@ body:
       label: Relevant operating systems / 相关操作系统
       options:
         - All supported platforms / 所有已支持平台
-        - Windows only / 仅 Windows
-        - Windows portable ZIP / Windows 便携版 ZIP
-        - macOS only / 仅 macOS
-        - macOS Intel
-        - macOS Universal package / macOS 通用安装包
-        - Linux
+        - Windows x64 portable / Windows x64 便携包
+        - macOS ARM64 portable / macOS ARM64 便携包
+        - Official desktop only / 仅官方桌面
         - Unknown or not platform-specific / 不确定或与平台无关
     validations:
       required: true

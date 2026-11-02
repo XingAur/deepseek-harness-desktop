@@ -1,90 +1,168 @@
-# DSH Desktop User Guide
+# User Guide
 
-## Installation and first launch
+This guide covers the official DeepSeek Harness desktop app plus the local overlay. Windows, tray, model list, sessions, terminal, and plugin management come from the official app; "Mobile", "Skills", "MCP", and the extra model-card buttons come from the overlay.
 
-Download the macOS or Windows installer from the product download page. DSH Desktop includes Electron, Node, and its pinned DSH dependencies, so normal users do not need to install Node.js or pnpm separately.
+## Installation
 
-On first launch, the application prepares the default profile and starts the official DSH Web surface locally. Closing the window normally hides it; use **Quit** from the tray when you want to stop the application and Host process.
+### Portable build (recommended)
 
-## Profiles
+Download the file for your platform from [GitHub Releases](https://github.com/XingAur/deepseek-harness-desktop/releases/latest):
 
-A profile is a composition of DSH bundles, dependencies, and patches. The tray **Profile** menu lists existing profiles and the lazy `desktop` and `web` defaults.
+| Platform | File | Use |
+|---|---|---|
+| Windows x64 | `deepseek-harness-overlay-<version>-win-x64-unsigned-manual.exe` (NSIS installer) | Run the installer |
+| Windows x64 | `...-win-x64-unsigned-manual.zip` | Extract anywhere and run `DeepSeek Harness.exe` |
+| macOS arm64 | `...-mac-arm64-adhoc-manual.dmg` | Open and drag the app to Applications |
+| macOS arm64 | `...-mac-arm64-adhoc-manual.zip` | Extract and run the `.app` |
 
-Selecting a profile performs an orderly restart. The new profile becomes the last-known-good choice only after the Host, window, and browser client all start successfully; a failed startup returns to the previous working choice. Official profiles normally use the same DSH home, so sessions, settings, and storage do not need to be migrated. A custom configuration (patch) can deliberately redirect a persistence root, in which case that profile's configuration wins.
+Only two architectures exist: Windows x64 and macOS ARM64. There is no Intel macOS build and no Linux build. Builds are unsigned (ad-hoc signed on macOS); see the [FAQ](faq.en.md) for the first-launch prompts and how to allow them.
 
-Switching profiles does not silently copy plugins from the old profile into the new one. Use an explicit profile in the terminal when preparing another profile, or use the default commands after switching.
+Optional: the sibling `.sha256` verifies the download, and `.build.json` records the official commit, official version, build version, and overlay hash for that artifact.
 
-## Window modes and materials
-
-- **Compatibility mode** keeps the selected profile's official layout/sidebar/conversation composition intact below a separate 36-pixel Desktop frame. The frame is draggable, its icon actions remain clickable, and official dialogs stay inside the unrelated content viewport below it.
-- **Extended window** installs the Desktop-owned layout and sidebar surface, then hosts the official sidebar, conversation, and details occupants inside it. The 36-pixel top frame and left sidebar surface form one inverted-L material region with a rounded inner corner.
-- **Enhanced mode** retains its dedicated root registration and compact internal captions: macOS uses a 20-pixel content inset with a 32-pixel drag region, while Windows uses a 32-pixel caption row. It does not reuse the independent extended frame.
-
-macOS custom-window modes can turn the transparent material on or off. Windows can turn material off; Mica appears only when supported on Windows 11 build 22621 or newer. A legacy Windows Acrylic preference is safely treated as off and migrated when its settings file is writable. Changing mode or material restarts the application; it does not hot-swap root slots or native materials in a live renderer. Linux provides compatibility mode only.
-
-## Local Web port
-
-Desktop lets the operating system choose a random local Web port by default (`dsh-desktop.port: 0`), which avoids collisions with other services. Browser `localStorage` is isolated by origin, so UI plugins that store settings there need a fixed port to read the same settings after Desktop restarts:
-
-```yaml
-dsh-desktop:
-  port: 43189
+```powershell
+Get-FileHash .\deepseek-harness-overlay-<version>-win-x64-unsigned-manual.exe -Algorithm SHA256
+Get-Content .\deepseek-harness-overlay-<version>-win-x64-unsigned-manual.exe.sha256
 ```
 
-The port must be an integer from `0` through `65535`. Changing it performs an orderly restart. The service binds only to `127.0.0.1` by default; it listens on all network interfaces only after you acknowledge the danger prompt and explicitly allow LAN access in Desktop settings. If another program already uses a fixed port, Desktop cannot start; release that port or change the setting back to `0` or another available port.
+### Running the official desktop from source
 
-## Plugin management
+Requires Node.js `^22.19.0` or `>=24.0.0`, pnpm via `corepack`, Git, and an environment with `bash` (Git Bash or WSL on Windows).
 
-Plugins are extensions that add capabilities to DSH, such as models, tools, interfaces, and workflows. DSH Desktop uses the same plugin system as official Harness, so official plugins install and work directly; multiple plugins follow the same conventions and can be installed and used together.
-
-Ordinary DSH plugins use the upstream CLI semantics:
-
-```sh
-dsh plugin --profile desktop add <plugin>
-dsh plugin --profile desktop remove <plugin>
-dsh plugin --profile desktop update
+```bash
+bash scripts/bootstrap.sh
+DSH_OFFICIAL_REF=dsh-v0.2.1-rc.5 bash scripts/update-official.sh
+bash scripts/start-official.sh
+bash scripts/install-overlay.sh
 ```
 
-In the terminal opened from the DSH Desktop tray, bare `dsh` and plugin commands without `--profile` default to the active profile:
+`start-official.sh` runs the official desktop with `DSH_HOME=~/.dsh-official-dev` and writes `official-desktop.log` there. `install-overlay.sh` installs the overlay into that profile via `file:`. If the profile is managed by the official Electron app the script refuses to write; add `file:<absolute repo path>/overlay` through the official plugin manager instead.
 
-```sh
-dsh plugin add <plugin>
-dsh plugin remove <plugin>
-dsh plugin update
+## Where data lives
+
+- The official app uses `~/.dsh` by default.
+- The portable build defaults to `~/.dsh-official` when `DSH_HOME` is unset, so it never touches your usual `~/.dsh`.
+- Development scripts use `~/.dsh-official-dev`.
+
+To move it, set `DSH_HOME` before launch:
+
+```powershell
+$env:DSH_HOME = "D:\dsh-data"; & "C:\Path\DeepSeek Harness.exe"
 ```
 
-An explicit `--profile <name>` always wins. Restart DSH Desktop after plugin changes so the new bundle enters the Loader composition.
+```bash
+DSH_HOME=~/dsh-data bash scripts/start-official.sh
+```
 
-## Opening the terminal
+Overlay configuration lives in `<DSH_HOME>/overlay-custom.yaml`; the official `settings.yaml` is left alone.
 
-Choose **Open DSH Terminal** from the tray, Desktop settings, or the Desktop frame. The settings action has a restart menu beside it for an ordinary restart or **Restart in Recovery Mode**; both require confirmation. macOS opens Terminal; Windows prefers Windows Terminal and falls back to PowerShell or Command Prompt when it is unavailable.
+## Mobile connection
 
-The welcome text shows the application version, active profile, profile directory, and DSH home. Desktop creates private `dsh`, `pnpm`, and `node` shims in its user-data directory and prepends that directory only for the new terminal process. It does not modify the system PATH or the user's shell files.
+Prerequisite: a relay origin (next section).
+
+1. Click the phone icon at the bottom of the sidebar.
+2. On first use the dialog asks for the relay origin; enter `https://your-relay.example` and click "Save and connect".
+3. The dialog shows a pairing QR code and link. Scan it with the phone camera or open the link in a browser.
+4. Icon colour shows state: green = remote connected, amber = waiting for a remote connection, default = off.
+
+Notes:
+
+- Remote control is off after every app restart; click the entry again to open the tunnel and pair again.
+- The link carries a one-shot session parameter; it stops working after the app restarts.
+- The phone page can list sessions, send messages, stop tasks, approve tool calls, and answer questions. The desktop can answer at the same time; whichever answers first wins.
+
+## Configuring the relay
+
+The relay is a separately deployed Node service; see [`relay-server/README.md`](../relay-server/README.md). Minimal steps:
+
+```bash
+# on the server
+cd /opt/dsh-relay
+npm install --omit=dev
+node main.mjs --host 127.0.0.1 --port 8787
+curl https://relay.example.com/healthz   # â†?dsh-desktop relay
+```
+
+The Caddy reverse proxy and systemd unit are in that README. Requirements: Node â‰?22 and TLS.
+
+Validation rules the overlay enforces:
+
+- Enter an origin only, e.g. `https://relay.example.com`. Paths, query strings, or embedded credentials are rejected.
+- Public origins must be `https://`. Only `localhost`, `127.0.0.1`, and `[::1]` may use `http://`, for local debugging.
+
+Two ways to configure it:
+
+- Enter it in the mobile dialog; it is stored as `remoteRelayOrigin` in `<DSH_HOME>/overlay-custom.yaml` and remembered.
+- Override with an environment variable, which wins:
+
+```powershell
+$env:DSH_OVERLAY_RELAY_ORIGIN = "https://relay.example.com"
+```
+
+Security boundary: the relay sees forwarded plaintext HTTP. Deploy it only on a server you control, and always over TLS.
+
+## Models: test, fetch, select
+
+Settings â†?Models â†?any provider card (DeepSeek and custom OpenAI-compatible routes):
+
+- **Test connection** requests the provider's model list and shows the HTTP status plus the upstream response on failure; transient failures are retried.
+- **Fetch model list / Refresh latest models** pulls the provider's currently available model IDs into the candidate list below.
+- **Tick + Save shown models** decides which models appear in the model picker. A restart is required before the picker changes.
+
+Selections are written to the `llm-pi-ai` row of the profile's `cordis.patch.yml` and merged with the same section in `settings.yaml` when read. If the model list endpoint is unavailable (for example after an official upgrade), you only lose the live list; existing models keep working.
+
+## Codex / xAI sign-in
+
+Codex and xAI provider cards have a "Sign in (OAuth)" action:
+
+1. Clicking it starts the official authorization flow and shows "Waiting for browserâ€?.
+2. Sign in in the browser ("Open sign-in page" reopens it if needed).
+3. If an authorization code is required, paste it and click "Submit".
+4. On success the card shows "Signed in" and the live model list becomes available.
+
+Credentials are stored in `<DSH_HOME>/.credentials.yaml` (`llm-pi-ai/openai-codex`, `llm-pi-ai/xai`); the overlay only reads them. If the official authorization service is missing or renamed, the button reports that the sign-in interface is unavailable after the current upstream upgrade.
+
+## MCP management
+
+Settings â†?MCP:
+
+- Each MCP is a card: test connection, edit, enable/disable, delete, export one JSON.
+- "Common MCPs" offers templates: database, Yunxiao, GitLab, Playwright, Filesystem, Memory, generic HTTP.
+- "Custom MCP" takes transport (local command `stdio` / remote `streamable-http`), command and arguments, environment, working directory, URL, and headers.
+- "Import JSON" accepts Claude Desktop's `{"mcpServers": {...}}`, a single server, or an array of servers.
+- Stored secret values in environment and headers are never echoed back; leaving a field blank keeps the stored value.
+- "Export all" omits stored tokens, passwords, and header values.
+
+Configuration is stored under `mcpServers` in `<DSH_HOME>/overlay-custom.yaml`. **Restart the app** after saving so the new MCP servers are mounted into the current Host composition. Arguments may reference the same card's `KEY=value` environment entries as `${VAR}`, which keeps passwords out of the command line.
+
+## Model network proxy
+
+Settings â†?Models â†?"Model network" at the bottom. It applies to model requests only, never to MCP or other tools, and needs no provider list.
+
+- **System**: use the detected system HTTP/HTTPS proxy and bypass rules. Unsupported or unreadable system settings never silently become direct.
+- **Manual**: an `http://` or `https://` proxy URL, optionally with credentials. No fallback to direct when the proxy is unavailable.
+- **Direct**: ignore the system proxy and proxy environment variables.
+
+"Test connection" tests the current input and **does not save**; only after "Save" do new model requests use the new route, while in-flight requests keep their route. Loopback addresses always connect directly. Stored proxy credentials are never echoed; leave the URL unchanged to keep them.
+
+If an upstream rejects your region (for example OpenAI reporting an unsupported country), check the effective route and exit region here, then sign in again.
+
+## Skills
+
+Settings â†?Skills lists the skills the current official composition has discovered, with source, model-invocable and user-invocable flags, and when to use them. Typing `/` in the session input also selects a skill directly.
+
+If the page says the composition has no skill catalog, the running build lacks the official skills service; the page then only informs and offers no management.
 
 ## Updates
 
-Packaged macOS and Windows applications check for updates in the background against this fork's self-hosted update service (configured in `dsh-plugin-desktop/src/fork-update-source.ts`). Startup is not blocked; network errors, non-200 responses, invalid versions, and a server version that is not newer remain silent in the background. A newer version updates the tray and raises one non-blocking system notification per version instead of opening a download confirmation automatically; clicking the notification reveals Desktop.
+This project updates **manually**; there is no auto-update:
 
-**Check for Updatesâ€¦** in the tray checks the current release channel: stable receives only stable updates, while Beta receives only Beta updates. It shows a result even when the installed version is current and reports a retry message when the check fails. Beta also provides **Install Stable Editionâ€¦**, which installs stable alongside Beta. Cancelling never requests the counted download endpoint.
+1. Check Releases for a newer version (version numbers start with the official version, e.g. `0.2.1-rc.5.20261102.1`).
+2. Windows: quit the app, then run the new `.exe` to install over the old copy, or extract the new ZIP over the old directory.
+3. macOS: open the new DMG and drag the app into Applications, replacing the old one.
+4. Data stays in `<DSH_HOME>`; just restart.
 
-After confirmation, the app first opens the native **Save Update Installer** dialog, defaulting to the Downloads directory. You can choose another directory and filename; cancelling the dialog does not start a download. After the destination is confirmed, the app requests the fixed platform download URL and remembers the installer location. macOS opens the DMG for the user to replace the application in Applications; Windows prepares the NSIS installer and then asks whether to quit and start installation. After the upgrade completes and the app starts again, it asks whether to delete the installer to free disk space or keep it. Download or installer failures do not damage the current version, and the tray operation can be retried.
+Skipping several patch releases is usually fine, but when the official baseline changes (a different `officialVersion` prefix) read the release notes first.
 
-## Troubleshooting
+## When something breaks
 
-Desktop confirmations, warnings, and operation results open as separate shadcn-backed modal Desktop windows rather than as overlays inside the official page. The Recovery window first shows why it opened and then provides **Plugin management**, **Rollback**, **Switch Profile**, and **Diagnostics** tabs. Its top utility frame and the Profile creation frame intentionally contain no duplicate title.
-
-- **The application reaches the tray**: right-click the tray icon and choose **Export Diagnosticsâ€¦**. After the privacy confirmation, Desktop creates a `diagnostics-*.zip` archive and reveals it in the file manager.
-- **The application crashes repeatedly before the tray appears**: run the installed executable directly with the recovery option. The default Windows installation command is below; replace the path if you selected another installation directory.
-
-  ```powershell
-  & "$env:LOCALAPPDATA\Programs\DSH Desktop\DSH Desktop.exe" --export-diagnostics
-  ```
-
-  For npm installs, stable uses `dsh-desktop --export-diagnostics` and Beta uses `dsh-desktop-beta --export-diagnostics`. This command does not start Host, profiles, plugins, or a window. It prints the absolute diagnostics ZIP path when complete.
-- **Diagnostic archive contents**: recent application logs, local Crashpad `.dmp` files, the active-run marker, and `system-info.txt`. System information records Desktop, Electron, Node, platform, and architecture versions. Recognized credentials are masked in logs, but local paths, workspace IDs, session IDs, and crash-time memory fragments may remain. Review the archive before public upload and send sensitive dumps only through a trusted channel.
-- **The window disappeared**: check the system tray; closing the window is not quitting.
-- **A plugin is missing**: confirm the command targeted the intended profile and restart the application.
-- **A terminal command is missing**: open a fresh Desktop terminal from the tray; Desktop does not modify the global PATH.
-- **No update notification appeared**: background failures are silent; use the manual tray check to see the result.
-
-The lower-level lifecycle, packaging, and platform limits belong to the developer documentation; see the [documentation index](README.md).
+Start with the troubleshooting section of the [FAQ](faq.en.md), especially whether `DSH_HOME` points at the directory you expect and whether the profile really contains the overlay row.

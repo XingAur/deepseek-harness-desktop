@@ -1,8 +1,11 @@
 blank_issues_enabled: false
 contact_links:
   - name: Questions and community help / 使用交流与求助
-    url: https://github.com/anywhere-labs/deepseek-harness-desktop/discussions
+    url: https://github.com/XingAur/deepseek-harness-desktop/discussions
     about: Ask usage questions or discuss ideas that are not yet ready for a tracked issue / 询问使用方法，或讨论尚未形成明确 Issue 的想法
   - name: Troubleshooting guide / 故障排查指南
-    url: https://github.com/anywhere-labs/deepseek-harness-desktop/blob/master/docs/user-guide.md#排查
-    about: Check common startup, update, profile, and plugin problems before reporting / 提交前查看常见启动、更新、Profile 和插件问题
+    url: https://github.com/XingAur/deepseek-harness-desktop/blob/develop/docs/faq.md
+    about: Check install, unsigned-package, DSH_HOME, relay, and overlay problems before reporting / 提交前查看安装、未签名包、DSH_HOME、中继与 overlay 常见问题
+  - name: Official DeepSeek Harness issues / 官方 DSH 问题
+    url: https://github.com/deepseek-ai/deepseek-harness/discussions
+    about: Problems in the official shell itself belong upstream / 官方壳本身的问题请到上游反馈

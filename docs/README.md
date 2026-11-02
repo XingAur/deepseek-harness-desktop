@@ -2,49 +2,40 @@
 
 [English documentation](README.en.md)
 
-这里是 DSH Desktop 的产品与开发文档入口。根目录的 [`README.md`](../README.md) 适合第一次了解项目；本目录解释项目为什么存在、如何使用，以及如何为 Desktop 编写插件。想参与贡献？见[参与贡献](../CONTRIBUTING.md)。
+本仓库只维护一个产品：**官方 DeepSeek Harness 桌面应用（`apps/desktop`）+ 本地 overlay 插件**。窗口、托盘、安装器、更新、插件管理都由官方实现负责；本仓库负责 overlay 增加的能力，以及把官方源码和 overlay 打成便携包。
 
-## 按目标阅读
+- 第一次接触项目：根目录 [`README.md`](../README.md)
+- 想先用起来：[用户指南](user-guide.md)
+- 想改代码：先读[官方壳与 overlay 架构](official-architecture.md)，再读[架构说明](architecture.md)和[overlay 插件开发](plugin-development.md)
 
-普通用户从[用户指南](user-guide.md)开始即可，不需要阅读开发者文档。
+## 用户文档
 
-### 用户文档
+| 文档 | 内容 |
+|---|---|
+| [用户指南](user-guide.md) | 安装官方应用与便携包、开启手机连接、配置中继、模型测试/拉取/勾选、Codex/xAI 登录、MCP、模型网络代理、Skills |
+| [常见问题](faq.md) | 未签名包与 SmartScreen、macOS 打开方式、手动更新、`DSH_HOME` 隔离、换官方基线、overlay 排查 |
+| [为什么做这个桌面版](why-desktop.md) | 官方壳 + 本地 overlay 的定位、代价，以及刻意不做的事 |
+| [从 2.0.x 迁移](migration-from-2.0.md) | 旧自写壳的能力去了哪、数据怎么处理、迁移步骤 |
+| [隐私政策](../PRIVACY.zh.md) | 本地数据、第三方请求与中继可见范围 |
 
-| 文档 | 你会得到什么 |
-| --- | --- |
-| [用户指南](user-guide.md) | 安装、profile、模式、终端、插件命令和更新 |
-| [常见问题](faq.md) | 支持平台、内置环境、官方边界、数据、插件和更新的直接回答 |
-| [隐私政策](../PRIVACY.zh.md) | 官方更新、下载、本地数据、第三方服务与用户选择 |
-| [为什么做 Desktop](why-desktop.md) | Desktop 与官方 Harness 的边界，以及为什么坚持插件化 |
+## 开发者文档
 
-### 开发者与维护者文档
+| 文档 | 内容 |
+|---|---|
+| [官方壳与 overlay 架构](official-architecture.md) | 结论性说明：仓库结构、依赖方向硬规则、功能归属。**先读这篇** |
+| [架构说明](architecture.md) | overlay 的注入方式、Host/Client 契约、profile 修补、官方版本锁定、便携包流水线 |
+| [overlay 插件开发](plugin-development.md) | `dsh.bundle.patch`、`dsh.client.inject`、Host 服务、Client 插槽、测试与禁止项 |
+| [插件生态与本仓库的关系](plugin-ecosystem.md) | 官方 plugin manager 管官方 bundle；overlay 只是本地补丁层，不发布 |
+| [中继服务](../relay-server/README.md) | `relay-server/` 的部署、协议要点与安全边界 |
+| [参与贡献](../CONTRIBUTING.md) | 提交与评审约定 |
 
-| 文档 | 你会得到什么 |
-| --- | --- |
-| [插件生态倡议书](plugin-ecosystem.md) | 开放、可组合、可持续的插件生态愿景与三条原则 |
-| [插件开发](plugin-development.md) | 普通 DSH 插件、Desktop 服务、兼容模式和生命周期 |
-| [Community Fabric Draft](../dsh-community-fabric/README.zh.md) | 从 Manifest/Capability 基础，到 Runtime/Presentation、service composition 和溯源诊断的社区互操作提案 |
-| [Fabric 社区意见处置记录](../dsh-community-fabric/docs/research/community-issue-23-review.zh.md) | Issue #23 中哪些建议已采纳、拆成独立 RFC、延期或不进入可移植核心 |
-| [Fabric 框架与插件需求调研](../dsh-community-fabric/docs/research/mature-plugin-frameworks.zh.md) | Koishi、Chrome、VS Code 的成熟模式，以及真实 DSH 插件的功能需求 |
-| [VS Code 扩展模型调研](../dsh-community-fabric/docs/research/vscode-extension-model.zh.md) | VS Code 已实现的声明、Provider、UI、运行位置和生命周期模式，以及它们对 Fabric RFC 的具体约束 |
-| [Community Market 设计](../dsh-community-market/README.zh.md) | 规划中的插件市场壳、可扩展目录来源、用户选择、安装确认和安全边界 |
-| [Market 目录提供方合同](../dsh-community-market/docs/catalog-provider-contract.zh.md) | 面向后续实现团队的 Schema、query 参数、多来源和适配器规范 |
-| [架构说明](architecture.md) | Electron、Host、Web carrier、profile 和打包之间的关系 |
-| [Desktop service 参考](../dsh-plugin-desktop/docs/plugin-services.md) | `desktopProfiles`、`desktopPnpm` 的稳定 contract 和 TypeScript 示例 |
-| [包级参考](../dsh-plugin-desktop/README.md) | 完整的构建、运行、发布和已知限制 |
+## 目录约定
 
-## README 文件怎么分工
+- `docs/official-architecture.md` 是结论文档。其它页面引用它的结论，不重复论证。
+- `docs/*.en.md` 是对应中文页面的英文等义版本，两边同步修改。
+- 构建、同步、打包命令的权威来源是 `scripts/` 与根 `package.json` 的 `scripts` 字段；文档只做说明，不新增语义。
+- 文档不描述尚未合并进仓库的功能。写「支持」之前，先确认代码里存在对应实现。
 
-目前外层仓库有两份正式的产品 README，另保留一个旧链接兼容入口：
+## 迁移与历史
 
-- [`README.md`](../README.md)：中文产品入口。
-- [`README.en.md`](../README.en.md)：英文产品入口，与中文 README 保持同一产品范围。
-- [`README.zh.md`](../README.zh.md)：旧中文路径的兼容页，不维护独立内容。
-
-`README.i18n.yaml` 只记录这两个正式入口的双语 hash，不是用户指南。`dsh-plugin-desktop/README.md` 和 `dsh-plugin-desktop/README.zh.md` 是 npm 包随包发布的包级参考；它们比根 README 更技术化。`dsh-plugin-desktop/docs/` 是稳定 API 合同，不是营销页。`.agents/notes/implemented/` 是日期化的维护者决策记录，适合追溯取舍，不替代用户文档。
-
-`deepseek-harness/` 是固定版本的官方上游子模块。它自己的 README 和 `docs/` 属于上游项目，不能当作 Desktop 文档，也不在本仓库的产品文档统计中。
-
-## 状态约定
-
-文档会明确区分已实现能力、平台限制和 roadmap。Desktop 的兼容模式在独立 Desktop frame 下保留上游默认 Web 客户端；扩展窗口安装自己独立注册的 Desktop layout/sidebar surface，并在倒 L 中承载官方 occupant；增强模式保留独立 root registration 与紧凑内部 caption。Desktop frame 会按系统能力提供原生材质。插件市场已建立 [`dsh-community-market`](../dsh-community-market/README.zh.md) 文档初始化工程，但尚无可用页面或安装器；手机远程和 Channels 也仍是独立 roadmap，不代表当前安装包已经提供这些产品入口。
+本仓库已改为官方优先架构：壳、安装器、更新都由官方实现负责，本仓库只保留 overlay 与便携包构建。旧版自带壳的功能去向与数据迁移见[从 2.0.x 迁移](migration-from-2.0.md)；更早的实现只在 git 历史里，不再维护，也不要按旧文档操作。

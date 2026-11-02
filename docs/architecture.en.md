@@ -1,79 +1,188 @@
-# DSH Desktop Architecture
+# Architecture Notes
 
-## Overview
+For developers changing `overlay/` or `scripts/`. Repository structure and dependency direction live in [official shell and overlay](official-architecture.md); this page explains how the overlay attaches to the official desktop and what packaging does to the disposable staging tree.
 
-DSH Desktop is a thin Electron host. It starts the official DSH Host in Electron's main process; the Host exposes the ordinary Web UI over an HTTP/WebSocket Web carrier. The carrier listens on loopback by default and can be exposed to the LAN only after the user explicitly acknowledges the risk. Desktop does not create a second renderer IPC plugin system and does not expose raw Electron APIs to the page.
+## One product, two code layers
+
+| Layer | Owner | Editable? |
+|---|---|---|
+| Official desktop `apps/desktop`, `packages/**` | [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness), checked out into the gitignored `deepseek-harness/` | No. All adaptation happens in staging |
+| Overlay `overlay/` | This repository | The only product code we own |
+| Packaging and sync `scripts/` | This repository | Yes, but do not bypass existing guards |
+| Relay `relay-server/` | This repository | Deployed separately, not shipped in the app |
+
+Runtime topology:
 
 ```mermaid
 flowchart LR
-  User[User] --> Native[Electron main / tray / window]
-  Native --> Launcher[Profile launcher]
-  Launcher --> Host[Host Cordis generation]
-  Host --> Carrier[HTTP + WebSocket Web carrier]
-  Carrier --> Renderer[Sandboxed Web renderer]
-  Host --> Upstream[Upstream DSH services]
-  Host --> Desktop[Desktop-owned plugins]
-  Host --> ThirdParty[Third-party plugins]
-  Launcher --> Services[desktopProfiles + desktopPnpm]
-  Services --> ThirdParty
+  Shell[Official Electron shell] --> Host[Official Host / Cordis]
+  Host --> Web[Official webServer]
+  Host --> OH[Overlay host face]
+  OH --> Web
+  Web --> Client[Official Web Client]
+  Client --> OC[Overlay client face<br/>sidebar / settings / model cards]
+  Shell --> Home[DSH_HOME]
+  OH --> Home
+  OH -.outbound WebSocket.-> Relay[relay-server]
 ```
 
-## Startup order
+## How the overlay is loaded
 
-1. Electron acquires the single-instance lock and reads Desktop-owned profile/mode state.
-2. The launcher prepares the active profile without modifying profiles merely to list them.
-3. The launcher provides the native runtime, the generation's `desktopProfiles` bootstrap, and the bundled pnpm environment.
-4. The Host Cordis root mounts Loader entries. Desktop services are registered before third-party entries can consume them.
-5. `dsh-base`, `dsh-web-app`, and the selected profile's third-party bundles compose the Web carrier.
-6. The Host binds loopback by default or all network interfaces when the confirmed setting requests it; Electron creates the BrowserWindow and loads the same-origin page through the loopback address.
-7. The tray is created only after the Web surface loads, and the profile is committed as last-known-good.
+Three declarations must agree; dropping any one breaks loading:
 
-Every profile or mode switch disposes the current generation before starting the next one. Service references, window objects, and subprocess handles must not be cached across generations.
+1. **Package declaration** in `overlay/package.json`:
 
-## Host, Client, and native runtime
+```json
+{
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-settings-models"
+      ],
+      "platform": "web"
+    }
+  }
+}
+```
 
-- **Upstream Host** owns agent, model, tool, session, settings, webServer, and subprocess capabilities.
-- **Desktop Host** owns the window, tray, profiles, terminal, updates, and the two public Desktop services.
-- **Web Client** contains the official Web UI and third-party browser contributions. It works over the shared Web carrier and does not call Electron directly.
-- **Native runtime** adapts Electron BrowserWindow, the tray, filesystem/network operations, and installers. `desktopRuntime` is for Desktop-owned rows only.
+`exports` maps `.` to the host bundle `lib/index.js` and `./client` to the browser bundle `lib/client.js`.
 
-Compatibility mode validates its environment and adds only an independent 36-pixel Desktop frame through the overlay slot; the official layout, root, sidebar, and conversation remain an unrelated content viewport below it. Extended mode disables the official root layout and installs its own Desktop layout/sidebar registration, which continues to host the official sidebar, conversation, and details occupants inside an inverted-L material frame. Enhanced mode keeps a separate root registration and its original compact internal-caption geometry. macOS and Windows apply capability-gated native materials without changing the ownership of upstream occupant slots.
+2. **Profile patch**: `overlay/cordis.patch.yml` inserts one row into the official desktop profile:
 
-Desktop-level confirmations, warnings, errors, and results do not enter the Web Client tree. `DesktopDialogWindow` creates a separate sandboxed modal `BrowserWindow`, applies the shared empty utility frame, parents it to the active generation window when possible, and accepts only one bounded local response. Recovery and Profile creation are separate Desktop-owned windows using the same title-free frame. Recovery itself is a shadcn page with reason-first presentation and four workflow tabs; destructive recovery actions delegate their confirmation back to `DesktopDialogWindow`.
+```yaml
+- insert:
+    - id: overlay-custom
+      name: dsh-overlay-custom
+```
 
-### Native shell generation and platform adapters
+3. **Profile composition**: the target profile's `package.json` lists the overlay package in `dsh.profile.bundles` and can resolve it as a dependency. Development uses a `file:` dependency; the portable build swaps in the staged `@deepseek-ai/dsh-overlay-custom` (see "Profile repair" below).
 
-`ElectronRuntime` coordinates the Host and native desktop environment without directly owning window and tray details. Each start creates one `ElectronShellGeneration` module that completely owns its `BrowserWindow`, `Tray`, related Electron listeners, navigation restrictions, external-link handling, and zoom shortcuts. A generation must be disposed through its idempotent `release()` interface; callers must not cache or destroy those resources separately across generations.
+The host face (`overlay/src/index.ts`) declares `name = 'dsh-overlay-custom'` and `inject = ['webServer', 'connection']`. `apply()` mounts, in order: the model-network API (returning one `ModelProxyManager` reused by later modules), the relay, model tooling, OAuth, the Skills/MCP routes, and finally the enabled MCP clients.
 
-Platform differences live at the `ElectronPlatformStrategy` seam selected once during startup. The Windows, macOS, and Linux adapters declare directory-picking, shell-mode, and update-download capabilities and own their platform-specific menu, Dock icon, and native-material operations. New platform branches belong in the corresponding adapter; the generation and runtime retain only the lifecycle shared across platforms.
+The client face (`overlay/src/client/index.ts`) declares `inject = ['slots', 'locale']` and registers into these official slots:
 
-## Profile and service boundaries
+| Slot | Content | id |
+|---|---|---|
+| `sidebar.footer.action` | Sidebar "Mobile" entry and pairing dialog | `overlay-remote` |
+| `settings.section` | Settings page "Skills" | `overlay-skills` (order 90) |
+| `settings.section` | Settings page "MCP" | `overlay-mcp` (order 95) |
+| `settings.models.provider-card` | Per-card test, fetch/select, OAuth sign-in | two registrations |
+| `settings.models.footer` | "Model network" proxy panel | `overlay-model-proxy` |
 
-The profile name and absolute directory come from `desktopProfiles.current`; they must not be inferred from argv, settings, or a URL. `list()` is read-only discovery. `select()` records a pending target and completes the switch through restart.
+## Host contract
 
-`desktopPnpm.run()` runs bundled pnpm directly. `runPlugin()` uses packaged DSH CLI semantics so profile initialization, relative sources, and bundle reconciliation remain authoritative. Both operations belong to the current generation and use the subprocess service for complete process-tree ownership.
+- **Required**: `webServer` (`register({ kind: 'exact' | 'prefix', path, handler })`, returns a disposer) and `connection` (`requestRejection`, `authenticatedUrl`, `authorizeIndex`). If either is missing the overlay does not start; the official desktop keeps running.
+- **Optional, probed on use**: `authorization` (`ctx.get('authorization')`; when absent, OAuth reports unavailable), `skills` and `agentPresets` (when absent, the Skills page reports that the composition has no skill catalog).
+- **Events**: `llm/stream` routes model requests through the overlay's network route; `approval/request` and `user-questions/request` are mounted with `prepend` so the phone can answer first while the desktop still works.
+- **Hard rule**: the overlay must never become a boot dependency. A missing or renamed official service may only degrade the corresponding entry point, never fail desktop startup.
 
-The launcher-private `desktopRuntime`, `desktopPnpmBootstrap`, Electron executable, Node helpers, and ABI environment are not third-party APIs. The stable package exposes `dsh-plugin-desktop/profile-service` and `dsh-plugin-desktop/pnpm`; the Beta package exposes the corresponding `dsh-plugin-desktop-beta/*` paths.
+## Data and state
 
-## Packaging and runtime closure
+- The active home is resolved by `overlay/src/dsh-home.ts`: `DSH_HOME` if set, otherwise `~/.dsh`. The overlay imports no official home-paths package and never guesses profile paths.
+- All overlay state is `<DSH_HOME>/overlay-custom.yaml` (mode `0600`): `remoteRelayOrigin`, `mcpServers`, `modelProxyMode` / `modelProxyUrl` / `modelProxyBypass`. The official `settings.yaml` is not written.
+- One deliberate exception: model selection has to reach the official loader, so it is written into the `llm-pi-ai` row of the profile's `cordis.patch.yml`; reads merge the user layer from `settings.yaml`.
+- Credentials are read-only: OAuth credentials come from `<DSH_HOME>/.credentials.yaml` under `llm-pi-ai/openai-codex` and `llm-pi-ai/xai`. The overlay never writes credentials.
 
-Release artifacts use Electron Builder and `app.asar`, while dependencies that must be physical (for example pnpm, node-pty, and Windows ACL/native files) live under `app.asar.unpacked`. The packaged-runtime gate checks both archive entries and physical runtime entries; profile fallback links must not target virtual ASAR paths that Node cannot resolve.
+## Official version lock
 
-The outer workspace uses Yarn. The pinned `deepseek-harness/` submodule keeps its own pnpm workspace. Stable and Beta Desktop sources live in `dsh-plugin-desktop/` and `dsh-plugin-desktop-beta/`, with a variant-alignment gate protecting shared behavior; neither package edits the upstream submodule.
+`official-lock.json` is the single source of the baseline: `repository`, `commit`, `version` (currently `0.2.1-rc.5`, commit `b830ec95`).
 
-## Release-channel protocol
+- `scripts/check.sh` compares `deepseek-harness/` `HEAD` and `package.json` version against the lock and requires a clean checkout.
+- Both portable build scripts run the same check before packaging and re-confirm afterwards that the official tree did not change.
+- Changing the baseline is limited to fast-forwarding to a published official tag and re-running a complete portable build plus smoke. Never patch or cherry-pick local features into the official tree.
 
-Stable and Beta are separate physical npm packages and system applications; Git branches do not define the channels. Stable uses `dsh-plugin-desktop`, `DSH Desktop`, and `ai.deepseek.dsh.desktop`; Beta uses `dsh-plugin-desktop-beta`, `DSH Desktop Beta`, and `ai.deepseek.dsh.desktop.beta`. `upstream.json` records both channels' upstream versions, commits, and vendored-runtime manifests. Exact root resolutions ensure that each workspace resolves only its own DSH runtime.
+## Portable packaging pipeline
 
-Version checks and installer downloads send `X-DSH-Desktop-Channel: stable|beta`. A check also sends the current version, while a download sends `X-DSH-Desktop-Target-Version`; the service must echo the requested channel and version. Legacy clients without the channel header are treated as stable. A Beta client requires an explicit `channel: "beta"` response. Stable accepts only release SemVer, while Beta accepts only `-beta.N`. Automatic Beta updates query only Beta. **Install Stable Edition** is a separate explicit operation that may select a lower version and installs Stable alongside Beta.
+```text
+overlay: npm ci → bundle:host → bundle:client → check
+staging: git archive HEAD (disposable official tree)
+prepare-portable-stage.mjs: inject overlay + packaging adaptations
+pnpm install --no-frozen-lockfile
+apps/desktop run package -- <target> --unsigned --dir --build-version <v>
+ASAR: extract → sanitize → repack (native unpacked files preserved)
+verify-portable-paths → finalize-portable-runtime → smoke-portable-final
+dist/: artifacts + .sha256 + .build.json
+```
 
-The service must implement these selection and echo rules, with complete platform artifacts for both channels, before a Beta release becomes discoverable. Otherwise the client treats the response as invalid and will not silently cross channels.
+| Script | Responsibility |
+|---|---|
+| `prepare-portable-stage.mjs` | Copies the overlay to `packages/external/overlay-custom`, renames it to `@deepseek-ai/dsh-overlay-custom`, aligns its version with the official one, and writes every packaging adaptation |
+| `sanitize-portable-paths.mjs` / `verify-portable-paths.mjs` | Scrub build-host absolute paths; after repacking, prove no local path or source-directory symlink remains |
+| `repack-portable-asar.mjs` | Extract, sanitize, and repack the ASAR while preserving electron-builder's native unpacked files and their integrity digest |
+| `finalize-portable-runtime.mjs` | Audit the permitted post-packaging changes, write the final `desktop-runtime.json`, and update Windows ASAR integrity |
+| `smoke-portable-final.mjs` | Run the official smoke against the **final** artifacts, not the staging tree |
+| `write-portable-metadata.mjs` | Emit `.sha256` and `.build.json` |
 
-## Maintainer reading
+Every adaptation lives in `prepare-portable-stage.mjs`, applies only to staging, and never flows back into the official tree. Current adaptations:
 
-- [Desktop service contract](../dsh-plugin-desktop/docs/plugin-services.md)
-- [Package README](../dsh-plugin-desktop/README.md)
-- [Pinned upstream and isolated Yarn workspace](../.agents/notes/implemented/process/2026-08-15-pinned-upstream-and-isolated-yarn-workspace.md)
-- [Profile and pnpm services decision](../.agents/notes/implemented/architecture/2026-08-15-desktop-profile-and-pnpm-services.md)
-- [Advanced shell decision](../.agents/notes/implemented/architecture/2026-08-15-desktop-advanced-shell.md)
-- [Native shell generation and platform adapters](../.agents/notes/implemented/architecture/2026-08-19-native-shell-generation-and-platform-adapters.md)
+- Inject `apps/desktop/src/portable-overlay-profile.ts` and call it whenever the desktop creates or upgrades a profile (next section).
+- Default the portable home to `~/.dsh-official` when `DSH_HOME` is unset.
+- Verify the client bundle's module identity (`window.__ModuleLoader__.load({id:<package name>})`) matches the package name.
+- Strip the `NODE_PATH` block from pnpm shims and scrub build-host paths from the runtime tree.
+- Allow unsigned macOS arm64 packaging, skip signing and notarization, and ad-hoc re-sign.
+- Models: pin the pi-ai adapter to `transport: 'sse'` (each call follows the route captured for that call), and keep Bedrock on HTTP/1 by injecting `overlay/patches/pi-ai-bedrock-http1.fragment` into the official patch.
+- Attachments: drop the catalog modality preflight before images and surface the real failure reason instead.
+- Write `apps/desktop/.env.windows` / `.env.macos` with app id `com.deepseek.harness.overlay.local`.
+
+### Profile repair (`file:` dependencies)
+
+In a portable build the overlay is a baked-in workspace package, not a source directory, so development-time `file:` dependencies and symlinks must not survive. `reconcilePortableOverlayProfile()` runs idempotently on every profile create/upgrade and:
+
+1. removes `dsh-overlay-custom` and `@deepseek-ai/dsh-overlay-custom` from `dependencies`;
+2. keeps other bundles in `dsh.profile.bundles`, drops legacy overlay rows, and appends the current package name;
+3. strips legacy overlay rows from `cordis.patch.yml` while keeping other patches, and fixes the image-input declaration of already-selected GPT/Grok models;
+4. deletes the leftover `node_modules/dsh-overlay-custom` symlink and any `package-lock.json` mentioning the legacy name;
+5. writes `portable-overlay-state.json` to record the repair.
+
+User bundles, patch rows, and `settings.yaml` are left alone.
+
+## Artifacts and release
+
+| Platform | Artifacts |
+|---|---|
+| Windows x64 | `deepseek-harness-overlay-<v>-win-x64-unsigned-manual.exe` (NSIS) and `...zip` (portable directory) |
+| macOS arm64 | `deepseek-harness-overlay-<v>-mac-arm64-adhoc-manual.dmg` and `...zip` |
+
+Every artifact gets a matching `.sha256` and `.build.json` recording `officialCommit`, `officialVersion`, `buildVersion`, `overlayHash`, `sha256`, `platform`, `arch`, `signing`, and `update: manual`. That is six files per platform and twelve attachments per release.
+
+`buildVersion` must begin with the locked official version; the default is `<official version>.<yyyyMMdd>.1`, overridable with `DSH_PORTABLE_BUILD_VERSION`.
+
+Releases use [release-official-portable.yml](../.github/workflows/release-official-portable.yml): `workflow_dispatch` takes `build_version`, `release_tag` (must equal `official-v<build_version>`), and `publish`. It creates a draft prerelease, and only after both platform jobs pass does it verify all twelve attachments and publish.
+
+## Local development and verification
+
+```bash
+bash scripts/bootstrap.sh          # first clone of the official checkout
+DSH_OFFICIAL_REF=dsh-v0.2.1-rc.5 bash scripts/update-official.sh   # fast-forward to a published tag and build
+bash scripts/start-official.sh     # run the official desktop with ~/.dsh-official-dev, logs beside it
+bash scripts/install-overlay.sh    # install the overlay into the dev profile via file:
+bash scripts/check.sh              # unit tests + script syntax + lock consistency
+```
+
+`install-overlay.sh` refuses to rewrite a desktop profile managed by the official Electron app; such a profile only accepts `file:<repo>/overlay` through the official plugin manager.
+
+```bash
+cd overlay && npm ci && npm run bundle:host && npm run bundle:client && npm run check
+cd .. && node --test scripts/test-finalize-portable-runtime.mjs scripts/test-repack-portable-asar.mjs
+```
+
+Portable builds run on their target platform:
+
+```powershell
+pwsh -NoProfile -File scripts/build-portable-windows-x64.ps1
+```
+
+```bash
+bash scripts/build-portable-macos-arm64.sh
+```
+
+The CI overlay job checks out no official sources, so green unit tests only prove the overlay is self-consistent. A build is verified only after one real build plus smoke on Windows x64 and macOS ARM64.
+
+## Further reading
+
+- [Official shell and overlay](official-architecture.md): division of labor and hard rules
+- [Overlay plugin development](plugin-development.en.md): how to add a new capability path
+- [Plugin ecosystem and this repository](plugin-ecosystem.en.md): overlay versus official plugins

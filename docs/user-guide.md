@@ -1,90 +1,108 @@
-# DSH Desktop 用户指南
+# 用户指南
 
-## 安装与首次启动
+本指南覆盖官�?DeepSeek Harness 桌面应用 + 本地 overlay 的使用。界面上的窗口、托盘、模型列表、会话、终端、插件管理来自官方；「手机连接」「技能」「MCP」和模型卡片里的额外按钮来自 overlay�?
+## 安装
 
-从产品下载入口获取 macOS 或 Windows 安装包。安装后的 DSH Desktop 自带运行所需的 Electron、Node 和 DSH 依赖，普通用户不需要另行安装 Node.js 或 pnpm。
+### 便携包（推荐�?
+�?[GitHub Releases](https://github.com/XingAur/deepseek-harness-desktop/releases/latest) 下载对应平台的文件：
 
-首次启动时，应用会准备默认 profile，并在本机启动官方 DSH Web surface。关闭窗口通常只会隐藏窗口；可以从托盘重新打开，选择 **退出** 才会结束应用和 Host 进程。
+| 平台 | 文件 | 用法 |
+|---|---|---|
+| Windows x64 | `deepseek-harness-overlay-<版本>-win-x64-unsigned-manual.exe`（NSIS 安装包） | 双击安装 |
+| Windows x64 | `...-win-x64-unsigned-manual.zip` | 解压到任意目录，运行 `DeepSeek Harness.exe` |
+| macOS arm64 | `...-mac-arm64-adhoc-manual.dmg` | 打开后把应用拖进「应用程序�?|
+| macOS arm64 | `...-mac-arm64-adhoc-manual.zip` | 解压后运�?`.app` |
 
-## Profile
-
-Profile 是一组 DSH bundle、依赖和 patch 的组合。托盘中的 **Profile** 菜单会列出现有 profile，以及可按需创建的 `desktop` 和 `web` 默认 profile。
-
-选择 profile 后应用会有序重启。新 profile 在 Host、窗口和浏览器客户端都成功启动后才会被记录为最近一次可用 profile；启动失败会回到上一次可用选择。官方 profile 默认使用同一个 DSH home，所以 sessions、settings 和 storage 通常不需要迁移。自定义配置（patch）如果主动改写持久化路径，则以该 profile 自己的设置为准。
-
-切换 profile 不会把旧 profile 的插件偷偷复制到新 profile。要管理目标 profile，请在终端中显式写出 profile，或者在切换后使用终端里的默认命令。
-
-## 窗口模式与材质
-
-- **兼容模式**：保持 profile 的官方 layout/sidebar/conversation 组合完整，并把它放在独立的 36 像素 Desktop frame 下方。frame 可以拖动，图标操作仍可点击，官方 dialog 只会占用与 frame 无关的下方内容 viewport。
-- **扩展窗口**：安装 Desktop 自有 layout 与 sidebar surface，并在其中承载官方 sidebar、conversation 和 details occupant。36 像素顶部 frame 与左侧 sidebar surface 组成一个带圆角内拐角的倒 L 材质区域。
-- **增强模式**：保留独立 root registration 与紧凑内部 caption；macOS 使用 20 像素内容 inset 和 32 像素拖动区域，Windows 使用 32 像素 caption row，不复用扩展窗口的独立 frame。
-
-macOS 自定义窗口模式可以打开或关闭透明材质。Windows 可关闭材质；仅 Windows 11 build 22621 及以上在支持时显示 Mica。旧版 Windows 亚克力偏好会安全地按关闭处理，并在设置文件可写时自动迁移。切换模式或材质都会重启应用，不会在正在运行的 renderer 中热替换 root slot 或窗口材质。Linux 只提供兼容模式。
-
-## 本地 Web 端口
-
-Desktop 默认让系统随机分配本地 Web 端口（`dsh-desktop.port: 0`），可避免与其他服务发生端口冲突。依赖浏览器 `localStorage` 的界面插件按 origin 隔离数据；如果这类插件需要在 Desktop 重启后继续读取设置，请在设置中指定一个固定端口：
-
-```yaml
-dsh-desktop:
-  port: 43189
+只有两种架构：Windows x64 �?macOS ARM64。没�?Intel macOS 包，也没�?Linux 包。包未签名（macOS �?ad-hoc 签名），首次打开的系统提示与放行方式见[常见问题](faq.md)�?
+可选：同目录的 `.sha256` 可校验下载完整性；`.build.json` 记录该包对应的官方提交、官方版本、构建版本与 overlay 哈希�?
+```powershell
+Get-FileHash .\deepseek-harness-overlay-<版本>-win-x64-unsigned-manual.exe -Algorithm SHA256
+Get-Content .\deepseek-harness-overlay-<版本>-win-x64-unsigned-manual.exe.sha256
 ```
 
-端口必须是 `0` 到 `65535` 之间的整数。修改后应用会有序重启。服务默认只监听 `127.0.0.1`；只有在“桌面设置”中确认危险提示并明确允许局域网访问后，才会改为监听所有网络接口。固定端口如果已被其他程序占用，Desktop 将无法启动；此时需要释放该端口，或把设置改回 `0` 或另一个空闲端口。
+### 从源码跑官方桌面
 
-## 插件管理
-
-插件是给 DSH 添加能力的扩展包，例如模型、工具、界面和工作流。DSH Desktop 使用的就是官方 Harness 的插件体系，官方插件可以直接安装使用；多个插件遵循统一的约定，可以一起安装、一起工作。
-
-普通 DSH 插件仍使用官方 CLI 语义：
-
-```sh
-dsh plugin --profile desktop add <plugin>
-dsh plugin --profile desktop remove <plugin>
-dsh plugin --profile desktop update
+需�?Node.js `^22.19.0` �?`>=24.0.0`、pnpm（通过 `corepack` 使用）、Git，以及能�?`bash` 的环境（Windows 上用 Git Bash �?WSL）�?
+```bash
+bash scripts/bootstrap.sh
+DSH_OFFICIAL_REF=dsh-v0.2.1-rc.5 bash scripts/update-official.sh
+bash scripts/start-official.sh
+bash scripts/install-overlay.sh
 ```
 
-在 DSH Desktop 托盘打开的终端中，裸 `dsh` 和不带 `--profile` 的 plugin 命令默认使用当前激活 profile：
-
-```sh
-dsh plugin add <plugin>
-dsh plugin remove <plugin>
-dsh plugin update
+`start-official.sh` �?`DSH_HOME=~/.dsh-official-dev` 启动官方桌面，日志写在同目录�?`official-desktop.log`。`install-overlay.sh` �?overlay �?`file:` 装进�?profile；如�?profile 由官�?Electron 管理，脚本会拒绝写入，此时在官方 Plugin Manager 里添�?`file:<仓库绝对路径>/overlay`�?
+## 数据放在�?
+- 官方应用默认使用 `~/.dsh`�?- 便携包在未设�?`DSH_HOME` 时默�?`~/.dsh-official`，不会碰你的日常 `~/.dsh`�?- 开发脚本使�?`~/.dsh-official-dev`�?
+要放到别处，启动前设�?`DSH_HOME`�?
+```powershell
+$env:DSH_HOME = "D:\dsh-data"; & "C:\Path\DeepSeek Harness.exe"
 ```
 
-显式 `--profile <name>` 始终优先。插件变更后需要重启 DSH Desktop，才能让新的 bundle 进入 Loader 组合。
+```bash
+DSH_HOME=~/dsh-data bash scripts/start-official.sh
+```
 
-## 打开终端
+overlay 自己的配置写�?`<DSH_HOME>/overlay-custom.yaml`，不改官�?`settings.yaml`�?
+## 手机连接
 
-可以从托盘、Desktop 设置或 Desktop frame 选择 **Open DSH Terminal**；设置中的旁边提供重启下拉菜单，可以普通重启或 **重启到恢复模式**，两种操作都必须确认。macOS 会打开 Terminal，Windows 会优先使用 Windows Terminal，找不到时回退到 PowerShell 或命令提示符。
+前提：先有一个中继服务地址（见下一节）�?
+1. 点侧栏底部的手机图标�?2. 第一次使用时弹窗要求填写中继地址，填 `https://你的中继域名` 后点「保存并连接」�?3. 弹窗显示配对二维码与链接。用手机相机或浏览器扫码/打开链接�?4. 图标颜色表示状态：绿色=远程已连接，黄色=等待远程连接，默认色=未开启�?
+说明�?
+- 每次应用重启后远程控制默认关闭，需要重新点击入口建立隧道，并重新配对�?- 链接里带一次性会话参数；应用重启后旧链接失效�?- 手机页可以看会话、发消息、停止任务、批准工具调用与回答问题。桌面也可以同时回答，谁先回答以谁为准�?
+## 配置中继
 
-欢迎信息会显示：应用版本、当前 profile、profile 目录和 DSH home。Desktop 会在自己的 user-data 目录生成 `dsh`、`pnpm` 和 `node` 私有 shim，只对这个终端进程设置 PATH，不会修改系统 PATH 或用户 shell 配置。
+中继是一个独立部署的 Node 服务，见 [`relay-server/README.md`](../relay-server/README.md)。最小步骤：
 
+```bash
+# 服务器上
+cd /opt/dsh-relay
+npm install --omit=dev
+node main.mjs --host 127.0.0.1 --port 8787
+curl https://relay.example.com/healthz   # �?dsh-desktop relay
+```
+
+Caddy 反代�?systemd 单元文件见上面那�?README。要求：Node �?22、必须有 TLS�?
+填写规则（overlay 会校验）�?
+- 只填 origin，例�?`https://relay.example.com`；带路径、查询串或用户名密码会被拒绝�?- 公网必须 `https://`；只�?`localhost` / `127.0.0.1` / `[::1]` 允许 `http://`，用于本地调试�?
+两种配置方式�?
+- 在手机连接弹窗里填写，写�?`<DSH_HOME>/overlay-custom.yaml` �?`remoteRelayOrigin`，下次启动自动记住�?- 用环境变量覆盖（优先级更高）�?
+```powershell
+$env:DSH_OVERLAY_RELAY_ORIGIN = "https://relay.example.com"
+```
+
+安全边界：中继能看到转发的明�?HTTP 流量，只应部署在自己控制的服务器上，并始终走 TLS�?
+## 模型：测试、拉取、勾�?
+设置 �?模型 �?任一提供商卡片（DeepSeek 以及自定义的 OpenAI 兼容路由）：
+
+- **测试连接**：向该提供商请求模型列表，失败时显示 HTTP 状态与上游返回内容，瞬时故障会自动重试�?- **拉取模型列表 / 刷新最新模�?*：拉取该提供商当前可用的模型 ID，回填到下方候选列表�?- **勾�?+ 保存显示的模�?*：只有勾选的模型会出现在模型选择器里。保存后**重启应用**才生效�?
+勾选结果写�?profile �?`cordis.patch.yml` �?`llm-pi-ai` 行，读取时会�?`settings.yaml` 里的同名配置合并。模型列表接口不可用（例如官方升级后）时，只会退化为没有线上列表，不影响已有模型继续使用�?
+## Codex / xAI 登录
+
+Codex �?xAI 的模型卡片上有「登录（OAuth）」：
+
+1. 点击后应用会调用官方授权流程，状态显示「等待浏览器…」�?2. 浏览器打开登录页（应用里有「打开登录页」可再次打开）�?3. 需要粘贴授权码时，输入后点「提交」�?4. 登录成功后卡片显示状态点与「已登录」，之后可以拉取并使用线上模型列表�?
+凭据保存�?`<DSH_HOME>/.credentials.yaml`（`llm-pi-ai/openai-codex`、`llm-pi-ai/xai`），overlay 只读不写。如果官方授权服务缺失或改名，按钮会提示「本次官网升级后登录接口不可用」�?
+## MCP 管理
+
+设置 �?MCP�?
+- 每个 MCP 是一张卡片，可测试连接、编辑、启�?停用、删除、导出单�?JSON�?- 「常�?MCP」提供模板：数据库、云效、GitLab、Playwright、Filesystem、Memory、通用 HTTP�?- 「自定义 MCP」手动填：连接方式（本地命令 `stdio` / 远程 `streamable-http`）、命令与参数、环境变量、工作目录、URL 与请求头�?- 「导�?JSON」接�?Claude Desktop �?`{"mcpServers": {...}}`、单个服务器或服务器数组�?- 环境变量、请求头里已保存的敏感值不会回显；留空表示保留原值�?- 「导出全部」不会包含已保存�?token、密码和请求头值�?
+配置保存�?`<DSH_HOME>/overlay-custom.yaml` �?`mcpServers`�?*保存后重启应�?*才会把新�?MCP 挂进当前 Host 组合。参数里可以�?`${VAR}` 引用同一张卡片的 `KEY=value` 环境变量，避免把密码写进命令行�?
+## 模型网络代理
+
+设置 �?模型 �?页面底部「模型网络」。它只作用于模型请求，不影响 MCP 或其它工具，也不需要维护厂商名单�?
+- **跟随系统**：使用检测到的系�?HTTP/HTTPS 代理与绕过规则；不支持或读取失败时不会静默改成直连�?- **手动代理**：填 `http://` �?`https://` 代理地址（可带凭据）；代理不可用时不会回退直连�?- **直连**：忽略系统代理与代理环境变量�?
+「测试连接」按当前输入测一次，**不会保存**；「保存」之后的新模型请求才使用新配置，进行中的请求保持原路由。回环地址始终直连。已保存的代理密码不会回显，不修改地址即保留凭据�?
+碰到上游按地区拒绝（例如 OpenAI 提示地区不可用）时，先在这里确认生效路由与出口地区，再重新登录�?
+## Skills
+
+设置 �?技能：列出当前官方组合已发现、可供会话调用的技能，包含来源、是否可被模型调用、是否可由用户调用，以及何时使用。在会话输入框打 `/` 也可以直接选择技能�?
+如果显示「当前组合未挂载技能目录」，说明当前运行环境没有官方的技能目录服务，此时该页只做提示，不提供管理功能�?
 ## 更新
 
-打包后的 macOS/Windows 应用会在后台检查版本，更新源由本 fork 的自托管服务提供（配置见仓库内 `dsh-plugin-desktop/src/fork-update-source.ts`）。后台检查不阻塞启动；网络错误、非 200、非法版本或服务端版本不新时保持静默。发现新版本时，应用会更新托盘并且每个版本只发送一次非阻塞系统通知，不会自动弹出下载确认；点击通知会显示 Desktop。
+本项�?*手动更新**，没有自动更新：
 
-托盘中的 **Check for Updates…** 是当前发行通道的手动检查：稳定版只接收稳定更新，Beta 只接收 Beta 更新。即使已经是当前版本，也会显示结果；检查失败会提示稍后重试。Beta 还提供 **安装稳定版…**，它会在保留 Beta 的同时安装稳定版。用户取消不会访问计数下载入口。
+1. �?Releases 看新版本（版本号以官方版本开头，例如 `0.2.1-rc.5.20261102.1`）�?2. Windows：退出应用后运行新的 `.exe` 覆盖安装，或解压新的 ZIP 替换旧目录�?3. macOS：打开新的 DMG，把应用拖进「应用程序」覆盖�?4. 数据留在 `<DSH_HOME>` 不变；重启应用即可�?
+跨版本跳过多个小版本一般没问题，但涉及官方基线变更（`officialVersion` 前缀变化）时，建议看发布说明里的注意事项�?
+## 出问题时
 
-确认下载后，应用会先打开原生的“保存更新安装包”对话框，默认建议保存到 Downloads；你可以改用其他目录和文件名，取消对话框则不会开始下载。保存后应用才会请求当前平台的固定下载地址，并记录安装包位置。macOS 会打开 DMG，由用户把应用替换到 Applications；Windows 会准备 NSIS 安装器，再询问是否退出并启动安装。升级完成并重新启动后，应用会询问是否删除安装包以释放磁盘空间，也可以选择保留。下载和安装失败不会破坏当前版本，托盘仍可重试。
-
-## 排查
-
-Desktop 的确认、警告与操作结果会打开独立、基于 shadcn 的桌面级模态窗口，而不是侵入官方页面的 overlay。恢复窗口会先展示进入原因，再提供 **插件管理**、**回滚**、**切换配置** 与 **诊断** 四个 Tab；它与新增 Profile 窗口顶部的 utility frame 都不会重复显示标题。
-
-- **应用能够进入托盘**：右键托盘图标，选择 **导出诊断信息…**。确认隐私提示后，Desktop 会生成 `diagnostics-*.zip` 并在文件管理器中显示它。
-- **应用持续闪退，无法进入托盘**：在 PowerShell 中直接运行安装后的程序并加上恢复参数。默认安装位置的命令如下；如果安装时修改过目录，请替换为实际的 EXE 路径。
-
-  ```powershell
-  & "$env:LOCALAPPDATA\Programs\DSH Desktop\DSH Desktop.exe" --export-diagnostics
-  ```
-
-  通过 npm 安装时，稳定版可运行 `dsh-desktop --export-diagnostics`，Beta 可运行 `dsh-desktop-beta --export-diagnostics`。这个命令不会启动 Host、profile、插件或窗口；完成后会在终端输出诊断 ZIP 的绝对路径。
-- **诊断包内容**：包含最近的应用日志、本地 Crashpad `.dmp`、当前运行标记和 `system-info.txt`。系统信息会记录 Desktop、Electron、Node、平台和架构版本。日志会对可识别的认证凭据脱敏，但本地路径、工作区 ID、会话 ID 和崩溃时的内存片段仍可能存在。公开上传前必须检查；不适合公开的 dump 应通过可信渠道提供。
-- **窗口消失了**：先检查系统托盘，关闭窗口不是退出。
-- **插件没有出现**：确认命令作用于目标 profile，并重启应用。
-- **终端命令找不到**：从托盘重新打开 Desktop 终端；系统 shell 的全局 PATH 不会被 Desktop 修改。
-- **更新没有提示**：后台错误会静默；使用托盘手动检查查看结果。
-
-更底层的生命周期、打包和平台限制属于开发者文档，见[文档索引](README.md)。
+先看[常见问题](faq.md)里的排查一节，尤其�?`DSH_HOME` 是否指到了预期目录、profile 里是否真的有 overlay 行�?
