@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+import { publishUpdatePending, useAccountMenuPatched, useMenuAction } from './menu-actions.ts'
 
 type UpdateLocaleKey =
   | 'label' | 'title' | 'current' | 'officialLatest' | 'buildLatest' | 'upToDate'
@@ -160,6 +161,7 @@ export function OverlayUpdateEntry({ t, wide }: UpdateEntryProps): ReactNode {
   const [open, setOpen] = useState(false)
   const [checking, setChecking] = useState(false)
   const [failed, setFailed] = useState(false)
+  const menuPatched = useAccountMenuPatched()
 
   const load = useCallback((force: boolean) => {
     setFailed(false)
@@ -192,8 +194,11 @@ export function OverlayUpdateEntry({ t, wide }: UpdateEntryProps): ReactNode {
   const updateUrl = view?.buildUpdate === true ? view.build?.url
     : view?.officialUpdate === true ? view.official?.url
       : undefined
+  const openFromMenu = useCallback(() => { setOpen(true); load(true) }, [load])
+  useMenuAction('updates', openFromMenu)
+  useEffect(() => { publishUpdatePending(pending) }, [pending])
   return <>
-    <button
+    {menuPatched ? null : <button
       type="button"
       className={['dshOverlayUpdateEntry', wide ? 'dshOverlayUpdateEntryWide' : ''].filter(part => part !== '').join(' ')}
       aria-label={t('label')}
@@ -203,7 +208,7 @@ export function OverlayUpdateEntry({ t, wide }: UpdateEntryProps): ReactNode {
       <BellIcon />
       {wide ? <span>{t('label')}</span> : null}
       {pending ? <span className="dshOverlayUpdateDot" aria-hidden="true" /> : null}
-    </button>
+    </button>}
     {open ? <div className="dshOverlayUpdateModal" role="dialog" aria-modal="true" aria-label={t('title')}>
       <h3>{t('title')}</h3>
       <p className="dshOverlayUpdateRow"><b>{t('current')}</b><span>{view?.current.buildVersion ?? '…'}{view?.current.buildVersion.endsWith('_dev') === true ? ` · ${t('dev')}` : ''}</span></p>

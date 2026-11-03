@@ -26,7 +26,50 @@ __export(index_exports, {
 module.exports = __toCommonJS(index_exports);
 
 // src/client/RemoteEntry.tsx
+var import_react2 = require("react");
+
+// src/client/menu-actions.ts
 var import_react = require("react");
+var MENU_ACTION_EVENT = "dsh-overlay:menu-action";
+var ACCOUNT_MENU_PATCH_EVENT = "dsh-overlay:account-menu-patch";
+function flags() {
+  return typeof window === "undefined" ? void 0 : window;
+}
+function accountMenuPatched() {
+  return flags()?.__DSH_ACCOUNT_MENU_PATCH__ === true;
+}
+function useAccountMenuPatched() {
+  const [patched, setPatched] = (0, import_react.useState)(accountMenuPatched);
+  (0, import_react.useEffect)(() => {
+    const handler = () => {
+      setPatched(accountMenuPatched());
+    };
+    window.addEventListener(ACCOUNT_MENU_PATCH_EVENT, handler);
+    return () => {
+      window.removeEventListener(ACCOUNT_MENU_PATCH_EVENT, handler);
+    };
+  }, []);
+  return patched;
+}
+function useMenuAction(action, open) {
+  (0, import_react.useEffect)(() => {
+    const handler = (event) => {
+      if (event.detail === action) open();
+    };
+    window.addEventListener(MENU_ACTION_EVENT, handler);
+    return () => {
+      window.removeEventListener(MENU_ACTION_EVENT, handler);
+    };
+  }, [action, open]);
+}
+function publishUpdatePending(pending) {
+  const target = flags();
+  if (target === void 0) return;
+  target.__DSH_OVERLAY_UPDATE_PENDING__ = pending;
+  window.dispatchEvent(new CustomEvent("dsh-overlay:update-pending", { detail: pending }));
+}
+
+// src/client/RemoteEntry.tsx
 var import_jsx_runtime = require("react/jsx-runtime");
 var NAMESPACE = "overlay.remote";
 var en = {
@@ -152,11 +195,12 @@ function PhoneIcon() {
   );
 }
 function OverlayRemoteEntry({ t, wide }) {
-  const [view, setView] = (0, import_react.useState)();
-  const [open, setOpen] = (0, import_react.useState)(false);
-  const [copied, setCopied] = (0, import_react.useState)(false);
-  const [originDraft, setOriginDraft] = (0, import_react.useState)("");
-  (0, import_react.useEffect)(() => {
+  const [view, setView] = (0, import_react2.useState)();
+  const [open, setOpen] = (0, import_react2.useState)(false);
+  const [copied, setCopied] = (0, import_react2.useState)(false);
+  const [originDraft, setOriginDraft] = (0, import_react2.useState)("");
+  const menuPatched = useAccountMenuPatched();
+  (0, import_react2.useEffect)(() => {
     let stopped = false;
     const read = () => {
       void fetch(STATE_PATH, { credentials: "same-origin", headers: { accept: "application/json" } }).then(async (response) => response.ok ? await response.json() : void 0).then((next) => {
@@ -171,7 +215,7 @@ function OverlayRemoteEntry({ t, wide }) {
       window.clearInterval(timer);
     };
   }, []);
-  const enable = (0, import_react.useCallback)(() => {
+  const enable = (0, import_react2.useCallback)(() => {
     void fetch(OPEN_PATH, {
       method: "POST",
       credentials: "same-origin",
@@ -183,7 +227,8 @@ function OverlayRemoteEntry({ t, wide }) {
     });
     setOpen(true);
   }, []);
-  const saveOrigin = (0, import_react.useCallback)(() => {
+  useMenuAction("remote", enable);
+  const saveOrigin = (0, import_react2.useCallback)(() => {
     void fetch("/api/desktop/remote/origin", {
       method: "POST",
       credentials: "same-origin",
@@ -195,7 +240,7 @@ function OverlayRemoteEntry({ t, wide }) {
     }).catch(() => {
     });
   }, [originDraft]);
-  const copy = (0, import_react.useCallback)(() => {
+  const copy = (0, import_react2.useCallback)(() => {
     if (view?.pairUrl == null) return;
     void navigator.clipboard.writeText(view.pairUrl).then(() => {
       setCopied(true);
@@ -206,7 +251,7 @@ function OverlayRemoteEntry({ t, wide }) {
   const online = view?.connected === true;
   const waiting = view?.waiting === true && !online;
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+    menuPatched ? null : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
       "button",
       {
         type: "button",
@@ -262,7 +307,7 @@ function applyOverlayRemoteEntry(ctx) {
 }
 
 // src/client/ProviderCardExtras.tsx
-var import_react3 = require("react");
+var import_react4 = require("react");
 
 // src/oauth-providers.ts
 var OAUTH_LOGIN_PROVIDERS = ["openai-codex", "xai"];
@@ -671,7 +716,7 @@ function injectOverlayStyles() {
 }
 
 // src/client/ProxyFooter.tsx
-var import_react2 = require("react");
+var import_react3 = require("react");
 var import_jsx_runtime2 = require("react/jsx-runtime");
 var NAMESPACE2 = "overlay.proxy";
 var en2 = {
@@ -993,21 +1038,21 @@ async function requestPayload(request, draft) {
 }
 function OverlayProxyFooter(props) {
   const { t } = props;
-  const id = (0, import_react2.useId)();
-  const [view, setView] = (0, import_react2.useState)();
-  const [mode, setMode] = (0, import_react2.useState)("system");
-  const [url, setUrl] = (0, import_react2.useState)("");
-  const [urlEdited, setUrlEdited] = (0, import_react2.useState)(false);
-  const [bypassText, setBypassText] = (0, import_react2.useState)("");
-  const [dirty, setDirty] = (0, import_react2.useState)(false);
-  const [busy, setBusy] = (0, import_react2.useState)("load");
-  const [notice, setNotice] = (0, import_react2.useState)();
-  const [test, setTest] = (0, import_react2.useState)();
-  const [error, setError] = (0, import_react2.useState)();
-  const mounted = (0, import_react2.useRef)(false);
-  const draftDirty = (0, import_react2.useRef)(false);
-  const pending = (0, import_react2.useRef)(null);
-  const run = (0, import_react2.useCallback)(async (kind, draft2) => {
+  const id = (0, import_react3.useId)();
+  const [view, setView] = (0, import_react3.useState)();
+  const [mode, setMode] = (0, import_react3.useState)("system");
+  const [url, setUrl] = (0, import_react3.useState)("");
+  const [urlEdited, setUrlEdited] = (0, import_react3.useState)(false);
+  const [bypassText, setBypassText] = (0, import_react3.useState)("");
+  const [dirty, setDirty] = (0, import_react3.useState)(false);
+  const [busy, setBusy] = (0, import_react3.useState)("load");
+  const [notice, setNotice] = (0, import_react3.useState)();
+  const [test, setTest] = (0, import_react3.useState)();
+  const [error, setError] = (0, import_react3.useState)();
+  const mounted = (0, import_react3.useRef)(false);
+  const draftDirty = (0, import_react3.useRef)(false);
+  const pending = (0, import_react3.useRef)(null);
+  const run = (0, import_react3.useCallback)(async (kind, draft2) => {
     if (!mounted.current || pending.current !== null) return;
     const request = { kind, controller: new AbortController(), timedOut: false };
     pending.current = request;
@@ -1056,7 +1101,7 @@ function OverlayProxyFooter(props) {
       }
     }
   }, []);
-  (0, import_react2.useEffect)(() => {
+  (0, import_react3.useEffect)(() => {
     mounted.current = true;
     void run("load");
     return () => {
@@ -1359,15 +1404,15 @@ function OverlayProviderCardExtras(props) {
   const { t } = props;
   const provider = props.provider.provider;
   const oauth = isOauthLoginProvider(provider);
-  const [probe, setProbe] = (0, import_react3.useState)();
-  const [busy, setBusy] = (0, import_react3.useState)();
-  const [oauthView, setOauthView] = (0, import_react3.useState)();
-  const [code, setCode] = (0, import_react3.useState)("");
-  const [candidates, setCandidates] = (0, import_react3.useState)([]);
-  const [checked, setChecked] = (0, import_react3.useState)(/* @__PURE__ */ new Set());
-  const [saved, setSaved] = (0, import_react3.useState)(false);
-  const [refreshNote, setRefreshNote] = (0, import_react3.useState)();
-  const run = (0, import_react3.useCallback)(async (mode) => {
+  const [probe, setProbe] = (0, import_react4.useState)();
+  const [busy, setBusy] = (0, import_react4.useState)();
+  const [oauthView, setOauthView] = (0, import_react4.useState)();
+  const [code, setCode] = (0, import_react4.useState)("");
+  const [candidates, setCandidates] = (0, import_react4.useState)([]);
+  const [checked, setChecked] = (0, import_react4.useState)(/* @__PURE__ */ new Set());
+  const [saved, setSaved] = (0, import_react4.useState)(false);
+  const [refreshNote, setRefreshNote] = (0, import_react4.useState)();
+  const run = (0, import_react4.useCallback)(async (mode) => {
     if (busy !== void 0) return;
     setBusy(mode);
     setProbe(void 0);
@@ -1391,12 +1436,12 @@ function OverlayProviderCardExtras(props) {
       setBusy(void 0);
     }
   }, [busy, props.provider.settingsNs, provider]);
-  const applyLive = (0, import_react3.useCallback)((view) => {
+  const applyLive = (0, import_react4.useCallback)((view) => {
     const ids = view.applied === true && view.configured.length > 0 ? [...view.configured] : [.../* @__PURE__ */ new Set([...view.live, ...view.configured])].sort();
     setCandidates(ids);
     setChecked(new Set(ids));
   }, []);
-  const refreshLatest = (0, import_react3.useCallback)(() => {
+  const refreshLatest = (0, import_react4.useCallback)(() => {
     if (busy !== void 0) return;
     setBusy("refresh");
     setSaved(false);
@@ -1417,7 +1462,7 @@ function OverlayProviderCardExtras(props) {
       setBusy(void 0);
     });
   }, [applyLive, busy, provider, t]);
-  const toggle = (0, import_react3.useCallback)((id) => {
+  const toggle = (0, import_react4.useCallback)((id) => {
     setChecked((previous) => {
       const next = new Set(previous);
       if (next.has(id)) next.delete(id);
@@ -1426,7 +1471,7 @@ function OverlayProviderCardExtras(props) {
     });
     setSaved(false);
   }, []);
-  const saveSelection = (0, import_react3.useCallback)(() => {
+  const saveSelection = (0, import_react4.useCallback)(() => {
     if (busy !== void 0) return;
     setBusy("save");
     void postJson(SELECTION_PATH, { provider, models: [...checked] }).then((outcome) => {
@@ -1435,7 +1480,7 @@ function OverlayProviderCardExtras(props) {
       setBusy(void 0);
     });
   }, [busy, checked, provider]);
-  (0, import_react3.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     if (!oauth) return;
     let cancelled = false;
     const tick = async () => {
@@ -1471,12 +1516,12 @@ function OverlayProviderCardExtras(props) {
       window.clearInterval(id);
     };
   }, [oauth, provider]);
-  (0, import_react3.useEffect)(() => {
+  (0, import_react4.useEffect)(() => {
     const url = oauthView?.url;
     if (typeof url !== "string" || url === "") return;
     window.open(url, "_blank", "noopener");
   }, [oauthView?.url]);
-  const startLogin = (0, import_react3.useCallback)(() => {
+  const startLogin = (0, import_react4.useCallback)(() => {
     void postJson(OAUTH_BEGIN, { provider }).then((view) => {
       if (view !== void 0) setOauthView(view);
       else setOauthView({
@@ -1489,12 +1534,12 @@ function OverlayProviderCardExtras(props) {
       });
     });
   }, [provider]);
-  const cancelLogin = (0, import_react3.useCallback)(() => {
+  const cancelLogin = (0, import_react4.useCallback)(() => {
     void postJson(OAUTH_CANCEL, { provider }).then((view) => {
       if (view !== void 0) setOauthView(view);
     });
   }, [provider]);
-  const submitCode = (0, import_react3.useCallback)(() => {
+  const submitCode = (0, import_react4.useCallback)(() => {
     void postJson(OAUTH_ANSWER, { provider, text: code }).then((view) => {
       if (view !== void 0) setOauthView(view);
       setCode("");
@@ -1636,7 +1681,7 @@ function applyOverlayModelExtras(ctx) {
 }
 
 // src/client/SettingsSections.tsx
-var import_react5 = require("react");
+var import_react6 = require("react");
 
 // src/client/capability-locales.ts
 var CAPABILITY_NS = "overlay.capabilities";
@@ -1770,7 +1815,7 @@ var capabilityEn = {
 };
 
 // src/client/McpSettingsSection.tsx
-var import_react4 = require("react");
+var import_react5 = require("react");
 
 // src/client/mcp-templates.ts
 var YUNXIAO_MCP_URL = "https://openapi-rdc.aliyuncs.com/ai/mcp?toolsets=organization-management,project-management";
@@ -2127,7 +2172,7 @@ function McpCard({ row, t, probe, expanded, update, remove, test, toggleExpanded
   ] });
 }
 function TemplateConfigurator({ template, rows, t, close, add }) {
-  const [values, setValues] = (0, import_react4.useState)(() => templateInitialValues(template));
+  const [values, setValues] = (0, import_react5.useState)(() => templateInitialValues(template));
   const valid = templateRequirementsMet(template, values);
   return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "dshOverlayTemplateConfig", children: [
     /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "dshOverlaySettingsHead", children: [
@@ -2156,14 +2201,14 @@ function TemplateConfigurator({ template, rows, t, close, add }) {
   ] });
 }
 function OverlayMcpSection({ t }) {
-  const [rows, setRows] = (0, import_react4.useState)();
-  const [expanded, setExpanded] = (0, import_react4.useState)(/* @__PURE__ */ new Set());
-  const [probes, setProbes] = (0, import_react4.useState)({});
-  const [busy, setBusy] = (0, import_react4.useState)(false);
-  const [note, setNote] = (0, import_react4.useState)();
-  const [importText, setImportText] = (0, import_react4.useState)("");
-  const [template, setTemplate] = (0, import_react4.useState)();
-  const load = (0, import_react4.useCallback)(() => {
+  const [rows, setRows] = (0, import_react5.useState)();
+  const [expanded, setExpanded] = (0, import_react5.useState)(/* @__PURE__ */ new Set());
+  const [probes, setProbes] = (0, import_react5.useState)({});
+  const [busy, setBusy] = (0, import_react5.useState)(false);
+  const [note, setNote] = (0, import_react5.useState)();
+  const [importText, setImportText] = (0, import_react5.useState)("");
+  const [template, setTemplate] = (0, import_react5.useState)();
+  const load = (0, import_react5.useCallback)(() => {
     void jsonRequest("/api/desktop/mcp").then((view) => {
       setRows(view.servers.map(draftFromView));
     }).catch(() => {
@@ -2171,8 +2216,8 @@ function OverlayMcpSection({ t }) {
       setNote("failed");
     });
   }, []);
-  (0, import_react4.useEffect)(load, [load]);
-  const duplicate = (0, import_react4.useMemo)(() => rows !== void 0 && new Set(rows.map((row) => row.serverName.trim())).size !== rows.length, [rows]);
+  (0, import_react5.useEffect)(load, [load]);
+  const duplicate = (0, import_react5.useMemo)(() => rows !== void 0 && new Set(rows.map((row) => row.serverName.trim())).size !== rows.length, [rows]);
   const update = (index, patch) => {
     setRows((current) => current?.map((row, rowIndex) => rowIndex === index ? { ...row, ...patch } : row));
     setNote(void 0);
@@ -2322,15 +2367,15 @@ function sourceLabel(source, t) {
   return t("privateSource");
 }
 function OverlaySkillsSection({ t }) {
-  const [view, setView] = (0, import_react5.useState)();
-  const [failed, setFailed] = (0, import_react5.useState)(false);
-  const load = (0, import_react5.useCallback)(() => {
+  const [view, setView] = (0, import_react6.useState)();
+  const [failed, setFailed] = (0, import_react6.useState)(false);
+  const load = (0, import_react6.useCallback)(() => {
     setFailed(false);
     void jsonRequest2("/api/desktop/skills").then(setView).catch(() => {
       setFailed(true);
     });
   }, []);
-  (0, import_react5.useEffect)(load, [load]);
+  (0, import_react6.useEffect)(load, [load]);
   return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "dshOverlaySettings", children: [
     /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("header", { className: "dshOverlaySettingsHero", children: [
       /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "dshOverlaySettingsHeroIcon", children: "\u2726" }),
@@ -2381,7 +2426,7 @@ function applyOverlayCapabilitySettings(ctx) {
 }
 
 // src/client/UpdateEntry.tsx
-var import_react6 = require("react");
+var import_react7 = require("react");
 var import_jsx_runtime6 = require("react/jsx-runtime");
 var NAMESPACE4 = "overlay.updates";
 var en4 = {
@@ -2490,11 +2535,12 @@ function installStyles() {
   document.head.append(style);
 }
 function OverlayUpdateEntry({ t, wide }) {
-  const [view, setView] = (0, import_react6.useState)();
-  const [open, setOpen] = (0, import_react6.useState)(false);
-  const [checking, setChecking] = (0, import_react6.useState)(false);
-  const [failed, setFailed] = (0, import_react6.useState)(false);
-  const load = (0, import_react6.useCallback)((force) => {
+  const [view, setView] = (0, import_react7.useState)();
+  const [open, setOpen] = (0, import_react7.useState)(false);
+  const [checking, setChecking] = (0, import_react7.useState)(false);
+  const [failed, setFailed] = (0, import_react7.useState)(false);
+  const menuPatched = useAccountMenuPatched();
+  const load = (0, import_react7.useCallback)((force) => {
     setFailed(false);
     if (force) setChecking(true);
     void fetch(STATE_PATH2, {
@@ -2512,10 +2558,10 @@ function OverlayUpdateEntry({ t, wide }) {
       setChecking(false);
     });
   }, []);
-  (0, import_react6.useEffect)(() => {
+  (0, import_react7.useEffect)(() => {
     load(false);
   }, [load]);
-  (0, import_react6.useEffect)(() => {
+  (0, import_react7.useEffect)(() => {
     const timer = window.setInterval(() => {
       load(false);
     }, 10 * 60 * 1e3);
@@ -2523,13 +2569,21 @@ function OverlayUpdateEntry({ t, wide }) {
       window.clearInterval(timer);
     };
   }, [load]);
-  (0, import_react6.useEffect)(() => {
+  (0, import_react7.useEffect)(() => {
     if (open) load(true);
   }, [open, load]);
   const pending = view !== void 0 && (view.officialUpdate || view.buildUpdate);
   const updateUrl = view?.buildUpdate === true ? view.build?.url : view?.officialUpdate === true ? view.official?.url : void 0;
+  const openFromMenu = (0, import_react7.useCallback)(() => {
+    setOpen(true);
+    load(true);
+  }, [load]);
+  useMenuAction("updates", openFromMenu);
+  (0, import_react7.useEffect)(() => {
+    publishUpdatePending(pending);
+  }, [pending]);
   return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(
+    menuPatched ? null : /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(
       "button",
       {
         type: "button",

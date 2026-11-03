@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+import { useAccountMenuPatched, useMenuAction } from './menu-actions.ts'
 
 type RemoteLocaleKey =
   | 'label' | 'waiting' | 'connected' | 'copy' | 'copied' | 'disabled' | 'close'
@@ -144,6 +145,7 @@ export function OverlayRemoteEntry({ t, wide }: RemoteEntryProps): ReactNode {
   const [open, setOpen] = useState(false)
   const [copied, setCopied] = useState(false)
   const [originDraft, setOriginDraft] = useState('')
+  const menuPatched = useAccountMenuPatched()
 
   useEffect(() => {
     let stopped = false
@@ -169,6 +171,7 @@ export function OverlayRemoteEntry({ t, wide }: RemoteEntryProps): ReactNode {
       .catch(() => {})
     setOpen(true)
   }, [])
+  useMenuAction('remote', enable)
 
   const saveOrigin = useCallback(() => {
     void fetch('/api/desktop/remote/origin', {
@@ -193,7 +196,7 @@ export function OverlayRemoteEntry({ t, wide }: RemoteEntryProps): ReactNode {
   const online = view?.connected === true
   const waiting = view?.waiting === true && !online
   return <>
-    <button
+    {menuPatched ? null : <button
       type="button"
       className={[
         'dshOverlayRemoteEntry',
@@ -206,7 +209,7 @@ export function OverlayRemoteEntry({ t, wide }: RemoteEntryProps): ReactNode {
     >
       <PhoneIcon />
       {wide ? <span className="dshOverlayRemoteEntryLabel">{t('label')}</span> : null}
-    </button>
+    </button>}
     {open ? <div className="dshOverlayRemoteModal" role="dialog" aria-modal="true" aria-label={t('label')}>
       {view?.state === 'disabled'
         ? <>

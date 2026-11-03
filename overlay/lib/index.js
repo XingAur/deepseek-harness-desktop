@@ -17,7 +17,7 @@ var __export = (target, all) => {
 var define_DSH_OVERLAY_META_default;
 var init_define_DSH_OVERLAY_META = __esm({
   "<define:__DSH_OVERLAY_META__>"() {
-    define_DSH_OVERLAY_META_default = { officialVersion: "0.2.1-rc.5", buildVersion: "0.2.1-rc.5_02" };
+    define_DSH_OVERLAY_META_default = { officialVersion: "0.2.1-rc.5", buildVersion: "0.2.1-rc.5_dev" };
   }
 });
 
