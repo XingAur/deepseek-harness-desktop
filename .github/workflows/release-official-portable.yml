@@ -16,6 +16,10 @@ on:
         required: true
         default: true
         type: boolean
+      notes:
+        description: 'Chinese release notes (Markdown) for this build; overrides the default Chinese body'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -45,6 +49,7 @@ jobs:
         env:
           BUILD_VERSION: ${{ inputs.build_version }}
           RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_NOTES: ${{ inputs.notes }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -63,9 +68,24 @@ jobs:
             gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --method DELETE >/dev/null
             gh api "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" --method DELETE >/dev/null 2>/dev/null || true
           fi
+          notes_file="$(mktemp)"
+          if [ -n "${RELEASE_NOTES:-}" ]; then
+            printf '%s\n' "$RELEASE_NOTES" > "$notes_file"
+          else
+            cat > "$notes_file" <<EOF
+          便携版 DeepSeek Harness，基于锁定的官方源码构建，内置本地 Overlay 与 MCP 管理器。
+
+          - 官方基线：${official_version}
+          - 构建版本：${BUILD_VERSION}
+          - 更新方式：手动更新，不接入自动更新 feed
+
+          Windows 产物未签名，macOS 产物为 ad-hoc 签名且未公证。请按平台下载对应的安装包或 ZIP。
+          EOF
+          fi
           gh release create "$RELEASE_TAG" --draft --prerelease --target "$GITHUB_SHA" \
-            --title "Official DSH Portable $BUILD_VERSION" \
-            --notes "Portable DeepSeek Harness based on the locked official source, with the local Overlay and MCP manager bundled. macOS provides a DMG installer and ZIP archive. Windows provides an unsigned NSIS EXE installer and ZIP archive. Windows is unsigned and macOS is ad-hoc signed; both use manual updates and are not added to an automatic-update feed."
+            --title "DSH 便携版 $BUILD_VERSION" \
+            --notes-file "$notes_file"
+          rm -f "$notes_file"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
 

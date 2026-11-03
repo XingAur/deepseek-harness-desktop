@@ -71,6 +71,7 @@ Root npm aliases: `official:bootstrap`, `official:sync`, `official:start`, `offi
 
 - Releases are **prerelease**, **manual-update** builds. Windows x64 is unsigned; macOS ARM64 is ad-hoc signed and not notarized.
 - The build version is `<official version>_<NN>` (for example `0.2.1-rc.5_01`; the default iteration is `01`, overridable with `DSH_PORTABLE_ITERATION` or `DSH_PORTABLE_BUILD_VERSION`). The release tag must be `official-v<build-version>`.
+- Release notes are written in Chinese; pass the `notes` input to the release workflow for the build-specific changelog.
 - Artifacts are `deepseek-harness-overlay-<build>-win-x64-unsigned-manual.{exe,zip}` and `deepseek-harness-overlay-<build>-mac-arm64-adhoc-manual.{dmg,zip}`, each with `.sha256` and `.build.json` sidecars.
 - Do not add an automatic-update feed or publish a stable release from this workflow.
 
