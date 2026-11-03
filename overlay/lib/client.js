@@ -327,7 +327,8 @@ function OverlayRemoteEntry({ t, wide }) {
         error !== void 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "dshOverlayRemoteError", role: "alert", children: error }) : null
       ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
         view?.qrSvg != null && view.qrSvg !== "" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dshOverlayRemoteQr", dangerouslySetInnerHTML: { __html: view.qrSvg } }) : null,
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: view?.pairUrl ?? view?.error ?? t("waiting") })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: view?.pairUrl ?? t("waiting") }),
+        view?.error !== null && view?.error !== void 0 && view.error !== "" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "dshOverlayRemoteError", role: "alert", children: view.error }) : null
       ] }),
       view?.pairUrl != null ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "dshOverlayBtnSecondary", onClick: copy, children: copied ? t("copied") : t("copy") }) : null,
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "dshOverlayBtnSecondary", onClick: () => setOpen(false), children: t("close") })

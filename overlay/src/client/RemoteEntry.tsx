@@ -247,7 +247,10 @@ export function OverlayRemoteEntry({ t, wide }: RemoteEntryProps): ReactNode {
             {view?.qrSvg != null && view.qrSvg !== ''
               ? <div className="dshOverlayRemoteQr" dangerouslySetInnerHTML={{ __html: view.qrSvg }} />
               : null}
-            <p>{view?.pairUrl ?? view?.error ?? t('waiting')}</p>
+            <p>{view?.pairUrl ?? t('waiting')}</p>
+            {view?.error !== null && view?.error !== undefined && view.error !== ''
+              ? <p className="dshOverlayRemoteError" role="alert">{view.error}</p>
+              : null}
           </>}
       {view?.pairUrl != null
         ? <button type="button" className="dshOverlayBtnSecondary" onClick={copy}>
