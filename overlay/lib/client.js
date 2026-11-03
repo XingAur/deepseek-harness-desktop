@@ -69,6 +69,23 @@ function publishUpdatePending(pending) {
   window.dispatchEvent(new CustomEvent("dsh-overlay:update-pending", { detail: pending }));
 }
 
+// src/client/origin-input.ts
+function normalizeRelayOrigin(value) {
+  const trimmed2 = value.trim();
+  if (trimmed2 === "") return null;
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//iu.test(trimmed2) ? trimmed2 : `https://${trimmed2}`;
+  try {
+    const url = new URL(withScheme);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    if (url.pathname !== "/" || url.search !== "" || url.hash !== "") return null;
+    if (url.username !== "" || url.password !== "") return null;
+    if (url.protocol === "http:" && !/^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/u.test(url.host)) return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
 // src/client/RemoteEntry.tsx
 var import_jsx_runtime = require("react/jsx-runtime");
 var NAMESPACE = "overlay.remote";
@@ -81,7 +98,10 @@ var en = {
   disabled: "Enter the relay origin below. It will be remembered for future launches.",
   close: "Close",
   origin: "Relay origin (https://\u2026)",
-  saveOrigin: "Save and connect"
+  saveOrigin: "Save and connect",
+  saving: "Saving\u2026",
+  invalidOrigin: "Use an https:// relay origin. Public relays must use HTTPS; local development may use http://localhost.",
+  saveFailed: "Could not save the relay origin. Check the address and its TLS certificate."
 };
 var zh = {
   label: "\u624B\u673A\u8FDE\u63A5",
@@ -92,7 +112,10 @@ var zh = {
   disabled: "\u5728\u4E0B\u65B9\u586B\u5199\u4E2D\u7EE7\u5730\u5740\uFF1B\u4FDD\u5B58\u540E\u4EE5\u540E\u542F\u52A8\u4F1A\u81EA\u52A8\u8BB0\u4F4F\u3002",
   close: "\u5173\u95ED",
   origin: "\u4E2D\u7EE7\u5730\u5740\uFF08https://\u2026\uFF09",
-  saveOrigin: "\u4FDD\u5B58\u5E76\u8FDE\u63A5"
+  saveOrigin: "\u4FDD\u5B58\u5E76\u8FDE\u63A5",
+  saving: "\u4FDD\u5B58\u4E2D\u2026",
+  invalidOrigin: "\u8BF7\u4F7F\u7528 https:// \u5F00\u5934\u7684\u4E2D\u7EE7\u5730\u5740\u3002\u516C\u7F51\u4E2D\u7EE7\u5FC5\u987B\u4F7F\u7528 HTTPS\uFF1B\u672C\u673A\u5F00\u53D1\u53EF\u7528 http://localhost\u3002",
+  saveFailed: "\u4FDD\u5B58\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u4E2D\u7EE7\u5730\u5740\u548C TLS \u8BC1\u4E66\u3002"
 };
 var STATE_PATH = "/api/desktop/remote/state";
 var OPEN_PATH = "/api/desktop/remote/pairing/open";
@@ -158,6 +181,7 @@ var CSS = `
   gap: 8px;
 }
 .dshOverlayRemoteModal p { margin: 0; word-break: break-all; }
+.dshOverlayRemoteError { color: var(--dsw-alias-state-error-primary, #e5484d); font-size: 13px; line-height: 20px; }
 .dshOverlayRemoteQr {
   width: 232px;
   height: 232px;
@@ -199,6 +223,8 @@ function OverlayRemoteEntry({ t, wide }) {
   const [open, setOpen] = (0, import_react2.useState)(false);
   const [copied, setCopied] = (0, import_react2.useState)(false);
   const [originDraft, setOriginDraft] = (0, import_react2.useState)("");
+  const [saving, setSaving] = (0, import_react2.useState)(false);
+  const [error, setError] = (0, import_react2.useState)();
   const menuPatched = useAccountMenuPatched();
   (0, import_react2.useEffect)(() => {
     let stopped = false;
@@ -229,17 +255,30 @@ function OverlayRemoteEntry({ t, wide }) {
   }, []);
   useMenuAction("remote", enable);
   const saveOrigin = (0, import_react2.useCallback)(() => {
+    const origin = normalizeRelayOrigin(originDraft);
+    if (origin === null) {
+      setError(t("invalidOrigin"));
+      return;
+    }
+    setError(void 0);
+    setSaving(true);
     void fetch("/api/desktop/remote/origin", {
       method: "POST",
       credentials: "same-origin",
       headers: { accept: "application/json", "content-type": "application/json" },
       redirect: "error",
-      body: JSON.stringify({ origin: originDraft })
-    }).then(async (response) => response.ok ? await response.json() : void 0).then((next) => {
-      if (next !== void 0) setView(next);
+      body: JSON.stringify({ origin })
+    }).then(async (response) => {
+      const value = await response.json().catch(() => void 0);
+      if (!response.ok || value === void 0) throw new Error("save failed");
+      setView(value);
+      setOriginDraft(value.relayOrigin ?? origin);
     }).catch(() => {
+      setError(t("saveFailed"));
+    }).finally(() => {
+      setSaving(false);
     });
-  }, [originDraft]);
+  }, [originDraft, t]);
   const copy = (0, import_react2.useCallback)(() => {
     if (view?.pairUrl == null) return;
     void navigator.clipboard.writeText(view.pairUrl).then(() => {
@@ -280,10 +319,12 @@ function OverlayRemoteEntry({ t, wide }) {
             placeholder: t("origin"),
             onChange: (event) => {
               setOriginDraft(event.target.value);
+              setError(void 0);
             }
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "dshOverlayBtnPrimary", onClick: saveOrigin, children: t("saveOrigin") })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "dshOverlayBtnPrimary", onClick: saveOrigin, disabled: saving, children: saving ? t("saving") : t("saveOrigin") }),
+        error !== void 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "dshOverlayRemoteError", role: "alert", children: error }) : null
       ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
         view?.qrSvg != null && view.qrSvg !== "" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dshOverlayRemoteQr", dangerouslySetInnerHTML: { __html: view.qrSvg } }) : null,
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: view?.pairUrl ?? view?.error ?? t("waiting") })

@@ -16,6 +16,7 @@ import { canonicalRelayOrigin, persistRelayOrigin } from '../src/relay-origin.ts
 import { RELAY_REQUEST_HEADER, sanitizedTunnelHeaders } from '../src/relay-tunnel.ts'
 import { compareBuildVersions, compareOfficialVersions, currentBuildMeta, parseBuildVersion } from '../src/build-meta.ts'
 import { localizeNotes, selectLatestOfficial } from '../src/updates.ts'
+import { normalizeRelayOrigin } from '../src/client/origin-input.ts'
 
 const overlayRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -38,6 +39,17 @@ test('relay origin accepts https and loopback http', () => {
   assert.equal(canonicalRelayOrigin('http://example.com'), null)
   assert.equal(canonicalRelayOrigin('https://relay.example.com')?.origin, 'https://relay.example.com')
   assert.equal(canonicalRelayOrigin('http://127.0.0.1:8787')?.origin, 'http://127.0.0.1:8787')
+})
+
+test('client relay input adds https and rejects public http or paths', () => {
+  assert.equal(normalizeRelayOrigin('8.147.62.187'), 'https://8.147.62.187')
+  assert.equal(normalizeRelayOrigin('relay.example.com'), 'https://relay.example.com')
+  assert.equal(normalizeRelayOrigin('https://relay.example.com'), 'https://relay.example.com')
+  assert.equal(normalizeRelayOrigin('http://127.0.0.1:8787'), 'http://127.0.0.1:8787')
+  assert.equal(normalizeRelayOrigin('http://localhost:8787'), 'http://localhost:8787')
+  assert.equal(normalizeRelayOrigin('http://8.147.62.187'), null)
+  assert.equal(normalizeRelayOrigin('https://relay.example.com/path'), null)
+  assert.equal(normalizeRelayOrigin(''), null)
 })
 
 test('MCP rows persist in overlay config while projections hide secrets', async () => {

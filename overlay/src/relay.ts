@@ -371,7 +371,12 @@ export function applyOverlayRelay(ctx: Context, originValue: string): void {
       void (async () => {
         const body = await readJsonBody(req).catch(() => ({} as Record<string, unknown>))
         const raw = typeof body.origin === 'string' ? body.origin : ''
-        origin = await persistRelayOrigin(resolveDshHome(), raw)
+        const trimmed = raw.trim()
+        if (trimmed !== '' && canonicalRelayOrigin(trimmed) === null) {
+          writeJson(res, 400, { error: 'invalid-origin' })
+          return
+        }
+        origin = await persistRelayOrigin(resolveDshHome(), trimmed)
         pairing = null
         tunnel?.dispose()
         tunnel = null

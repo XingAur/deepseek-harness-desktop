@@ -3,10 +3,11 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import { useAccountMenuPatched, useMenuAction } from './menu-actions.ts'
+import { normalizeRelayOrigin } from './origin-input.ts'
 
 type RemoteLocaleKey =
   | 'label' | 'waiting' | 'connected' | 'copy' | 'copied' | 'disabled' | 'close'
-  | 'origin' | 'saveOrigin'
+  | 'origin' | 'saveOrigin' | 'saving' | 'invalidOrigin' | 'saveFailed'
 
 const NAMESPACE = 'overlay.remote'
 const en: Record<RemoteLocaleKey, string> = {
@@ -19,6 +20,9 @@ const en: Record<RemoteLocaleKey, string> = {
   close: 'Close',
   origin: 'Relay origin (https://…)',
   saveOrigin: 'Save and connect',
+  saving: 'Saving…',
+  invalidOrigin: 'Use an https:// relay origin. Public relays must use HTTPS; local development may use http://localhost.',
+  saveFailed: 'Could not save the relay origin. Check the address and its TLS certificate.',
 }
 const zh: Record<RemoteLocaleKey, string> = {
   label: '手机连接',
@@ -30,6 +34,9 @@ const zh: Record<RemoteLocaleKey, string> = {
   close: '关闭',
   origin: '中继地址（https://…）',
   saveOrigin: '保存并连接',
+  saving: '保存中…',
+  invalidOrigin: '请使用 https:// 开头的中继地址。公网中继必须使用 HTTPS；本机开发可用 http://localhost。',
+  saveFailed: '保存失败，请检查中继地址和 TLS 证书。',
 }
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -47,6 +54,7 @@ interface RemoteView {
   readonly connected: boolean
   readonly pairUrl: string | null
   readonly qrSvg: string | null
+  readonly relayOrigin: string | null
   readonly error: string | null
 }
 
@@ -114,6 +122,7 @@ const CSS = `
   gap: 8px;
 }
 .dshOverlayRemoteModal p { margin: 0; word-break: break-all; }
+.dshOverlayRemoteError { color: var(--dsw-alias-state-error-primary, #e5484d); font-size: 13px; line-height: 20px; }
 .dshOverlayRemoteQr {
   width: 232px;
   height: 232px;
@@ -145,6 +154,8 @@ export function OverlayRemoteEntry({ t, wide }: RemoteEntryProps): ReactNode {
   const [open, setOpen] = useState(false)
   const [copied, setCopied] = useState(false)
   const [originDraft, setOriginDraft] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string>()
   const menuPatched = useAccountMenuPatched()
 
   useEffect(() => {
@@ -174,16 +185,27 @@ export function OverlayRemoteEntry({ t, wide }: RemoteEntryProps): ReactNode {
   useMenuAction('remote', enable)
 
   const saveOrigin = useCallback(() => {
+    const origin = normalizeRelayOrigin(originDraft)
+    if (origin === null) {
+      setError(t('invalidOrigin'))
+      return
+    }
+    setError(undefined)
+    setSaving(true)
     void fetch('/api/desktop/remote/origin', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { accept: 'application/json', 'content-type': 'application/json' },
       redirect: 'error',
-      body: JSON.stringify({ origin: originDraft }),
-    }).then(async response => response.ok ? await response.json() as RemoteView : undefined)
-      .then(next => { if (next !== undefined) setView(next) })
-      .catch(() => {})
-  }, [originDraft])
+      body: JSON.stringify({ origin }),
+    }).then(async response => {
+      const value = await response.json().catch(() => undefined) as RemoteView | undefined
+      if (!response.ok || value === undefined) throw new Error('save failed')
+      setView(value)
+      setOriginDraft(value.relayOrigin ?? origin)
+    }).catch(() => { setError(t('saveFailed')) })
+      .finally(() => { setSaving(false) })
+  }, [originDraft, t])
 
   const copy = useCallback(() => {
     if (view?.pairUrl == null) return
@@ -215,8 +237,11 @@ export function OverlayRemoteEntry({ t, wide }: RemoteEntryProps): ReactNode {
         ? <>
             <p>{t('disabled')}</p>
             <input className="dshOverlayInput" value={originDraft}
-              placeholder={t('origin')} onChange={event => { setOriginDraft(event.target.value) }} />
-            <button type="button" className="dshOverlayBtnPrimary" onClick={saveOrigin}>{t('saveOrigin')}</button>
+              placeholder={t('origin')} onChange={event => { setOriginDraft(event.target.value); setError(undefined) }} />
+            <button type="button" className="dshOverlayBtnPrimary" onClick={saveOrigin} disabled={saving}>
+              {saving ? t('saving') : t('saveOrigin')}
+            </button>
+            {error !== undefined ? <p className="dshOverlayRemoteError" role="alert">{error}</p> : null}
           </>
         : <>
             {view?.qrSvg != null && view.qrSvg !== ''
