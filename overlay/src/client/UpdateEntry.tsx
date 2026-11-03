@@ -6,7 +6,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 type UpdateLocaleKey =
   | 'label' | 'title' | 'current' | 'officialLatest' | 'buildLatest' | 'upToDate'
   | 'officialUpdate' | 'buildUpdate' | 'notes' | 'openOfficial' | 'openBuild'
-  | 'refresh' | 'refreshing' | 'close' | 'unavailable' | 'dev'
+  | 'refresh' | 'refreshing' | 'updateNow' | 'recheck' | 'manualUpdate'
+  | 'close' | 'unavailable' | 'dev'
 
 const NAMESPACE = 'overlay.updates'
 const en: Record<UpdateLocaleKey, string> = {
@@ -23,6 +24,9 @@ const en: Record<UpdateLocaleKey, string> = {
   openBuild: 'Open this repository releases',
   refresh: 'Check now',
   refreshing: 'Checking…',
+  updateNow: 'Update now',
+  recheck: 'Check again',
+  manualUpdate: 'Portable builds update manually. This opens the matching release download page; it does not overwrite the installed app.',
   close: 'Close',
   unavailable: 'Update check is unavailable right now.',
   dev: 'development build',
@@ -41,6 +45,9 @@ const zh: Record<UpdateLocaleKey, string> = {
   openBuild: '打开本仓库 Releases',
   refresh: '立即检查',
   refreshing: '检查中…',
+  updateNow: '立即更新',
+  recheck: '重新检查',
+  manualUpdate: '便携包为手动更新：这里会打开对应 Release 的下载页，不会自动覆盖安装。',
   close: '关闭',
   unavailable: '暂时无法检查更新。',
   dev: '开发构建',
@@ -120,6 +127,11 @@ const CSS = `
   background: transparent; color: inherit; font: inherit; text-decoration: none; cursor: pointer;
 }
 .dshOverlayUpdateActions a:hover, .dshOverlayUpdateActions button:hover { background: var(--dsw-alias-bg-hover, rgba(0,0,0,.05)); }
+.dshOverlayUpdateActions .dshOverlayUpdatePrimary {
+  border-color: transparent; background: var(--dsw-alias-button-primary-fill, #4d6bfe); color: var(--dsw-alias-label-primary-foreground, #fff);
+}
+.dshOverlayUpdateActions .dshOverlayUpdatePrimary:hover { background: var(--dsw-alias-button-primary-hover, #3f5ae0); }
+.dshOverlayUpdateHint { margin: 8px 0 0; color: var(--dsw-alias-label-tertiary, rgba(0,0,0,.55)); font-size: 12px; line-height: 18px; }
 `
 
 function BellIcon(): ReactNode {
@@ -172,15 +184,21 @@ export function OverlayUpdateEntry({ t, wide }: UpdateEntryProps): ReactNode {
     const timer = window.setInterval(() => { load(false) }, 10 * 60 * 1000)
     return () => { window.clearInterval(timer) }
   }, [load])
+  useEffect(() => {
+    if (open) load(true)
+  }, [open, load])
 
   const pending = view !== undefined && (view.officialUpdate || view.buildUpdate)
+  const updateUrl = view?.buildUpdate === true ? view.build?.url
+    : view?.officialUpdate === true ? view.official?.url
+      : undefined
   return <>
     <button
       type="button"
       className={['dshOverlayUpdateEntry', wide ? 'dshOverlayUpdateEntryWide' : ''].filter(part => part !== '').join(' ')}
       aria-label={t('label')}
       title={pending ? (view?.buildUpdate === true ? t('buildUpdate') : t('officialUpdate')) : t('label')}
-      onClick={() => { setOpen(true); load(true) }}
+      onClick={() => { setOpen(true) }}
     >
       <BellIcon />
       {wide ? <span>{t('label')}</span> : null}
@@ -203,11 +221,13 @@ export function OverlayUpdateEntry({ t, wide }: UpdateEntryProps): ReactNode {
         <pre className="dshOverlayUpdateNotes">{view.official.notes}</pre>
       </> : null}
       <div className="dshOverlayUpdateActions">
-        <button type="button" onClick={() => { load(true) }} disabled={checking}>{checking ? t('refreshing') : t('refresh')}</button>
-        {view?.official?.url !== undefined ? <a href={view.official.url} target="_blank" rel="noreferrer noopener">{t('openOfficial')}</a> : null}
-        {view?.build?.url !== undefined ? <a href={view.build.url} target="_blank" rel="noreferrer noopener">{t('openBuild')}</a> : null}
+        {updateUrl !== undefined
+          ? <a className="dshOverlayUpdatePrimary" href={updateUrl} target="_blank" rel="noreferrer noopener">{t('updateNow')}</a>
+          : null}
+        <button type="button" onClick={() => { load(true) }} disabled={checking}>{checking ? t('refreshing') : t('recheck')}</button>
         <button type="button" onClick={() => { setOpen(false) }}>{t('close')}</button>
       </div>
+      {pending ? <p className="dshOverlayUpdateHint">{t('manualUpdate')}</p> : null}
     </div> : null}
   </>
 }

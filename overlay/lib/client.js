@@ -2398,6 +2398,9 @@ var en4 = {
   openBuild: "Open this repository releases",
   refresh: "Check now",
   refreshing: "Checking\u2026",
+  updateNow: "Update now",
+  recheck: "Check again",
+  manualUpdate: "Portable builds update manually. This opens the matching release download page; it does not overwrite the installed app.",
   close: "Close",
   unavailable: "Update check is unavailable right now.",
   dev: "development build"
@@ -2416,6 +2419,9 @@ var zh4 = {
   openBuild: "\u6253\u5F00\u672C\u4ED3\u5E93 Releases",
   refresh: "\u7ACB\u5373\u68C0\u67E5",
   refreshing: "\u68C0\u67E5\u4E2D\u2026",
+  updateNow: "\u7ACB\u5373\u66F4\u65B0",
+  recheck: "\u91CD\u65B0\u68C0\u67E5",
+  manualUpdate: "\u4FBF\u643A\u5305\u4E3A\u624B\u52A8\u66F4\u65B0\uFF1A\u8FD9\u91CC\u4F1A\u6253\u5F00\u5BF9\u5E94 Release \u7684\u4E0B\u8F7D\u9875\uFF0C\u4E0D\u4F1A\u81EA\u52A8\u8986\u76D6\u5B89\u88C5\u3002",
   close: "\u5173\u95ED",
   unavailable: "\u6682\u65F6\u65E0\u6CD5\u68C0\u67E5\u66F4\u65B0\u3002",
   dev: "\u5F00\u53D1\u6784\u5EFA"
@@ -2467,6 +2473,11 @@ var CSS3 = `
   background: transparent; color: inherit; font: inherit; text-decoration: none; cursor: pointer;
 }
 .dshOverlayUpdateActions a:hover, .dshOverlayUpdateActions button:hover { background: var(--dsw-alias-bg-hover, rgba(0,0,0,.05)); }
+.dshOverlayUpdateActions .dshOverlayUpdatePrimary {
+  border-color: transparent; background: var(--dsw-alias-button-primary-fill, #4d6bfe); color: var(--dsw-alias-label-primary-foreground, #fff);
+}
+.dshOverlayUpdateActions .dshOverlayUpdatePrimary:hover { background: var(--dsw-alias-button-primary-hover, #3f5ae0); }
+.dshOverlayUpdateHint { margin: 8px 0 0; color: var(--dsw-alias-label-tertiary, rgba(0,0,0,.55)); font-size: 12px; line-height: 18px; }
 `;
 function BellIcon() {
   return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("svg", { width: "16", height: "16", viewBox: "0 0 16 16", "aria-hidden": "true", focusable: "false", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("path", { fill: "currentColor", d: "M8 1.6a3.4 3.4 0 0 0-3.4 3.4v2.1l-1 1.8a.8.8 0 0 0 .7 1.2h7.4a.8.8 0 0 0 .7-1.2l-1-1.8V5A3.4 3.4 0 0 0 8 1.6Zm0 12.1a1.8 1.8 0 0 0 1.7-1.2H6.3A1.8 1.8 0 0 0 8 13.7Z" }) });
@@ -2512,7 +2523,11 @@ function OverlayUpdateEntry({ t, wide }) {
       window.clearInterval(timer);
     };
   }, [load]);
+  (0, import_react6.useEffect)(() => {
+    if (open) load(true);
+  }, [open, load]);
   const pending = view !== void 0 && (view.officialUpdate || view.buildUpdate);
+  const updateUrl = view?.buildUpdate === true ? view.build?.url : view?.officialUpdate === true ? view.official?.url : void 0;
   return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(
       "button",
@@ -2523,7 +2538,6 @@ function OverlayUpdateEntry({ t, wide }) {
         title: pending ? view?.buildUpdate === true ? t("buildUpdate") : t("officialUpdate") : t("label"),
         onClick: () => {
           setOpen(true);
-          load(true);
         },
         children: [
           /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(BellIcon, {}),
@@ -2561,15 +2575,15 @@ function OverlayUpdateEntry({ t, wide }) {
         /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("pre", { className: "dshOverlayUpdateNotes", children: view.official.notes })
       ] }) : null,
       /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "dshOverlayUpdateActions", children: [
+        updateUrl !== void 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("a", { className: "dshOverlayUpdatePrimary", href: updateUrl, target: "_blank", rel: "noreferrer noopener", children: t("updateNow") }) : null,
         /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("button", { type: "button", onClick: () => {
           load(true);
-        }, disabled: checking, children: checking ? t("refreshing") : t("refresh") }),
-        view?.official?.url !== void 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("a", { href: view.official.url, target: "_blank", rel: "noreferrer noopener", children: t("openOfficial") }) : null,
-        view?.build?.url !== void 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("a", { href: view.build.url, target: "_blank", rel: "noreferrer noopener", children: t("openBuild") }) : null,
+        }, disabled: checking, children: checking ? t("refreshing") : t("recheck") }),
         /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("button", { type: "button", onClick: () => {
           setOpen(false);
         }, children: t("close") })
-      ] })
+      ] }),
+      pending ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: "dshOverlayUpdateHint", children: t("manualUpdate") }) : null
     ] }) : null
   ] });
 }

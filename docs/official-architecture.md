@@ -57,11 +57,12 @@ build-portable-windows-x64.ps1 / build-portable-macos-arm64.sh
 
 overlay 的 Host 面提供只读的更新检查（`/api/desktop/updates/state`），Client 面在侧栏渲染「更新」入口：有可用版本时显示红点，点开显示当前版本、官方最新、本仓库最新与对应的 release notes。
 
-- 官方最新：GitHub 上 `deepseek-ai/deepseek-harness` 的非 draft release，tag 形如 `dsh-v*`。
+- 官方最新：GitHub 上 `deepseek-ai/deepseek-harness` 的非 draft release，tag 形如 `dsh-v*`，按 `published_at` 取最近发布的一条；不同发布通道可能分叉，不能只按 semver 取最大值。
 - 本仓库最新：本仓库的非 draft release，tag 形如 `official-v<buildVersion>`。
-- 比较规则：官方版本按 semver 优先级；本仓库版本先比官方基线，再比两位迭代号。
-- 检查在启动 5 秒后触发一次，结果缓存 30 分钟；网络失败只显示「暂时无法检查」，不影响应用。`overlay-custom.yaml` 的 `updates.autoCheck: false` 可关闭启动检查。
-- 只提示，不下载、不安装：官方安装包有签名与 publisher 校验，本仓库的未签名便携包不能套用官方更新器，安装会替换掉 overlay 构建。
+- 比较规则：官方版本按发布时间选最新，再按 semver 判断是否高于当前基线；本仓库版本先比官方基线，再比两位迭代号。
+- 更新内容优先提取 release body 的中文段落并转为纯文本；本仓库发版说明使用中文。
+- 检查在启动 5 秒后、以及每次打开更新面板时触发；结果缓存 30 分钟。网络失败只显示「暂时无法检查」，不影响应用。`overlay-custom.yaml` 的 `updates.autoCheck: false` 可关闭启动检查。
+- 只提示，不自动下载、不自动安装：有更新时「立即更新」打开对应 Release 下载页；官方安装包有签名与 publisher 校验，本仓库的未签名便携包不能套用官方更新器，安装会替换掉 overlay 构建。
 
 ## 功能归属
 

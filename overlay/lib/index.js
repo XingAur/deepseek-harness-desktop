@@ -17,7 +17,7 @@ var __export = (target, all) => {
 var define_DSH_OVERLAY_META_default;
 var init_define_DSH_OVERLAY_META = __esm({
   "<define:__DSH_OVERLAY_META__>"() {
-    define_DSH_OVERLAY_META_default = { officialVersion: "0.2.1-rc.5", buildVersion: "0.2.1-rc.5_dev" };
+    define_DSH_OVERLAY_META_default = { officialVersion: "0.2.1-rc.5", buildVersion: "0.2.1-rc.5_02" };
   }
 });
 
@@ -4813,10 +4813,28 @@ var BUILD_REPO = "https://api.github.com/repos/XingAur/deepseek-harness-desktop"
 var CACHE_MS = 30 * 60 * 1e3;
 var FETCH_TIMEOUT_MS = 1e4;
 var NOTES_LIMIT = 1600;
-function trimNotes(body) {
+function decodeEntities(text) {
+  return text.replace(/&nbsp;/gu, " ").replace(/&amp;/gu, "&").replace(/&lt;/gu, "<").replace(/&gt;/gu, ">").replace(/&quot;/gu, '"').replace(/&#39;/gu, "'").replace(/&#(\d+);/gu, (_match, code) => {
+    const point = Number(code);
+    return Number.isSafeInteger(point) && point >= 0 && point <= 1114111 ? String.fromCodePoint(point) : "";
+  });
+}
+function htmlToText(html) {
+  return decodeEntities(html.replace(/<h[1-6][^>]*>/giu, "\n\n## ").replace(/<\/h[1-6]>/giu, "\n").replace(/<li[^>]*>/giu, "\n- ").replace(/<\/li>/giu, "").replace(/<br\s*\/?>/giu, "\n").replace(/<\/p>/giu, "\n").replace(/<[^>]+>/gu, "")).replace(/[ \t]+\n/gu, "\n").replace(/\n{3,}/gu, "\n\n").trim();
+}
+function chineseSection(body) {
+  const start = body.search(/<h3 id="cn-[^"]*">/iu);
+  if (start < 0) return null;
+  const rest = body.slice(start);
+  const end = rest.search(/<h3 id="en-[^"]*">/iu);
+  return htmlToText(end < 0 ? rest : rest.slice(0, end));
+}
+function localizeNotes(body) {
   if (typeof body !== "string") return "";
   const withoutChangelog = body.split(/Full Changelog:/u)[0] ?? body;
-  const text = withoutChangelog.replace(/\r\n/gu, "\n").replace(/\n{3,}/gu, "\n\n").trim();
+  const withoutLanguageLinks = withoutChangelog.replace(/^\[中文\]\([^)]*\)\s*\|\s*\[English\]\([^)]*\)\s*$/gmu, "");
+  const chinese = chineseSection(withoutLanguageLinks);
+  const text = (chinese !== null && chinese !== "" ? chinese : htmlToText(withoutLanguageLinks)).replace(/\r\n/gu, "\n").replace(/\n{3,}/gu, "\n\n").trim();
   return text.length > NOTES_LIMIT ? `${text.slice(0, NOTES_LIMIT)}\u2026` : text;
 }
 async function fetchJson(url) {
@@ -4838,23 +4856,31 @@ function candidateOf(release, prefix) {
     version: release.tag_name.slice(prefix.length),
     url: release.html_url,
     name: typeof release.name === "string" && release.name !== "" ? release.name : release.tag_name,
-    notes: trimNotes(release.body),
+    notes: localizeNotes(release.body),
     publishedAt: typeof release.published_at === "string" ? release.published_at : null
   };
 }
 function isDraft(release) {
   return release.draft === true;
 }
-async function latestOfficial() {
-  const releases = parseReleases(await fetchJson(`${OFFICIAL_REPO}/releases?per_page=30`));
+function selectLatestOfficial(releases) {
   let best = null;
+  let bestAt = Number.NEGATIVE_INFINITY;
   for (const release of releases) {
     if (isDraft(release)) continue;
     const candidate = candidateOf(release, "dsh-v");
     if (candidate === null) continue;
-    if (best === null || compareOfficialVersions(candidate.version, best.version) > 0) best = candidate;
+    const parsed = candidate.publishedAt === null ? Number.NaN : Date.parse(candidate.publishedAt);
+    const at = Number.isFinite(parsed) ? parsed : 0;
+    if (best === null || at > bestAt || at === bestAt && compareOfficialVersions(candidate.version, best.version) > 0) {
+      best = candidate;
+      bestAt = at;
+    }
   }
   return best;
+}
+async function latestOfficial() {
+  return selectLatestOfficial(parseReleases(await fetchJson(`${OFFICIAL_REPO}/releases?per_page=30`)));
 }
 async function latestBuild() {
   const releases = parseReleases(await fetchJson(`${BUILD_REPO}/releases?per_page=30`));

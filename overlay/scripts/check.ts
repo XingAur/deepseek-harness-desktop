@@ -15,6 +15,7 @@ import { readOverlayConfigSync, writeOverlayConfig } from '../src/overlay-config
 import { canonicalRelayOrigin, persistRelayOrigin } from '../src/relay-origin.ts'
 import { RELAY_REQUEST_HEADER, sanitizedTunnelHeaders } from '../src/relay-tunnel.ts'
 import { compareBuildVersions, compareOfficialVersions, currentBuildMeta, parseBuildVersion } from '../src/build-meta.ts'
+import { localizeNotes, selectLatestOfficial } from '../src/updates.ts'
 
 const overlayRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -370,6 +371,31 @@ test('official and build versions order as the update panel expects', () => {
   assert.equal(compareBuildVersions('0.2.2-alpha.2_01', '0.2.1-rc.5_09'), 1)
   assert.deepEqual(parseBuildVersion('0.2.1-rc.5_03'), { officialVersion: '0.2.1-rc.5', iteration: 3 })
   assert.equal(parseBuildVersion('0.2.1-rc.5'), null)
+})
+
+test('official latest follows publication time across divergent release channels', () => {
+  const releases = [
+    { tag_name: 'dsh-v0.2.2-alpha.2', html_url: 'https://example.test/alpha', published_at: '2026-10-28T02:50:54Z', draft: false },
+    { tag_name: 'dsh-v0.2.1-rc.5', html_url: 'https://example.test/rc5', published_at: '2026-10-30T02:12:26Z', draft: false },
+  ]
+  assert.equal(selectLatestOfficial(releases)?.version, '0.2.1-rc.5')
+})
+
+test('release notes keep the Chinese section and drop bilingual HTML chrome', () => {
+  const body = [
+    '[中文](#cn-v0.2.1-rc.5-community) | [English](#en-v0.2.1-rc.5-community)',
+    '<h3 id="cn-v0.2.1-rc.5-community">体验优化</h3>',
+    '<ul><li>优化对话中思考内容的展示效果。 @LegGasai</li></ul>',
+    '<h3 id="en-v0.2.1-rc.5-community">Improvements</h3>',
+    '<ul><li>Improve how thinking content is displayed.</li></ul>',
+    '',
+    'Full Changelog: [link](https://example.test)',
+  ].join('\n')
+  const notes = localizeNotes(body)
+  assert.match(notes, /体验优化/u)
+  assert.match(notes, /优化对话中思考内容的展示效果/u)
+  assert.doesNotMatch(notes, /Improvements|Improve how|<h3|<li/u)
+  assert.equal(localizeNotes('## 更新内容\n- 修复问题'), '## 更新内容\n- 修复问题')
 })
 
 test('overlay exposes its build identity and update routes', () => {
